@@ -28,9 +28,11 @@ export const menu: MenuEntry[] = [
         label:     'Configuration',
         icon:      'fa-sliders',
         children:  [
-            { path: '/configuration/dns',   label: 'DNS client', icon: 'fa-magnifying-glass-location' },
-            { path: '/configuration/nts',   label: 'NTS client', icon: 'fa-clock'                     },
-            { path: '/configuration/evses', label: 'EVSEs',      icon: 'fa-plug'                      }
+            { path: '/configuration/dns',         label: 'DNS client',      icon: 'fa-magnifying-glass-location' },
+            { path: '/configuration/nts',         label: 'NTS client',      icon: 'fa-clock'                     },
+            { path: '/configuration/power',       label: 'Grid connection', icon: 'fa-bolt'                      },
+            { path: '/configuration/evses',       label: 'EVSEs',           icon: 'fa-plug'                      },
+            { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-certificate'               }
         ]
     },
     { path: '/logs', label: 'Logs', icon: 'fa-list-ul' }

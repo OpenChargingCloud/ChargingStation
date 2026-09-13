@@ -47,10 +47,14 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// </remarks>
     /// <param name="DNS">How this station resolves names.</param>
     /// <param name="NTS">Where this station reads the time.</param>
+    /// <param name="Power">What this station may draw from the grid.</param>
     /// <param name="EVSEs">What this station is made of.</param>
-    public sealed record StationConfiguration(DNSConfiguration?           DNS     = null,
-                                              NTSConfiguration?           NTS     = null,
-                                              IReadOnlyList<EVSEConfig>?  EVSEs   = null)
+    /// <param name="Calibration">The calibration certificates it runs under.</param>
+    public sealed record StationConfiguration(DNSConfiguration?                        DNS           = null,
+                                              NTSConfiguration?                        NTS           = null,
+                                              PowerConfiguration?                      Power         = null,
+                                              IReadOnlyList<EVSEConfig>?               EVSEs         = null,
+                                              IReadOnlyList<CalibrationCertificate>?   Calibration   = null)
     {
 
         #region Data
@@ -58,7 +62,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// <summary>
         /// The name of the section holding the EVSEs.
         /// </summary>
-        public const String  EVSEsSectionName  = "evses";
+        public const String  EVSEsSectionName        = "evses";
+
+        /// <summary>
+        /// The name of the section holding the calibration certificates.
+        /// </summary>
+        public const String  CalibrationSectionName  = "calibration";
 
         #endregion
 
@@ -68,7 +77,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this document says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => DNS is null && NTS is null && EVSEs is null;
+            => DNS is null && NTS is null && Power is null && EVSEs is null && Calibration is null;
 
         #endregion
 
@@ -137,6 +146,26 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
+            #region Power
+
+            PowerConfiguration? power = null;
+
+            if (JSON[PowerConfiguration.SectionName] is JToken powerToken && powerToken.Type != JTokenType.Null)
+            {
+
+                if (powerToken is not JObject powerJSON)
+                {
+                    Error = $"'{PowerConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!PowerConfiguration.TryParse(powerJSON, out power, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
             #region EVSEs
 
             IReadOnlyList<EVSEConfig>? evses = null;
@@ -157,7 +186,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(dns, nts, evses);
+            #region Calibration
+
+            IReadOnlyList<CalibrationCertificate>? calibration = null;
+
+            if (JSON[CalibrationSectionName] is JToken calibrationToken && calibrationToken.Type != JTokenType.Null)
+            {
+
+                if (calibrationToken is not JArray calibrationJSON)
+                {
+                    Error = $"'{CalibrationSectionName}' must be an array of calibration certificates.";
+                    return false;
+                }
+
+                if (!CalibrationCertificate.TryParseList(calibrationJSON, out calibration, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(dns, nts, power, evses, calibration);
             return true;
 
         }
@@ -178,11 +227,17 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 json.Add(DNSConfiguration.SectionName,  DNS.ToJSON());
 
             if (NTS is not null)
-                json.Add(NTSConfiguration.SectionName,  NTS.ToJSON());
+                json.Add(NTSConfiguration.SectionName,    NTS.ToJSON());
+
+            if (Power is not null)
+                json.Add(PowerConfiguration.SectionName,  Power.ToJSON());
 
             if (EVSEs is not null)
-                json.Add(EVSEsSectionName,              new JArray(EVSEs.OrderBy(evse => evse.Id).
-                                                                         Select (evse => evse.ToJSON())));
+                json.Add(EVSEsSectionName,                new JArray(EVSEs.OrderBy(evse => evse.Id).
+                                                                           Select (evse => evse.ToJSON())));
+
+            if (Calibration is not null)
+                json.Add(CalibrationSectionName,          new JArray(Calibration.Select(certificate => certificate.ToJSON())));
 
             return json;
 
@@ -198,9 +253,11 @@ namespace cloud.charging.open.ChargingStation.Configuration
                    ? "nothing configured"
                    : String.Join(", ",
                          new[] {
-                             DNS   is not null ? "DNS"                      : null,
-                             NTS   is not null ? "NTS"                      : null,
-                             EVSEs is not null ? $"{EVSEs.Count} EVSE(s)"   : null
+                             DNS         is not null ? "DNS"                                    : null,
+                             NTS         is not null ? "NTS"                                    : null,
+                             Power       is not null ? Power.ToString()                         : null,
+                             EVSEs       is not null ? $"{EVSEs.Count} EVSE(s)"                 : null,
+                             Calibration is not null ? $"{Calibration.Count} certificate(s)"    : null
                          }.Where(section => section is not null));
 
         #endregion

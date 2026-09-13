@@ -52,7 +52,11 @@ namespace cloud.charging.open.ChargingStation
     ///
     /// Nothing here decides who may call it. That is the API's business, and it
     /// asks before it calls: see the permissions in
-    /// <see cref="Web.UserRole"/>.
+    /// <see cref="Web.UserRole"/>. The EVSEs are the one place where it cannot
+    /// ask beforehand - the same request is a correction or a claim about the
+    /// hardware depending on what this station currently has - so there the API
+    /// hands in what it may do and is asked back, still without this file
+    /// knowing what a permission is.
     /// </remarks>
     public partial class ChargingStation
     {
@@ -461,6 +465,330 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
+        #region Power
+
+        #region PowerConfigurationJSON()
+
+        /// <summary>
+        /// What this charging station may draw from the grid, and what it
+        /// could deliver if nothing held it back.
+        /// </summary>
+        /// <remarks>
+        /// The sum of the EVSEs is sent along because the uplink limit means
+        /// nothing without it: it is entirely normal for a station to be able
+        /// to deliver more than its connection allows - that is what load
+        /// management is for - and the page should be able to say so rather
+        /// than look like it found a mistake.
+        /// </remarks>
+        public JObject PowerConfigurationJSON()
+
+            => new (
+
+                   new JProperty("uplinkPowerLimit_kW",  UplinkPowerLimit_kW),
+
+                   new JProperty("evses",                new JArray(EVSEs.Select(evse => new JObject(
+                                                             new JProperty("id",           evse.Id),
+                                                             new JProperty("maxPower_kW",  evse.MaxPower_kW)
+                                                         )))),
+
+                   new JProperty("evsesTotal_kW",        EVSEs.Sum(evse => evse.MaxPower_kW)),
+
+                   new JProperty("limits",               new JObject(
+                                                             new JProperty("maxUplinkPowerLimit_kW",  PowerConfiguration.MaxUplinkPowerLimit_kW),
+                                                             new JProperty("maxEVSEPowerLimit_kW",    EVSEConfig.MaxPowerLimit_kW)
+                                                         )),
+
+                   new JProperty("file",                 ConfigFile.Path)
+
+               );
+
+        #endregion
+
+        #region TryUpdatePowerConfiguration(JSON, out Error)
+
+        /// <summary>
+        /// Change what this station may draw from the grid.
+        /// </summary>
+        /// <remarks>
+        /// A field that is absent leaves the limit alone; a field that is
+        /// explicitly null takes it away. Taking it away writes a section with
+        /// nothing in it, which is a file with no opinion - so a limit handed
+        /// to the constructor would speak again at the next start. That is the
+        /// same precedence this whole file follows, and it is why clearing a
+        /// limit says so in the log.
+        /// </remarks>
+        public Boolean TryUpdatePowerConfiguration(JObject                           JSON,
+                                                   [NotNullWhen(false)] out String?  Error)
+        {
+
+            Error = null;
+
+            if (!JSON.ContainsKey("uplinkPowerLimit_kW"))
+                return true;
+
+            if (!PowerConfiguration.TryParsePowerLimit(JSON,
+                                                       "uplinkPowerLimit_kW",
+                                                       null,
+                                                       out var uplink,
+                                                       out Error))
+            {
+                return false;
+            }
+
+            reconfigureLock.Wait();
+
+            try
+            {
+
+                if (uplink == UplinkPowerLimit_kW)
+                    return true;
+
+                var configuration = new PowerConfiguration(uplink);
+
+                if (!ConfigFile.TryReplaceSection(
+                         PowerConfiguration.SectionName,
+                         configuration.ToJSON(),
+                         out Error))
+                {
+                    return false;
+                }
+
+                var previous = UplinkPowerLimit_kW;
+
+                UplinkPowerLimit_kW = uplink;
+
+                Log.Notice(
+                    uplink.HasValue
+                        ? $"The grid connection limit is now {uplink.Value} kW" +
+                          (previous.HasValue ? $", and was {previous.Value} kW." : ", and was not configured before.")
+                        : $"The grid connection limit of {previous!.Value} kW was taken away; this station no longer knows what it may draw.",
+                    "power", "config"
+                );
+
+                LogPowerLimits();
+
+                return true;
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) LogPowerLimits()
+
+        /// <summary>
+        /// Say what this station may draw and what it could deliver, and how
+        /// the two compare.
+        /// </summary>
+        /// <remarks>
+        /// Not a warning either way. A station that could deliver more than its
+        /// connection allows is the ordinary case and needs load management; a
+        /// station whose connection is larger than everything behind it has
+        /// room for another EVSE. Both are worth one line and neither is worth
+        /// an alarm.
+        /// </remarks>
+        private void LogPowerLimits()
+        {
+
+            var evsesTotal = EVSEs.Sum(evse => evse.MaxPower_kW);
+
+            if (!UplinkPowerLimit_kW.HasValue)
+            {
+                Log.Info(
+                    $"No grid connection limit is configured; the {EVSEs.Count} EVSE(s) could draw {evsesTotal} kW together.",
+                    "power", "config"
+                );
+                return;
+            }
+
+            var uplink = UplinkPowerLimit_kW.Value;
+
+            Log.Info(
+                $"Grid connection: up to {uplink} kW. The {EVSEs.Count} EVSE(s) could draw {evsesTotal} kW together, " +
+                (evsesTotal > uplink
+                     ? $"which is {evsesTotal - uplink} kW more than the connection allows - charging them all at once needs load management."
+                     : $"which the connection covers."),
+                "power", "config"
+            );
+
+        }
+
+        #endregion
+
+        #endregion
+
+        #region Calibration
+
+        #region CalibrationConfigurationJSON()
+
+        /// <summary>
+        /// The calibration certificates this station runs under, with what was
+        /// read out of each of them.
+        /// </summary>
+        public JObject CalibrationConfigurationJSON()
+        {
+
+            var now = TimeProvider.GetUtcNow();
+
+            return new JObject(
+
+                       new JProperty("certificates",  new JArray(CalibrationCertificates.Select(certificate => certificate.ToJSON(now)))),
+
+                       new JProperty("limits",        new JObject(
+                                                          new JProperty("maxCertificates",       CalibrationCertificate.MaxCertificates),
+                                                          new JProperty("maxIdLength",           CalibrationCertificate.MaxIdLength),
+                                                          new JProperty("maxDescriptionLength",  CalibrationCertificate.MaxDescriptionLength),
+                                                          new JProperty("maxPEMLength",          CalibrationCertificate.MaxPEMLength),
+                                                          new JProperty("expiryWarningDays",     (Int32) CalibrationCertificate.ExpiryWarningTime.TotalDays)
+                                                      )),
+
+                       new JProperty("file",          ConfigFile.Path)
+
+                   );
+
+        }
+
+        #endregion
+
+        #region TryUpdateCalibrationConfiguration(JSON, out Error)
+
+        /// <summary>
+        /// Replace the calibration certificates of this station, all of them at
+        /// once.
+        /// </summary>
+        /// <remarks>
+        /// The whole list rather than one at a time, for the same reason as the
+        /// EVSEs: what this station is certified for is one statement, and a
+        /// certificate added and one removed in the same breath is one change
+        /// to it rather than two.
+        ///
+        /// A certificate that has already run out is written anyway and said so
+        /// about, rather than refused. The station that is not allowed to hold
+        /// its own expired certificate is the station that cannot show what it
+        /// was running under last month.
+        /// </remarks>
+        public Boolean TryUpdateCalibrationConfiguration(JObject                           JSON,
+                                                         [NotNullWhen(false)] out String?  Error)
+        {
+
+            Error = null;
+
+            if (JSON["certificates"] is not JArray array)
+            {
+                Error = "The request must hold a 'certificates' array.";
+                return false;
+            }
+
+            if (!CalibrationCertificate.TryParseList(array, out var certificates, out Error))
+                return false;
+
+            reconfigureLock.Wait();
+
+            try
+            {
+
+                if (certificates.Count           == CalibrationCertificates.Count &&
+                    certificates.Zip(CalibrationCertificates).All(pair => pair.First == pair.Second))
+                {
+                    return true;
+                }
+
+                if (!ConfigFile.TryReplaceSection(
+                         StationConfiguration.CalibrationSectionName,
+                         new JArray(certificates.Select(certificate => certificate.ToJSON())),
+                         out Error))
+                {
+                    return false;
+                }
+
+                var previous = CalibrationCertificates;
+
+                CalibrationCertificates = certificates;
+
+                foreach (var gone in previous.Where(old => !certificates.Any(now => now.ThumbprintSHA256 == old.ThumbprintSHA256)))
+                    Log.Notice($"Calibration certificate taken off this station: {gone}.", "calibration", "config");
+
+                foreach (var added in certificates.Where(now => !previous.Any(old => old.ThumbprintSHA256 == now.ThumbprintSHA256)))
+                    Log.Notice($"Calibration certificate put on this station: {added}.", "calibration", "config");
+
+                LogCalibrationCertificates(certificates);
+
+                return true;
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) LogCalibrationCertificates(Certificates)
+
+        /// <summary>
+        /// Say what this station is certified for, and say it louder when one
+        /// of the certificates is about to stop being true.
+        /// </summary>
+        /// <remarks>
+        /// A calibration certificate running out does not stop a station from
+        /// charging. It stops what it charged from being billable, which is
+        /// noticed a month later by somebody who was not there - so the station
+        /// says so while there is still time to do something about it.
+        /// </remarks>
+        private void LogCalibrationCertificates(IReadOnlyList<CalibrationCertificate> Certificates)
+        {
+
+            var now = TimeProvider.GetUtcNow();
+
+            if (Certificates.Count == 0)
+            {
+                Log.Info("No calibration certificates are configured.", "calibration", "config");
+                return;
+            }
+
+            Log.Info(
+                $"{Certificates.Count} calibration certificate(s): {String.Join("; ", Certificates)}.",
+                "calibration", "config"
+            );
+
+            foreach (var certificate in Certificates)
+            {
+
+                if (certificate.IsExpired(now))
+                    Log.Warning(
+                        $"The calibration certificate '{certificate.Id}' ran out on {certificate.NotAfter:yyyy-MM-dd}. " +
+                        $"This station keeps it - what it was running under is worth knowing - but it no longer covers anything.",
+                        "calibration", "config"
+                    );
+
+                else if (certificate.IsNotYetValid(now))
+                    Log.Warning(
+                        $"The calibration certificate '{certificate.Id}' is not valid before {certificate.NotBefore:yyyy-MM-dd}.",
+                        "calibration", "config"
+                    );
+
+                else if (certificate.RunsOutWithin(now, CalibrationCertificate.ExpiryWarningTime))
+                    Log.Warning(
+                        $"The calibration certificate '{certificate.Id}' runs out on {certificate.NotAfter:yyyy-MM-dd}, " +
+                        $"in {(Int32) Math.Floor((certificate.NotAfter - now).TotalDays)} day(s).",
+                        "calibration", "config"
+                    );
+
+            }
+
+        }
+
+        #endregion
+
+        #endregion
+
         #region EVSEs
 
         #region EVSEConfigurationJSON()
@@ -475,8 +803,10 @@ namespace cloud.charging.open.ChargingStation
                    new JProperty("evses",                   new JArray(EVSEs.Select(evse => evse.ToJSON()))),
 
                    new JProperty("maxEVSEs",                EVSEConfig.MaxEVSEs),
+                   new JProperty("maxConnectors",           ConnectorConfig.MaxConnectors),
                    new JProperty("maxPower_kW",             EVSEConfig.MaxPowerLimit_kW),
                    new JProperty("maxConnectorTypeLength",  EVSEConfig.MaxConnectorTypeLength),
+                   new JProperty("uplinkPowerLimit_kW",     UplinkPowerLimit_kW),
 
                    // The vocabulary OCPP 2.1 names itself, so that the page can
                    // offer it. Not a closed list: anything may be typed, and a
@@ -490,7 +820,23 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region TryUpdateEVSEConfiguration(JSON, out Error)
+        #region ClassifyEVSEChange(EVSEs)
+
+        /// <summary>
+        /// What kind of change the given list would be to the one this station
+        /// is running with.
+        /// </summary>
+        public EVSEChange ClassifyEVSEChange(IReadOnlyList<EVSEConfig> EVSEs)
+
+            => !EVSEConfig.SameHardware(EVSEs, this.EVSEs)
+                   ? EVSEChange.Hardware
+                   : EVSEConfig.Same(EVSEs, this.EVSEs)
+                         ? EVSEChange.None
+                         : EVSEChange.PowerLimits;
+
+        #endregion
+
+        #region TryUpdateEVSEConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden)
 
         /// <summary>
         /// Replace the EVSEs of this charging station, all of them at once.
@@ -500,17 +846,35 @@ namespace cloud.charging.open.ChargingStation
         /// valid together: OCPP numbers them from 1 upwards without gaps, so
         /// removing the third of four is not a change to one EVSE but to two.
         ///
+        /// Because the whole list is sent, what is being asked for can only be
+        /// seen by comparing it with what this station has - somebody who
+        /// changed one number sends the same document as somebody who invented
+        /// a socket. So the caller does not say what it wants to do; it hands
+        /// in what it may do, and is asked once the difference is known. The
+        /// question is asked under the same lock that then applies the change,
+        /// so nothing can slip in between being allowed and being done.
+        ///
         /// The OCPP nodes are rebuilt from the new list, because they are told
         /// what they are made of when they are built and there is no way to
         /// tell them otherwise afterwards. Nothing is connected to a CSMS yet,
         /// so this costs nothing today; the day it does, this is the one place
         /// that has to learn to say goodbye first.
         /// </remarks>
+        /// <param name="JSON">The new list.</param>
+        /// <param name="IsAllowed">Asked with the kind of change this turns out to be.</param>
+        /// <param name="Change">What kind of change it was.</param>
+        /// <param name="Error">What is wrong with it, or what stood in the way.</param>
+        /// <param name="Forbidden">Whether the answer to <paramref name="IsAllowed"/> was no.</param>
         public Boolean TryUpdateEVSEConfiguration(JObject                           JSON,
-                                                  [NotNullWhen(false)] out String?  Error)
+                                                  Func<EVSEChange, Boolean>         IsAllowed,
+                                                  out EVSEChange                    Change,
+                                                  [NotNullWhen(false)] out String?  Error,
+                                                  out Boolean                       Forbidden)
         {
 
-            Error = null;
+            Change     = EVSEChange.None;
+            Error      = null;
+            Forbidden  = false;
 
             if (JSON["evses"] is not JArray array)
             {
@@ -526,8 +890,23 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
-                if (SameEVSEs(evses, EVSEs))
+                Change = ClassifyEVSEChange(evses);
+
+                if (Change == EVSEChange.None)
                     return true;
+
+                if (!IsAllowed(Change))
+                {
+
+                    Forbidden  = true;
+
+                    Error      = Change == EVSEChange.Hardware
+                                     ? "This changes what this station is made of, and not only what it may deliver."
+                                     : "This changes what this station may deliver.";
+
+                    return false;
+
+                }
 
                 if (!ConfigFile.TryReplaceSection(
                          StationConfiguration.EVSEsSectionName,
@@ -566,11 +945,14 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 Log.Notice(
-                    $"EVSE configuration changed: {evses.Count} EVSE(s) - {String.Join("; ", evses)}.",
+                    Change == EVSEChange.PowerLimits
+                        ? $"EVSE power limits changed: {String.Join("; ", evses)}."
+                        : $"EVSE configuration changed: {evses.Count} EVSE(s) - {String.Join("; ", evses)}.",
                     "evse", "config"
                 );
 
                 LogCustomConnectorTypes(evses);
+                LogPowerLimits();
 
                 return true;
 
@@ -595,22 +977,28 @@ namespace cloud.charging.open.ChargingStation
         /// OCPP 2.1 has EVSEs. Written once and called from the constructor and
         /// from every later change, so that a station which was reconfigured
         /// and one which was started with the same list are the same station.
+        ///
+        /// A connector of OCPP 1.6 is a cable, so an EVSE with two of them
+        /// becomes two - each with the limit of the cable it stands for, which
+        /// is the only place in either protocol where the per-cable limits
+        /// currently arrive. OCPP 2.1 is told the shapes of the connectors but
+        /// has nowhere in its EVSE specification to put their limits.
         /// </remarks>
         private (OCPPv1_6.TestChargePointNode, OCPPv2_1.CS.TestChargingStationNode) BuildOCPPNodes(IReadOnlyList<EVSEConfig> EVSEs)
         {
 
             var chargePoint     = new OCPPv1_6.TestChargePointNode(
                                       ChargeBoxId:               NetworkingNode_Id.Parse("test01"),
-                                      Connectors:                [.. EVSEs.Select(evse =>
+                                      Connectors:                [.. EVSEs.SelectMany(evse => evse.Connectors.Select(connector =>
                                                                     new OCPPv1_6.CP.ConnectorSpec(
                                                                         Availability:        evse.Operative
                                                                                                  ? OCPPv1_6.Availabilities.Operative
                                                                                                  : OCPPv1_6.Availabilities.Inoperative,
-                                                                        PhysicalReference:   evse.PhysicalReference,
-                                                                        MaxPower:            Watt.FromKW(evse.MaxPower_kW),
+                                                                        PhysicalReference:   PhysicalReferenceOf(evse, connector),
+                                                                        MaxPower:            Watt.FromKW(connector.MaxPower_kW),
                                                                         MaxEnergy:           null,
                                                                         EnergyMeter:         null
-                                                                    ))],
+                                                                    )))],
                                       Description:               null,
                                       ChargePointVendor:         null,
                                       ChargePointModel:          null,
@@ -678,6 +1066,28 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private static) PhysicalReferenceOf(EVSE, Connector)
+
+        /// <summary>
+        /// What is written on the housing beside one cable.
+        /// </summary>
+        /// <remarks>
+        /// An EVSE with one cable is labelled "A" and its cable is the same
+        /// thing, so it keeps the label as it is. An EVSE with two of them has
+        /// two things to point at, and "A1" and "A2" is how they are written on
+        /// every housing that has them.
+        /// </remarks>
+        private static String? PhysicalReferenceOf(EVSEConfig       EVSE,
+                                                   ConnectorConfig  Connector)
+
+            => EVSE.PhysicalReference is null
+                   ? null
+                   : EVSE.Connectors.Count == 1
+                         ? EVSE.PhysicalReference
+                         : $"{EVSE.PhysicalReference}{Connector.Id}";
+
+        #endregion
+
         #region (private) LogCustomConnectorTypes(EVSEs)
 
         /// <summary>
@@ -704,38 +1114,6 @@ namespace cloud.charging.open.ChargingStation
                     $"Connector type(s) OCPP 2.1 does not name itself, and which this station will pass on as written: {String.Join(", ", custom)}.",
                     "evse", "ocpp", "config"
                 );
-
-        }
-
-        #endregion
-
-        #region (private static) SameEVSEs(A, B)
-
-        /// <summary>
-        /// Whether two lists of EVSEs describe the same station.
-        /// </summary>
-        private static Boolean SameEVSEs(IReadOnlyList<EVSEConfig> A,
-                                         IReadOnlyList<EVSEConfig> B)
-        {
-
-            if (A.Count != B.Count)
-                return false;
-
-            for (var i = 0; i < A.Count; i++)
-            {
-
-                // The record's own equality would compare the two connector
-                // lists by reference, which is never true for two lists read
-                // from different places.
-                if (A[i] with { ConnectorTypes = [] } != (B[i] with { ConnectorTypes = [] }) ||
-                    !A[i].ConnectorTypes.SequenceEqual(B[i].ConnectorTypes))
-                {
-                    return false;
-                }
-
-            }
-
-            return true;
 
         }
 

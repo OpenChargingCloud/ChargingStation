@@ -147,6 +147,25 @@ namespace cloud.charging.open.ChargingStation
         public IReadOnlyList<EVSEConfig>  EVSEs              { get; private set; }
 
         /// <summary>
+        /// The most this station may draw from the grid in total, or null when
+        /// nobody has said.
+        /// </summary>
+        /// <remarks>
+        /// A property of the building rather than of the station: it is what
+        /// the connection behind the meter allows, and it stays put while EVSEs
+        /// are added and taken away in front of it. Nothing here enforces it
+        /// yet - there is no load management in this station to enforce it
+        /// with - so it is a number this station knows and reports, and the day
+        /// smart charging arrives it is the number it starts from.
+        /// </remarks>
+        public Decimal?               UplinkPowerLimit_kW    { get; private set; }
+
+        /// <summary>
+        /// The calibration certificates this station runs under.
+        /// </summary>
+        public IReadOnlyList<CalibrationCertificate>  CalibrationCertificates  { get; private set; }
+
+        /// <summary>
         /// How this station resolves names.
         /// </summary>
         public DNSClient              DNSClient
@@ -258,6 +277,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="LoginFile">Where the web login lives; "web-login.json" beside the process by default.</param>
         /// <param name="ConfigFile">Where everything this station can be told in writing lives; "configuration.json" beside the process by default.</param>
         /// <param name="EVSEs">What this station is made of, unless the configuration file says otherwise; one 22 kW type 2 socket by default.</param>
+        /// <param name="UplinkPowerLimit_kW">The most this station may draw from the grid, unless the configuration file says otherwise; unknown by default.</param>
+        /// <param name="CalibrationCertificates">The calibration certificates it runs under, unless the configuration file says otherwise; none by default.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
@@ -274,6 +295,8 @@ namespace cloud.charging.open.ChargingStation
                                WebLoginFile?          LoginFile         = null,
                                StationConfigFile?     ConfigFile        = null,
                                IEnumerable<EVSEConfig>?  EVSEs          = null,
+                               Decimal?               UplinkPowerLimit_kW  = null,
+                               IEnumerable<CalibrationCertificate>?  CalibrationCertificates = null,
                                IStaticContentSource?  Frontend          = null,
                                V2GOptions?            V2G               = null,
                                EventLog?              Log               = null,
@@ -426,6 +449,21 @@ namespace cloud.charging.open.ChargingStation
             );
 
             LogCustomConnectorTypes(this.EVSEs);
+
+            #endregion
+
+            #region What this station may draw, and what it is certified for
+
+            this.UplinkPowerLimit_kW = configuration?.Power?.UplinkPowerLimit_kW
+                                           ?? UplinkPowerLimit_kW;
+
+            LogPowerLimits();
+
+            this.CalibrationCertificates = configuration?.Calibration
+                                               ?? CalibrationCertificates?.ToArray()
+                                               ?? [];
+
+            LogCalibrationCertificates(this.CalibrationCertificates);
 
             #endregion
 

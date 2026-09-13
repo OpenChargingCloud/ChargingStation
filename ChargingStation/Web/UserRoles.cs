@@ -70,8 +70,41 @@ namespace cloud.charging.open.ChargingStation.Web
         RunDiagnostics         = 4,
 
         /// <summary>
-        /// Change what this station is made of: how many EVSEs it has, what
-        /// can be plugged into them, how much they may deliver.
+        /// Change how much power may be drawn and delivered: the limit of the
+        /// grid connection this station hangs on, and the limit of each cable.
+        /// </summary>
+        /// <remarks>
+        /// Separate from the hardware below because it is a different kind of
+        /// statement about the same equipment. What cable is fitted is a fact
+        /// of the installation; what it may deliver is a setting, arrived at
+        /// from the fuse it is behind and the cross-section that was pulled -
+        /// and it is the one number that is routinely wrong on the day of
+        /// commissioning and right a week later, when the grid operator has
+        /// said what the connection may actually draw.
+        ///
+        /// Lowering a limit is always safe. Raising one is a statement that
+        /// the hardware behind it can take it, which is why this is not
+        /// something the operator of the station gets by default.
+        /// </remarks>
+        ChangePowerLimits      = 8,
+
+        /// <summary>
+        /// Put calibration certificates on this station, and take them off.
+        /// </summary>
+        /// <remarks>
+        /// Whoever commissions a station under a calibration law regime is the
+        /// one holding the certificates, and they arrive with the meters
+        /// rather than with the network. They are public documents - a
+        /// certificate is a signature over a public key, and there is nothing
+        /// secret in one - so this permission is not about keeping them from
+        /// being read. It is about who may say which ones this station is
+        /// running under.
+        /// </remarks>
+        ManageCalibration      = 16,
+
+        /// <summary>
+        /// Change what this station is made of: how many EVSEs it has and what
+        /// can be plugged into them.
         /// </summary>
         /// <remarks>
         /// This describes hardware somebody installed. Saying there is a CCS
@@ -79,8 +112,12 @@ namespace cloud.charging.open.ChargingStation.Web
         /// the wall - it changes what every vehicle and every back end is told
         /// about it, and nothing further down is in a position to notice that
         /// it is wrong.
+        ///
+        /// The most a socket may deliver is deliberately not here but above:
+        /// a number that gets corrected is a different thing from a socket
+        /// that gets invented.
         /// </remarks>
-        ChangeHardware         = 8
+        ChangeHardware         = 32
 
     }
 
@@ -121,22 +158,28 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.RunDiagnostics);
 
         /// <summary>
-        /// Whoever bolted this station to the wall: may say what it is made of
-        /// and test that it can reach anything, but may not repoint it at other
-        /// name or time servers.
+        /// Whoever commissions this charging station: everything the operator
+        /// may do, and on top of it the numbers and the papers that belong to
+        /// the installation - what the grid connection and each cable may
+        /// deliver, and which calibration certificates this station runs
+        /// under.
         /// </summary>
         /// <remarks>
-        /// The complement of the CPO above rather than a step above it. The
-        /// installer knows which socket is in the housing because they put it
-        /// there, and is gone by the time the network behind the station is
-        /// renumbered; the operator knows the network and was not there when
-        /// the cable went in. Neither one needs what the other has, and the
-        /// role that has both is the one below.
+        /// A step above the CPO and a step below the system administrator, and
+        /// the two steps are different in kind. The installer corrects numbers
+        /// about equipment that is already there: the grid operator says the
+        /// connection may draw 55 kW rather than the 80 kW on the order, the
+        /// cable that went in is a 32 A one. The system administrator says
+        /// what the equipment *is* - how many sockets there are and what
+        /// shape they have - and that is a claim nothing further down can
+        /// check, because a vehicle is told what plug it is looking at.
         /// </remarks>
         public static readonly UserRole  Installer    = new ("installer",
                                                              Permissions.ReadConfiguration     |
+                                                             Permissions.ChangeNetworkSettings |
                                                              Permissions.RunDiagnostics        |
-                                                             Permissions.ChangeHardware);
+                                                             Permissions.ChangePowerLimits     |
+                                                             Permissions.ManageCalibration);
 
         /// <summary>
         /// Everything this station can be told, by whoever is trusted with all
@@ -146,6 +189,8 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.ReadConfiguration     |
                                                              Permissions.ChangeNetworkSettings |
                                                              Permissions.RunDiagnostics        |
+                                                             Permissions.ChangePowerLimits     |
+                                                             Permissions.ManageCalibration     |
                                                              Permissions.ChangeHardware);
 
         /// <summary>

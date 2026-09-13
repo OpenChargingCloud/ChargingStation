@@ -44,6 +44,8 @@ export interface LogPage {
 export type Permission = 'readConfiguration'
                        | 'changeNetworkSettings'
                        | 'runDiagnostics'
+                       | 'changePowerLimits'
+                       | 'manageCalibration'
                        | 'changeHardware';
 
 /** Who is signed in to the web interface. */
@@ -211,12 +213,28 @@ export interface NTSConfiguration {
 }
 
 
+/**
+ * One cable or socket of an EVSE.
+ *
+ * Its shape and its limit are two different kinds of fact, and the web
+ * interface treats them as two: what plug is fitted takes the hardware
+ * permission, what it may deliver takes the power-limit one.
+ */
+export interface Connector {
+    /** Which one it is, counting from 1 within its EVSE. */
+    id:           number;
+    /** What can be plugged into it, in OCPP 2.1's vocabulary. */
+    type:         string;
+    /** The most this cable may deliver; never more than its EVSE. */
+    maxPower_kW:  number;
+}
+
 /** One place a vehicle can be plugged into this charging station. */
 export interface EVSE {
     /** Which one it is, counting from 1 as OCPP does. */
     id:                 number;
-    /** What can be plugged into it, in OCPP 2.1's vocabulary. */
-    connectorTypes:     string[];
+    connectors:         Connector[];
+    /** The most this EVSE can deliver, through whichever cable is in use. */
     maxPower_kW:        number;
     operative:          boolean;
     /** What is written on the housing, e.g. "A". */
@@ -230,14 +248,79 @@ export interface EVSEConfiguration {
     evses:                   EVSE[];
     file:                    string;
     maxEVSEs:                number;
+    maxConnectors:           number;
     maxPower_kW:             number;
     maxConnectorTypeLength:  number;
+    /** What the whole station may draw, for context; null when nobody has said. */
+    uplinkPowerLimit_kW:     number | null;
     /**
      * The connector types OCPP 2.1 names itself, for the picker. Not a closed
      * list: anything may be typed, because a plug this station has never heard
      * of is still a plug somebody can charge from.
      */
     connectorTypes:          string[];
+}
+
+
+/** What this station may draw from the grid, and what it could deliver. */
+export interface PowerConfiguration {
+    /** The most the whole station may draw; null when nobody has said. */
+    uplinkPowerLimit_kW:  number | null;
+    evses:                { id: number; maxPower_kW: number }[];
+    /** What the EVSEs could draw together, which may legitimately be more. */
+    evsesTotal_kW:        number;
+    limits:               { maxUplinkPowerLimit_kW: number; maxEVSEPowerLimit_kW: number };
+    file:                 string;
+}
+
+/** What a PUT to the power configuration carries; null takes the limit away. */
+export interface PowerUpdate {
+    uplinkPowerLimit_kW:  number | null;
+}
+
+
+/**
+ * One calibration certificate this station runs under.
+ *
+ * Everything below the PEM was read out of it rather than typed: an issuer
+ * somebody types can disagree with the certificate it was typed from, and then
+ * there is no telling which of the two the station means.
+ */
+export interface CalibrationCertificate {
+    /** What it is called here - the name it is changed and removed by. */
+    id:                 string;
+    description:        string | null;
+    pem:                string;
+    subject:            string;
+    issuer:             string;
+    serialNumber:       string;
+    notBefore:          string;
+    notAfter:           string;
+    thumbprintSHA256:   string;
+    expired:            boolean;
+    notYetValid:        boolean;
+    /** Negative once it has run out. */
+    daysLeft:           number;
+}
+
+/** The calibration certificates of this station. */
+export interface CalibrationConfiguration {
+    certificates:  CalibrationCertificate[];
+    limits: {
+        maxCertificates:       number;
+        maxIdLength:           number;
+        maxDescriptionLength:  number;
+        maxPEMLength:          number;
+        expiryWarningDays:     number;
+    };
+    file:          string;
+}
+
+/** What a certificate looks like on the way in: the rest is read out of the PEM. */
+export interface CalibrationCertificateUpdate {
+    id:            string;
+    description?:  string | null;
+    pem:           string;
 }
 
 
@@ -346,10 +429,29 @@ export const api = {
         sync:  ()                    => request<NTSConfiguration>('POST', '/configuration/nts/sync', {})
     },
 
+    power: {
+        get:   ()                      => request<PowerConfiguration>('GET', '/configuration/power'),
+        /** null takes the limit away rather than setting it to nothing. */
+        save:  (update: PowerUpdate)   => request<PowerConfiguration>('PUT', '/configuration/power', update)
+    },
+
     evses: {
         get:   ()               => request<EVSEConfiguration>('GET', '/configuration/evses'),
-        /** All of them at once: they are only valid together. */
+        /**
+         * All of them at once: they are only valid together.
+         *
+         * Which permission this needs depends on what actually changed, and the
+         * station works that out by comparing what it is sent with what it has
+         * - so a 403 here can arrive for a request that a moment ago would have
+         * gone through.
+         */
         save:  (evses: EVSE[])  => request<EVSEConfiguration>('PUT', '/configuration/evses', { evses })
+    },
+
+    calibration: {
+        get:   ()                                             => request<CalibrationConfiguration>('GET', '/configuration/calibration'),
+        /** All of them at once: what a station is certified for is one statement. */
+        save:  (certificates: CalibrationCertificateUpdate[]) => request<CalibrationConfiguration>('PUT', '/configuration/calibration', { certificates })
     },
 
     /**

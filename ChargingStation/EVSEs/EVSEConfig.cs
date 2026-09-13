@@ -36,23 +36,28 @@ namespace cloud.charging.open.ChargingStation.EVSEs
     /// <remarks>
     /// Deliberately this project's own record rather than an OCPP one: an EVSE
     /// is a thing the station has, and both protocol stacks are told about it
-    /// afterwards - OCPP 2.1 as an EVSE, OCPP 1.6 as a connector. Writing it in
+    /// afterwards - OCPP 2.1 as an EVSE, OCPP 1.6 as connectors. Writing it in
     /// either protocol's words would make the other one a translation.
+    ///
+    /// An EVSE serves one vehicle at a time through one of its connectors, so
+    /// its own limit is what the power stage behind them all can deliver and a
+    /// connector's is what that cable can carry. Neither implies the other, and
+    /// a cable may not be configured above the EVSE feeding it.
     /// </remarks>
     /// <param name="Id">Which one it is, counting from 1 as OCPP does.</param>
-    /// <param name="ConnectorTypes">What can be plugged into it, in OCPP 2.1's vocabulary.</param>
-    /// <param name="MaxPower_kW">The most it can deliver.</param>
+    /// <param name="Connectors">What can be plugged into it, and what each of those may deliver.</param>
+    /// <param name="MaxPower_kW">The most this EVSE can deliver, through whichever connector is in use.</param>
     /// <param name="Operative">Whether it is meant to be usable at all.</param>
     /// <param name="PhysicalReference">What is written on it, e.g. "A" - the label somebody reads off the housing.</param>
     /// <param name="MeterType">The energy meter built into it, if any.</param>
     /// <param name="MeterSerialNumber">That meter's serial number.</param>
-    public sealed record EVSEConfig(Byte                  Id,
-                                    IReadOnlyList<String> ConnectorTypes,
-                                    Decimal               MaxPower_kW,
-                                    Boolean               Operative           = true,
-                                    String?               PhysicalReference   = null,
-                                    String?               MeterType           = null,
-                                    String?               MeterSerialNumber   = null)
+    public sealed record EVSEConfig(Byte                            Id,
+                                    IReadOnlyList<ConnectorConfig>  Connectors,
+                                    Decimal                         MaxPower_kW,
+                                    Boolean                         Operative           = true,
+                                    String?                         PhysicalReference   = null,
+                                    String?                         MeterType           = null,
+                                    String?                         MeterSerialNumber   = null)
     {
 
         #region Data
@@ -112,10 +117,16 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         #region Properties
 
         /// <summary>
+        /// What can be plugged into this EVSE, in OCPP 2.1's vocabulary.
+        /// </summary>
+        public IEnumerable<String> ConnectorTypes
+            => Connectors.Select(connector => connector.Type);
+
+        /// <summary>
         /// The connector types as OCPP 2.1 carries them.
         /// </summary>
         public IEnumerable<OCPPv2_1.ConnectorType> OCPPConnectorTypes
-            => ConnectorTypes.Select(OCPPv2_1.ConnectorType.Parse);
+            => Connectors.Select(connector => connector.OCPPType);
 
         /// <summary>
         /// The connector types of this EVSE that OCPP 2.1 does not name itself.
@@ -128,7 +139,8 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         /// </remarks>
         public IEnumerable<String> CustomConnectorTypes
 
-            => ConnectorTypes.Where(connectorType => !KnownConnectorTypes.Contains(connectorType, StringComparer.Ordinal));
+            => Connectors.Where (connector => !connector.IsKnownType).
+                          Select(connector =>  connector.Type);
 
         #endregion
 
@@ -143,7 +155,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             => new (
                    Id,
-                   [ OCPPv2_1.ConnectorType.sType2.ToString() ],
+                   [ new ConnectorConfig(1, OCPPv2_1.ConnectorType.sType2.ToString(), 22) ],
                    22,
                    Operative:          true,
                    PhysicalReference:  ((Char) ('A' + Id - 1)).ToString()
@@ -154,8 +166,16 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         #region (static) TryParse(JSON, out EVSE, out Error)
 
         /// <summary>
-        /// One EVSE as the web interface sends it.
+        /// One EVSE as the web interface sends it, or as the file keeps it.
         /// </summary>
+        /// <remarks>
+        /// Two spellings of the connectors are accepted. The one this station
+        /// writes is <c>"connectors": [{ "type": "sType2", "maxPower_kW": 22 }]</c>;
+        /// the one it used to write, and the one a file is quickest to type by
+        /// hand, is <c>"connectorTypes": ["sType2"]</c>, where every cable is
+        /// whatever the EVSE is. A file written before this station could tell
+        /// the two apart therefore still means what it meant.
+        /// </remarks>
         public static Boolean TryParse(JToken                            JSON,
                                        [NotNullWhen(true)]  out EVSEConfig? EVSE,
                                        [NotNullWhen(false)] out String?     Error)
@@ -182,55 +202,10 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             #endregion
 
-            #region ConnectorTypes
-
-            var connectorTypes = new List<String>();
-
-            if (json["connectorTypes"] is JArray types)
-            {
-                foreach (var type in types)
-                {
-
-                    var text = type.Value<String>()?.Trim();
-
-                    if (String.IsNullOrEmpty(text))
-                        continue;
-
-                    if (text.Length > MaxConnectorTypeLength)
-                    {
-                        Error = $"EVSE {id}: a connector type may be at most {MaxConnectorTypeLength} characters long.";
-                        return false;
-                    }
-
-                    if (text.Any(Char.IsControl) || text.Any(Char.IsWhiteSpace))
-                    {
-                        Error = $"EVSE {id}: a connector type is one word without spaces or control characters.";
-                        return false;
-                    }
-
-                    // Anything is a connector type - see KnownConnectorTypes -
-                    // but one that OCPP 2.1 names itself is written the way
-                    // OCPP 2.1 writes it, so that "stype2" and "sType2" do not
-                    // reach a back end as two different sockets.
-                    text = KnownConnectorTypes.FirstOrDefault(candidate => String.Equals(candidate, text, StringComparison.OrdinalIgnoreCase))
-                               ?? text;
-
-                    if (!connectorTypes.Contains(text, StringComparer.Ordinal))
-                        connectorTypes.Add(text);
-
-                }
-            }
-
-            if (connectorTypes.Count == 0)
-            {
-                Error = $"EVSE {id} needs at least one connector type.";
-                return false;
-            }
-
-            #endregion
-
             #region MaxPower_kW
 
+            // Read before the connectors, because a connector that does not say
+            // what it may deliver is whatever its EVSE may deliver.
             var maxPower = json.Value<Decimal?>("maxPower_kW");
 
             if (maxPower is null || maxPower <= 0 || maxPower > MaxPowerLimit_kW)
@@ -241,9 +216,65 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             #endregion
 
+            #region Connectors
+
+            var source = json["connectors"] as JArray
+                             ?? json["connectorTypes"] as JArray;
+
+            if (source is null)
+            {
+                Error = $"EVSE {id} needs a 'connectors' array.";
+                return false;
+            }
+
+            var connectors = new List<ConnectorConfig>();
+
+            foreach (var token in source)
+            {
+
+                if (token.Type == JTokenType.Null)
+                    continue;
+
+                if (!ConnectorConfig.TryParse(token, id, maxPower.Value, out var connector, out Error))
+                    return false;
+
+                if (connectors.Any(other => String.Equals(other.Type, connector.Type, StringComparison.Ordinal)))
+                {
+                    Error = $"EVSE {id} has the connector type '{connector.Type}' twice; one EVSE has each shape of plug at most once.";
+                    return false;
+                }
+
+                if (connector.MaxPower_kW > maxPower.Value)
+                {
+                    Error = $"EVSE {id}, connector '{connector.Type}': a cable may not be configured for more " +
+                            $"({connector.MaxPower_kW} kW) than the EVSE feeding it ({maxPower.Value} kW).";
+                    return false;
+                }
+
+                // Numbered by where it stands in the list rather than by what
+                // the request said: the order is the truth, and an id somebody
+                // typed can only disagree with it.
+                connectors.Add(connector with { Id = (Byte) (connectors.Count + 1) });
+
+            }
+
+            if (connectors.Count == 0)
+            {
+                Error = $"EVSE {id} needs at least one connector.";
+                return false;
+            }
+
+            if (connectors.Count > ConnectorConfig.MaxConnectors)
+            {
+                Error = $"EVSE {id} may have at most {ConnectorConfig.MaxConnectors} connectors.";
+                return false;
+            }
+
+            #endregion
+
             EVSE = new EVSEConfig(
                        (Byte) id.Value,
-                       connectorTypes,
+                       connectors,
                        maxPower.Value,
                        json.Value<Boolean?>("operative") ?? true,
                        Trimmed(json, "physicalReference"),
@@ -318,6 +349,67 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         #endregion
 
+
+        #region SamePowerLimitsAs(Other) / SameHardwareAs(Other)
+
+        /// <summary>
+        /// Whether this EVSE and the other one may deliver the same, down to
+        /// every cable.
+        /// </summary>
+        public Boolean SamePowerLimitsAs(EVSEConfig Other)
+
+            => MaxPower_kW == Other.MaxPower_kW &&
+               Connectors.Count == Other.Connectors.Count &&
+               Connectors.Zip(Other.Connectors).All(pair => pair.First.MaxPower_kW == pair.Second.MaxPower_kW);
+
+        /// <summary>
+        /// Whether this EVSE and the other one describe the same equipment -
+        /// everything except what it may deliver.
+        /// </summary>
+        /// <remarks>
+        /// The whole point of the distinction: two lists that differ only in
+        /// their numbers are a correction, and two lists that differ in
+        /// anything else are a claim about what is bolted to the wall. The
+        /// second needs the hardware permission and the first does not. See
+        /// <see cref="Web.Permissions"/>.
+        /// </remarks>
+        public Boolean SameHardwareAs(EVSEConfig Other)
+
+            => Id                 == Other.Id                &&
+               Operative          == Other.Operative         &&
+               PhysicalReference  == Other.PhysicalReference &&
+               MeterType          == Other.MeterType         &&
+               MeterSerialNumber  == Other.MeterSerialNumber &&
+               Connectors.Count   == Other.Connectors.Count  &&
+               Connectors.Zip(Other.Connectors).All(pair => String.Equals(pair.First.Type, pair.Second.Type, StringComparison.Ordinal));
+
+        #endregion
+
+        #region (static) SameHardware(A, B) / Same(A, B)
+
+        /// <summary>
+        /// Whether two lists of EVSEs describe the same equipment, whatever
+        /// they say it may deliver.
+        /// </summary>
+        public static Boolean SameHardware(IReadOnlyList<EVSEConfig> A,
+                                           IReadOnlyList<EVSEConfig> B)
+
+            => A.Count == B.Count &&
+               A.Zip(B).All(pair => pair.First.SameHardwareAs(pair.Second));
+
+        /// <summary>
+        /// Whether two lists of EVSEs describe the same station in every respect.
+        /// </summary>
+        public static Boolean Same(IReadOnlyList<EVSEConfig> A,
+                                   IReadOnlyList<EVSEConfig> B)
+
+            => A.Count == B.Count &&
+               A.Zip(B).All(pair => pair.First.SameHardwareAs   (pair.Second) &&
+                                    pair.First.SamePowerLimitsAs(pair.Second));
+
+        #endregion
+
+
         #region ToJSON()
 
         /// <summary>
@@ -327,7 +419,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             => new (
                    new JProperty("id",                 Id),
-                   new JProperty("connectorTypes",     new JArray(ConnectorTypes)),
+                   new JProperty("connectors",         new JArray(Connectors.Select(connector => connector.ToJSON()))),
                    new JProperty("maxPower_kW",        MaxPower_kW),
                    new JProperty("operative",          Operative),
                    new JProperty("physicalReference",  PhysicalReference),
@@ -358,7 +450,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         public override String ToString()
 
-            => $"EVSE {Id}: {String.Join(", ", ConnectorTypes)}, {MaxPower_kW} kW" +
+            => $"EVSE {Id}: {String.Join(", ", Connectors)}, up to {MaxPower_kW} kW" +
                (Operative ? "" : ", inoperative");
 
         #endregion

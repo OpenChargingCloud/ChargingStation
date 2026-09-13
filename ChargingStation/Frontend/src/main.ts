@@ -12,7 +12,9 @@ import { Router } from './router';
 
 import { configurationPage } from './pages/configuration';
 import { dnsPage }           from './pages/dns';
+import { calibrationPage }   from './pages/calibration';
 import { evsesPage }         from './pages/evses';
+import { powerPage }         from './pages/power';
 import { ntsPage }           from './pages/nts';
 import { loginPage }         from './pages/login';
 import { logsPage }          from './pages/logs';
@@ -36,7 +38,9 @@ const router = new Router({
         { path: '/configuration',  page: configurationPage,  guard: auth.requireSignIn },
         { path: '/configuration/dns',   page: dnsPage,       guard: auth.requireSignIn },
         { path: '/configuration/nts',   page: ntsPage,       guard: auth.requireSignIn },
+        { path: '/configuration/power', page: powerPage,     guard: auth.requireSignIn },
         { path: '/configuration/evses', page: evsesPage,     guard: auth.requireSignIn },
+        { path: '/configuration/calibration', page: calibrationPage, guard: auth.requireSignIn },
         { path: '/logs',           page: logsPage,           guard: auth.requireSignIn },
         { path: '/login',          page: loginPage }
     ],

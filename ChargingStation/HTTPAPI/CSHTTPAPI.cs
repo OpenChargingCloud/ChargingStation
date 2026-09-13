@@ -26,6 +26,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -190,8 +191,14 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/nts",        PutNTSConfiguration,   HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/configuration/nts/sync",   PostNTSSync,           HTTPMethod.POST);
 
-            AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,  HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,  HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/power",      GetPowerConfiguration,        HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/power",      PutPowerConfiguration,        HTTPMethod.PUT);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/calibration", GetCalibrationConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/calibration", PutCalibrationConfiguration, HTTPMethod.PUT);
 
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
@@ -519,22 +526,150 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// PUT /api/v1/configuration/evses with {"evses": [...]}: replace them all.
         /// </summary>
+        /// <remarks>
+        /// Two permissions guard this one route, because the request cannot say
+        /// which of the two things it is doing: the whole list is sent either
+        /// way, and somebody correcting what a cable may deliver sends the same
+        /// document as somebody inventing a socket. So the lower bar gets in,
+        /// and the station is asked what the difference actually amounts to -
+        /// under the lock that then applies it, so that nothing changes between
+        /// the question and the answer.
+        /// </remarks>
         private Task<HTTPResponse> PutEVSEConfiguration(HTTPRequest Request)
         {
 
-            // The hardware permission, not the network one: what is bolted to
-            // the wall is not something an operator redescribes from a browser.
-            if (!TryAuthorize(Request, Permissions.ChangeHardware, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permissions.ChangePowerLimits, true, out var session, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.TryUpdateEVSEConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            var permissions = Sessions.PermissionsOf(session);
+
+            if (!Station.TryUpdateEVSEConfiguration(json,
+                                                    change => permissions.HasFlag(PermissionFor(change)),
+                                                    out var change,
+                                                    out var error,
+                                                    out var forbidden))
+            {
+                return Task.FromResult(
+                           forbidden
+                               ? RefusePermission(Request, session, PermissionFor(change), error)
+                               : ErrorJSON(Request, HTTPStatusCode.BadRequest, error)
+                       );
+            }
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private static) PermissionFor(Change)
+
+        /// <summary>
+        /// What a change to the EVSEs of this station needs permission for.
+        /// </summary>
+        /// <remarks>
+        /// The one place where the difference between correcting a number and
+        /// redescribing the hardware becomes a difference in who may do it.
+        /// </remarks>
+        private static Permissions PermissionFor(EVSEChange Change)
+
+            => Change switch {
+                   EVSEChange.Hardware     => Permissions.ChangeHardware,
+                   EVSEChange.PowerLimits  => Permissions.ChangePowerLimits,
+                   _                       => Permissions.None
+               };
+
+        #endregion
+
+        #region (private) GetPowerConfiguration(Request) / PutPowerConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/power: what this station may draw from the
+        /// grid, and what its EVSEs could deliver together.
+        /// </summary>
+        private Task<HTTPResponse> GetPowerConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.PowerConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/power with {"uplinkPowerLimit_kW": 55}, or
+        /// null to take the limit away.
+        /// </summary>
+        private Task<HTTPResponse> PutPowerConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangePowerLimits, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdatePowerConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.PowerConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetCalibrationConfiguration(Request) / PutCalibrationConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/calibration: the calibration certificates
+        /// this station runs under.
+        /// </summary>
+        /// <remarks>
+        /// Reading them needs no more than reading anything else here. A
+        /// certificate is a signature over a public key and holds nothing that
+        /// has to be kept; putting one on this station is what takes a
+        /// permission of its own.
+        /// </remarks>
+        private Task<HTTPResponse> GetCalibrationConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CalibrationConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/calibration with {"certificates": [...]}:
+        /// replace them all.
+        /// </summary>
+        private Task<HTTPResponse> PutCalibrationConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageCalibration, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateCalibrationConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CalibrationConfigurationJSON())
                    );
 
         }
@@ -786,29 +921,54 @@ namespace cloud.charging.open.ChargingStation
 
             if (!permissions.HasFlag(Required))
             {
-
-                var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
-                                           Select(role => role.Name);
-
-                Log.Warning(
-                    $"'{Session.UserId}' was refused {Required} on {Request.HTTPMethod} {Request.Path}; " +
-                    $"signed in as {String.Join(", ", Sessions.Roles.Select(role => role.Name))}.",
-                    "web", "auth"
-                );
-
-                Refused = ErrorJSON(
-                              Request,
-                              HTTPStatusCode.Forbidden,
-                              $"This needs the {String.Join(" or ", allowed)} role."
-                          );
-
-                Session = null;
+                Refused  = RefusePermission(Request, Session, Required, null);
+                Session  = null;
                 return false;
-
             }
 
             Refused = null;
             return true;
+
+        }
+
+        #endregion
+
+        #region (private) RefusePermission(Request, Session, Required, Because)
+
+        /// <summary>
+        /// The 403 for somebody signed in who may not do this, naming the roles
+        /// that carry the permission they are short of.
+        /// </summary>
+        /// <remarks>
+        /// Its own method because it is needed twice: once before a request is
+        /// read, and once after - a change to the EVSEs cannot be judged until
+        /// it has been compared with what the station has, so that refusal
+        /// happens with the body already parsed. Both say the same sentence,
+        /// and both leave the same line in the log.
+        /// </remarks>
+        /// <param name="Because">What it was about this particular request, when the route alone does not say.</param>
+        private HTTPResponse RefusePermission(HTTPRequest  Request,
+                                              Session      Session,
+                                              Permissions  Required,
+                                              String?      Because)
+        {
+
+            var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
+                                       Select(role => role.Name);
+
+            Log.Warning(
+                $"'{Session.UserId}' was refused {Required} on {Request.HTTPMethod} {Request.Path}; " +
+                $"signed in as {String.Join(", ", Sessions.Roles.Select(role => role.Name))}." +
+                (Because is null ? "" : $" {Because}"),
+                "web", "auth"
+            );
+
+            return ErrorJSON(
+                       Request,
+                       HTTPStatusCode.Forbidden,
+                       (Because is null ? "" : Because + " ") +
+                       $"This needs the {String.Join(" or ", allowed)} role."
+                   );
 
         }
 

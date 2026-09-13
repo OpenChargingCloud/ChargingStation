@@ -151,6 +151,16 @@ input, textarea, select {
         border-color:  $color-accent;
     }
 
+    // A field somebody may not change should not look like one they may. This
+    // page shows both at once - an installer may correct what a cable delivers
+    // and may not say what cable it is - so the difference has to be visible
+    // rather than discovered by clicking.
+    &:disabled {
+        background:  $color-bg;
+        color:       $color-muted;
+        cursor:      not-allowed;
+    }
+
 }
 
 .form-stack {
@@ -501,7 +511,7 @@ input, textarea, select {
     align-items:            baseline;
     font-size:              0.9rem;
 
-    .k {
+    .k, dt {
         color: $color-muted;
     }
 
@@ -509,6 +519,14 @@ input, textarea, select {
         word-break:  break-word;
         font-family: $font-mono;
         font-size:   0.85rem;
+    }
+
+    dt, dd {
+        margin: 0;
+    }
+
+    dd {
+        word-break: break-word;
     }
 
 }
@@ -552,7 +570,7 @@ input, textarea, select {
         margin-left: auto;
     }
 
-    .connector-types {
+    .connectors {
 
         display:         flex;
         flex-direction:  column;
@@ -563,24 +581,67 @@ input, textarea, select {
             font-size:  0.85rem;
         }
 
-        .chips {
-            display:    flex;
-            flex-wrap:  wrap;
-            gap:        0.3rem;
+        .connector-list {
+            display:         flex;
+            flex-direction:  column;
+            gap:             0.3rem;
+        }
+
+        // One cable per line: which one it is, what shape it has, what it may
+        // deliver. The two inputs are deliberately different widths - a type is
+        // a word and a limit is a number, and they are edited by different
+        // people.
+        .connector-row {
+
+            display:      flex;
+            align-items:  center;
+            gap:          0.35rem;
+
+            input {
+                padding:        0.25rem 0.5rem;
+                border:         1px solid $color-border;
+                border-radius:  6px;
+                background:     $color-surface;
+                color:          $color-text;
+                font:           inherit;
+                font-size:      0.8rem;
+                min-width:      0;
+            }
+
+            .connector-id {
+                width:       1.1rem;
+                flex:        0 0 auto;
+                color:       $color-muted;
+                font-size:   0.75rem;
+                text-align:  right;
+            }
+
+            .connector-type {
+                flex: 1 1 auto;
+            }
+
+            .connector-power {
+                flex:        0 0 5.5rem;
+                text-align:  right;
+            }
+
+            .unit {
+                flex:       0 0 auto;
+                color:      $color-muted;
+                font-size:  0.75rem;
+            }
+
+            .btn {
+                flex: 0 0 auto;
+            }
+
         }
 
         // A type OCPP 2.1 does not name itself: allowed, and marked - because
         // a new plug and a typo look alike from here.
         .chip.custom {
-
             border-style: dashed;
-
-            // Selected, the chip is filled with the accent colour, and a dash
-            // in that same colour is a dash nobody can see.
-            &.on {
-                border-color: rgba(255, 255, 255, 0.8);
-            }
-
+            flex:         0 0 auto;
         }
 
         .add-connector {
@@ -772,6 +833,87 @@ table.records {
         word-break:   break-all;
     }
 
+    th.right, td.right {
+        text-align:    right;
+        padding-right: 0;
+    }
+
+    tr.total td {
+        font-weight:    600;
+        border-bottom:  none;
+    }
+
+}
+
+
+// Calibration certificates
+
+.certificates {
+    display:                grid;
+    grid-template-columns:  repeat(auto-fill, minmax(26rem, 1fr));
+    gap:                    1rem;
+    align-items:            start;
+}
+
+.certificate {
+
+    h2 .btn {
+        margin-left: auto;
+    }
+
+    // A certificate that has run out is still shown - what this station was
+    // running under last month is worth being able to point at - so it is
+    // marked rather than hidden.
+    &.expired  { border-left: 3px solid $color-error; }
+    &.not-yet  { border-left: 3px solid $color-warn;  }
+
+    .description {
+        margin:     0 0 0.6rem;
+        font-size:  0.9rem;
+        color:      $color-muted;
+    }
+
+    details {
+        margin-top: 0.75rem;
+    }
+
+    summary {
+        cursor:     pointer;
+        font-size:  0.85rem;
+        color:      $color-muted;
+    }
+
+}
+
+.mono {
+    font-family:  $font-mono;
+    font-size:    0.82rem;
+}
+
+.wrap {
+    word-break: break-all;
+}
+
+pre.pem {
+    margin:         0.5rem 0 0;
+    padding:        0.6rem 0.75rem;
+    overflow-x:     auto;
+    background:     $color-bg;
+    border:         1px solid $color-border;
+    border-radius:  6px;
+    font-family:    $font-mono;
+    font-size:      0.75rem;
+    line-height:    1.35;
+}
+
+textarea.mono {
+    width:          100%;
+    padding:        0.4rem 0.6rem;
+    border:         1px solid $color-border;
+    border-radius:  6px;
+    background:     $color-surface;
+    color:          $color-text;
+    resize:         vertical;
 }
 
 
@@ -851,6 +993,9 @@ table.records {
         text-transform:  uppercase;
         letter-spacing:  0.02em;
     }
+
+    &.warn  { color: #92400e;      border-color: #fde68a; background: $color-warn-bg;  }
+    &.bad   { color: $color-error; border-color: #fecaca; background: $color-error-bg; }
 
     // One colour per level, used by the chip in a line and by the line itself.
     &.level.debug     { color: #64748b; border-color: #cbd5e1; background: #f1f5f9; }

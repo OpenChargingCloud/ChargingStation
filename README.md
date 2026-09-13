@@ -144,7 +144,10 @@ Everything this station can be told in writing lives in one file,
 {
   "dns":   { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
   "nts":   { "enabled": true, "hostname": "ptbtime1.ptb.de" },
-  "evses": [ { "id": 1, "connectorTypes": [ "sType2" ], "maxPower_kW": 22 } ]
+  "power": { "uplinkPowerLimit_kW": 55 },
+  "evses": [ { "id": 1, "maxPower_kW": 22,
+               "connectors": [ { "id": 1, "type": "sType2", "maxPower_kW": 22 } ] } ],
+  "calibration": [ { "id": "meter-evse-1", "pem": "-----BEGIN CERTIFICATE-----\n..." } ]
 }
 ```
 
@@ -169,16 +172,20 @@ interface will not delete the part it did not understand.
 
 | | |
 |---|---|
-| `/configuration`        | what the station is made of, read-only |
-| `/configuration/dns`    | name resolution: on/off, the servers, the settings, and a test |
-| `/configuration/nts`    | the time source: on/off, the server, the cookie pool, and "Sync now" |
-| `/configuration/evses`  | the EVSEs: add, remove, renumber, pick connector types |
+| `/configuration`             | what the station is made of, read-only |
+| `/configuration/dns`         | name resolution: on/off, the servers, the settings, and a test |
+| `/configuration/nts`         | the time source: on/off, the server, the cookie pool, and "Sync now" |
+| `/configuration/power`       | what the grid connection allows, against what the EVSEs could draw |
+| `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
+| `/configuration/calibration` | the calibration certificates this station runs under |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
     POST /api/v1/configuration/dns/query    {"name": "...", "recordTypes": ["A"]}
     GET  /api/v1/configuration/nts          PUT with the fields to change
     POST /api/v1/configuration/nts/sync     NTS-KE + one authenticated NTP request
+    GET  /api/v1/configuration/power        PUT with {"uplinkPowerLimit_kW": 55}, null clears it
     GET  /api/v1/configuration/evses        PUT with {"evses": [...]}, all of them at once
+    GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
 
 Every change takes effect at once - no restart, and no page that says a restart
 is owed. The file is written first and the change applied second, because a
@@ -201,21 +208,38 @@ Every login carries roles, in `web-login.json`:
 |---|---|
 | `viewer`      | read the configuration |
 | `cpo`         | that, plus change DNS and NTS and run their tests |
-| `installer`   | read the configuration, run the tests, change the EVSEs |
-| `systemadmin` | all of it |
+| `installer`   | that, plus the power limits and the calibration certificates |
+| `systemadmin` | that, plus change what the station is made of |
 
-`cpo` and `installer` are complements rather than two rungs of a ladder. The
-installer knows which socket is in the housing because they put it there, and
-is long gone when the network behind the station is renumbered; the operator
-knows the network and was not there when the cable went in. A station being
-commissioned by somebody who is doing both hands out `systemadmin`.
+The two steps above the operator are different in kind, and that is the whole
+reason there are two of them.
 
-The hardware is its own permission because it describes something somebody
-installed: saying there is a CCS socket where a type 2 socket is bolted to the
-wall does not change the wall - it changes what every vehicle and every back
-end is told about it, and nothing further down is in a position to notice that
-it is wrong. The network settings are reversible and they complain; a wrong
+The **installer** corrects numbers about equipment that is already there: the
+grid operator says the connection may draw 55 kW rather than the 80 kW on the
+order, the cable that went in is a 32 A one, and here is the certificate of the
+meter that was fitted. All of that gets corrected, and lowering a limit is
+always safe.
+
+The **system administrator** says what the equipment *is* - how many sockets
+there are and what shape they have. That is a claim nothing further down can
+check: saying there is a CCS socket where a type 2 socket is bolted to the wall
+does not change the wall, it changes what every vehicle and every back end is
+told about it. The network settings are reversible and they complain; a wrong
 connector does neither.
+
+`PUT /configuration/evses` therefore needs **either** permission depending on
+what it turns out to be, because the request cannot say: the whole list is sent
+either way, and somebody correcting a cable's limit sends the same document as
+somebody inventing a socket. So the lower bar gets in, the station compares
+what it was sent with what it has, and the answer decides - under the same lock
+that then applies the change, so nothing moves between the question and the
+answer. An installer who changes a plug type gets
+
+    403  This changes what this station is made of, and not only what it may
+         deliver. This needs the systemadmin role.
+
+and the page says the same thing before the button is pressed, by making the
+same comparison in the browser.
 
 A login file without `"roles"` describes a system administrator, which is what
 the one login of a station used to be. An **unknown** role is refused at
@@ -272,6 +296,26 @@ Saving rebuilds both OCPP nodes from the new list - 1.6 as connectors, 2.1 as
 EVSEs - so what the page shows and what a back end would be told are never two
 different things.
 
+Each EVSE has a limit and so does each of its cables, and they are not the same
+number. An EVSE serves one vehicle at a time, so its limit is what the power
+stage behind all its cables can deliver; a cable's is what that cable can
+carry. A DC charger with CCS on one side and CHAdeMO on the other is one EVSE
+with a 300 kW cable and a 50 kW one, and giving both the EVSE's number would
+tell a CHAdeMO vehicle it may draw six times what its cable is rated for. A
+cable may not be configured above the EVSE feeding it. The per-cable limits
+reach OCPP 1.6, where a connector *is* a cable and has a `MaxPower`; OCPP 2.1
+is told the shapes but has nowhere in `EVSESpec` to put the limits.
+
+The older spelling still reads:
+
+```json
+{ "id": 1, "connectorTypes": [ "sType2" ], "maxPower_kW": 22 }
+```
+
+Every cable is then whatever its EVSE is, which is what it meant before there
+was anywhere else to put the number. The file is rewritten in the newer
+spelling the next time it is saved.
+
 Connector types are **not** a closed list. `OCPPv2_1.ConnectorType` is a set of
 predefined strings rather than an enumeration, and that is the point of it: a
 plug this station has never heard of is still a plug somebody can charge from,
@@ -283,6 +327,46 @@ one of them is rewritten in the protocol's spelling, so that `stype2` and
 `sType2` do not reach a back end as two different sockets. Anything else is
 marked in the page and named once in the log, because a new plug and a typo
 look alike from here and only the person who typed it can tell them apart.
+
+### Power
+
+`"power": { "uplinkPowerLimit_kW": 55 }` is what the connection behind the
+meter allows. It belongs to the building rather than to the station: it is what
+the grid operator and the fuse permit, and it stays put while EVSEs are added
+and taken away in front of it.
+
+It is entirely normal for it to be below the sum of what the EVSEs could
+deliver - four 22 kW outlets on a 55 kW connection is how most stations are
+built, and load management is what the difference is for. So the two are not
+checked against each other and neither is called wrong; the station says in its
+log what it is looking at, and the page shows them side by side.
+
+Nothing in this station enforces the limit yet, because there is no load
+management here to enforce it with. Today it is a number the station knows and
+reports.
+
+### Calibration
+
+`"calibration"` holds the certificates this station runs under, and asks for
+nothing but the PEM:
+
+```json
+{ "id": "meter-evse-1", "description": "The meter in EVSE 1", "pem": "-----BEGIN CERTIFICATE-----\n..." }
+```
+
+The subject, the issuer, the serial number and the validity are read out of the
+certificate rather than typed beside it, and deliberately not written back to
+the file. A copy of them could only ever start disagreeing with the certificate
+it was copied from, and then there is no telling which of the two the station
+means.
+
+A certificate that has already run out is kept and said so about rather than
+refused - the station that may not hold its own expired certificate is the
+station that cannot show what it was running under last month. One that runs
+out within 90 days is a warning in the log at every start, because a
+certificate running out does not stop a station from charging: it stops what it
+charged from being billable, which is noticed a month later by somebody who was
+not there.
 
 
 ## The clock
