@@ -141,7 +141,7 @@ export const ntsPage: Page = {
                                       readings and certificates hanging off it, and not something a button does
                                       by surprise.
                                     `
-                                  : html`Running a synchronisation needs the CPO or the system administrator role.`}
+                                  : html`Running a synchronisation needs the CPO, the installer or the system administrator role.`}
                         </p>
 
                         ${sync === null || sync === undefined ? '' : syncResult(sync)}

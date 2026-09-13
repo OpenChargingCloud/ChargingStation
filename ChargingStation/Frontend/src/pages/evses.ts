@@ -17,9 +17,9 @@ import { errorMessage } from '../ui';
  * what a back end would be told about this station are never two different
  * things. No restart is owed.
  *
- * This is the one page that needs the system administrator role: what is bolted
- * to the wall is not something an operator redescribes from a browser. See the
- * permissions in Web/UserRoles.cs.
+ * This is the one page behind the hardware permission: what is bolted to the
+ * wall is not something an operator redescribes from a browser, so it takes the
+ * installer or the system administrator role. See Web/UserRoles.cs.
  */
 export const evsesPage: Page = {
 
@@ -70,7 +70,8 @@ export const evsesPage: Page = {
                     <div class="notice">
                         Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the EVSEs
                         but not change them. How many outlets this station has and what can be plugged into
-                        them describes hardware somebody installed, so it needs the system administrator role.
+                        them describes hardware somebody installed, so it needs the installer or the system
+                        administrator role.
                     </div>
                 `}
 

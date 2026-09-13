@@ -121,7 +121,26 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.RunDiagnostics);
 
         /// <summary>
-        /// Whoever installed this station, and may therefore say what it is.
+        /// Whoever bolted this station to the wall: may say what it is made of
+        /// and test that it can reach anything, but may not repoint it at other
+        /// name or time servers.
+        /// </summary>
+        /// <remarks>
+        /// The complement of the CPO above rather than a step above it. The
+        /// installer knows which socket is in the housing because they put it
+        /// there, and is gone by the time the network behind the station is
+        /// renumbered; the operator knows the network and was not there when
+        /// the cable went in. Neither one needs what the other has, and the
+        /// role that has both is the one below.
+        /// </remarks>
+        public static readonly UserRole  Installer    = new ("installer",
+                                                             Permissions.ReadConfiguration     |
+                                                             Permissions.RunDiagnostics        |
+                                                             Permissions.ChangeHardware);
+
+        /// <summary>
+        /// Everything this station can be told, by whoever is trusted with all
+        /// of it at once.
         /// </summary>
         public static readonly UserRole  SystemAdmin  = new ("systemadmin",
                                                              Permissions.ReadConfiguration     |
@@ -132,7 +151,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// <summary>
         /// Every role this station knows.
         /// </summary>
-        public static readonly IReadOnlyList<UserRole>  All = [ Viewer, CPO, SystemAdmin ];
+        public static readonly IReadOnlyList<UserRole>  All = [ Viewer, CPO, Installer, SystemAdmin ];
 
         #endregion
 

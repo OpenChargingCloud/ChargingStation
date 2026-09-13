@@ -218,7 +218,7 @@ export const dnsPage: Page = {
                             <span class="hint">
                                 ${mayTest
                                       ? html`Every step is written to the log, so the Logs page of anybody watching shows it too.`
-                                      : html`Running a query needs the CPO or the system administrator role.`}
+                                      : html`Running a query needs the CPO, the installer or the system administrator role.`}
                             </span>
 
                         </form>

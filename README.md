@@ -201,7 +201,14 @@ Every login carries roles, in `web-login.json`:
 |---|---|
 | `viewer`      | read the configuration |
 | `cpo`         | that, plus change DNS and NTS and run their tests |
-| `systemadmin` | that, plus change the EVSEs |
+| `installer`   | read the configuration, run the tests, change the EVSEs |
+| `systemadmin` | all of it |
+
+`cpo` and `installer` are complements rather than two rungs of a ladder. The
+installer knows which socket is in the housing because they put it there, and
+is long gone when the network behind the station is renumbered; the operator
+knows the network and was not there when the cable went in. A station being
+commissioned by somebody who is doing both hands out `systemadmin`.
 
 The hardware is its own permission because it describes something somebody
 installed: saying there is a CCS socket where a type 2 socket is bolted to the
