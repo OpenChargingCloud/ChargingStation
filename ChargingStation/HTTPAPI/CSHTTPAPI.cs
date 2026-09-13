@@ -181,6 +181,13 @@ namespace cloud.charging.open.ChargingStation
 
             AddHandler(HTTPPath.Root + "v1/status",        GetStatus,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/dns", GetDNSConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/dns", PutDNSConfiguration, HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/nts", GetNTSConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/nts", PutNTSConfiguration, HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/evses", GetEVSEConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/evses", PutEVSEConfiguration, HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
             AddHandler(HTTPMethod.GET,
@@ -334,6 +341,137 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.ConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetDNSConfiguration(Request) / PutDNSConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/dns: how this station resolves names.
+        /// </summary>
+        private Task<HTTPResponse> GetDNSConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.DNSConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/dns: change what may be changed about it.
+        /// Answers with the whole configuration as it now stands, so that the
+        /// page does not have to ask again to find out what it got.
+        /// </summary>
+        private Task<HTTPResponse> PutDNSConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            if (RefuseCrossSite(Request) is HTTPResponse refused)
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateDNSConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.DNSConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetNTSConfiguration(Request) / PutNTSConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/nts: where this station gets the time from.
+        /// </summary>
+        private Task<HTTPResponse> GetNTSConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.NTSConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/nts: change what may be changed about it.
+        /// </summary>
+        private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            if (RefuseCrossSite(Request) is HTTPResponse refused)
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateNTSConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.NTSConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetEVSEConfiguration(Request) / PutEVSEConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/evses: the EVSEs of this charging station.
+        /// </summary>
+        private Task<HTTPResponse> GetEVSEConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/evses with {"evses": [...]}: replace them all.
+        /// </summary>
+        private Task<HTTPResponse> PutEVSEConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryGetSession(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            if (RefuseCrossSite(Request) is HTTPResponse refused)
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateEVSEConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEConfigurationJSON())
                    );
 
         }

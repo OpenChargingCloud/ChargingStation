@@ -11,6 +11,9 @@ import { logs } from './logs/store';
 import { Router } from './router';
 
 import { configurationPage } from './pages/configuration';
+import { dnsPage }           from './pages/dns';
+import { evsesPage }         from './pages/evses';
+import { ntsPage }           from './pages/nts';
 import { loginPage }         from './pages/login';
 import { logsPage }          from './pages/logs';
 import { notFoundPage }      from './pages/notFound';
@@ -31,6 +34,9 @@ const router = new Router({
         // a page that exists on the way in and not on the way back.
         { path: '/',               page: configurationPage,  guard: auth.requireSignIn },
         { path: '/configuration',  page: configurationPage,  guard: auth.requireSignIn },
+        { path: '/configuration/dns',   page: dnsPage,       guard: auth.requireSignIn },
+        { path: '/configuration/nts',   page: ntsPage,       guard: auth.requireSignIn },
+        { path: '/configuration/evses', page: evsesPage,     guard: auth.requireSignIn },
         { path: '/logs',           page: logsPage,           guard: auth.requireSignIn },
         { path: '/login',          page: loginPage }
     ],

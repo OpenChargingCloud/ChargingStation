@@ -30,6 +30,7 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
+using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.Logging;
 using cloud.charging.open.ChargingStation.Web;
@@ -50,7 +51,7 @@ namespace cloud.charging.open.ChargingStation
     /// browser and the station talk over the JSON API and one Server-Sent
     /// Events stream; nothing is rendered on the server.
     /// </remarks>
-    public class ChargingStation : IAsyncDisposable
+    public partial class ChargingStation : IAsyncDisposable
     {
 
         #region Data
@@ -109,6 +110,22 @@ namespace cloud.charging.open.ChargingStation
         /// Where the web login lives between starts.
         /// </summary>
         public WebLoginFile           LoginFile              { get; }
+
+        /// <summary>
+        /// Where the EVSEs live between starts.
+        /// </summary>
+        public EVSEConfigFile         EVSEFile               { get; }
+
+        /// <summary>
+        /// The EVSEs this station has, as the OCPP nodes were told about them
+        /// at the last start.
+        /// </summary>
+        /// <remarks>
+        /// Not what the file says right now: the OCPP nodes are built from this
+        /// list when the station is made, so a list saved since is what the
+        /// station will have next time, not what it has.
+        /// </remarks>
+        public IReadOnlyList<EVSEConfig>  EVSEs              { get; }
 
         /// <summary>
         /// The password this station made up because there was no login file,
@@ -187,6 +204,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="HTTPHostname">The address to listen on; the loopback address by default.</param>
         /// <param name="HTTPPort">The TCP port to listen on.</param>
         /// <param name="LoginFile">Where the web login lives; "web-login.json" beside the process by default.</param>
+        /// <param name="EVSEFile">Where the EVSEs live; "evses.json" beside the process by default.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
@@ -201,6 +219,7 @@ namespace cloud.charging.open.ChargingStation
                                IIPAddress?            HTTPHostname      = null,
                                IPPort?                HTTPPort          = null,
                                WebLoginFile?          LoginFile         = null,
+                               EVSEConfigFile?        EVSEFile          = null,
                                IStaticContentSource?  Frontend          = null,
                                V2GOptions?            V2G               = null,
                                EventLog?              Log               = null,
@@ -271,6 +290,33 @@ namespace cloud.charging.open.ChargingStation
                 this.GeneratedPassword  = password;
 
                 this.Log.Notice($"No web login found, so one was made up and written to '{this.LoginFile.Path}'.", "web", "auth");
+
+            }
+
+            #endregion
+
+            #region The EVSEs this station has
+
+            this.EVSEFile = EVSEFile ?? new EVSEConfigFile(EVSEConfigFile.DefaultFileName);
+
+            if (this.EVSEFile.TryLoad(out var loadedEVSEs, out var evseError) && loadedEVSEs is not null)
+            {
+                this.EVSEs = loadedEVSEs;
+                this.Log.Info($"{this.EVSEs.Count} EVSE(s) from '{this.EVSEFile.Path}'.", "evse", "config");
+            }
+
+            else
+            {
+
+                // A file that is there but cannot be read is not something to
+                // paper over with a default station: somebody described their
+                // hardware and got it wrong, and quietly charging on one
+                // imaginary socket instead would be worse than stopping.
+                if (evseError is not null)
+                    throw new InvalidOperationException($"{evseError} Repair or remove '{this.EVSEFile.Path}' and start again.");
+
+                this.EVSEs = [ EVSEConfig.Default(1) ];
+                this.Log.Info($"No EVSEs configured, so this station has one: {this.EVSEs[0]}.", "evse", "config");
 
             }
 
@@ -411,15 +457,16 @@ namespace cloud.charging.open.ChargingStation
 
             cs01 = new OCPPv1_6.TestChargePointNode(
                        ChargeBoxId:               NetworkingNode_Id.Parse("test01"),
-                       Connectors:                [
+                       Connectors:                [.. EVSEs.Select(evse =>
                                                       new OCPPv1_6.CP.ConnectorSpec(
-                                                          Availability:        OCPPv1_6.Availabilities.Operative,
-                                                          PhysicalReference:   "A",
-                                                          MaxPower:            Watt.    FromKW  (22),
-                                                          MaxEnergy:           WattHour.FromKWh(100),
+                                                          Availability:        evse.Operative
+                                                                                   ? OCPPv1_6.Availabilities.Operative
+                                                                                   : OCPPv1_6.Availabilities.Inoperative,
+                                                          PhysicalReference:   evse.PhysicalReference,
+                                                          MaxPower:            Watt.FromKW(evse.MaxPower_kW),
+                                                          MaxEnergy:           null,
                                                           EnergyMeter:         null
-                                                      )
-                                                  ],
+                                                      ))],
                        Description:               null,
                        ChargePointVendor:         null,
                        ChargePointModel:          null,
@@ -440,15 +487,16 @@ namespace cloud.charging.open.ChargingStation
                        FirmwareVersion:                null,
                        Modem:                          null,
 
-                       EVSEs:                          [
+                       EVSEs:                          [.. EVSEs.Select(evse =>
                                                            new OCPPv2_1.CS.EVSESpec(
-                                                               AdminStatus:         OCPPv2_1.OperationalStatus.Operative,
-                                                               ConnectorTypes:      [ OCPPv2_1.ConnectorType.sType2 ],
-                                                               MeterType:           "",
-                                                               MeterSerialNumber:   "",
+                                                               AdminStatus:         evse.Operative
+                                                                                        ? OCPPv2_1.OperationalStatus.Operative
+                                                                                        : OCPPv2_1.OperationalStatus.Inoperative,
+                                                               ConnectorTypes:      evse.OCPPConnectorTypes,
+                                                               MeterType:           evse.MeterType         ?? "",
+                                                               MeterSerialNumber:   evse.MeterSerialNumber ?? "",
                                                                MeterPublicKey:      ""
-                                                           )
-                                                       ],
+                                                           ))],
                        UplinkEnergyMeter:              null,
 
                        DefaultRequestTimeout:          null,
@@ -483,7 +531,7 @@ namespace cloud.charging.open.ChargingStation
             // "this." and not for tidiness: the parameters of this constructor
             // shadow the properties of the same name, and the "Log" parameter
             // is null whenever the caller did not bring an event log of its own.
-            this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up.", "ocpp");
+            this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up with {EVSEs.Count} EVSE(s).", "ocpp");
 
             #endregion
 

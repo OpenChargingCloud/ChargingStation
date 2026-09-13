@@ -41,8 +41,8 @@ user `root`, writes its hash to `web-login.json` and prints the password once:
 Then open http://127.0.0.1:2348/ and sign in.
 
 `--help` lists the rest: `--port`, `--any`, `--web-login <file>`,
-`--frontend <dir>`, `--verbose`, `--quiet`, `--no-trace`, and the `--v2g`
-family below.
+`--frontend <dir>`, `--evses <file>`, `--verbose`, `--quiet`, `--no-trace`,
+and the `--v2g` family below.
 
 
 ## Building
@@ -79,6 +79,8 @@ webpack has just written.
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
 | `Web/WebSessions.cs`      | who is signed in: one login in front of Hermod's `SessionStore`, and the cookie its token travels in |
 | `Web/WebLogin*.cs`        | that one login and the file it lives in, its password a `SecurePassword` and never in the clear |
+| `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
+| `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
 | `Logging/EventLog.cs`     | everything that happens, with timestamps and tags, kept in a ring buffer and handed on at once |
 | `Logging/TraceBridge.cs`  | what the libraries below write with `DebugX`, into the same log |
@@ -131,6 +133,48 @@ the EXI messages of -2 or -20, the charging loop. A connection is accepted, its
 first V2GTP frame is read and named, and then it is closed again, which is the
 difference between "the listener is bound" and "a vehicle came all the way
 through SLAC and SDP and got here".
+
+
+## Configuration
+
+The web interface has a page per thing that can be configured, and each says
+which of its fields may be changed and which only describe what is there. A
+client that was handed its name servers at construction cannot be given
+different ones afterwards, and a page that offered to try would be lying about
+what the button does.
+
+| | |
+|---|---|
+| `/configuration`        | what the station is made of, read-only |
+| `/configuration/dns`    | the DNS client: its servers, and the cache, DNSSEC, CNAME and retry settings it will take |
+| `/configuration/nts`    | the NTS client: its server, its cookie pool, and the timeout it will take |
+| `/configuration/evses`  | the EVSEs: add, remove, renumber, and pick connector types |
+
+    GET  /api/v1/configuration/dns      PUT with the fields to change
+    GET  /api/v1/configuration/nts      PUT with the fields to change
+    GET  /api/v1/configuration/evses    PUT with {"evses": [...]}, all of them at once
+
+### EVSEs
+
+They live in `evses.json` (`--evses <file>`), because how many outlets a
+charging station has is a property of the hardware and should not have to be
+repeated at every start. Without the file the station has one 22 kW type 2
+socket.
+
+They are edited as a whole rather than one at a time, because they are only
+valid together: OCPP numbers them from 1 upwards without gaps, so removing the
+third of four is a change to two of them.
+
+Saving writes the file. The OCPP nodes are told how many EVSEs they have when
+they are built, i.e. once at the start, so a saved change reaches them at the
+next start - and until then the page says the two differ rather than letting
+somebody believe otherwise.
+
+Connector types are checked against the vocabulary OCPP 2.1 defines, which is
+read off the protocol stack itself rather than copied here. `ConnectorType`
+is a set of predefined strings and its own `TryParse` accepts anything
+non-empty, so an EVSE offering `tpye2` would otherwise be saved without a
+word and matched by no vehicle ever.
 
 
 ## The clock

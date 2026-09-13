@@ -13,17 +13,33 @@ import { html, must, render, type HTMLFragment } from './html';
  */
 
 export interface MenuEntry {
-    path:   string;
-    label:  string;
+    path:      string;
+    label:     string;
     /** A Font Awesome class, e.g. "fa-sliders". */
-    icon:   string;
+    icon:      string;
+    /** The pages below this one, shown indented while one of them is open. */
+    children?: MenuEntry[];
 }
 
-/** What the station can show. Only these two matter for now. */
+/** What the station can show. */
 export const menu: MenuEntry[] = [
-    { path: '/configuration', label: 'Configuration', icon: 'fa-sliders'      },
-    { path: '/logs',          label: 'Logs',          icon: 'fa-list-ul'      }
+    {
+        path:      '/configuration',
+        label:     'Configuration',
+        icon:      'fa-sliders',
+        children:  [
+            { path: '/configuration/dns',   label: 'DNS client', icon: 'fa-magnifying-glass-location' },
+            { path: '/configuration/nts',   label: 'NTS client', icon: 'fa-clock'                     },
+            { path: '/configuration/evses', label: 'EVSEs',      icon: 'fa-plug'                      }
+        ]
+    },
+    { path: '/logs', label: 'Logs', icon: 'fa-list-ul' }
 ];
+
+/** Every entry of the menu, parents and children alike. */
+export function allMenuEntries(): MenuEntry[] {
+    return menu.flatMap(entry => [entry, ...(entry.children ?? [])]);
+}
 
 
 export interface ShellOptions {
@@ -58,12 +74,14 @@ export function shell(root:     HTMLElement,
                 <ul class="menu">
                     ${menu.map(entry => html`
                         <li>
-                            <a href="${entry.path}"
-                               class="${entry.path === options.active ? 'active' : ''}"
-                               ${entry.path === options.active ? html`aria-current="page"` : ''}>
-                                <i class="fa-solid ${entry.icon}"></i>
-                                <span>${entry.label}</span>
-                            </a>
+                            ${link(entry, options.active)}
+                            ${entry.children && isOpen(entry, options.active)
+                                  ? html`
+                                      <ul class="submenu">
+                                          ${entry.children.map(child => html`<li>${link(child, options.active)}</li>`)}
+                                      </ul>
+                                  `
+                                  : ''}
                         </li>
                     `)}
                 </ul>
@@ -103,4 +121,31 @@ export function shell(root:     HTMLElement,
 
     return must<HTMLElement>(root, '#content-body');
 
+}
+
+
+/** One entry of the menu, marked when it is the page being shown. */
+function link(entry: MenuEntry, active: string): HTMLFragment {
+
+    const current = entry.path === active;
+
+    return html`
+        <a href="${entry.path}"
+           class="${current ? 'active' : ''}"
+           ${current ? html`aria-current="page"` : ''}>
+            <i class="fa-solid ${entry.icon}"></i>
+            <span>${entry.label}</span>
+        </a>
+    `;
+
+}
+
+/**
+ * Whether an entry's children are shown: while the entry itself is open, or
+ * while one of them is. The menu unfolds where somebody is and stays folded
+ * everywhere else, so a station with a dozen pages still fits on the left.
+ */
+function isOpen(entry: MenuEntry, active: string): boolean {
+    return entry.path === active ||
+           (entry.children ?? []).some(child => child.path === active);
 }

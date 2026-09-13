@@ -67,6 +67,100 @@ export interface Configuration {
 }
 
 
+/** One name server this station may ask. */
+export interface DNSServer {
+    address:       string | null;
+    domainName:    string | null;
+    port:          number;
+    transport:     string;
+    queryTimeout:  string | null;
+}
+
+/** What may be changed about the name resolution while the station runs. */
+export interface DNSSettings {
+    /** null leaves it to the server's own default. */
+    recursionDesired:  boolean | null;
+    useCache:          boolean;
+    dnssecOK:          boolean;
+    followCNAMEs:      boolean;
+    maxCNAMEFollows:   number;
+    maxRetries:        number;
+}
+
+/** How this station resolves names: what was decided at construction, and what still can be. */
+export interface DNSConfiguration {
+    servers:         DNSServer[];
+    queryTimeout:    string;
+    udpPayloadSize:  number;
+    ednsOptions:     number;
+    clientSubnet:    string | null;
+    settings:        DNSSettings;
+    cache:           { cleanUpEvery: string; negativeCacheTTL: string };
+}
+
+
+/** What may be changed about the time client while the station runs. */
+export interface NTSSettings {
+    /** null waits for an answer without a timeout. */
+    timeoutSeconds: number | null;
+}
+
+/** Where this station gets the time from, and how its key exchange is doing. */
+export interface NTSConfiguration {
+    server:    Record<string, unknown>;
+    settings:  NTSSettings;
+    cookies: {
+        available:     number;
+        maxPoolSize:   number;
+        lowWatermark:  number;
+        seeded:        number;
+        received:      number;
+        consumed:      number;
+        dropped:       number;
+        isLow:         boolean;
+        isEmpty:       boolean;
+        isFull:        boolean;
+    };
+    policy:  Record<string, unknown>;
+    keyExchange: {
+        automatic:                 number;
+        aeadAlgorithms:            string[];
+        compliantExporterContext:  boolean;
+        lastExchange:              { error: string | null; warnings: string[]; servers: string[] } | null;
+    };
+}
+
+
+/** One place a vehicle can be plugged into this charging station. */
+export interface EVSE {
+    /** Which one it is, counting from 1 as OCPP does. */
+    id:                 number;
+    /** What can be plugged into it, in OCPP 2.1's vocabulary. */
+    connectorTypes:     string[];
+    maxPower_kW:        number;
+    operative:          boolean;
+    /** What is written on the housing, e.g. "A". */
+    physicalReference:  string | null;
+    meterType:          string | null;
+    meterSerialNumber:  string | null;
+}
+
+/** The EVSEs of this station: what is saved, what is running, and what may be picked. */
+export interface EVSEConfiguration {
+    /** What the file says - what the station will have at the next start. */
+    evses:            EVSE[];
+    /** What the OCPP nodes were built with at the last start. */
+    running:          EVSE[];
+    /** Whether those two differ, i.e. whether a restart is owed. */
+    restartRequired:  boolean;
+    file:             string;
+    maxEVSEs:         number;
+    maxPower_kW:      number;
+    /** Every connector type the OCPP stack knows, for the picker. */
+    connectorTypes:   string[];
+}
+
+
 export class ApiError extends Error {
 
     constructor(public readonly status:  number,
@@ -155,6 +249,23 @@ export const api = {
 
     status:         () => request<Status>       ('GET', '/status'),
     configuration:  () => request<Configuration>('GET', '/configuration'),
+
+    dns: {
+        get:   ()                               => request<DNSConfiguration>('GET', '/configuration/dns'),
+        /** Only the fields given are changed; the answer is the whole configuration as it now stands. */
+        save:  (settings: Partial<DNSSettings>) => request<DNSConfiguration>('PUT', '/configuration/dns', settings)
+    },
+
+    nts: {
+        get:   ()                               => request<NTSConfiguration>('GET', '/configuration/nts'),
+        save:  (settings: Partial<NTSSettings>) => request<NTSConfiguration>('PUT', '/configuration/nts', settings)
+    },
+
+    evses: {
+        get:   ()               => request<EVSEConfiguration>('GET', '/configuration/evses'),
+        /** All of them at once: they are only valid together. */
+        save:  (evses: EVSE[])  => request<EVSEConfiguration>('PUT', '/configuration/evses', { evses })
+    },
 
     /**
      * A page of the log, oldest of the returned entries first.

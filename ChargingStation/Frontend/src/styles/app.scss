@@ -120,6 +120,11 @@ h1, h2 {
         font-size:  0.85rem;
     }
 
+    &.danger:hover {
+        border-color:  $color-error;
+        color:         $color-error;
+    }
+
 }
 
 input, textarea, select {
@@ -160,6 +165,42 @@ input, textarea, select {
         margin-top:   0.25rem;
     }
 
+}
+
+// A checkbox with its label beside it rather than under it, and room for a
+// line of explanation below both.
+.form-stack label.checkbox {
+
+    flex-direction:  row;
+    flex-wrap:       wrap;
+    align-items:     baseline;
+    gap:             0.15rem 0.5rem;
+    color:           $color-text;
+    font-size:       0.9rem;
+
+    input {
+        flex: none;
+    }
+
+    .hint {
+        flex-basis: 100%;
+    }
+
+}
+
+.hint {
+    color:        $color-muted;
+    font-size:    0.8rem;
+    font-weight:  400;
+}
+
+.form-notice {
+    color:      $color-ok;
+    font-size:  0.9rem;
+
+    &:empty {
+        display: none;
+    }
 }
 
 .form-error {
@@ -285,6 +326,28 @@ input, textarea, select {
 
     }
 
+    .submenu {
+
+        list-style:  none;
+        margin:      0 0 0.35rem;
+        padding:     0;
+
+        a {
+            padding-left:  2.6rem;
+            font-size:     0.88rem;
+
+            &.active {
+                box-shadow: inset 3px 0 0 $color-accent;
+            }
+
+            .fa-solid {
+                font-size: 0.8em;
+                opacity:   0.75;
+            }
+        }
+
+    }
+
     .sidebar-foot {
 
         padding:     0.9rem 1.1rem;
@@ -400,6 +463,12 @@ input, textarea, select {
         .fa-solid {
             color: $color-accent;
         }
+
+        // A state of the thing the card is about, said next to its name
+        // rather than buried in the rows below it.
+        .chip {
+            margin-left: auto;
+        }
     }
 
 }
@@ -451,6 +520,62 @@ input, textarea, select {
         padding-left:  0.7rem;
     }
 
+}
+
+
+// EVSEs
+
+.evse-list {
+    display:                grid;
+    grid-template-columns:  repeat(auto-fill, minmax(24rem, 1fr));
+    gap:                    1rem;
+    align-items:            start;
+}
+
+.evse {
+
+    h2 .btn {
+        margin-left: auto;
+    }
+
+    .connector-types {
+
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.35rem;
+
+        > .k {
+            color:      $color-muted;
+            font-size:  0.85rem;
+        }
+
+        .chips {
+            display:    flex;
+            flex-wrap:  wrap;
+            gap:        0.3rem;
+        }
+
+    }
+
+}
+
+.evse-actions {
+    display:      flex;
+    align-items:  center;
+    gap:          0.75rem;
+    flex-wrap:    wrap;
+    margin-top:   1rem;
+}
+
+// Something the station wants read before it is acted on, but that is not an
+// error - a change saved to a file the running process has not picked up.
+.notice {
+    @include panel;
+    background:    $color-warn-bg;
+    border-color:  #f3d9a4;
+    padding:       0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size:     0.9rem;
 }
 
 
