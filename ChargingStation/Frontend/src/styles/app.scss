@@ -113,6 +113,16 @@ h1, h2 {
             border-color:  $color-accent-dark;
             color:         #ffffff;
         }
+
+        // The opacity of the rule above is not enough on a filled button: a
+        // disabled Save stayed green enough to look like a Save that works.
+        &:disabled,
+        &:disabled:hover {
+            background:    $color-border;
+            border-color:  $color-border;
+            color:         $color-muted;
+        }
+
     }
 
     &.small {
@@ -473,6 +483,10 @@ input, textarea, select {
 
 }
 
+.card.wide {
+    grid-column: 1 / -1;
+}
+
 .kv-list {
     display:         flex;
     flex-direction:  column;
@@ -555,6 +569,39 @@ input, textarea, select {
             gap:        0.3rem;
         }
 
+        // A type OCPP 2.1 does not name itself: allowed, and marked - because
+        // a new plug and a typo look alike from here.
+        .chip.custom {
+
+            border-style: dashed;
+
+            // Selected, the chip is filled with the accent colour, and a dash
+            // in that same colour is a dash nobody can see.
+            &.on {
+                border-color: rgba(255, 255, 255, 0.8);
+            }
+
+        }
+
+        .add-connector {
+
+            display:  flex;
+            gap:      0.3rem;
+
+            input {
+                flex:           1 1 auto;
+                min-width:      0;
+                padding:        0.25rem 0.5rem;
+                border:         1px solid $color-border;
+                border-radius:  6px;
+                background:     $color-surface;
+                color:          $color-text;
+                font:           inherit;
+                font-size:      0.8rem;
+            }
+
+        }
+
     }
 
 }
@@ -568,7 +615,7 @@ input, textarea, select {
 }
 
 // Something the station wants read before it is acted on, but that is not an
-// error - a change saved to a file the running process has not picked up.
+// error - most often: this page is showing you something you may not change.
 .notice {
     @include panel;
     background:    $color-warn-bg;
@@ -576,6 +623,155 @@ input, textarea, select {
     padding:       0.75rem 1rem;
     margin-bottom: 1rem;
     font-size:     0.9rem;
+}
+
+
+// Switching a whole subsystem on or off. Bigger than the checkboxes in a form
+// below it, because it decides whether that form matters at all.
+.switch {
+
+    display:      flex;
+    align-items:  center;
+    gap:          0.55rem;
+    font-weight:  600;
+
+    input {
+        width:   1.15rem;
+        height:  1.15rem;
+        accent-color: $color-accent;
+    }
+
+}
+
+// One name server: address, port, transport, and a way to take it away.
+.server-list {
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.4rem;
+}
+
+.server-row {
+
+    display:      flex;
+    gap:          0.4rem;
+    align-items:  center;
+
+    input, select {
+        padding:        0.35rem 0.5rem;
+        border:         1px solid $color-border;
+        border-radius:  6px;
+        background:     $color-surface;
+        color:          $color-text;
+        font:           inherit;
+        font-size:      0.9rem;
+        min-width:      0;
+    }
+
+    input[data-field="address"] {
+        flex: 1 1 10rem;
+    }
+
+    input.port {
+        width: 5.5rem;
+    }
+
+}
+
+// Asking a name server something, and what it said.
+.query-form {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.75rem;
+
+    input[type="text"] {
+        padding:        0.45rem 0.6rem;
+        border:         1px solid $color-border;
+        border-radius:  6px;
+        background:     $color-surface;
+        color:          $color-text;
+        font:           inherit;
+        width:          100%;
+        max-width:      28rem;
+    }
+
+    label {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.3rem;
+        font-size:       0.9rem;
+    }
+
+    .record-types {
+
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.35rem;
+
+        > .k {
+            color:      $color-muted;
+            font-size:  0.85rem;
+        }
+
+    }
+
+}
+
+.chips {
+    display:    flex;
+    flex-wrap:  wrap;
+    gap:        0.3rem;
+}
+
+.query-result {
+
+    @include panel;
+
+    margin-top:  1rem;
+    padding:     0.85rem 1rem;
+
+    &.ok   { border-left: 3px solid $color-ok;    }
+    &.bad  { border-left: 3px solid $color-error; }
+
+    h3 {
+        margin:     1rem 0 0.4rem;
+        font-size:  0.9rem;
+        color:      $color-muted;
+    }
+
+}
+
+// A table that is wider than the card it sits in scrolls inside the card
+// rather than pushing the whole page sideways.
+.table-scroll {
+    overflow-x:  auto;
+    margin-top:  0.75rem;
+}
+
+table.records {
+
+    border-collapse:  collapse;
+    width:            100%;
+    font-size:        0.85rem;
+
+    th, td {
+        text-align:     left;
+        padding:        0.3rem 0.6rem 0.3rem 0;
+        border-bottom:  1px solid $color-border;
+        white-space:    nowrap;
+    }
+
+    th {
+        color:       $color-muted;
+        font-weight: 600;
+    }
+
+    td.value {
+        white-space:  normal;
+        font-family:  ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        word-break:   break-all;
+    }
+
 }
 
 

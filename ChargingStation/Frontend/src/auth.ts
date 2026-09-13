@@ -1,4 +1,4 @@
-import { api, ApiError, onUnauthorized, type Me } from './api/client';
+import { api, ApiError, onUnauthorized, type Me, type Permission } from './api/client';
 
 type Listener = (user: Me | null) => void;
 
@@ -52,6 +52,17 @@ class AuthState {
         finally {
             this.set(null);
         }
+    }
+
+    /**
+     * Whether the person signed in may do this.
+     *
+     * Used to grey a control out, never to decide anything: the station checks
+     * every request again when it arrives, so a page that got this wrong shows
+     * a button that answers 403 rather than one that works.
+     */
+    can(permission: Permission): boolean {
+        return this.user?.permissions?.includes(permission) ?? false;
     }
 
     /** Router guard: the sign-in page with a way back, or null when signed in. */

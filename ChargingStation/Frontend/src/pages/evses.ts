@@ -1,4 +1,5 @@
 import { api, type EVSE, type EVSEConfiguration } from '../api/client';
+import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
@@ -12,9 +13,13 @@ import { errorMessage } from '../ui';
  * third of four is a change to two of them. The page renumbers what is left
  * and sends the lot.
  *
- * Saving writes the file. The OCPP nodes were told how many EVSEs they have
- * when they were built, so a saved change reaches them at the next start, and
- * the page says so instead of letting somebody believe otherwise.
+ * Saving rebuilds the OCPP nodes from the new list, so what this page shows and
+ * what a back end would be told about this station are never two different
+ * things. No restart is owed.
+ *
+ * This is the one page that needs the system administrator role: what is bolted
+ * to the wall is not something an operator redescribes from a browser. See the
+ * permissions in Web/UserRoles.cs.
  */
 export const evsesPage: Page = {
 
@@ -32,6 +37,8 @@ export const evsesPage: Page = {
         render(content, html`<div class="loading">Loading ...</div>`);
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
+
+        const mayChange   = auth.can('changeHardware');
 
         let cancelled     = false;
         let configuration: EVSEConfiguration | null = null;
@@ -59,15 +66,13 @@ export const evsesPage: Page = {
 
             render(content, html`
 
-                ${current.restartRequired && !dirty
-                      ? html`
-                          <div class="notice">
-                              The saved EVSEs differ from the ones this station is running with.
-                              The OCPP nodes are built at the start, so restart the station to
-                              make them match.
-                          </div>
-                        `
-                      : ''}
+                ${mayChange ? '' : html`
+                    <div class="notice">
+                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the EVSEs
+                        but not change them. How many outlets this station has and what can be plugged into
+                        them describes hardware somebody installed, so it needs the system administrator role.
+                    </div>
+                `}
 
                 <div class="evse-list" id="evses">
                     ${draft.map((evse, index) => html`
@@ -76,7 +81,7 @@ export const evsesPage: Page = {
                             <h2>
                                 <i class="fa-solid fa-plug"></i> EVSE ${evse.id}
                                 <button type="button" class="btn small danger" data-remove="${index}"
-                                        ${draft.length === 1 ? html`disabled title="A charging station needs at least one EVSE."` : ''}>
+                                        ${!mayChange ? html`disabled` : draft.length === 1 ? html`disabled title="A charging station needs at least one EVSE."` : ''}>
                                     Remove
                                 </button>
                             </h2>
@@ -86,44 +91,65 @@ export const evsesPage: Page = {
                                 <label>Maximum power in kW
                                     <input type="number" data-field="maxPower_kW" data-index="${index}"
                                            min="0.1" max="${current.maxPower_kW}" step="0.1"
-                                           value="${evse.maxPower_kW}" />
+                                           value="${evse.maxPower_kW}" ${mayChange ? '' : html`disabled`} />
                                 </label>
 
                                 <label>Physical reference
                                     <input type="text" data-field="physicalReference" data-index="${index}"
-                                           value="${evse.physicalReference ?? ''}" placeholder="what is written on the housing, e.g. A" />
+                                           value="${evse.physicalReference ?? ''}" placeholder="what is written on the housing, e.g. A"
+                                           ${mayChange ? '' : html`disabled`} />
                                 </label>
 
                                 <label class="checkbox">
                                     <input type="checkbox" data-field="operative" data-index="${index}"
-                                           ${evse.operative ? html`checked` : ''} />
+                                           ${evse.operative ? html`checked` : ''} ${mayChange ? '' : html`disabled`} />
                                     Operative
                                     <span class="hint">An inoperative EVSE is reported as one, and no vehicle is served by it.</span>
                                 </label>
 
                                 <label>Meter type
                                     <input type="text" data-field="meterType" data-index="${index}"
-                                           value="${evse.meterType ?? ''}" placeholder="optional" />
+                                           value="${evse.meterType ?? ''}" placeholder="optional" ${mayChange ? '' : html`disabled`} />
                                 </label>
 
                                 <label>Meter serial number
                                     <input type="text" data-field="meterSerialNumber" data-index="${index}"
-                                           value="${evse.meterSerialNumber ?? ''}" placeholder="optional" />
+                                           value="${evse.meterSerialNumber ?? ''}" placeholder="optional" ${mayChange ? '' : html`disabled`} />
                                 </label>
 
                                 <div class="connector-types">
+
                                     <span class="k">Connector types</span>
+
                                     <div class="chips">
-                                        ${types.map(type => html`
+                                        ${[...new Set([...types, ...evse.connectorTypes])].map(type => html`
                                             <button type="button"
-                                                    class="chip tag-button ${evse.connectorTypes.includes(type) ? 'on' : ''}"
+                                                    class="chip tag-button ${evse.connectorTypes.includes(type) ? 'on' : ''} ${types.includes(type) ? '' : 'custom'}"
                                                     data-connector="${type}" data-index="${index}"
-                                                    aria-pressed="${evse.connectorTypes.includes(type)}">${type}</button>
+                                                    title="${types.includes(type) ? 'Named by OCPP 2.1' : 'Not named by OCPP 2.1; passed on as written'}"
+                                                    aria-pressed="${evse.connectorTypes.includes(type)}"
+                                                    ${mayChange ? '' : html`disabled`}>${type}</button>
                                         `)}
                                     </div>
+
+                                    ${mayChange
+                                          ? html`
+                                              <div class="add-connector">
+                                                  <input type="text" data-custom="${index}" placeholder="another type, e.g. sType3"
+                                                         maxlength="${current.maxConnectorTypeLength}" />
+                                                  <button type="button" class="btn small" data-add-connector="${index}">Add</button>
+                                              </div>
+                                              <span class="hint">
+                                                  OCPP 2.1 leaves this list open, so a plug it does not name may still be
+                                                  typed here and is passed on as written.
+                                              </span>
+                                            `
+                                          : ''}
+
                                     ${evse.connectorTypes.length === 0
                                           ? html`<span class="form-error">Pick at least one.</span>`
                                           : ''}
+
                                 </div>
 
                             </div>
@@ -134,14 +160,14 @@ export const evsesPage: Page = {
 
                 <div class="evse-actions">
                     <button type="button" id="add" class="btn"
-                            ${draft.length >= current.maxEVSEs ? html`disabled` : ''}>
+                            ${!mayChange || draft.length >= current.maxEVSEs ? html`disabled` : ''}>
                         Add an EVSE
                     </button>
-                    <button type="button" id="save" class="btn primary" ${dirty ? '' : html`disabled`}>Save</button>
+                    <button type="button" id="save" class="btn primary" ${dirty && mayChange ? '' : html`disabled`}>Save</button>
                     <button type="button" id="revert" class="btn" ${dirty ? '' : html`disabled`}>Discard changes</button>
                     <span id="form-note"  class="form-notice" role="status"></span>
                     <span id="form-error" class="form-error"  role="alert"></span>
-                    <span class="hint">Saved to ${current.file}</span>
+                    <span class="hint">Saved to ${current.file}, and in effect at once - the OCPP nodes are rebuilt from it.</span>
                 </div>
 
             `);
@@ -204,11 +230,45 @@ export const evsesPage: Page = {
 
                 }
 
+                const add = target.closest<HTMLElement>('[data-add-connector]');
+                if (add) {
+
+                    const index = Number(add.dataset.addConnector);
+                    const input = must<HTMLInputElement>(content, `input[data-custom="${index}"]`);
+                    const type  = input.value.trim();
+
+                    if (type.length > 0 && !draft[index].connectorTypes.includes(type)) {
+                        draft[index].connectorTypes = [...draft[index].connectorTypes, type];
+                        touched();
+                    }
+
+                    return;
+
+                }
+
                 const remove = target.closest<HTMLElement>('[data-remove]');
                 if (remove && draft.length > 1) {
                     draft.splice(Number(remove.dataset.remove), 1);
                     renumber();
                     touched();
+                }
+
+            });
+
+            list.addEventListener('keydown', event => {
+
+                const key = event as KeyboardEvent;
+
+                if (key.key !== 'Enter')
+                    return;
+
+                const input = (key.target as HTMLElement).closest<HTMLInputElement>('[data-custom]');
+
+                if (input) {
+                    // Otherwise Enter in a text field submits nothing and looks
+                    // like the page ignored it.
+                    key.preventDefault();
+                    must<HTMLElement>(content, `[data-add-connector="${input.dataset.custom}"]`).click();
                 }
 
             });
@@ -242,7 +302,7 @@ export const evsesPage: Page = {
         }
 
         function enableActions(): void {
-            must<HTMLButtonElement>(content, '#save').disabled   = !dirty;
+            must<HTMLButtonElement>(content, '#save').disabled   = !dirty || !mayChange;
             must<HTMLButtonElement>(content, '#revert').disabled = !dirty;
         }
 
@@ -264,10 +324,7 @@ export const evsesPage: Page = {
 
                 draw();
 
-                must<HTMLElement>(content, '#form-note').textContent =
-                    configuration.restartRequired
-                        ? 'Saved. Restart the station to run with them.'
-                        : 'Saved.';
+                must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
             }
             catch (problem)
             {

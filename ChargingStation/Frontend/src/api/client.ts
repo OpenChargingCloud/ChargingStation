@@ -33,10 +33,25 @@ export interface LogPage {
     entries:   LogEntry[];
 }
 
+/**
+ * What somebody signed in to this station may do.
+ *
+ * A copy of what the station enforces, not the enforcement: it is here so a
+ * page can grey out what this person may not do instead of offering it and
+ * letting them find out by being refused. Every request is checked again on
+ * arrival, so editing this list in a browser buys a button that answers 403.
+ */
+export type Permission = 'readConfiguration'
+                       | 'changeNetworkSettings'
+                       | 'runDiagnostics'
+                       | 'changeHardware';
+
 /** Who is signed in to the web interface. */
 export interface Me {
-    username:  string;
-    session:   { createdAt: string; expiresAt: string };
+    username:     string;
+    roles:        string[];
+    permissions:  Permission[];
+    session:      { createdAt: string; expiresAt: string };
 }
 
 /** How the station is doing right now. */
@@ -67,48 +82,108 @@ export interface Configuration {
 }
 
 
-/** One name server this station may ask. */
+/** One name server this station asks. */
 export interface DNSServer {
-    address:       string | null;
-    domainName:    string | null;
-    port:          number;
-    transport:     string;
-    queryTimeout:  string | null;
+    /** An IP address or a host name. */
+    address:              string;
+    port:                 number;
+    transport:            string;
+    queryTimeoutSeconds:  number | null;
 }
 
 /** What may be changed about the name resolution while the station runs. */
 export interface DNSSettings {
+    queryTimeoutSeconds:  number;
     /** null leaves it to the server's own default. */
-    recursionDesired:  boolean | null;
-    useCache:          boolean;
-    dnssecOK:          boolean;
-    followCNAMEs:      boolean;
-    maxCNAMEFollows:   number;
-    maxRetries:        number;
+    recursionDesired:     boolean | null;
+    useCache:             boolean;
+    dnssecOK:             boolean;
+    followCNAMEs:         boolean;
+    maxCNAMEFollows:      number;
+    maxRetries:           number;
 }
 
-/** How this station resolves names: what was decided at construction, and what still can be. */
+/** How this station resolves names. */
 export interface DNSConfiguration {
-    servers:         DNSServer[];
-    queryTimeout:    string;
-    udpPayloadSize:  number;
-    ednsOptions:     number;
-    clientSubnet:    string | null;
-    settings:        DNSSettings;
-    cache:           { cleanUpEvery: string; negativeCacheTTL: string };
+    enabled:    boolean;
+    servers:    DNSServer[];
+    settings:   DNSSettings;
+    /** What was decided when the client was made, and is not on offer. */
+    fixed:      Record<string, unknown>;
+    limits: {
+        maxServers:       number;
+        maxQueryTimeout:  number;
+        transports:       string[];
+        recordTypes:      string[];
+    };
+    file:       string;
+}
+
+/** What a PUT to the DNS configuration may carry; everything is optional. */
+export interface DNSUpdate {
+    enabled?:              boolean;
+    servers?:              DNSServer[];
+    queryTimeoutSeconds?:  number;
+    recursionDesired?:     boolean | null;
+    useCache?:             boolean;
+    dnssecOK?:             boolean;
+    followCNAMEs?:         boolean;
+    maxCNAMEFollows?:      number;
+    maxRetries?:           number;
+}
+
+/** One resource record a test query brought back. */
+export interface DNSRecord {
+    name:        string;
+    type:        string;
+    timeToLive:  number;
+    value:       string;
+}
+
+/** What a test query brought back. */
+export interface DNSQueryResult {
+    name:           string;
+    recordTypes:    string[];
+    ok:             boolean;
+    error?:         string;
+    responseCode?:  string;
+    server?:        string;
+    runtime_ms?:    number;
+    authoritative?: boolean;
+    truncated?:     boolean;
+    dnssec?:        string | null;
+    timedOut?:      boolean;
+    answers:        DNSRecord[];
+    more?:          number;
 }
 
 
 /** What may be changed about the time client while the station runs. */
-export interface NTSSettings {
-    /** null waits for an answer without a timeout. */
-    timeoutSeconds: number | null;
+export interface NTSUpdate {
+    enabled?:         boolean;
+    hostname?:        string;
+    ntsKEPort?:       number;
+    ntpPort?:         number;
+    timeoutSeconds?:  number;
+}
+
+/** How one synchronisation went, step by step. */
+export interface NTSSyncResult {
+    ok:           boolean;
+    server:       string;
+    at:           string;
+    error?:       string;
+    step?:        string;
+    runtime_ms?:  number;
+    ntske?:       Record<string, unknown>;
+    ntp?:         Record<string, unknown>;
 }
 
 /** Where this station gets the time from, and how its key exchange is doing. */
 export interface NTSConfiguration {
-    server:    Record<string, unknown>;
-    settings:  NTSSettings;
+    enabled:   boolean;
+    server:    { hostname: string; ntsKEPort: number; ntpPort: number } & Record<string, unknown>;
+    settings:  { timeoutSeconds: number | null };
     cookies: {
         available:     number;
         maxPoolSize:   number;
@@ -128,6 +203,11 @@ export interface NTSConfiguration {
         compliantExporterContext:  boolean;
         lastExchange:              { error: string | null; warnings: string[]; servers: string[] } | null;
     };
+    lastSync:  NTSSyncResult | null;
+    limits:    { maxTimeout: number };
+    file:      string;
+    /** Only on the answer to a synchronisation, which carries both. */
+    result?:   NTSSyncResult;
 }
 
 
@@ -145,19 +225,19 @@ export interface EVSE {
     meterSerialNumber:  string | null;
 }
 
-/** The EVSEs of this station: what is saved, what is running, and what may be picked. */
+/** The EVSEs of this station, and what may be plugged into one. */
 export interface EVSEConfiguration {
-    /** What the file says - what the station will have at the next start. */
-    evses:            EVSE[];
-    /** What the OCPP nodes were built with at the last start. */
-    running:          EVSE[];
-    /** Whether those two differ, i.e. whether a restart is owed. */
-    restartRequired:  boolean;
-    file:             string;
-    maxEVSEs:         number;
-    maxPower_kW:      number;
-    /** Every connector type the OCPP stack knows, for the picker. */
-    connectorTypes:   string[];
+    evses:                   EVSE[];
+    file:                    string;
+    maxEVSEs:                number;
+    maxPower_kW:             number;
+    maxConnectorTypeLength:  number;
+    /**
+     * The connector types OCPP 2.1 names itself, for the picker. Not a closed
+     * list: anything may be typed, because a plug this station has never heard
+     * of is still a plug somebody can charge from.
+     */
+    connectorTypes:          string[];
 }
 
 
@@ -251,14 +331,19 @@ export const api = {
     configuration:  () => request<Configuration>('GET', '/configuration'),
 
     dns: {
-        get:   ()                               => request<DNSConfiguration>('GET', '/configuration/dns'),
+        get:   ()                    => request<DNSConfiguration>('GET', '/configuration/dns'),
         /** Only the fields given are changed; the answer is the whole configuration as it now stands. */
-        save:  (settings: Partial<DNSSettings>) => request<DNSConfiguration>('PUT', '/configuration/dns', settings)
+        save:  (update: DNSUpdate)   => request<DNSConfiguration>('PUT', '/configuration/dns', update),
+        /** Make the station look a name up. A POST because it sends traffic. */
+        query: (name: string, recordTypes: string[]) =>
+                   request<DNSQueryResult>('POST', '/configuration/dns/query', { name, recordTypes })
     },
 
     nts: {
-        get:   ()                               => request<NTSConfiguration>('GET', '/configuration/nts'),
-        save:  (settings: Partial<NTSSettings>) => request<NTSConfiguration>('PUT', '/configuration/nts', settings)
+        get:   ()                    => request<NTSConfiguration>('GET', '/configuration/nts'),
+        save:  (update: NTSUpdate)   => request<NTSConfiguration>('PUT', '/configuration/nts', update),
+        /** One key exchange and one authenticated NTP request, with every step in the log. */
+        sync:  ()                    => request<NTSConfiguration>('POST', '/configuration/nts/sync', {})
     },
 
     evses: {

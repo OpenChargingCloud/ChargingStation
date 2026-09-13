@@ -84,6 +84,30 @@ namespace cloud.charging.open.ChargingStation.Web
             => User_Id.Parse(Login.Username);
 
         /// <summary>
+        /// What the login in force signs in as.
+        /// </summary>
+        public IReadOnlyList<UserRole>  Roles
+            => Login.Roles;
+
+        /// <summary>
+        /// What those roles grant together.
+        /// </summary>
+        public Permissions       Permissions
+            => Login.Permissions;
+
+        /// <summary>
+        /// What the browser behind this session may do.
+        /// </summary>
+        /// <remarks>
+        /// Asked about the session rather than about the station, although
+        /// there is one login and the answer cannot yet differ: the day this
+        /// file holds more than one login, every caller is already asking the
+        /// question whose answer changes.
+        /// </remarks>
+        public Permissions PermissionsOf(Session Session)
+            => Login.Permissions;
+
+        /// <summary>
         /// The live sessions.
         /// </summary>
         public SessionStore      Store             { get; }

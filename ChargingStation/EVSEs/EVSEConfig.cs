@@ -71,21 +71,32 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         public const Decimal  MaxPowerLimit_kW = 4_000;
 
         /// <summary>
-        /// Every connector type OCPP 2.1 defines.
+        /// The longest a connector type may be written.
         /// </summary>
         /// <remarks>
-        /// By reflection over the static properties of
-        /// <see cref="OCPPv2_1.ConnectorType"/>, because it is a set of
-        /// predefined strings rather than an enumeration: its own TryParse
-        /// accepts anything non-empty, so it says whether a string is a
-        /// connector type in the sense of "is a string", not in the sense of
-        /// "is one of these". An EVSE offering "tpye2" would be an EVSE no
-        /// vehicle ever matches, and nothing further down would have complained.
+        /// Not a rule of OCPP but a guard against a paste accident becoming a
+        /// connector type: a name nobody would type is almost certainly not one
+        /// somebody meant.
+        /// </remarks>
+        public const Int32    MaxConnectorTypeLength = 50;
+
+        /// <summary>
+        /// The connector types OCPP 2.1 names itself.
+        /// </summary>
+        /// <remarks>
+        /// A vocabulary to offer, not one to enforce.
+        /// <see cref="OCPPv2_1.ConnectorType"/> is a set of predefined strings
+        /// and not an enumeration, and that is the point of it: a connector
+        /// this station has never heard of is still a connector somebody can
+        /// plug a car into, and a station that refused to describe it would be
+        /// useless at exactly the moment a new plug arrives. So anything is
+        /// accepted, and what matches one of these is written the way the
+        /// protocol writes it - "stype2" and "sType2" are the same socket, and
+        /// sending both to a back end would make them look like two.
         ///
-        /// Copying the list into this file instead would mean a station whose
-        /// web interface knows a different set of plugs than the protocol stack
-        /// underneath it, and the two would drift apart at the first new
-        /// standard.
+        /// By reflection rather than a copied list, so that the web interface
+        /// offers the same plugs the protocol stack underneath it knows,
+        /// instead of the two drifting apart at the first new standard.
         /// </remarks>
         public static readonly IReadOnlyList<String> KnownConnectorTypes =
             [.. typeof(OCPPv2_1.ConnectorType).
@@ -101,10 +112,23 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         #region Properties
 
         /// <summary>
-        /// The connector types as OCPP 2.1 knows them.
+        /// The connector types as OCPP 2.1 carries them.
         /// </summary>
         public IEnumerable<OCPPv2_1.ConnectorType> OCPPConnectorTypes
             => ConnectorTypes.Select(OCPPv2_1.ConnectorType.Parse);
+
+        /// <summary>
+        /// The connector types of this EVSE that OCPP 2.1 does not name itself.
+        /// </summary>
+        /// <remarks>
+        /// Perfectly allowed - see <see cref="KnownConnectorTypes"/> - but
+        /// worth one line in the log, because a plug nobody has heard of and a
+        /// plug somebody mistyped look exactly alike from here, and only the
+        /// person who typed it can tell them apart.
+        /// </remarks>
+        public IEnumerable<String> CustomConnectorTypes
+
+            => ConnectorTypes.Where(connectorType => !KnownConnectorTypes.Contains(connectorType, StringComparer.Ordinal));
 
         #endregion
 
@@ -172,21 +196,26 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                     if (String.IsNullOrEmpty(text))
                         continue;
 
-                    // Checked against the vocabulary and not merely parsed:
-                    // see KnownConnectorTypes for why parsing proves nothing.
-                    var known = KnownConnectorTypes.FirstOrDefault(candidate => String.Equals(candidate, text, StringComparison.OrdinalIgnoreCase));
-
-                    if (known is null)
+                    if (text.Length > MaxConnectorTypeLength)
                     {
-                        Error = $"EVSE {id}: '{text}' is not a connector type OCPP 2.1 defines.";
+                        Error = $"EVSE {id}: a connector type may be at most {MaxConnectorTypeLength} characters long.";
                         return false;
                     }
 
-                    // The spelling the protocol uses, not the one that was
-                    // typed: "stype2" and "sType2" are the same plug.
-                    text = known;
+                    if (text.Any(Char.IsControl) || text.Any(Char.IsWhiteSpace))
+                    {
+                        Error = $"EVSE {id}: a connector type is one word without spaces or control characters.";
+                        return false;
+                    }
 
-                    if (!connectorTypes.Contains(text))
+                    // Anything is a connector type - see KnownConnectorTypes -
+                    // but one that OCPP 2.1 names itself is written the way
+                    // OCPP 2.1 writes it, so that "stype2" and "sType2" do not
+                    // reach a back end as two different sockets.
+                    text = KnownConnectorTypes.FirstOrDefault(candidate => String.Equals(candidate, text, StringComparison.OrdinalIgnoreCase))
+                               ?? text;
+
+                    if (!connectorTypes.Contains(text, StringComparer.Ordinal))
                         connectorTypes.Add(text);
 
                 }
@@ -222,6 +251,67 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                        Trimmed(json, "meterSerialNumber")
                    );
 
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) TryParseList(JSON, out EVSEs, out Error)
+
+        /// <summary>
+        /// A whole list of EVSEs, with its numbering checked: OCPP counts them
+        /// from 1 upwards without gaps, and a station that told a CSMS about an
+        /// EVSE 4 it has no 3 for would be describing hardware nobody can find.
+        /// </summary>
+        public static Boolean TryParseList(JArray                                             JSON,
+                                           [NotNullWhen(true)]  out IReadOnlyList<EVSEConfig>? EVSEs,
+                                           [NotNullWhen(false)] out String?                    Error)
+        {
+
+            EVSEs  = null;
+            Error  = null;
+
+            var parsed = new List<EVSEConfig>();
+
+            foreach (var token in JSON)
+            {
+
+                if (!TryParse(token, out var evse, out Error))
+                    return false;
+
+                parsed.Add(evse);
+
+            }
+
+            if (parsed.Count == 0)
+            {
+                Error = "A charging station needs at least one EVSE.";
+                return false;
+            }
+
+            if (parsed.Count > MaxEVSEs)
+            {
+                Error = $"A charging station may have at most {MaxEVSEs} EVSEs here.";
+                return false;
+            }
+
+            var expected = 1;
+
+            foreach (var evse in parsed.OrderBy(evse => evse.Id))
+            {
+
+                if (evse.Id != expected)
+                {
+                    Error = $"The EVSEs must be numbered 1 to {parsed.Count} without gaps or repeats; {expected} is missing.";
+                    return false;
+                }
+
+                expected++;
+
+            }
+
+            EVSEs = [.. parsed.OrderBy(evse => evse.Id)];
             return true;
 
         }

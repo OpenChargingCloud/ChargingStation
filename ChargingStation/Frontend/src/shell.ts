@@ -87,10 +87,13 @@ export function shell(root:     HTMLElement,
                 </ul>
 
                 <div class="sidebar-foot">
-                    <div class="who" title="Signed in">
+                    <div class="who" title="Signed in as ${auth.user?.roles?.join(', ') ?? 'nobody'}">
                         <i class="fa-solid fa-user"></i>
                         <span>${auth.user?.username ?? '-'}</span>
                     </div>
+                    ${auth.user?.roles?.length
+                          ? html`<div class="roles small muted">${auth.user.roles.join(', ')}</div>`
+                          : ''}
                     <button type="button" id="sign-out" class="btn small">Sign out</button>
                     <div class="versions small muted">
                         station ${config.serverVersion} &middot; web ${config.frontendVersion}

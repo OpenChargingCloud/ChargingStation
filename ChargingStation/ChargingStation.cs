@@ -30,6 +30,7 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
+using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.Logging;
@@ -79,7 +80,26 @@ namespace cloud.charging.open.ChargingStation
         public const String  FaviconSVG          = "favicon.svg";
 
         private readonly  DNSClient                            dnsClient;
-        private readonly  NTSClient                            ntsClient;
+        private           NTSClient                            ntsClient;
+
+        /// <summary>
+        /// The name servers this station would ask, whether or not name
+        /// resolution is switched on at the moment.
+        /// </summary>
+        /// <remarks>
+        /// Kept beside the DNS client because switching name resolution off is
+        /// done by taking its servers away - which is what being switched off
+        /// actually means, for everything holding that client and not only for
+        /// the parts of this station that remember to ask first. Switching it
+        /// back on needs the list back, and this is where it waited.
+        /// </remarks>
+        private           IReadOnlyList<DNSServerConfig>       configuredDNSServers;
+
+        /// <summary>
+        /// Serialises changes to what this station is made of, so that two
+        /// browsers saving at the same moment do not build half a station each.
+        /// </summary>
+        private readonly  SemaphoreSlim                        reconfigureLock = new (1, 1);
 
         private readonly  HTTPServer                           httpServer;
         private readonly  HTTPPath                             httpRootPath;
@@ -87,8 +107,8 @@ namespace cloud.charging.open.ChargingStation
         private readonly  ConsoleLog?                          consoleLog;
         private readonly  TraceBridge?                         traceBridge;
 
-        private readonly  OCPPv1_6.   TestChargePointNode      cs01;
-        private readonly  OCPPv2_1.CS.TestChargingStationNode  cs02;
+        private           OCPPv1_6.   TestChargePointNode      cs01;
+        private           OCPPv2_1.CS.TestChargingStationNode  cs02;
 
         private           Boolean                              started;
 
@@ -112,20 +132,52 @@ namespace cloud.charging.open.ChargingStation
         public WebLoginFile           LoginFile              { get; }
 
         /// <summary>
-        /// Where the EVSEs live between starts.
+        /// Where everything this station can be told in writing lives between
+        /// starts: its name resolution, its time source, its EVSEs.
         /// </summary>
-        public EVSEConfigFile         EVSEFile               { get; }
+        public StationConfigFile      ConfigFile             { get; }
 
         /// <summary>
-        /// The EVSEs this station has, as the OCPP nodes were told about them
-        /// at the last start.
+        /// The EVSEs this station has, right now.
         /// </summary>
         /// <remarks>
-        /// Not what the file says right now: the OCPP nodes are built from this
-        /// list when the station is made, so a list saved since is what the
-        /// station will have next time, not what it has.
+        /// Changing this list rebuilds the OCPP nodes, so what it says and what
+        /// a back end is told about this station are never two different things.
         /// </remarks>
-        public IReadOnlyList<EVSEConfig>  EVSEs              { get; }
+        public IReadOnlyList<EVSEConfig>  EVSEs              { get; private set; }
+
+        /// <summary>
+        /// How this station resolves names.
+        /// </summary>
+        public DNSClient              DNSClient
+            => dnsClient;
+
+        /// <summary>
+        /// Where this station reads the time.
+        /// </summary>
+        /// <remarks>
+        /// Replaced rather than reconfigured when it is pointed at another
+        /// server: an NTS client is bound to its host at construction, and the
+        /// cookies and keys it holds belong to that host and to no other.
+        /// </remarks>
+        public NTSClient              NTSClient
+            => ntsClient;
+
+        /// <summary>
+        /// Whether this station resolves names at all.
+        /// </summary>
+        /// <remarks>
+        /// Switched off by taking the name servers away from the DNS client, so
+        /// that it is off for everything that was handed that client - not only
+        /// for the parts of this station that would have remembered to check a
+        /// flag first. A query then fails at once and says why.
+        /// </remarks>
+        public Boolean                DNSEnabled             { get; private set; } = true;
+
+        /// <summary>
+        /// Whether this station may ask its time server.
+        /// </summary>
+        public Boolean                NTSEnabled             { get; private set; } = true;
 
         /// <summary>
         /// The password this station made up because there was no login file,
@@ -204,7 +256,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="HTTPHostname">The address to listen on; the loopback address by default.</param>
         /// <param name="HTTPPort">The TCP port to listen on.</param>
         /// <param name="LoginFile">Where the web login lives; "web-login.json" beside the process by default.</param>
-        /// <param name="EVSEFile">Where the EVSEs live; "evses.json" beside the process by default.</param>
+        /// <param name="ConfigFile">Where everything this station can be told in writing lives; "configuration.json" beside the process by default.</param>
+        /// <param name="EVSEs">What this station is made of, unless the configuration file says otherwise; one 22 kW type 2 socket by default.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
@@ -219,7 +272,8 @@ namespace cloud.charging.open.ChargingStation
                                IIPAddress?            HTTPHostname      = null,
                                IPPort?                HTTPPort          = null,
                                WebLoginFile?          LoginFile         = null,
-                               EVSEConfigFile?        EVSEFile          = null,
+                               StationConfigFile?     ConfigFile        = null,
+                               IEnumerable<EVSEConfig>?  EVSEs          = null,
                                IStaticContentSource?  Frontend          = null,
                                V2GOptions?            V2G               = null,
                                EventLog?              Log               = null,
@@ -295,28 +349,40 @@ namespace cloud.charging.open.ChargingStation
 
             #endregion
 
-            #region The EVSEs this station has
+            #region What the configuration file says
 
-            this.EVSEFile = EVSEFile ?? new EVSEConfigFile(EVSEConfigFile.DefaultFileName);
+            this.ConfigFile = ConfigFile ?? new StationConfigFile(StationConfigFile.DefaultFileName);
 
-            if (this.EVSEFile.TryLoad(out var loadedEVSEs, out var evseError) && loadedEVSEs is not null)
-            {
-                this.EVSEs = loadedEVSEs;
-                this.Log.Info($"{this.EVSEs.Count} EVSE(s) from '{this.EVSEFile.Path}'.", "evse", "config");
-            }
+            StationConfiguration? configuration = null;
 
-            else
+            if (this.ConfigFile.Exists)
             {
 
                 // A file that is there but cannot be read is not something to
-                // paper over with a default station: somebody described their
-                // hardware and got it wrong, and quietly charging on one
-                // imaginary socket instead would be worse than stopping.
-                if (evseError is not null)
-                    throw new InvalidOperationException($"{evseError} Repair or remove '{this.EVSEFile.Path}' and start again.");
+                // paper over with defaults: somebody wrote down what their
+                // station is and got it wrong, and quietly running as something
+                // else instead would be worse than stopping.
+                if (!this.ConfigFile.TryLoad(out configuration, out var configError))
+                    throw new InvalidOperationException($"{configError} Repair or remove '{this.ConfigFile.Path}' and start again.");
 
-                this.EVSEs = [ EVSEConfig.Default(1) ];
-                this.Log.Info($"No EVSEs configured, so this station has one: {this.EVSEs[0]}.", "evse", "config");
+                this.Log.Info($"Configuration from '{this.ConfigFile.Path}': {configuration}.", "config");
+
+            }
+
+            // The EVSEs used to live in a file of their own. Somebody who has
+            // one of those and starts this station would otherwise find it
+            // running on one imaginary socket and no explanation anywhere.
+            if (configuration?.EVSEs is null)
+            {
+
+                var formerEVSEFile = Path.Combine(Path.GetDirectoryName(this.ConfigFile.Path) ?? ".", "evses.json");
+
+                if (File.Exists(formerEVSEFile))
+                    this.Log.Warning(
+                        $"'{formerEVSEFile}' is no longer read: the EVSEs now live in the \"evses\" section of " +
+                        $"'{this.ConfigFile.Path}'. Move them over, or configure them again in the web interface.",
+                        "evse", "config"
+                    );
 
             }
 
@@ -324,17 +390,42 @@ namespace cloud.charging.open.ChargingStation
 
             #region The clients everything below shares
 
-            this.dnsClient     = DNSClient    ?? new DNSClient();
+            this.dnsClient             = DNSClient ?? new DNSClient();
+            this.configuredDNSServers  = [.. dnsClient.DNSServers];
 
             // The clock goes to the time client too: a station that reads one
             // clock itself and disciplines another would have two, which is
             // one more than a charging station may have.
             this.ntsClient     = NTSClient    ?? new NTSClient(
-                                                     DomainName.Parse("ptbtime1.ptb.de"),
+                                                     DomainName.Parse(NTSConfiguration.DefaultHostname),
                                                      Timeout:         TimeSpan.FromSeconds(10),
                                                      DNSClient:       dnsClient,
                                                      TimeProvider:    this.TimeProvider
                                                  );
+
+            // Last, and that is the whole precedence rule: what this
+            // constructor was handed holds until the file says otherwise, and
+            // what the file does not mention is left exactly as it was.
+            if (configuration?.DNS is not null)
+                ApplyDNSConfiguration(configuration.DNS);
+
+            if (configuration?.NTS is not null)
+                ApplyNTSConfiguration(configuration.NTS);
+
+            #endregion
+
+            #region The EVSEs this station has
+
+            this.EVSEs = configuration?.EVSEs
+                             ?? EVSEs?.OrderBy(evse => evse.Id).ToArray()
+                             ?? [ EVSEConfig.Default(1) ];
+
+            this.Log.Info(
+                $"{this.EVSEs.Count} EVSE(s): {String.Join("; ", this.EVSEs)}.",
+                "evse", "config"
+            );
+
+            LogCustomConnectorTypes(this.EVSEs);
 
             #endregion
 
@@ -455,83 +546,15 @@ namespace cloud.charging.open.ChargingStation
 
             #region The OCPP nodes
 
-            cs01 = new OCPPv1_6.TestChargePointNode(
-                       ChargeBoxId:               NetworkingNode_Id.Parse("test01"),
-                       Connectors:                [.. EVSEs.Select(evse =>
-                                                      new OCPPv1_6.CP.ConnectorSpec(
-                                                          Availability:        evse.Operative
-                                                                                   ? OCPPv1_6.Availabilities.Operative
-                                                                                   : OCPPv1_6.Availabilities.Inoperative,
-                                                          PhysicalReference:   evse.PhysicalReference,
-                                                          MaxPower:            Watt.FromKW(evse.MaxPower_kW),
-                                                          MaxEnergy:           null,
-                                                          EnergyMeter:         null
-                                                      ))],
-                       Description:               null,
-                       ChargePointVendor:         null,
-                       ChargePointModel:          null,
-                       ChargePointSerialNumber:   null,
-                       ChargeBoxSerialNumber:     null,
-                       FirmwareVersion:           null,
-                       Iccid:                     null,
-                       IMSI:                      null,
-                       UplinkEnergyMeter:         null
-                   );
-
-            cs02 = new OCPPv2_1.CS.TestChargingStationNode(
-                       Id:                             NetworkingNode_Id.Parse("test02"),
-                       VendorName:                     "gef",
-                       Model:                          "cs1",
-                       Description:                    I18NString.Empty,
-                       SerialNumber:                   null,
-                       FirmwareVersion:                null,
-                       Modem:                          null,
-
-                       EVSEs:                          [.. EVSEs.Select(evse =>
-                                                           new OCPPv2_1.CS.EVSESpec(
-                                                               AdminStatus:         evse.Operative
-                                                                                        ? OCPPv2_1.OperationalStatus.Operative
-                                                                                        : OCPPv2_1.OperationalStatus.Inoperative,
-                                                               ConnectorTypes:      evse.OCPPConnectorTypes,
-                                                               MeterType:           evse.MeterType         ?? "",
-                                                               MeterSerialNumber:   evse.MeterSerialNumber ?? "",
-                                                               MeterPublicKey:      ""
-                                                           ))],
-                       UplinkEnergyMeter:              null,
-
-                       DefaultRequestTimeout:          null,
-
-                       SignaturePolicy:                null,
-                       ForwardingSignaturePolicy:      null,
-
-                       HTTPAPI_Disabled:               true,
-                       HTTPAPI_Port:                   null,
-                       HTTPAPI_ServerName:             null,
-                       HTTPAPI_ServiceName:            null,
-                       HTTPAPI_RobotEMailAddress:      null,
-                       HTTPAPI_RobotGPGPassphrase:     null,
-                       HTTPAPI_EventLoggingDisabled:   true,
-
-                       WebAPI:                         null,
-                       WebAPI_Disabled:                true,
-                       WebAPI_Path:                    null,
-
-                       ControlWebSocketServer:         null,
-
-                       DisableSendHeartbeats:          true,
-                       SendHeartbeatsEvery:            null,
-
-                       DisableMaintenanceTasks:        true,
-                       MaintenanceEvery:               null,
-
-                       CustomData:                     null,
-                       DNSClient:                      dnsClient
-                   );
+            // Built from the EVSEs above, and rebuilt whenever those change -
+            // see BuildOCPPNodes, which is the one place that knows how an EVSE
+            // of this station is spelled in each of the two protocols.
+            (cs01, cs02) = BuildOCPPNodes(this.EVSEs);
 
             // "this." and not for tidiness: the parameters of this constructor
             // shadow the properties of the same name, and the "Log" parameter
             // is null whenever the caller did not bring an event log of its own.
-            this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up with {EVSEs.Count} EVSE(s).", "ocpp");
+            this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up with {this.EVSEs.Count} EVSE(s).", "ocpp");
 
             #endregion
 
@@ -750,6 +773,8 @@ namespace cloud.charging.open.ChargingStation
 
             traceBridge?.Dispose();
             consoleLog? .Dispose();
+
+            reconfigureLock.Dispose();
 
             GC.SuppressFinalize(this);
 

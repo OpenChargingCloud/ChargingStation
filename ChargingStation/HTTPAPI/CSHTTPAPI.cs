@@ -182,12 +182,17 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/status",        GetStatus,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
 
-            AddHandler(HTTPPath.Root + "v1/configuration/dns", GetDNSConfiguration, HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/dns", PutDNSConfiguration, HTTPMethod.PUT);
-            AddHandler(HTTPPath.Root + "v1/configuration/nts", GetNTSConfiguration, HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/nts", PutNTSConfiguration, HTTPMethod.PUT);
-            AddHandler(HTTPPath.Root + "v1/configuration/evses", GetEVSEConfiguration, HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/evses", PutEVSEConfiguration, HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/dns",        GetDNSConfiguration,   HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/dns",        PutDNSConfiguration,   HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/dns/query",  PostDNSQuery,          HTTPMethod.POST);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/nts",        GetNTSConfiguration,   HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/nts",        PutNTSConfiguration,   HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/nts/sync",   PostNTSSync,           HTTPMethod.POST);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,  HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,  HTTPMethod.PUT);
+
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
             AddHandler(HTTPMethod.GET,
@@ -233,7 +238,7 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            Log.Notice($"'{session.UserId}' signed in from {Request.RemoteSocket}.", "web", "auth");
+            Log.Notice($"'{session.UserId}' signed in from {Request.RemoteSocket} as {String.Join(", ", Sessions.Roles.Select(role => role.Name))}.", "web", "auth");
 
             return new HTTPResponse.Builder(Request) {
                        HTTPStatusCode  = HTTPStatusCode.OK,
@@ -336,8 +341,8 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.ConfigurationJSON())
@@ -355,8 +360,8 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.DNSConfigurationJSON())
@@ -372,10 +377,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
-
-            if (RefuseCrossSite(Request) is HTTPResponse refused)
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -390,6 +392,43 @@ namespace cloud.charging.open.ChargingStation
 
         }
 
+        /// <summary>
+        /// POST /api/v1/configuration/dns/query with {"name", "recordTypes"}:
+        /// make this station look a name up and say what came back.
+        /// </summary>
+        /// <remarks>
+        /// A POST although it changes nothing here, because it makes this
+        /// station send traffic to a host somebody named - which is not
+        /// something to leave sitting in a URL that a browser may repeat,
+        /// prefetch or put in a history.
+        /// </remarks>
+        private async Task<HTTPResponse> PostDNSQuery(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var session, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            var name = json.Value<String>("name")?.Trim();
+
+            if (String.IsNullOrEmpty(name))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "A 'name' to look up is required.");
+
+            if (!ChargingStation.TryParseRecordTypes(json["recordTypes"], out var recordTypes, out var problem))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, problem);
+
+            Log.Info($"'{session.UserId}' asked this station to resolve '{name}'.", "dns", "test", "web");
+
+            return JSONResponse(
+                       Request,
+                       HTTPStatusCode.OK,
+                       await Station.ResolveAsync(name, recordTypes, Request.CancellationToken)
+                   );
+
+        }
+
         #endregion
 
         #region (private) GetNTSConfiguration(Request) / PutNTSConfiguration(Request)
@@ -400,8 +439,8 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.NTSConfigurationJSON())
@@ -415,10 +454,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
-
-            if (RefuseCrossSite(Request) is HTTPResponse refused)
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -433,6 +469,34 @@ namespace cloud.charging.open.ChargingStation
 
         }
 
+        /// <summary>
+        /// POST /api/v1/configuration/nts/sync: one key exchange and one
+        /// authenticated NTP request, with every step in the log.
+        /// </summary>
+        /// <remarks>
+        /// Answers with the whole NTS configuration and not only with the
+        /// result, because an exchange moves the cookie pool, the key material
+        /// and the record of the last exchange - all of which the page is
+        /// showing while it waits.
+        /// </remarks>
+        private async Task<HTTPResponse> PostNTSSync(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var session, out var refused))
+                return refused;
+
+            Log.Info($"'{session.UserId}' asked this station to synchronise its time.", "nts", "test", "web");
+
+            var result = await Station.SyncTimeAsync(Request.CancellationToken);
+
+            var json   = Station.NTSConfigurationJSON();
+
+            json["result"] = result;
+
+            return JSONResponse(Request, HTTPStatusCode.OK, json);
+
+        }
+
         #endregion
 
         #region (private) GetEVSEConfiguration(Request) / PutEVSEConfiguration(Request)
@@ -443,8 +507,8 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetEVSEConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEConfigurationJSON())
@@ -458,10 +522,9 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutEVSEConfiguration(HTTPRequest Request)
         {
 
-            if (!TryGetSession(Request, out _, out var unauthorized))
-                return Task.FromResult(unauthorized);
-
-            if (RefuseCrossSite(Request) is HTTPResponse refused)
+            // The hardware permission, not the network one: what is bolted to
+            // the wall is not something an operator redescribes from a browser.
+            if (!TryAuthorize(Request, Permissions.ChangeHardware, true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -681,6 +744,76 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) TryAuthorize(Request, Required, StateChanging, out Session, out Refused)
+
+        /// <summary>
+        /// The live session behind the request, when it is allowed to do this -
+        /// or the response that says why not.
+        /// </summary>
+        /// <remarks>
+        /// Three refusals, in the order they have to happen: a request from
+        /// another site is turned away before it is read at all, a request
+        /// without a session is a 401 that also expires a stale cookie, and a
+        /// request from somebody signed in who may not do this is a 403 naming
+        /// the permission they are short of and the roles that carry it. The
+        /// difference between the last two matters to a browser: 401 means sign
+        /// in again, 403 means signing in again will not help.
+        /// </remarks>
+        /// <param name="Request">The request.</param>
+        /// <param name="Required">What this request needs permission to do.</param>
+        /// <param name="StateChanging">Whether it changes something, and is therefore also checked for being cross-site.</param>
+        /// <param name="Session">The session behind it.</param>
+        /// <param name="Refused">The response to send instead.</param>
+        private Boolean TryAuthorize(HTTPRequest                             Request,
+                                     Permissions                             Required,
+                                     Boolean                                 StateChanging,
+                                     [NotNullWhen(true)]  out Session?       Session,
+                                     [NotNullWhen(false)] out HTTPResponse?  Refused)
+        {
+
+            Session = null;
+
+            if (StateChanging && RefuseCrossSite(Request) is HTTPResponse crossSite)
+            {
+                Refused = crossSite;
+                return false;
+            }
+
+            if (!TryGetSession(Request, out Session, out Refused))
+                return false;
+
+            var permissions = Sessions.PermissionsOf(Session);
+
+            if (!permissions.HasFlag(Required))
+            {
+
+                var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
+                                           Select(role => role.Name);
+
+                Log.Warning(
+                    $"'{Session.UserId}' was refused {Required} on {Request.HTTPMethod} {Request.Path}; " +
+                    $"signed in as {String.Join(", ", Sessions.Roles.Select(role => role.Name))}.",
+                    "web", "auth"
+                );
+
+                Refused = ErrorJSON(
+                              Request,
+                              HTTPStatusCode.Forbidden,
+                              $"This needs the {String.Join(" or ", allowed)} role."
+                          );
+
+                Session = null;
+                return false;
+
+            }
+
+            Refused = null;
+            return true;
+
+        }
+
+        #endregion
+
         #region (private static) RefuseCrossSite(Request)
 
         /// <summary>
@@ -760,16 +893,29 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private static) MeJSON(Session)
+        #region (private) MeJSON(Session)
 
-        private static JObject MeJSON(Session Session)
+        /// <summary>
+        /// Who is signed in, and what they may do.
+        /// </summary>
+        /// <remarks>
+        /// The permissions travel to the browser so that a page can grey out
+        /// what this person may not do, rather than offering it and letting
+        /// them find out by being refused. They are a copy of what the station
+        /// enforces and not the enforcement: every request is checked again on
+        /// arrival, so a browser that edits this list gains nothing but a
+        /// button that answers 403.
+        /// </remarks>
+        private JObject MeJSON(Session Session)
 
             => new (
-                   new JProperty("username",  Session.UserId.ToString()),
-                   new JProperty("session",   new JObject(
-                                                  new JProperty("createdAt",  Session.CreatedAt.ToString("o")),
-                                                  new JProperty("expiresAt",  Session.ExpiresAt.ToString("o"))
-                                              ))
+                   new JProperty("username",     Session.UserId.ToString()),
+                   new JProperty("roles",        new JArray(Sessions.Roles.Select(role => role.Name))),
+                   new JProperty("permissions",  new JArray(Sessions.PermissionsOf(Session).Names())),
+                   new JProperty("session",      new JObject(
+                                                     new JProperty("createdAt",  Session.CreatedAt.ToString("o")),
+                                                     new JProperty("expiresAt",  Session.ExpiresAt.ToString("o"))
+                                                 ))
                );
 
         #endregion

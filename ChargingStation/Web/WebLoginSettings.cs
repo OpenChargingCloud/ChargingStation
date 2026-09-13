@@ -40,11 +40,67 @@ namespace cloud.charging.open.ChargingStation.Web
     /// is only ever compared against what somebody typed, so nothing here ever
     /// needs to know it.
     /// </remarks>
-    /// <param name="Username">The one username.</param>
-    /// <param name="Password">The hashed password.</param>
-    public sealed record WebLoginSettings(String          Username,
-                                          SecurePassword  Password)
+    public sealed record WebLoginSettings
     {
+
+        #region Properties
+
+        /// <summary>
+        /// The one username.
+        /// </summary>
+        public String                   Username     { get; init; }
+
+        /// <summary>
+        /// The hashed password.
+        /// </summary>
+        public SecurePassword           Password     { get; init; }
+
+        /// <summary>
+        /// What this login signs in as.
+        /// </summary>
+        /// <remarks>
+        /// A list although there is one login, because a role is a property of
+        /// whoever signs in and not of the station: the day this file holds
+        /// more than one login, nothing above this line has to change.
+        /// </remarks>
+        public IReadOnlyList<UserRole>  Roles        { get; init; }
+
+        /// <summary>
+        /// Everything those roles grant together.
+        /// </summary>
+        public Permissions              Permissions
+            => Roles.PermissionsOf();
+
+        #endregion
+
+        #region Constructor(s)
+
+        /// <summary>
+        /// Who may open the web interface of this charging station.
+        /// </summary>
+        /// <param name="Username">The one username.</param>
+        /// <param name="Password">The hashed password.</param>
+        /// <param name="Roles">What they sign in as; a system administrator when nothing says otherwise.</param>
+        /// <remarks>
+        /// The default is the whole of it, and that is not carelessness: the
+        /// one login a station makes up for itself on a first start belongs to
+        /// whoever unpacked it, and there is nobody else yet to hand the rest
+        /// to. Every login that comes from a file says its own roles.
+        /// </remarks>
+        public WebLoginSettings(String                 Username,
+                                SecurePassword         Password,
+                                IEnumerable<UserRole>? Roles   = null)
+        {
+
+            this.Username  = Username;
+            this.Password  = Password;
+            this.Roles     = Roles?.Distinct().ToArray() is { Length: > 0 } roles
+                                 ? roles
+                                 : [ UserRole.SystemAdmin ];
+
+        }
+
+        #endregion
 
         #region Data
 
@@ -67,10 +123,11 @@ namespace cloud.charging.open.ChargingStation.Web
         /// A login from what a person typed, with the password hashed - or the
         /// one sentence that says what is wrong with them.
         /// </summary>
-        public static Boolean TryCreate(String?                                   Username,
-                                        String?                                   Password,
-                                        [NotNullWhen(true)]  out WebLoginSettings? Login,
-                                        [NotNullWhen(false)] out String?           Error)
+        public static Boolean TryCreate(String?                                    Username,
+                                        String?                                    Password,
+                                        IEnumerable<UserRole>?                     Roles,
+                                        [NotNullWhen(true)]  out WebLoginSettings?  Login,
+                                        [NotNullWhen(false)] out String?            Error)
         {
 
             Login  = null;
@@ -90,7 +147,7 @@ namespace cloud.charging.open.ChargingStation.Web
                 return false;
             }
 
-            Login = new WebLoginSettings(username, SecurePassword.Create(Password));
+            Login = new WebLoginSettings(username, SecurePassword.Create(Password), Roles);
             return true;
 
         }
@@ -114,7 +171,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                    Replace('/', '_').
                                    TrimEnd('=');
 
-            return (new WebLoginSettings(Username, SecurePassword.Create(password)), password);
+            return (new WebLoginSettings(Username, SecurePassword.Create(password), [ UserRole.SystemAdmin ]), password);
 
         }
 
@@ -162,12 +219,20 @@ namespace cloud.charging.open.ChargingStation.Web
         #region (static) TryParse(JSON, out Login, out Error)
 
         /// <summary>
-        /// The login from the file: {"username", "password"}, the password as
-        /// a PHC string.
+        /// The login from the file: {"username", "password", "roles"}, the
+        /// password as a PHC string.
         /// </summary>
-        public static Boolean TryParse(JObject                                    JSON,
-                                       [NotNullWhen(true)]  out WebLoginSettings? Login,
-                                       [NotNullWhen(false)] out String?           Error)
+        /// <remarks>
+        /// A file without "roles" describes a system administrator - that is
+        /// what the one login of a station used to be, and reading an old file
+        /// as something less would lock whoever wrote it out of their own
+        /// station. A file with an empty "roles" is refused instead: somebody
+        /// wrote a list and meant something by it, and "may sign in and do
+        /// nothing" is not a thing anybody means.
+        /// </remarks>
+        public static Boolean TryParse(JObject                                     JSON,
+                                       [NotNullWhen(true)]  out WebLoginSettings?  Login,
+                                       [NotNullWhen(false)] out String?            Error)
         {
 
             Login  = null;
@@ -187,7 +252,31 @@ namespace cloud.charging.open.ChargingStation.Web
                 return false;
             }
 
-            Login = new WebLoginSettings(username, password);
+            var roles = new List<UserRole>();
+
+            if (JSON["roles"] is JArray roleNames)
+            {
+
+                foreach (var roleName in roleNames)
+                {
+
+                    if (!UserRole.TryParse(roleName.Value<String>(), out var role, out Error))
+                        return false;
+
+                    if (!roles.Contains(role))
+                        roles.Add(role);
+
+                }
+
+                if (roles.Count == 0)
+                {
+                    Error = $"The login of \"{username}\" lists no roles at all, which would let nobody do anything.";
+                    return false;
+                }
+
+            }
+
+            Login = new WebLoginSettings(username, password, roles.Count > 0 ? roles : null);
             return true;
 
         }
@@ -205,7 +294,8 @@ namespace cloud.charging.open.ChargingStation.Web
         {
 
             var json = new JObject(
-                           new JProperty("username", Username)
+                           new JProperty("username",  Username),
+                           new JProperty("roles",     new JArray(Roles.Select(role => role.Name)))
                        );
 
             if (IncludePasswordHash)
