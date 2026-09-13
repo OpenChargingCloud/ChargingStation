@@ -174,13 +174,13 @@ namespace cloud.charging.open.ChargingStation
         private void RegisterURLTemplates()
         {
 
-            AddHandler(HTTPPath.Root + "v1/auth/login",   Login,             HTTPMethod.POST);
-            AddHandler(HTTPPath.Root + "v1/auth/logout",  Logout,            HTTPMethod.POST);
-            AddHandler(HTTPPath.Root + "v1/auth/me",      Me,                HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/auth/login",    Login,             HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/auth/logout",   Logout,            HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/auth/me",       Me,                HTTPMethod.GET);
 
-            AddHandler(HTTPPath.Root + "v1/status",       GetStatus,         HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration, HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/logs",         GetLogs,           HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/status",        GetStatus,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
             AddHandler(HTTPMethod.GET,
                        HTTPPath.Root + "v1/events",

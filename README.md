@@ -41,7 +41,8 @@ user `root`, writes its hash to `web-login.json` and prints the password once:
 Then open http://127.0.0.1:2348/ and sign in.
 
 `--help` lists the rest: `--port`, `--any`, `--web-login <file>`,
-`--frontend <dir>`, `--verbose`, `--quiet`, `--no-trace`.
+`--frontend <dir>`, `--verbose`, `--quiet`, `--no-trace`, and the `--v2g`
+family below.
 
 
 ## Building
@@ -78,6 +79,7 @@ webpack has just written.
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
 | `Web/WebSessions.cs`      | who is signed in: one login in front of Hermod's `SessionStore`, and the cookie its token travels in |
 | `Web/WebLogin*.cs`        | that one login and the file it lives in, its password a `SecurePassword` and never in the clear |
+| `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
 | `Logging/EventLog.cs`     | everything that happens, with timestamps and tags, kept in a ring buffer and handed on at once |
 | `Logging/TraceBridge.cs`  | what the libraries below write with `DebugX`, into the same log |
 | `Frontend/`               | the npm project: `src/pages/` are the pages, `src/shell.ts` the menu around them |
@@ -88,6 +90,47 @@ the conditional requests, the Brotli and gzip negotiation, the caching policy
 and the security headers, and answers a URL that names no file with the stub.
 This project brings the bundle and one literal route for `/favicon.ico`, which
 browsers ask for whatever the page says and which the bundle carries as an SVG.
+
+
+## The wire below the charging cable
+
+Off unless `--v2g` asks for it: binding UDP 15118, joining an IPv6 multicast
+group and putting a listener on a link-local address is not something to do on
+a developer's laptop because the binary happened to start.
+
+Three things, in the order a vehicle meets them:
+
+1. **SLAC** matches the powerline modem in the car to the one in this station,
+   so that the two share a network and nobody talks to the car parked next to
+   it (ISO 15118-3, HomePlug Green PHY). The real medium is AF_PACKET and
+   therefore Linux; `--slac-udp 127.0.0.1:0` runs a simulated one on a bench.
+   The simulated medium is never chosen by itself - a station that matched
+   vehicles over UDP without being told to would look like it works and be
+   talking to nothing.
+2. **SDP** answers the car asking, over IPv6 multicast, where the V2G endpoint
+   is.
+3. The **V2G endpoint** is what that answer points at: a TCP listener, with
+   TLS 1.3 where `--v2g-cert` gave it a certificate.
+
+They are wired to each other and not merely started next to each other: the
+listener is bound first, and the port the operating system gave it is what SDP
+advertises. Likewise, a station without a certificate advertises `NoTLS`
+rather than sending every vehicle into a handshake that cannot finish - and
+says so, loudly, at startup.
+
+```
+18:14:58,892 NOTICE  15118 v2g tls  The V2G endpoint is listening on [::]:53256 without TLS.
+18:14:58,901 NOTICE  15118 sdp      SDP is answering on 'eth1', pointing vehicles at port 53256.
+18:14:58,907 NOTICE  15118 slac     SLAC is listening on the powerline interface.
+18:15:17,596 NOTICE  15118 v2g      A vehicle connected to the V2G endpoint.
+18:15:17,617 INFO    15118 v2g      Its first V2GTP frame is ExiMainstream, 12 bytes.
+```
+
+What is **not** there yet is the session above the listener - SupportedAppProtocol,
+the EXI messages of -2 or -20, the charging loop. A connection is accepted, its
+first V2GTP frame is read and named, and then it is closed again, which is the
+difference between "the listener is bound" and "a vehicle came all the way
+through SLAC and SDP and got here".
 
 
 ## The log

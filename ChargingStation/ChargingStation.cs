@@ -32,6 +32,7 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
+using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -135,6 +136,18 @@ namespace cloud.charging.open.ChargingStation
         public HTTPAPI?               WebInterface           { get; }
 
         /// <summary>
+        /// What is on the wire below the charging cable - SLAC, SDP and the
+        /// V2G endpoint - once <see cref="Start"/> has brought it up; null when
+        /// this station was not asked for any of it.
+        /// </summary>
+        public V2GLink?               V2G                    { get; private set; }
+
+        /// <summary>
+        /// What was asked for on that wire.
+        /// </summary>
+        public V2GOptions             V2GOptions             { get; }
+
+        /// <summary>
         /// The URL to open in a browser.
         /// </summary>
         public URL                    WebInterfaceURL        { get; }
@@ -165,6 +178,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="HTTPPort">The TCP port to listen on.</param>
         /// <param name="LoginFile">Where the web login lives; "web-login.json" beside the process by default.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
+        /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
@@ -177,6 +191,7 @@ namespace cloud.charging.open.ChargingStation
                                IPPort?                HTTPPort          = null,
                                WebLoginFile?          LoginFile         = null,
                                IStaticContentSource?  Frontend          = null,
+                               V2GOptions?            V2G               = null,
                                EventLog?              Log               = null,
                                Boolean                LogToConsole      = true,
                                LogLevel               ConsoleLogLevel   = LogLevel.Info,
@@ -198,6 +213,8 @@ namespace cloud.charging.open.ChargingStation
             this.traceBridge  = BridgeDebugLog
                                     ? TraceBridge.Attach(this.Log)
                                     : null;
+
+            this.V2GOptions   = V2G ?? V2GOptions.Off;
 
             this.Log.Notice($"Charging station v{this.Version} starting up.", "station");
 
@@ -466,6 +483,11 @@ namespace cloud.charging.open.ChargingStation
             Log.Notice($"The web interface is listening on {WebInterfaceURL}", "web", "http");
             Log.Info   ($"The JSON API is at {WebInterfaceURL}{httpRootPath.ToString().Trim('/')}/v1/status", "web", "http");
 
+            // After the web interface, so that whoever is watching the Logs
+            // page sees SLAC, SDP and the V2G endpoint come up rather than
+            // having to reload to find out how it went.
+            V2G = await V2GLink.TryStart(V2GOptions, Log);
+
             //var ws01          = await cs01.ConnectOCPPWebSocketClient(
             //                              RemoteURL:                   URL.Parse("wss://c.electriqua.com/abesp7/test01"),
             //                              RemoteCertificateValidator:  (sender, certificate, chain, client, policyErrors) => {
@@ -493,6 +515,12 @@ namespace cloud.charging.open.ChargingStation
                 return;
 
             Log.Notice("The charging station is shutting down.", "station");
+
+            if (V2G is not null)
+            {
+                await V2G.DisposeAsync();
+                V2G = null;
+            }
 
             await httpServer.Stop();
 
@@ -551,6 +579,10 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("debugBridge",    traceBridge is not null),
                        new JProperty("console",        consoleLog is not null),
                        new JProperty("tags",           new JArray(Log.KnownTags))
+                   )),
+
+                   new JProperty("v2g",        V2G?.ToJSON() ?? new JObject(
+                       new JProperty("enabled",        false)
                    )),
 
                    new JProperty("time",       new JObject(

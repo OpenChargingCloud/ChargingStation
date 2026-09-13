@@ -14,6 +14,11 @@
     <ProjectReference Include="..\..\Styx\Styx\Styx.csproj" />
     <ProjectReference Include="..\..\WWCP_Core\WWCP_CoreData\WWCP_CoreData.csproj" />
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_2\WWCP_ISO15118_2.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_NetworkInterfaces\WWCP_ISO15118_NetworkInterfaces.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_SDP\WWCP_ISO15118_SDP.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_SLAC\WWCP_ISO15118_SLAC.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_Session\WWCP_ISO15118_Session.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_V2GTP\WWCP_ISO15118_V2GTP.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv1.6\WWCP_OCPPv1.6.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv1.6_ChargePoint\WWCP_OCPPv1.6_ChargePoint.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv2.1\WWCP_OCPPv2.1.csproj" />
@@ -29,7 +34,8 @@
     Frontend/dist. This project runs that build and embeds dist/ as manifest
     resources named "<RootNamespace>.HTTPRoot.<dir>.<file>", e.g.
     "cloud.charging.open.ChargingStation.HTTPRoot.assets.main.3f9c1a.js" -
-    which is what Web/StaticContent.cs reads and Web/WebFrontend.cs serves.
+    which is what Hermod's EmbeddedContentSource reads and
+    MapSinglePageApplication serves.
 
       dotnet build                            builds the frontend when its inputs changed
       dotnet build -p:SkipFrontendBuild=true  backend only, reuses the existing dist/
