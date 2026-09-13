@@ -17,12 +17,13 @@ import { errorMessage } from '../ui';
  * what a back end would be told about this station are never two different
  * things. No restart is owed.
  *
- * Two permissions meet on this page, and the difference between them is the
- * reason the whole thing is laid out the way it is. What a cable may deliver is
- * a number that gets corrected - the installer may change it. What cable is
- * fitted at all is a claim about the wall, and nothing further down can check
- * it: a vehicle is simply told what it is looking at. That takes the system
- * administrator role. See Web/UserRoles.cs.
+ * Three permissions meet on this page, and the difference between them is the
+ * reason the whole thing is laid out the way it is. Taking an EVSE out of
+ * service is a switch, and what a cable may deliver is a number that gets
+ * corrected - the installer may do both. What cable is fitted at all is a claim
+ * about the wall, and nothing further down can check it: a vehicle is simply
+ * told what it is looking at. That takes the system administrator role. See
+ * Web/UserRoles.cs.
  */
 export const evsesPage: Page = {
 
@@ -41,8 +42,10 @@ export const evsesPage: Page = {
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
 
-        const mayChangeHardware = auth.can('changeHardware');
-        const mayChangeLimits   = auth.can('changePowerLimits');
+        const mayChangeHardware     = auth.can('changeHardware');
+        const mayChangeLimits       = auth.can('changePowerLimits');
+        const mayChangeAvailability = auth.can('changeAvailability');
+        const mayChangeAnything     = mayChangeHardware || mayChangeLimits || mayChangeAvailability;
 
         let cancelled     = false;
         let configuration: EVSEConfiguration | null = null;
@@ -61,55 +64,71 @@ export const evsesPage: Page = {
             });
         }
 
+        /** What a draft amounts to; more than one of these can be true at once. */
+        interface Change {
+            hardware:      boolean;
+            powerLimits:   boolean;
+            availability:  boolean;
+        }
+
         /**
          * What kind of change the draft would be - the same question the
          * station asks itself when the request arrives, asked here so that
          * somebody who may not do it is told before they press Save rather
          * than by a 403 afterwards.
          */
-        function changeKind(): 'none' | 'power' | 'hardware' {
+        function changeKind(): Change {
 
             const saved = configuration?.evses ?? [];
 
+            // A different number of them is a different station, and there is
+            // nothing to compare switch by switch: the lists do not line up.
             if (saved.length !== draft.length)
-                return 'hardware';
+                return { hardware: true, powerLimits: false, availability: false };
 
-            const sameHardware = draft.every((evse, index) => {
+            return {
 
-                const other = saved[index];
+                hardware: draft.some((evse, index) => {
 
-                return evse.id                === other.id                &&
-                       evse.operative         === other.operative         &&
-                       evse.physicalReference === other.physicalReference &&
-                       evse.meterType         === other.meterType         &&
-                       evse.meterSerialNumber === other.meterSerialNumber &&
-                       evse.connectors.length === other.connectors.length &&
-                       evse.connectors.every((connector, position) => connector.type === other.connectors[position].type);
+                    const other = saved[index];
 
-            });
+                    return evse.id                !== other.id                ||
+                           evse.physicalReference !== other.physicalReference ||
+                           evse.meterType         !== other.meterType         ||
+                           evse.meterSerialNumber !== other.meterSerialNumber ||
+                           evse.connectors.length !== other.connectors.length ||
+                           evse.connectors.some((connector, position) => connector.type !== other.connectors[position].type);
 
-            if (!sameHardware)
-                return 'hardware';
+                }),
 
-            const samePower = draft.every((evse, index) => {
+                powerLimits: draft.some((evse, index) => {
 
-                const other = saved[index];
+                    const other = saved[index];
 
-                return evse.maxPower_kW === other.maxPower_kW &&
-                       evse.connectors.every((connector, position) => connector.maxPower_kW === other.connectors[position].maxPower_kW);
+                    return evse.maxPower_kW !== other.maxPower_kW ||
+                           evse.connectors.length !== other.connectors.length ||
+                           evse.connectors.some((connector, position) => connector.maxPower_kW !== other.connectors[position].maxPower_kW);
 
-            });
+                }),
 
-            return samePower ? 'none' : 'power';
+                availability: draft.some((evse, index) => evse.operative !== saved[index].operative)
+
+            };
 
         }
 
-        /** Whether this browser may save what is currently in the draft. */
+        /** Whether this browser may save everything the draft turned out to be. */
         function maySaveDraft(): boolean {
-            const kind = changeKind();
-            return kind === 'hardware' ? mayChangeHardware
-                 : kind === 'power'    ? mayChangeLimits
-                 : false;
+
+            const change = changeKind();
+
+            if (!change.hardware && !change.powerLimits && !change.availability)
+                return false;
+
+            return (!change.hardware     || mayChangeHardware) &&
+                   (!change.powerLimits  || mayChangeLimits)   &&
+                   (!change.availability || mayChangeAvailability);
+
         }
 
         function draw(): void {
@@ -124,20 +143,20 @@ export const evsesPage: Page = {
 
             render(content, html`
 
-                ${mayChangeHardware || mayChangeLimits ? '' : html`
+                ${mayChangeAnything ? '' : html`
                     <div class="notice">
                         Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the EVSEs
-                        but not change them. Correcting what a cable may deliver needs the installer role;
-                        changing what is fitted needs the system administrator role.
+                        but not change them. Taking one out of service and correcting what a cable may deliver
+                        need the installer role; changing what is fitted needs the system administrator role.
                     </div>
                 `}
 
-                ${mayChangeLimits && !mayChangeHardware ? html`
+                ${mayChangeAnything && !mayChangeHardware ? html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may correct what these
-                        EVSEs and their cables may deliver. How many of them there are and what shape of plug is
-                        fitted describes hardware somebody installed, so changing that needs the system
-                        administrator role.
+                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may take these EVSEs
+                        out of service and correct what they and their cables may deliver. How many of them
+                        there are and what shape of plug is fitted describes hardware somebody installed, so
+                        changing that needs the system administrator role.
                     </div>
                 `: ''}
 
@@ -242,7 +261,7 @@ export const evsesPage: Page = {
 
                                 <label class="checkbox">
                                     <input type="checkbox" data-field="operative" data-index="${index}"
-                                           ${evse.operative ? html`checked` : ''} ${mayChangeHardware ? '' : html`disabled`} />
+                                           ${evse.operative ? html`checked` : ''} ${mayChangeAvailability ? '' : html`disabled`} />
                                     Operative
                                     <span class="hint">An inoperative EVSE is reported as one, and no vehicle is served by it.</span>
                                 </label>
@@ -273,10 +292,10 @@ export const evsesPage: Page = {
                     <span id="form-note"  class="form-notice" role="status"></span>
                     <span id="form-error" class="form-error"  role="alert"></span>
 
-                    ${dirty && kind === 'hardware' && !mayChangeHardware
+                    ${dirty && kind.hardware && !mayChangeHardware
                           ? html`<span class="form-error">
-                                     This changes what the station is made of, not only what it may deliver -
-                                     which needs the system administrator role.
+                                     This changes what the station is made of, not only what it may deliver or
+                                     whether it is in service - which needs the system administrator role.
                                  </span>`
                           : html`<span class="hint">
                                      Saved to ${current.file}, and in effect at once - the OCPP nodes are rebuilt from it.

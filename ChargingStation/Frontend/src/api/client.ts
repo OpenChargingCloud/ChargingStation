@@ -44,6 +44,7 @@ export interface LogPage {
 export type Permission = 'readConfiguration'
                        | 'changeNetworkSettings'
                        | 'runDiagnostics'
+                       | 'changeAvailability'
                        | 'changePowerLimits'
                        | 'manageCalibration'
                        | 'changeHardware';

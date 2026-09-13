@@ -827,12 +827,22 @@ namespace cloud.charging.open.ChargingStation
         /// is running with.
         /// </summary>
         public EVSEChange ClassifyEVSEChange(IReadOnlyList<EVSEConfig> EVSEs)
+        {
 
-            => !EVSEConfig.SameHardware(EVSEs, this.EVSEs)
-                   ? EVSEChange.Hardware
-                   : EVSEConfig.Same(EVSEs, this.EVSEs)
-                         ? EVSEChange.None
-                         : EVSEChange.PowerLimits;
+            // A different number of EVSEs is a different station, and there is
+            // nothing to compare switch by switch: the lists do not line up.
+            if (EVSEs.Count != this.EVSEs.Count)
+                return EVSEChange.Hardware;
+
+            var change = EVSEChange.None;
+
+            if (!EVSEConfig.SameHardware    (EVSEs, this.EVSEs))  change |= EVSEChange.Hardware;
+            if (!EVSEConfig.SameAvailability(EVSEs, this.EVSEs))  change |= EVSEChange.Availability;
+            if (!EVSEConfig.SamePowerLimits (EVSEs, this.EVSEs))  change |= EVSEChange.PowerLimits;
+
+            return change;
+
+        }
 
         #endregion
 
@@ -897,15 +907,9 @@ namespace cloud.charging.open.ChargingStation
 
                 if (!IsAllowed(Change))
                 {
-
                     Forbidden  = true;
-
-                    Error      = Change == EVSEChange.Hardware
-                                     ? "This changes what this station is made of, and not only what it may deliver."
-                                     : "This changes what this station may deliver.";
-
+                    Error      = $"This changes the {Describe(Change)} of this station.";
                     return false;
-
                 }
 
                 if (!ConfigFile.TryReplaceSection(
@@ -945,9 +949,9 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 Log.Notice(
-                    Change == EVSEChange.PowerLimits
-                        ? $"EVSE power limits changed: {String.Join("; ", evses)}."
-                        : $"EVSE configuration changed: {evses.Count} EVSE(s) - {String.Join("; ", evses)}.",
+                    Change.HasFlag(EVSEChange.Hardware)
+                        ? $"EVSE configuration changed: {evses.Count} EVSE(s) - {String.Join("; ", evses)}."
+                        : $"EVSE {Describe(Change)} changed: {String.Join("; ", evses)}.",
                     "evse", "config"
                 );
 
@@ -961,6 +965,31 @@ namespace cloud.charging.open.ChargingStation
             {
                 reconfigureLock.Release();
             }
+
+        }
+
+        #endregion
+
+        #region (private static) Describe(Change)
+
+        /// <summary>
+        /// What a change to the EVSEs amounts to, in the words a refusal and a
+        /// log line both need.
+        /// </summary>
+        private static String Describe(EVSEChange Change)
+        {
+
+            var parts = new List<String>();
+
+            if (Change.HasFlag(EVSEChange.Hardware))      parts.Add("equipment");
+            if (Change.HasFlag(EVSEChange.PowerLimits))   parts.Add("power limits");
+            if (Change.HasFlag(EVSEChange.Availability))  parts.Add("availability");
+
+            return parts.Count switch {
+                       0  => "nothing",
+                       1  => parts[0],
+                       _  => String.Join(" and ", [ String.Join(", ", parts.SkipLast(1)), parts[^1] ])
+                   };
 
         }
 

@@ -527,18 +527,25 @@ namespace cloud.charging.open.ChargingStation
         /// PUT /api/v1/configuration/evses with {"evses": [...]}: replace them all.
         /// </summary>
         /// <remarks>
-        /// Two permissions guard this one route, because the request cannot say
-        /// which of the two things it is doing: the whole list is sent either
-        /// way, and somebody correcting what a cable may deliver sends the same
-        /// document as somebody inventing a socket. So the lower bar gets in,
-        /// and the station is asked what the difference actually amounts to -
-        /// under the lock that then applies it, so that nothing changes between
-        /// the question and the answer.
+        /// Three permissions can guard this one route, because the request
+        /// cannot say which of the three things it is doing: the whole list is
+        /// sent either way, and taking an EVSE out of service, correcting what
+        /// a cable may deliver and inventing a socket are the same document. So
+        /// nothing more than reading gets in here, and the station is asked
+        /// what the difference actually amounts to - under the lock that then
+        /// applies it, so that nothing changes between the question and the
+        /// answer. Everything below reading was already turned away above.
+        ///
+        /// One consequence is deliberate: somebody who may only read can send
+        /// the list back unchanged and get a 200. Nothing was written and
+        /// nothing was logged as a change, so that is a GET spelled the long
+        /// way round - and the alternative, a bar at the door, would have to be
+        /// the lowest of the three and would let them just as far in.
         /// </remarks>
         private Task<HTTPResponse> PutEVSEConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangePowerLimits, true, out var session, out var refused))
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, true, out var session, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -547,14 +554,14 @@ namespace cloud.charging.open.ChargingStation
             var permissions = Sessions.PermissionsOf(session);
 
             if (!Station.TryUpdateEVSEConfiguration(json,
-                                                    change => permissions.HasFlag(PermissionFor(change)),
+                                                    change => permissions.HasFlag(PermissionsFor(change)),
                                                     out var change,
                                                     out var error,
                                                     out var forbidden))
             {
                 return Task.FromResult(
                            forbidden
-                               ? RefusePermission(Request, session, PermissionFor(change), error)
+                               ? RefusePermission(Request, session, PermissionsFor(change), error)
                                : ErrorJSON(Request, HTTPStatusCode.BadRequest, error)
                        );
             }
@@ -567,22 +574,28 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private static) PermissionFor(Change)
+        #region (private static) PermissionsFor(Change)
 
         /// <summary>
-        /// What a change to the EVSEs of this station needs permission for.
+        /// Everything a change to the EVSEs of this station needs permission
+        /// for - all of it, when one save was more than one kind of change.
         /// </summary>
         /// <remarks>
-        /// The one place where the difference between correcting a number and
-        /// redescribing the hardware becomes a difference in who may do it.
+        /// The one place where the difference between a switch, a number and a
+        /// claim about the hardware becomes a difference in who may do it.
         /// </remarks>
-        private static Permissions PermissionFor(EVSEChange Change)
+        private static Permissions PermissionsFor(EVSEChange Change)
+        {
 
-            => Change switch {
-                   EVSEChange.Hardware     => Permissions.ChangeHardware,
-                   EVSEChange.PowerLimits  => Permissions.ChangePowerLimits,
-                   _                       => Permissions.None
-               };
+            var permissions = Permissions.None;
+
+            if (Change.HasFlag(EVSEChange.Availability))  permissions |= Permissions.ChangeAvailability;
+            if (Change.HasFlag(EVSEChange.PowerLimits))   permissions |= Permissions.ChangePowerLimits;
+            if (Change.HasFlag(EVSEChange.Hardware))      permissions |= Permissions.ChangeHardware;
+
+            return permissions;
+
+        }
 
         #endregion
 
@@ -953,6 +966,9 @@ namespace cloud.charging.open.ChargingStation
                                               String?      Because)
         {
 
+            // HasFlag with more than one flag asks for all of them, which is
+            // what a role has to carry to do a change that was several kinds at
+            // once. Nobody is named who could only do half of it.
             var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
                                        Select(role => role.Name);
 

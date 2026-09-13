@@ -208,17 +208,18 @@ Every login carries roles, in `web-login.json`:
 |---|---|
 | `viewer`      | read the configuration |
 | `cpo`         | that, plus change DNS and NTS and run their tests |
-| `installer`   | that, plus the power limits and the calibration certificates |
+| `installer`   | that, plus take an EVSE out of service, the power limits, the calibration certificates |
 | `systemadmin` | that, plus change what the station is made of |
 
 The two steps above the operator are different in kind, and that is the whole
 reason there are two of them.
 
-The **installer** corrects numbers about equipment that is already there: the
-grid operator says the connection may draw 55 kW rather than the 80 kW on the
-order, the cable that went in is a 32 A one, and here is the certificate of the
-meter that was fitted. All of that gets corrected, and lowering a limit is
-always safe.
+The **installer** works on equipment that is already there: takes an EVSE out
+of service, and corrects the numbers and the papers that came with it. The grid
+operator says the connection may draw 55 kW rather than the 80 kW on the order,
+the cable that went in is a 32 A one, and here is the certificate of the meter
+that was fitted. All of that gets corrected, and lowering a limit or taking an
+outlet out of service is safe in the careful direction.
 
 The **system administrator** says what the equipment *is* - how many sockets
 there are and what shape they have. That is a claim nothing further down can
@@ -227,16 +228,18 @@ does not change the wall, it changes what every vehicle and every back end is
 told about it. The network settings are reversible and they complain; a wrong
 connector does neither.
 
-`PUT /configuration/evses` therefore needs **either** permission depending on
-what it turns out to be, because the request cannot say: the whole list is sent
-either way, and somebody correcting a cable's limit sends the same document as
-somebody inventing a socket. So the lower bar gets in, the station compares
-what it was sent with what it has, and the answer decides - under the same lock
-that then applies the change, so nothing moves between the question and the
-answer. An installer who changes a plug type gets
+`PUT /configuration/evses` therefore needs **whichever** of three permissions
+the request turns out to call for, because the request cannot say: the whole
+list is sent either way, and taking an EVSE out of service, correcting a
+cable's limit and inventing a socket are the same document. So nothing beyond
+reading gets in at the door, the station compares what it was sent with what it
+has, and the answer decides - under the same lock that then applies the change,
+so nothing moves between the question and the answer. One save can be more than
+one kind of change at once, and then all of them are needed. An installer who
+changes a plug type gets
 
-    403  This changes what this station is made of, and not only what it may
-         deliver. This needs the systemadmin role.
+    403  This changes the equipment of this station. This needs the
+         systemadmin role.
 
 and the page says the same thing before the button is pressed, by making the
 same comparison in the browser.

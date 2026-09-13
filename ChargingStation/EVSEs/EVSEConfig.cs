@@ -350,7 +350,15 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         #endregion
 
 
-        #region SamePowerLimitsAs(Other) / SameHardwareAs(Other)
+        #region SameAvailabilityAs(Other) / SamePowerLimitsAs(Other) / SameHardwareAs(Other)
+
+        /// <summary>
+        /// Whether this EVSE and the other one are both meant to be usable, or
+        /// both not.
+        /// </summary>
+        public Boolean SameAvailabilityAs(EVSEConfig Other)
+
+            => Operative == Other.Operative;
 
         /// <summary>
         /// Whether this EVSE and the other one may deliver the same, down to
@@ -364,19 +372,18 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         /// <summary>
         /// Whether this EVSE and the other one describe the same equipment -
-        /// everything except what it may deliver.
+        /// everything except what it may deliver and whether it is in service.
         /// </summary>
         /// <remarks>
-        /// The whole point of the distinction: two lists that differ only in
-        /// their numbers are a correction, and two lists that differ in
-        /// anything else are a claim about what is bolted to the wall. The
-        /// second needs the hardware permission and the first does not. See
-        /// <see cref="Web.Permissions"/>.
+        /// The whole point of the three: a list that differs only in its
+        /// switches is an EVSE taken out of service, a list that differs only
+        /// in its numbers is a correction, and a list that differs in anything
+        /// else is a claim about what is bolted to the wall. Only the last one
+        /// needs the hardware permission. See <see cref="Web.Permissions"/>.
         /// </remarks>
         public Boolean SameHardwareAs(EVSEConfig Other)
 
             => Id                 == Other.Id                &&
-               Operative          == Other.Operative         &&
                PhysicalReference  == Other.PhysicalReference &&
                MeterType          == Other.MeterType         &&
                MeterSerialNumber  == Other.MeterSerialNumber &&
@@ -385,11 +392,11 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         #endregion
 
-        #region (static) SameHardware(A, B) / Same(A, B)
+        #region (static) SameHardware(A, B) / SameAvailability(A, B) / SamePowerLimits(A, B)
 
         /// <summary>
         /// Whether two lists of EVSEs describe the same equipment, whatever
-        /// they say it may deliver.
+        /// they say it may deliver or whether it is in service.
         /// </summary>
         public static Boolean SameHardware(IReadOnlyList<EVSEConfig> A,
                                            IReadOnlyList<EVSEConfig> B)
@@ -398,14 +405,22 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                A.Zip(B).All(pair => pair.First.SameHardwareAs(pair.Second));
 
         /// <summary>
-        /// Whether two lists of EVSEs describe the same station in every respect.
+        /// Whether two lists of EVSEs are in service the same way.
         /// </summary>
-        public static Boolean Same(IReadOnlyList<EVSEConfig> A,
-                                   IReadOnlyList<EVSEConfig> B)
+        public static Boolean SameAvailability(IReadOnlyList<EVSEConfig> A,
+                                               IReadOnlyList<EVSEConfig> B)
 
             => A.Count == B.Count &&
-               A.Zip(B).All(pair => pair.First.SameHardwareAs   (pair.Second) &&
-                                    pair.First.SamePowerLimitsAs(pair.Second));
+               A.Zip(B).All(pair => pair.First.SameAvailabilityAs(pair.Second));
+
+        /// <summary>
+        /// Whether two lists of EVSEs may deliver the same.
+        /// </summary>
+        public static Boolean SamePowerLimits(IReadOnlyList<EVSEConfig> A,
+                                              IReadOnlyList<EVSEConfig> B)
+
+            => A.Count == B.Count &&
+               A.Zip(B).All(pair => pair.First.SamePowerLimitsAs(pair.Second));
 
         #endregion
 

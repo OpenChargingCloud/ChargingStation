@@ -70,6 +70,18 @@ namespace cloud.charging.open.ChargingStation.Web
         RunDiagnostics         = 4,
 
         /// <summary>
+        /// Take an EVSE out of service, and put it back.
+        /// </summary>
+        /// <remarks>
+        /// Neither a number nor a claim about what is installed, which is why
+        /// it is neither of the two below. An EVSE that is out of service is
+        /// reported as one and serves nobody - the socket is still there and
+        /// still whatever shape it was, and saying it is unusable is the one
+        /// statement here that can safely be wrong in the careful direction.
+        /// </remarks>
+        ChangeAvailability     = 8,
+
+        /// <summary>
         /// Change how much power may be drawn and delivered: the limit of the
         /// grid connection this station hangs on, and the limit of each cable.
         /// </summary>
@@ -86,7 +98,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// the hardware behind it can take it, which is why this is not
         /// something the operator of the station gets by default.
         /// </remarks>
-        ChangePowerLimits      = 8,
+        ChangePowerLimits      = 16,
 
         /// <summary>
         /// Put calibration certificates on this station, and take them off.
@@ -100,7 +112,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// being read. It is about who may say which ones this station is
         /// running under.
         /// </remarks>
-        ManageCalibration      = 16,
+        ManageCalibration      = 32,
 
         /// <summary>
         /// Change what this station is made of: how many EVSEs it has and what
@@ -117,7 +129,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// a number that gets corrected is a different thing from a socket
         /// that gets invented.
         /// </remarks>
-        ChangeHardware         = 32
+        ChangeHardware         = 64
 
     }
 
@@ -178,6 +190,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.ReadConfiguration     |
                                                              Permissions.ChangeNetworkSettings |
                                                              Permissions.RunDiagnostics        |
+                                                             Permissions.ChangeAvailability    |
                                                              Permissions.ChangePowerLimits     |
                                                              Permissions.ManageCalibration);
 
@@ -189,6 +202,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.ReadConfiguration     |
                                                              Permissions.ChangeNetworkSettings |
                                                              Permissions.RunDiagnostics        |
+                                                             Permissions.ChangeAvailability    |
                                                              Permissions.ChangePowerLimits     |
                                                              Permissions.ManageCalibration     |
                                                              Permissions.ChangeHardware);
