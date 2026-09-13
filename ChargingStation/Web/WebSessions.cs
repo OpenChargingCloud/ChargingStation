@@ -17,9 +17,7 @@
 
 #region Usings
 
-using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
 
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
@@ -30,55 +28,14 @@ namespace cloud.charging.open.ChargingStation.Web
 {
 
     /// <summary>
-    /// One browser that got the username and the password right.
-    /// </summary>
-    /// <param name="Token">The random token; it only ever travels as an HttpOnly cookie.</param>
-    /// <param name="Username">Who signed in.</param>
-    /// <param name="CreatedAt">When they signed in.</param>
-    public sealed class WebSession(SecurityToken_Id  Token,
-                                   String            Username,
-                                   DateTimeOffset    CreatedAt)
-    {
-
-        /// <summary>
-        /// The random token; it only ever travels as an HttpOnly cookie.
-        /// </summary>
-        public SecurityToken_Id  Token       { get; }      = Token;
-
-        /// <summary>
-        /// Who signed in.
-        /// </summary>
-        public String            Username    { get; }      = Username;
-
-        /// <summary>
-        /// When they signed in.
-        /// </summary>
-        public DateTimeOffset    CreatedAt   { get; }      = CreatedAt;
-
-        /// <summary>
-        /// When this session was last used; the idle timeout counts from here.
-        /// </summary>
-        public DateTimeOffset    LastUsedAt  { get; set; } = CreatedAt;
-
-        /// <summary>
-        /// When this session ends at the latest.
-        /// </summary>
-        public DateTimeOffset    ExpiresAt   { get; set; } = CreatedAt;
-
-    }
-
-
-    /// <summary>
     /// Who may use the web interface: one username, one password, and a session
     /// cookie for every browser that got both right.
     /// </summary>
     /// <remarks>
-    /// A charging station has one operator, and that one lives in the web login
-    /// file - so what is needed of an account database is the part that was
-    /// never optional: a comparison that takes the same time whether the first
-    /// or the last character is wrong, a random token that only ever travels as
-    /// an HttpOnly cookie, and a session that ends when nobody has used it for
-    /// a while.
+    /// The sessions themselves are Hermod's <see cref="SessionStore"/> - random
+    /// tokens, a sliding idle timeout and a maximum lifetime. What is left here
+    /// is the part a charging station has of its own: one login rather than an
+    /// account database, and the cookie the token travels in.
     ///
     /// The login is not fixed for the lifetime of the process either:
     /// <see cref="UpdateLogin"/> puts another one in force and ends every other
@@ -105,14 +62,6 @@ namespace cloud.charging.open.ChargingStation.Web
         /// </summary>
         public static readonly TimeSpan        DefaultMaximumLifetime  = TimeSpan.FromDays(7);
 
-        /// <summary>
-        /// The number of random bytes behind a session token: 256 bits, so that
-        /// guessing one is not a thing anybody tries twice.
-        /// </summary>
-        public const           Int32           TokenBytes              = 32;
-
-        private readonly ConcurrentDictionary<SecurityToken_Id, WebSession>  sessions = [];
-
         #endregion
 
         #region Properties
@@ -127,6 +76,17 @@ namespace cloud.charging.open.ChargingStation.Web
         /// </summary>
         public String            Username
             => Login.Username;
+
+        /// <summary>
+        /// The one username, as the session store knows it.
+        /// </summary>
+        public User_Id           UserId
+            => User_Id.Parse(Login.Username);
+
+        /// <summary>
+        /// The live sessions.
+        /// </summary>
+        public SessionStore      Store             { get; }
 
         /// <summary>
         /// The name of the session cookie.
@@ -152,13 +112,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// How many sessions are live right now.
         /// </summary>
         public Int32             Count
-        {
-            get
-            {
-                RemoveExpired();
-                return sessions.Count;
-            }
-        }
+            => Store.Count;
 
         #endregion
 
@@ -185,6 +139,11 @@ namespace cloud.charging.open.ChargingStation.Web
             this.IdleTimeout      = IdleTimeout     ?? DefaultIdleTimeout;
             this.MaximumLifetime  = MaximumLifetime ?? DefaultMaximumLifetime;
 
+            this.Store            = new SessionStore(
+                                        IdleTimeout:      this.IdleTimeout,
+                                        MaximumLifetime:  this.MaximumLifetime
+                                    );
+
         }
 
         #endregion
@@ -198,9 +157,9 @@ namespace cloud.charging.open.ChargingStation.Web
         /// <param name="Username">What was typed as the username.</param>
         /// <param name="Password">What was typed as the password.</param>
         /// <param name="Session">The new session.</param>
-        public Boolean TryLogin(String?                              Username,
-                                String?                              Password,
-                                [NotNullWhen(true)] out WebSession?  Session)
+        public Boolean TryLogin(String?                           Username,
+                                String?                           Password,
+                                [NotNullWhen(true)] out Session?  Session)
         {
 
             Session = null;
@@ -208,24 +167,7 @@ namespace cloud.charging.open.ChargingStation.Web
             if (!Login.Verify(Username, Password))
                 return false;
 
-            var now      = Timestamp.Now;
-
-            // Not Random.Shared, which is what Hermod's SecurityToken_Id.Random
-            // would use: this token is the whole of what stands between a
-            // stranger and this charging station, so it comes out of the
-            // cryptographic generator.
-            var token    = SecurityToken_Id.Parse(
-                               Convert.ToHexString(RandomNumberGenerator.GetBytes(TokenBytes)).ToLowerInvariant()
-                           );
-
-            Session      = new WebSession(token, Login.Username, now) {
-                               ExpiresAt = now + MaximumLifetime
-                           };
-
-            sessions.TryAdd(token, Session);
-
-            RemoveExpired();
-
+            Session = Store.Create(UserId);
             return true;
 
         }
@@ -242,8 +184,8 @@ namespace cloud.charging.open.ChargingStation.Web
         /// Changing the password has to end the other sessions, or it does not
         /// do what whoever changed it thinks it does: a browser that was signed
         /// in with the old password would keep the page for as long as its
-        /// cookie lives. The session doing the change is kept, so that the
-        /// settings page does not sign itself out.
+        /// cookie lives. The session doing the change is kept, so that whoever
+        /// changed it does not sign themselves out.
         /// </remarks>
         /// <param name="NewLogin">The login from now on.</param>
         /// <param name="ExceptToken">A session to keep, usually the one asking.</param>
@@ -252,22 +194,11 @@ namespace cloud.charging.open.ChargingStation.Web
                                  SecurityToken_Id?  ExceptToken   = null)
         {
 
+            var previous = UserId;
+
             Login = NewLogin ?? throw new ArgumentNullException(nameof(NewLogin));
 
-            var ended = 0;
-
-            foreach (var token in sessions.Keys)
-            {
-
-                if (ExceptToken.HasValue && token == ExceptToken.Value)
-                    continue;
-
-                if (sessions.TryRemove(token, out _))
-                    ended++;
-
-            }
-
-            return ended;
+            return Store.RemoveAllForUser(previous, ExceptToken);
 
         }
 
@@ -282,31 +213,14 @@ namespace cloud.charging.open.ChargingStation.Web
         /// Finding one is also using it: the idle timeout counts from the last
         /// request, not from the sign-in.
         /// </remarks>
-        public Boolean TryGetSession(HTTPRequest                          Request,
-                                     [NotNullWhen(true)] out WebSession?  Session)
+        public Boolean TryGetSession(HTTPRequest                       Request,
+                                     [NotNullWhen(true)] out Session?  Session)
         {
 
             Session = null;
 
-            if (!TryGetToken(Request, out var token) ||
-                !sessions.TryGetValue(token, out var session))
-            {
-                return false;
-            }
-
-            var now = Timestamp.Now;
-
-            if (now > session.ExpiresAt ||
-                now > session.LastUsedAt + IdleTimeout)
-            {
-                sessions.TryRemove(token, out _);
-                return false;
-            }
-
-            session.LastUsedAt  = now;
-            Session             = session;
-
-            return true;
+            return TryGetToken(Request, out var token) &&
+                   Store.TryGet(token, out Session);
 
         }
 
@@ -331,7 +245,7 @@ namespace cloud.charging.open.ChargingStation.Web
         public Boolean SignOut(HTTPRequest Request)
 
             => TryGetToken(Request, out var token) &&
-               sessions.TryRemove(token, out _);
+               Store.Remove(token);
 
         #endregion
 
@@ -345,7 +259,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// <summary>
         /// The Set-Cookie of a sign-in: the token, HttpOnly, for this site only.
         /// </summary>
-        public HTTPCookies SessionCookie(WebSession Session)
+        public HTTPCookies SessionCookie(Session Session)
 
             => new (HTTPCookie.Parse(
                         String.Concat(CookieName, "=", Session.Token, CookieSettings(Session.ExpiresAt))
@@ -390,31 +304,6 @@ namespace cloud.charging.open.ChargingStation.Web
                              "; SameSite=strict",
                              SecureCookies ? "; secure" : "",
                              "; HttpOnly");
-
-        #endregion
-
-        #region (private) RemoveExpired()
-
-        /// <summary>
-        /// Drop what nobody can use any more. There is no timer behind this:
-        /// the store is only ever walked when somebody signs in, which is the
-        /// one moment a forgotten session could otherwise start to pile up.
-        /// </summary>
-        private void RemoveExpired()
-        {
-
-            var now = Timestamp.Now;
-
-            foreach (var entry in sessions)
-            {
-                if (now > entry.Value.ExpiresAt ||
-                    now > entry.Value.LastUsedAt + IdleTimeout)
-                {
-                    sessions.TryRemove(entry.Key, out _);
-                }
-            }
-
-        }
 
         #endregion
 

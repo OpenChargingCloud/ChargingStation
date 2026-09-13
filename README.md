@@ -75,14 +75,19 @@ webpack has just written.
 | | |
 |---|---|
 | `ChargingStation.cs`      | the station: the OCPP nodes, the HTTP server, and everything below wired together |
-| `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api/`: sign-in, status, configuration, log, event stream |
-| `Web/WebFrontend.cs`      | the web interface at `/`: the bundle, and the SPA stub for every page URL |
-| `Web/StaticContent.cs`    | where the bundle comes from: this assembly, or a directory on disk |
-| `Web/WebSessions.cs`      | who is signed in: one user, session cookies, idle timeout |
-| `Web/WebLogin*.cs`, `PasswordHash.cs` | the one login and the file it lives in; PBKDF2-SHA256, never a password in the clear |
+| `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
+| `Web/WebSessions.cs`      | who is signed in: one login in front of Hermod's `SessionStore`, and the cookie its token travels in |
+| `Web/WebLogin*.cs`        | that one login and the file it lives in, its password a `SecurePassword` and never in the clear |
 | `Logging/EventLog.cs`     | everything that happens, with timestamps and tags, kept in a ring buffer and handed on at once |
 | `Logging/TraceBridge.cs`  | what the libraries below write with `DebugX`, into the same log |
 | `Frontend/`               | the npm project: `src/pages/` are the pages, `src/shell.ts` the menu around them |
+
+Serving the bundle is Hermod's: `MapSinglePageApplication` with an
+`EmbeddedContentSource` or a `FileSystemContentSource` does the entity tags,
+the conditional requests, the Brotli and gzip negotiation, the caching policy
+and the security headers, and answers a URL that names no file with the stub.
+This project brings the bundle and one literal route for `/favicon.ico`, which
+browsers ask for whatever the page says and which the bundle carries as an SVG.
 
 
 ## The log

@@ -67,6 +67,17 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public static readonly IPPort DefaultHTTPPort = IPPort.Parse(2348);
 
+        /// <summary>
+        /// The file of the bundle that is the web interface; its presence is
+        /// what says there is one to serve at all.
+        /// </summary>
+        public const String  IndexFile           = "index.html";
+
+        /// <summary>
+        /// The icon of the bundle, which /favicon.ico is pointed at.
+        /// </summary>
+        public const String  FaviconSVG          = "favicon.svg";
+
         private readonly  DNSClient                            dnsClient;
         private readonly  NTSClient                            ntsClient;
 
@@ -121,7 +132,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// The web interface at "/", or null when no bundle was found to serve.
         /// </summary>
-        public WebFrontend?           WebInterface           { get; }
+        public HTTPAPI?               WebInterface           { get; }
 
         /// <summary>
         /// The URL to open in a browser.
@@ -265,16 +276,43 @@ namespace cloud.charging.open.ChargingStation
                                      Version:     Version
                                  );
 
-            // 2) The web interface at "/": the bundle, and the stub for every
-            //    page URL.
+            // 2) The web interface at "/": the files of the bundle, and the
+            //    single-page-application stub for every other page URL, so
+            //    that a reload on /logs and a bookmark to it both work.
             this.Frontend      = Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly);
 
-            if (this.Frontend.Count > 0)
-                this.WebInterface = new WebFrontend(
-                                       httpServer,
-                                       this.Frontend,
-                                       IndexTransform:  html => html.Replace("{{ServerVersion}}", $"v{Version}", StringComparison.Ordinal)
-                                   );
+            if (this.Frontend.TryGet(IndexFile, out _))
+            {
+
+                this.WebInterface = httpServer.AddHTTPAPI();
+
+                this.WebInterface.MapSinglePageApplication(
+                    this.Frontend,
+                    new SinglePageAppOptions {
+                        IndexTransform = html => html.Replace("{{ServerVersion}}", $"v{Version}", StringComparison.Ordinal)
+                    }
+                );
+
+                // Browsers ask for /favicon.ico whatever the page says, and a
+                // bundle built by webpack carries an SVG. A literal route wins
+                // over the catch-all, so this answers before the stub would -
+                // and beats a 404 on every visit, which is a line in the log
+                // and a broken icon in the tab.
+                if (this.Frontend.TryGet(FaviconSVG, out _))
+                    this.WebInterface.AddHandler(
+                        HTTPPath.Parse("/favicon.ico"),
+                        request => Task.FromResult(
+                                       new HTTPResponse.Builder(request) {
+                                           HTTPStatusCode  = HTTPStatusCode.TemporaryRedirect,
+                                           Location        = Location.From(HTTPPath.Parse("/" + FaviconSVG)),
+                                           CacheControl    = "public, max-age=3600"
+                                       }.AsImmutable
+                                   ),
+                        HTTPMethod.GET
+                    );
+
+            }
+
             else
                 this.Log.Error(
                     $"No web interface to serve ({this.Frontend.Description}): the JSON API answers, the browser gets nothing. " +
@@ -493,7 +531,7 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("apiPath",        httpRootPath.ToString()),
                        new JProperty("running",        started),
                        new JProperty("frontend",       Frontend.Description),
-                       new JProperty("frontendFiles",  Frontend.Count)
+                       new JProperty("webInterface",   WebInterface is not null)
                    )),
 
                    new JProperty("web",        new JObject(

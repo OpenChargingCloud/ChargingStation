@@ -56,14 +56,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// The default root path of this API.
         /// </summary>
-        /// <remarks>
-        /// With the trailing slash, and it has to be there: Hermod takes the
-        /// path of an API off the front of a request path by its length, so an
-        /// API rooted at "/api" would see "i/v1/status" where it expects
-        /// "/v1/status" - and every route would answer 404. Hermod's own tests
-        /// spell their API paths the same way.
-        /// </remarks>
-        public static readonly HTTPPath  DefaultAPIPath      = HTTPPath.Parse("/api/");
+        public static readonly HTTPPath  DefaultAPIPath      = HTTPPath.Parse("/api");
 
         /// <summary>
         /// The identification of the Server-Sent Events source.
@@ -232,7 +225,7 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            Log.Notice($"'{session.Username}' signed in from {Request.RemoteSocket}.", "web", "auth");
+            Log.Notice($"'{session.UserId}' signed in from {Request.RemoteSocket}.", "web", "auth");
 
             return new HTTPResponse.Builder(Request) {
                        HTTPStatusCode  = HTTPStatusCode.OK,
@@ -522,7 +515,7 @@ namespace cloud.charging.open.ChargingStation
         /// also expires a stale cookie, so that the browser stops sending it.
         /// </summary>
         private Boolean TryGetSession(HTTPRequest                             Request,
-                                      [NotNullWhen(true)]  out WebSession?    Session,
+                                      [NotNullWhen(true)]  out Session?        Session,
                                       [NotNullWhen(false)] out HTTPResponse?  Unauthorized)
         {
 
@@ -630,10 +623,10 @@ namespace cloud.charging.open.ChargingStation
 
         #region (private static) MeJSON(Session)
 
-        private static JObject MeJSON(WebSession Session)
+        private static JObject MeJSON(Session Session)
 
             => new (
-                   new JProperty("username",  Session.Username),
+                   new JProperty("username",  Session.UserId.ToString()),
                    new JProperty("session",   new JObject(
                                                   new JProperty("createdAt",  Session.CreatedAt.ToString("o")),
                                                   new JProperty("expiresAt",  Session.ExpiresAt.ToString("o"))

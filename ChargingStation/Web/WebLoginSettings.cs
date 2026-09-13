@@ -23,6 +23,8 @@ using System.Text;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Web
@@ -33,14 +35,15 @@ namespace cloud.charging.open.ChargingStation.Web
     /// and one password.
     /// </summary>
     /// <remarks>
-    /// The password is kept as a PHC string and never in the clear: it is only
-    /// ever compared against what somebody typed, so nothing here ever needs to
-    /// know it.
+    /// The password is kept as a PHC string and never in the clear - Hermod's
+    /// <see cref="SecurePassword"/>, i.e. PBKDF2-SHA256 over a random salt. It
+    /// is only ever compared against what somebody typed, so nothing here ever
+    /// needs to know it.
     /// </remarks>
     /// <param name="Username">The one username.</param>
     /// <param name="Password">The hashed password.</param>
-    public sealed record WebLoginSettings(String        Username,
-                                          PasswordHash  Password)
+    public sealed record WebLoginSettings(String          Username,
+                                          SecurePassword  Password)
     {
 
         #region Data
@@ -87,7 +90,7 @@ namespace cloud.charging.open.ChargingStation.Web
                 return false;
             }
 
-            Login = new WebLoginSettings(username, PasswordHash.Create(Password));
+            Login = new WebLoginSettings(username, SecurePassword.Create(Password));
             return true;
 
         }
@@ -111,7 +114,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                    Replace('/', '_').
                                    TrimEnd('=');
 
-            return (new WebLoginSettings(Username, PasswordHash.Create(password)), password);
+            return (new WebLoginSettings(Username, SecurePassword.Create(password)), password);
 
         }
 
@@ -178,7 +181,7 @@ namespace cloud.charging.open.ChargingStation.Web
                 return false;
             }
 
-            if (!PasswordHash.TryParse(JSON.Value<String>("password"), out var password))
+            if (SecurePassword.TryParse(JSON.Value<String>("password") ?? "") is not SecurePassword password)
             {
                 Error = "The password is not a valid PHC string.";
                 return false;
