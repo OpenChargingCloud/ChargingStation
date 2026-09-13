@@ -32,6 +32,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
+using cloud.charging.open.ChargingStation.RFID;
 
 #endregion
 
@@ -958,6 +959,14 @@ namespace cloud.charging.open.ChargingStation
                 LogCustomConnectorTypes(evses);
                 LogPowerLimits();
 
+                if (Change.HasFlag(EVSEChange.Hardware))
+                    StopAllSessions("the EVSEs of this station were changed");
+
+                else if (Change.HasFlag(EVSEChange.Availability))
+                    foreach (var gone in evses.Where(evse => !evse.Operative))
+                        if (sessions.TryRemove(gone.Id, out var ended))
+                            Log.Notice($"The session at EVSE {gone.Id} was ended: it was taken out of service ({ended}).", "kiosk");
+
                 return true;
 
             }
@@ -990,6 +999,257 @@ namespace cloud.charging.open.ChargingStation
                        1  => parts[0],
                        _  => String.Join(" and ", [ String.Join(", ", parts.SkipLast(1)), parts[^1] ])
                    };
+
+        }
+
+        #endregion
+
+        #endregion
+
+        #region RFID
+
+        #region RFIDConfigurationJSON()
+
+        /// <summary>
+        /// The card readers this station has, and where they sit.
+        /// </summary>
+        public JObject RFIDConfigurationJSON()
+
+            => new (
+
+                   new JProperty("readers",      new JArray(RFIDReaders.Select(reader => new JObject(
+                                                     new JProperty("id",         reader.Id),
+                                                     new JProperty("kind",       reader.Kind),
+                                                     new JProperty("evse",       reader.EVSEId.HasValue ? reader.EVSEId.Value : null),
+                                                     new JProperty("enabled",    reader.Enabled),
+                                                     // Which of them this station can actually do anything
+                                                     // with, so that a page can say so rather than leave
+                                                     // somebody wondering why nothing happens.
+                                                     new JProperty("hasDriver",  reader.HasDriver),
+                                                     new JProperty("fake",       reader.IsFake)
+                                                 )))),
+
+                   new JProperty("evses",        new JArray(EVSEs.Select(evse => new JObject(
+                                                     new JProperty("id",     evse.Id),
+                                                     new JProperty("label",  evse.PhysicalReference)
+                                                 )))),
+
+                   new JProperty("kinds",        new JArray(RFIDReaderConfig.KnownKinds)),
+                   new JProperty("fakeKind",     RFIDReaderConfig.FakeKind),
+                   new JProperty("maxReaders",   RFIDReaderConfig.MaxReaders),
+
+                   new JProperty("file",         ConfigFile.Path)
+
+               );
+
+        #endregion
+
+        #region ClassifyRFIDChange(Readers)
+
+        /// <summary>
+        /// What kind of change the given list would be to the readers this
+        /// station is running with.
+        /// </summary>
+        public RFIDChange ClassifyRFIDChange(IReadOnlyList<RFIDReaderConfig> Readers)
+        {
+
+            if (Readers.Count != RFIDReaders.Count)
+                return RFIDChange.Placement;
+
+            var change = RFIDChange.None;
+
+            for (var i = 0; i < Readers.Count; i++)
+            {
+
+                if (!Readers[i].SamePlacementAs(RFIDReaders[i]))
+                    change |= RFIDChange.Placement;
+
+                if (Readers[i].Enabled != RFIDReaders[i].Enabled)
+                    change |= RFIDChange.Availability;
+
+            }
+
+            return change;
+
+        }
+
+        #endregion
+
+        #region TryUpdateRFIDConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden)
+
+        /// <summary>
+        /// Replace the card readers of this station, all of them at once.
+        /// </summary>
+        /// <remarks>
+        /// The same shape and the same reason as the EVSEs: the whole list is
+        /// sent, so what is being asked for can only be seen by comparing it
+        /// with what this station has, and the caller hands in what it may do
+        /// rather than saying what it wants.
+        ///
+        /// Readers are not the OCPP nodes and nothing is rebuilt from them. A
+        /// reader taken away or switched off stops being read at once, which
+        /// for the only kind of reader this station has a driver for means the
+        /// display stops offering it.
+        /// </remarks>
+        public Boolean TryUpdateRFIDConfiguration(JObject                           JSON,
+                                                  Func<RFIDChange, Boolean>         IsAllowed,
+                                                  out RFIDChange                    Change,
+                                                  [NotNullWhen(false)] out String?  Error,
+                                                  out Boolean                       Forbidden)
+        {
+
+            Change     = RFIDChange.None;
+            Error      = null;
+            Forbidden  = false;
+
+            if (JSON["readers"] is not JArray array)
+            {
+                Error = "The request must hold a 'readers' array.";
+                return false;
+            }
+
+            if (!RFIDReaderConfig.TryParseList(array, out var readers, out Error))
+                return false;
+
+            reconfigureLock.Wait();
+
+            try
+            {
+
+                // A reader at an EVSE this station does not have is a reader
+                // nobody can walk up to. Checked here rather than in the parser
+                // because it depends on what this station is made of today.
+                foreach (var reader in readers.Where(reader => reader.EVSEId.HasValue))
+                    if (!EVSEs.Any(evse => evse.Id == reader.EVSEId))
+                    {
+                        Error = $"The RFID reader '{reader.Id}' is at EVSE {reader.EVSEId}, and this station has {EVSEs.Count} EVSE(s).";
+                        return false;
+                    }
+
+                Change = ClassifyRFIDChange(readers);
+
+                if (Change == RFIDChange.None)
+                    return true;
+
+                if (!IsAllowed(Change))
+                {
+                    Forbidden  = true;
+                    Error      = Change.HasFlag(RFIDChange.Placement)
+                                     ? "This changes which card readers this station has and where they sit."
+                                     : "This switches a card reader on or off.";
+                    return false;
+                }
+
+                if (!ConfigFile.TryReplaceSection(
+                         StationConfiguration.RFIDSectionName,
+                         new JArray(readers.Select(reader => reader.ToJSON())),
+                         out Error))
+                {
+                    return false;
+                }
+
+                RFIDReaders = readers;
+
+                Log.Notice(
+                    readers.Count == 0
+                        ? "This station now has no RFID readers."
+                        : $"RFID readers changed: {String.Join("; ", readers)}.",
+                    "rfid", "config"
+                );
+
+                LogRFIDReaders(readers);
+
+                return true;
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) LogRFIDReaders(Readers)
+
+        /// <summary>
+        /// Say which readers this station has, and which of them it can do
+        /// nothing with.
+        /// </summary>
+        /// <remarks>
+        /// A configured reader this station has no driver for is not an error -
+        /// describing a station truthfully before the software can talk to all
+        /// of it is the right way round - but it is the difference between "the
+        /// reader is broken" and "this station was never going to read it", and
+        /// only the log can tell somebody which of the two they have.
+        /// </remarks>
+        private void LogRFIDReaders(IReadOnlyList<RFIDReaderConfig> Readers)
+        {
+
+            if (Readers.Count == 0)
+            {
+                Log.Info("No RFID readers are configured.", "rfid", "config");
+                return;
+            }
+
+            Log.Info($"{Readers.Count} RFID reader(s): {String.Join("; ", Readers)}.", "rfid", "config");
+
+            foreach (var reader in Readers.Where(reader => reader.Enabled && !reader.HasDriver))
+                Log.Warning(
+                    $"This station has no driver for the RFID reader '{reader.Id}' of kind '{reader.Kind}'; " +
+                    "it is configured, it is shown, and it will read nothing.",
+                    "rfid", "config"
+                );
+
+            foreach (var reader in Readers.Where(reader => reader.Enabled && reader.IsFake))
+                Log.Warning(
+                    $"The RFID reader '{reader.Id}' is a {RFIDReaderConfig.FakeKind}: its cards are typed into the display, " +
+                    "by anybody standing in front of it. For testing, and not for a station in a car park.",
+                    "rfid", "config"
+                );
+
+        }
+
+        #endregion
+
+        #region (private) ConfigureWebPayments(Node)
+
+        /// <summary>
+        /// Give OCPP 2.1's web payments controllers the same settings the
+        /// display works its QR codes out from.
+        /// </summary>
+        /// <remarks>
+        /// The display does not read the URL out of these controllers - it
+        /// computes it, see WebPaymentURL - but the two must not be able to
+        /// disagree: a station that shows one URL and reports another to a back
+        /// end would be a station where the code on the screen is not the code
+        /// that was paid for. Same template, same secret, same validity, same
+        /// length, set in the one place the nodes are built.
+        /// </remarks>
+        private void ConfigureWebPayments(OCPPv2_1.CS.TestChargingStationNode Node)
+        {
+
+            if (webPayments?.Enabled != true || !webPayments.URLTemplate.HasValue)
+                return;
+
+            foreach (var evse in Node.EVSEs)
+            {
+
+                var controller = evse.WebPaymentsController;
+
+                if (controller is null)
+                    continue;
+
+                controller.Enabled        = true;
+                controller.URLTemplate    = webPayments.URLTemplate;
+                controller.EnableQRCodes  = true;
+
+                if (webPayments.ValidityTime.HasValue)  controller.ValidityTime  = webPayments.ValidityTime.Value;
+                if (webPayments.SharedSecret is not null) controller.SharedSecret = webPayments.SharedSecret;
+                if (webPayments.TOTPLength.HasValue)    controller.Length        = webPayments.TOTPLength.Value;
+
+            }
 
         }
 
@@ -1088,6 +1348,8 @@ namespace cloud.charging.open.ChargingStation
                                       CustomData:                     null,
                                       DNSClient:                      dnsClient
                                   );
+
+            ConfigureWebPayments(chargingStation);
 
             return (chargePoint, chargingStation);
 

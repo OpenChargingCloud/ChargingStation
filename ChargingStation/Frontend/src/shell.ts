@@ -32,6 +32,7 @@ export const menu: MenuEntry[] = [
             { path: '/configuration/nts',         label: 'NTS client',      icon: 'fa-clock'                     },
             { path: '/configuration/power',       label: 'Grid connection', icon: 'fa-bolt'                      },
             { path: '/configuration/evses',       label: 'EVSEs',           icon: 'fa-plug'                      },
+            { path: '/configuration/rfid',        label: 'RFID',            icon: 'fa-id-card'                   },
             { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-certificate'               }
         ]
     },

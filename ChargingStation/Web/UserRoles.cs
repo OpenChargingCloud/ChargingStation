@@ -161,13 +161,21 @@ namespace cloud.charging.open.ChargingStation.Web
 
         /// <summary>
         /// The operator of this charging station: may point it at other name
-        /// and time servers and may test them, but may not redescribe the
-        /// hardware it is bolted to.
+        /// and time servers, may test them, and may take an outlet out of
+        /// service - but may not redescribe the hardware it is bolted to, nor
+        /// change what it may deliver.
         /// </summary>
+        /// <remarks>
+        /// Taking an outlet out of service is day-to-day operation and belongs
+        /// here: something is wrong with it, or somebody is working on it, and
+        /// the person who finds out is the person running the station rather
+        /// than the one who installed it a year ago.
+        /// </remarks>
         public static readonly UserRole  CPO          = new ("cpo",
                                                              Permissions.ReadConfiguration     |
                                                              Permissions.ChangeNetworkSettings |
-                                                             Permissions.RunDiagnostics);
+                                                             Permissions.RunDiagnostics        |
+                                                             Permissions.ChangeAvailability);
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator

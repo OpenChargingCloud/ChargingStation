@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title><%= htmlWebpackPlugin.options.title %></title>
+
+    <meta name="description"       content="The display on the front of an OpenChargingCloud charging station" />
+    <meta name="author"            content="Achim Friedland // GraphDefined GmbH" />
+
+    <!-- This page is served by a different server on a different port from the
+         web interface, and its API is that server's. Nothing here reaches the
+         administration of the station - see KioskHTTPAPI.cs. -->
+    <meta name="api-base"          content="/api" />
+    <meta name="frontend-version"  content="<%= htmlWebpackPlugin.options.version %>" />
+    <meta name="server-version"    content="{{ServerVersion}}" />
+
+</head>
+
+<body class="kiosk-body">
+
+    <div id="kiosk">
+        <noscript>This display needs JavaScript.</noscript>
+    </div>
+
+</body>
+
+</html>

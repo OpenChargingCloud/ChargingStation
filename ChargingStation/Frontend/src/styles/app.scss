@@ -846,6 +846,40 @@ table.records {
 }
 
 
+// RFID readers
+
+.reader-list {
+    display:                grid;
+    grid-template-columns:  repeat(auto-fill, minmax(22rem, 1fr));
+    gap:                    1rem;
+    align-items:            start;
+}
+
+.reader {
+
+    h2 .btn {
+        margin-left: auto;
+    }
+
+    // A reader that is switched off is still described, and still there. Faded
+    // rather than hidden: somebody looking for it has to be able to find it.
+    &.off {
+        opacity: 0.65;
+    }
+
+    .kv {
+        margin-bottom: 0.6rem;
+    }
+
+}
+
+.notice.small {
+    margin-top:  0.6rem;
+    padding:     0.5rem 0.7rem;
+    font-size:   0.8rem;
+}
+
+
 // Calibration certificates
 
 .certificates {

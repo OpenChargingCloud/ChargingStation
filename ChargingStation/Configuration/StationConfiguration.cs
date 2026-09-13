@@ -22,6 +22,7 @@ using System.Diagnostics.CodeAnalysis;
 using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.ChargingStation.EVSEs;
+using cloud.charging.open.ChargingStation.RFID;
 
 #endregion
 
@@ -50,11 +51,17 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Power">What this station may draw from the grid.</param>
     /// <param name="EVSEs">What this station is made of.</param>
     /// <param name="Calibration">The calibration certificates it runs under.</param>
+    /// <param name="RFID">The card readers it has, and where they sit.</param>
+    /// <param name="Operator">Whose station this is, and whose cards it recognises.</param>
+    /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
     public sealed record StationConfiguration(DNSConfiguration?                        DNS           = null,
                                               NTSConfiguration?                        NTS           = null,
                                               PowerConfiguration?                      Power         = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs         = null,
-                                              IReadOnlyList<CalibrationCertificate>?   Calibration   = null)
+                                              IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
+                                              IReadOnlyList<RFIDReaderConfig>?         RFID          = null,
+                                              OperatorConfiguration?                   Operator      = null,
+                                              WebPaymentsConfiguration?                WebPayments   = null)
     {
 
         #region Data
@@ -69,6 +76,11 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public const String  CalibrationSectionName  = "calibration";
 
+        /// <summary>
+        /// The name of the section holding the RFID readers.
+        /// </summary>
+        public const String  RFIDSectionName         = "rfid";
+
         #endregion
 
         #region Properties
@@ -77,7 +89,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this document says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => DNS is null && NTS is null && Power is null && EVSEs is null && Calibration is null;
+            => DNS is null && NTS is null && Power is null && EVSEs is null &&
+               Calibration is null && RFID is null && Operator is null && WebPayments is null;
 
         #endregion
 
@@ -206,7 +219,67 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(dns, nts, power, evses, calibration);
+            #region RFID
+
+            IReadOnlyList<RFIDReaderConfig>? rfid = null;
+
+            if (JSON[RFIDSectionName] is JToken rfidToken && rfidToken.Type != JTokenType.Null)
+            {
+
+                if (rfidToken is not JArray rfidJSON)
+                {
+                    Error = $"'{RFIDSectionName}' must be an array of RFID readers.";
+                    return false;
+                }
+
+                if (!RFIDReaderConfig.TryParseList(rfidJSON, out rfid, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            #region Operator
+
+            OperatorConfiguration? stationOperator = null;
+
+            if (JSON[OperatorConfiguration.SectionName] is JToken operatorToken && operatorToken.Type != JTokenType.Null)
+            {
+
+                if (operatorToken is not JObject operatorJSON)
+                {
+                    Error = $"'{OperatorConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!OperatorConfiguration.TryParse(operatorJSON, out stationOperator, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            #region WebPayments
+
+            WebPaymentsConfiguration? webPayments = null;
+
+            if (JSON[WebPaymentsConfiguration.SectionName] is JToken webPaymentsToken && webPaymentsToken.Type != JTokenType.Null)
+            {
+
+                if (webPaymentsToken is not JObject webPaymentsJSON)
+                {
+                    Error = $"'{WebPaymentsConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!WebPaymentsConfiguration.TryParse(webPaymentsJSON, out webPayments, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments);
             return true;
 
         }
@@ -239,6 +312,15 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (Calibration is not null)
                 json.Add(CalibrationSectionName,          new JArray(Calibration.Select(certificate => certificate.ToJSON())));
 
+            if (RFID is not null)
+                json.Add(RFIDSectionName,                 new JArray(RFID.Select(reader => reader.ToJSON())));
+
+            if (Operator is not null)
+                json.Add(OperatorConfiguration.SectionName,     Operator.ToJSON());
+
+            if (WebPayments is not null)
+                json.Add(WebPaymentsConfiguration.SectionName,  WebPayments.ToJSON());
+
             return json;
 
         }
@@ -257,7 +339,10 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              NTS         is not null ? "NTS"                                    : null,
                              Power       is not null ? Power.ToString()                         : null,
                              EVSEs       is not null ? $"{EVSEs.Count} EVSE(s)"                 : null,
-                             Calibration is not null ? $"{Calibration.Count} certificate(s)"    : null
+                             Calibration is not null ? $"{Calibration.Count} certificate(s)"    : null,
+                             RFID        is not null ? $"{RFID.Count} RFID reader(s)"           : null,
+                             Operator    is not null ? Operator.ToString()                      : null,
+                             WebPayments is not null ? WebPayments.ToString()                   : null
                          }.Where(section => section is not null));
 
         #endregion

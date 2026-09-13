@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.ChargingStation.EVSEs;
+using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -199,6 +200,9 @@ namespace cloud.charging.open.ChargingStation
 
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", GetCalibrationConfiguration, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", PutCalibrationConfiguration, HTTPMethod.PUT);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/rfid",       GetRFIDConfiguration,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/rfid",       PutRFIDConfiguration,         HTTPMethod.PUT);
 
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
@@ -592,6 +596,82 @@ namespace cloud.charging.open.ChargingStation
             if (Change.HasFlag(EVSEChange.Availability))  permissions |= Permissions.ChangeAvailability;
             if (Change.HasFlag(EVSEChange.PowerLimits))   permissions |= Permissions.ChangePowerLimits;
             if (Change.HasFlag(EVSEChange.Hardware))      permissions |= Permissions.ChangeHardware;
+
+            return permissions;
+
+        }
+
+        #endregion
+
+        #region (private) GetRFIDConfiguration(Request) / PutRFIDConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/rfid: the card readers this station has.
+        /// </summary>
+        private Task<HTTPResponse> GetRFIDConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.RFIDConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/rfid with {"readers": [...]}: replace them all.
+        /// </summary>
+        /// <remarks>
+        /// The same two-permission shape as the EVSEs, for the same reason:
+        /// where a reader sits is a statement about the installation, switching
+        /// one off is not, and the whole list is sent either way.
+        /// </remarks>
+        private Task<HTTPResponse> PutRFIDConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, true, out var session, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var permissions = Sessions.PermissionsOf(session);
+
+            if (!Station.TryUpdateRFIDConfiguration(json,
+                                                    change => permissions.HasFlag(PermissionsFor(change)),
+                                                    out var change,
+                                                    out var error,
+                                                    out var forbidden))
+            {
+                return Task.FromResult(
+                           forbidden
+                               ? RefusePermission(Request, session, PermissionsFor(change), error)
+                               : ErrorJSON(Request, HTTPStatusCode.BadRequest, error)
+                       );
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.RFIDConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private static) PermissionsFor(Change)
+
+        /// <summary>
+        /// Everything a change to the card readers needs permission for.
+        /// </summary>
+        private static Permissions PermissionsFor(RFIDChange Change)
+        {
+
+            var permissions = Permissions.None;
+
+            if (Change.HasFlag(RFIDChange.Availability))  permissions |= Permissions.ChangeAvailability;
+            if (Change.HasFlag(RFIDChange.Placement))     permissions |= Permissions.ChangeHardware;
 
             return permissions;
 

@@ -1,0 +1,421 @@
+// The display on the front of the charging station.
+//
+// Its own stylesheet, not the web interface's: this is read from two or three
+// metres away by somebody who is not sitting down, in daylight, on a screen
+// nobody can adjust. So: dark, very large, very few colours, and nothing that
+// needs a second look to understand.
+
+$kiosk-bg:          #0b1016;
+$kiosk-surface:     #161d26;
+$kiosk-border:      #263241;
+$kiosk-text:        #eef3f8;
+$kiosk-muted:       #8fa3b8;
+
+$kiosk-free:        #2fbf71;
+$kiosk-charging:    #3b9dfc;
+$kiosk-reserved:    #d9a441;
+$kiosk-out:         #6b7a8c;
+
+$kiosk-font:        system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body.kiosk-body {
+    height:      100%;
+    margin:      0;
+    background:  $kiosk-bg;
+    color:       $kiosk-text;
+    font-family: $kiosk-font;
+
+    // A display is touched by strangers and nobody wants a text selection or a
+    // magnifying glass on it.
+    user-select:            none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#kiosk {
+    display:         flex;
+    flex-direction:  column;
+    min-height:      100vh;
+    padding:         2vmin 2.5vmin;
+    gap:             2vmin;
+}
+
+.kiosk-loading {
+    margin:      auto;
+    font-size:   4vmin;
+    color:       $kiosk-muted;
+}
+
+
+// Head
+
+.kiosk-head {
+
+    display:      flex;
+    align-items:  center;
+    gap:          2vmin;
+
+    h1 {
+        margin:      0;
+        font-size:   3.4vmin;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+    }
+
+}
+
+.kiosk-logo {
+    height:     5vmin;
+    max-width:  22vmin;
+    object-fit: contain;
+}
+
+.kiosk-offline {
+    margin-left:    auto;
+    padding:        0.4vmin 1.4vmin;
+    border-radius:  999px;
+    background:     #4a1d1d;
+    color:          #ffb4b4;
+    font-size:      2vmin;
+}
+
+
+// The outlets
+
+.kiosk-evses {
+
+    flex:                   1 1 auto;
+    display:                grid;
+    gap:                    2vmin;
+    grid-template-columns:  repeat(auto-fit, minmax(min(34vmin, 100%), 1fr));
+
+    // The outlets fill the screen rather than sitting in a band at the top: a
+    // display is a fixed rectangle and every unused centimetre of it is a
+    // centimetre the numbers could have been bigger in.
+    grid-auto-rows:         1fr;
+
+    // One outlet gets the whole screen; two share it side by side. Beyond
+    // that the automatic columns above are closer to right than anything
+    // written out by hand would be.
+    &.kiosk-count-1 { grid-template-columns: 1fr;             }
+    &.kiosk-count-2 { grid-template-columns: repeat(2, 1fr);  }
+
+}
+
+.kiosk-evse {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             1.4vmin;
+    padding:         2.4vmin;
+    border-radius:   1.6vmin;
+    background:      $kiosk-surface;
+    // The status is the first thing anybody looks for, so it is a stripe down
+    // the side rather than a word to find.
+    border-left:     0.9vmin solid $kiosk-out;
+
+    &.available    { border-left-color: $kiosk-free;      }
+    &.occupied     { border-left-color: $kiosk-charging;  }
+    &.reserved     { border-left-color: $kiosk-reserved;  }
+    &.inoperative  { border-left-color: $kiosk-out; opacity: 0.6; }
+
+}
+
+.kiosk-evse-head {
+    display:          flex;
+    align-items:      baseline;
+    justify-content:  space-between;
+    gap:              1.5vmin;
+}
+
+.kiosk-evse-label {
+    font-size:    5vmin;
+    font-weight:  700;
+    line-height:  1;
+}
+
+.kiosk-status {
+
+    font-size:       2.6vmin;
+    font-weight:     600;
+    text-transform:  uppercase;
+    letter-spacing:  0.06em;
+
+    .available &    { color: $kiosk-free;      }
+    .occupied  &    { color: $kiosk-charging;  }
+    .reserved  &    { color: $kiosk-reserved;  }
+    .inoperative &  { color: $kiosk-out;       }
+
+}
+
+.kiosk-power {
+
+    display:      flex;
+    align-items:  baseline;
+    gap:          1vmin;
+    flex-wrap:    wrap;
+
+    .now {
+        font-size:               7vmin;
+        font-weight:             700;
+        line-height:             1;
+        // So the number does not jump sideways while it counts up.
+        font-variant-numeric:    tabular-nums;
+    }
+
+    .of {
+        font-size:  2.6vmin;
+        color:      $kiosk-muted;
+    }
+
+}
+
+// Said on the screen and not only in the documentation: there is no meter
+// behind that number, and a display is exactly where somebody would assume
+// there is one.
+.kiosk-sim {
+    padding:        0.2vmin 1vmin;
+    border:         1px solid $kiosk-border;
+    border-radius:  999px;
+    color:          $kiosk-muted;
+    font-size:      1.7vmin;
+    letter-spacing: 0.04em;
+}
+
+.kiosk-connectors {
+    display:    flex;
+    flex-wrap:  wrap;
+    gap:        0.8vmin;
+}
+
+.kiosk-connector {
+
+    padding:        0.5vmin 1.2vmin;
+    border:         1px solid $kiosk-border;
+    border-radius:  0.8vmin;
+    font-size:      2.1vmin;
+
+    .kw {
+        color:       $kiosk-muted;
+        margin-left: 0.6vmin;
+    }
+
+}
+
+.kiosk-session {
+    display:      flex;
+    align-items:  center;
+    gap:          1.4vmin;
+    margin-top:   auto;
+}
+
+.kiosk-method {
+    padding:        0.4vmin 1.2vmin;
+    border-radius:  0.8vmin;
+    background:     rgba(59, 157, 252, 0.18);
+    color:          $kiosk-charging;
+    font-size:      2.1vmin;
+    font-weight:    600;
+}
+
+.kiosk-emp {
+    font-size:  2.4vmin;
+    color:      $kiosk-text;
+}
+
+.kiosk-emp-logo {
+    height:      4vmin;
+    max-width:   18vmin;
+    object-fit:  contain;
+}
+
+.kiosk-qr {
+
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    gap:             0.8vmin;
+    margin-top:      auto;
+    padding-top:     1vmin;
+
+    // The code itself is an SVG built in the browser. White behind it because
+    // a QR code on a dark ground is one many phones will not read.
+    svg {
+        width:          22vmin;
+        max-width:      100%;
+        height:         auto;
+        background:     #ffffff;
+        padding:        1.2vmin;
+        border-radius:  1vmin;
+        display:        block;
+    }
+
+}
+
+.kiosk-qr-hint {
+    font-size:  2vmin;
+    color:      $kiosk-muted;
+}
+
+
+// The card reader
+
+.kiosk-foot {
+    display:          flex;
+    justify-content:  center;
+}
+
+.kiosk-rfid {
+
+    display:          flex;
+    align-items:      center;
+    gap:              1.4vmin;
+    padding:          1.6vmin 3vmin;
+    border:           1px solid $kiosk-border;
+    border-radius:    1.4vmin;
+    background:       $kiosk-surface;
+    color:            $kiosk-text;
+    font:             inherit;
+    font-size:        2.6vmin;
+
+    &.small {
+        padding:    0.9vmin 1.6vmin;
+        font-size:  2.1vmin;
+        align-self: flex-start;
+    }
+
+    // Only a reader whose cards are typed in is something to press. A real one
+    // is a label: the card goes against the housing, not against the screen.
+    &.tappable {
+        cursor: pointer;
+        &:active { background: #1e2733; }
+    }
+
+    &:disabled {
+        cursor:  default;
+        color:   $kiosk-muted;
+    }
+
+}
+
+// Drawn rather than a font: one icon is not worth an icon font on a screen
+// that has to come up without the network.
+.kiosk-rfid-icon {
+
+    position:       relative;
+    display:        inline-block;
+    width:          1em;
+    height:         1em;
+    flex:           0 0 auto;
+    border:         0.12em solid currentColor;
+    border-radius:  0.22em;
+
+    &::before, &::after {
+        content:       '';
+        position:      absolute;
+        border:        0.1em solid currentColor;
+        border-left:   0;
+        border-top:    0;
+        border-radius: 0 0 0.5em 0;
+        transform:     rotate(-45deg);
+    }
+
+    &::before { inset: 0.22em 0.5em 0.22em 0.18em; }
+    &::after  { inset: 0.34em 0.3em 0.34em 0.36em; }
+
+}
+
+
+// The card dialog, which only a fake reader ever opens
+
+.kiosk-modal {
+    position:         fixed;
+    inset:            0;
+    display:          flex;
+    align-items:      center;
+    justify-content:  center;
+    background:       rgba(0, 0, 0, 0.6);
+    padding:          4vmin;
+}
+
+.kiosk-dialog {
+
+    width:           min(64vmin, 100%);
+    display:         flex;
+    flex-direction:  column;
+    gap:             1.6vmin;
+    padding:         3vmin;
+    border-radius:   1.6vmin;
+    background:      $kiosk-surface;
+    border:          1px solid $kiosk-border;
+
+    h2 {
+        margin:     0;
+        font-size:  3.2vmin;
+    }
+
+    label {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.6vmin;
+        font-size:       2.2vmin;
+        color:           $kiosk-muted;
+    }
+
+    input, select {
+        padding:        1.2vmin 1.5vmin;
+        border:         1px solid $kiosk-border;
+        border-radius:  1vmin;
+        background:     $kiosk-bg;
+        color:          $kiosk-text;
+        font:           inherit;
+        font-size:      2.8vmin;
+        // A UID is hexadecimal; a proportional font makes two of them hard to
+        // tell apart.
+        font-family:    ui-monospace, "Cascadia Mono", Consolas, monospace;
+        user-select:    text;
+    }
+
+}
+
+.kiosk-dialog-hint {
+    margin:     0;
+    font-size:  2vmin;
+    color:      $kiosk-muted;
+}
+
+.kiosk-dialog-note {
+    min-height: 2.6vmin;
+    font-size:  2.1vmin;
+    color:      #ffb4b4;
+}
+
+.kiosk-dialog-actions {
+    display:          flex;
+    justify-content:  flex-end;
+    gap:              1.2vmin;
+}
+
+.kiosk-btn {
+
+    padding:        1.2vmin 2.4vmin;
+    border:         1px solid $kiosk-border;
+    border-radius:  1vmin;
+    background:     transparent;
+    color:          $kiosk-text;
+    font:           inherit;
+    font-size:      2.4vmin;
+    cursor:         pointer;
+
+    &.primary {
+        background:    $kiosk-free;
+        border-color:  $kiosk-free;
+        color:         #08120c;
+        font-weight:   600;
+    }
+
+}

@@ -317,6 +317,31 @@ export interface CalibrationConfiguration {
     file:          string;
 }
 
+/** One card reader this station has, and where it sits. */
+export interface RFIDReader {
+    id:       string;
+    kind:     string;
+    /** Which EVSE it belongs to, or null when it serves the whole station. */
+    evse:     number | null;
+    enabled:  boolean;
+    /** Whether this station has a driver for this kind of reader at all. */
+    hasDriver?:  boolean;
+    /** Whether its cards are typed into the display rather than held against it. */
+    fake?:       boolean;
+}
+
+/** The card readers of this station. */
+export interface RFIDConfiguration {
+    readers:     RFIDReader[];
+    evses:       { id: number; label: string | null }[];
+    /** The kinds this station names itself. Not a closed list. */
+    kinds:       string[];
+    /** The one kind whose cards are typed in. */
+    fakeKind:    string;
+    maxReaders:  number;
+    file:        string;
+}
+
 /** What a certificate looks like on the way in: the rest is read out of the PEM. */
 export interface CalibrationCertificateUpdate {
     id:            string;
@@ -447,6 +472,16 @@ export const api = {
          * gone through.
          */
         save:  (evses: EVSE[])  => request<EVSEConfiguration>('PUT', '/configuration/evses', { evses })
+    },
+
+    rfid: {
+        get:   ()                        => request<RFIDConfiguration>('GET', '/configuration/rfid'),
+        /**
+         * All of them at once. Which permission this needs depends on what
+         * changed - moving a reader is not the same statement as switching one
+         * off - and the station works that out by comparing.
+         */
+        save:  (readers: RFIDReader[])   => request<RFIDConfiguration>('PUT', '/configuration/rfid', { readers })
     },
 
     calibration: {

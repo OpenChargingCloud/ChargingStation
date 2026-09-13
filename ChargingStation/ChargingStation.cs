@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
+
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
@@ -32,6 +34,8 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
+using cloud.charging.open.ChargingStation.Kiosk;
+using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.Logging;
 using cloud.charging.open.ChargingStation.Web;
@@ -69,6 +73,18 @@ namespace cloud.charging.open.ChargingStation
         public static readonly IPPort DefaultHTTPPort = IPPort.Parse(2348);
 
         /// <summary>
+        /// The TCP port the display listens on, when nobody says otherwise.
+        /// </summary>
+        /// <remarks>
+        /// Next to the web interface so that the pair is easy to remember, and
+        /// a different socket so that the two can be bound to different
+        /// addresses and firewalled apart - which is the whole reason the
+        /// display is a second server. See
+        /// <see cref="KioskHTTPAPI"/>.
+        /// </remarks>
+        public static readonly IPPort DefaultKioskPort = IPPort.Parse(2349);
+
+        /// <summary>
         /// The file of the bundle that is the web interface; its presence is
         /// what says there is one to serve at all.
         /// </summary>
@@ -103,6 +119,16 @@ namespace cloud.charging.open.ChargingStation
 
         private readonly  HTTPServer                           httpServer;
         private readonly  HTTPPath                             httpRootPath;
+
+        /// <summary>
+        /// Who is charging where, as far as the display is concerned. See
+        /// ChargingStation.Kiosk.cs for what drives this and what does not.
+        /// </summary>
+        private readonly  ConcurrentDictionary<Byte, ChargingSession>  sessions = [];
+
+        private readonly  HTTPServer?                          kioskServer;
+
+        private readonly  WebPaymentsConfiguration?            webPayments;
 
         private readonly  ConsoleLog?                          consoleLog;
         private readonly  TraceBridge?                         traceBridge;
@@ -164,6 +190,37 @@ namespace cloud.charging.open.ChargingStation
         /// The calibration certificates this station runs under.
         /// </summary>
         public IReadOnlyList<CalibrationCertificate>  CalibrationCertificates  { get; private set; }
+
+        /// <summary>
+        /// The RFID readers this station has, and where they sit.
+        /// </summary>
+        public IReadOnlyList<RFIDReaderConfig>  RFIDReaders  { get; private set; }
+
+        /// <summary>
+        /// Whose charging station this is, and whose cards it recognises.
+        /// </summary>
+        public OperatorConfiguration          Operator               { get; private set; }
+
+        /// <summary>
+        /// Whether a QR code to pay by is shown on the display.
+        /// </summary>
+        /// <remarks>
+        /// Read from the file at the start and not changeable while running -
+        /// see <see cref="WebPaymentsConfiguration"/>, which explains why the
+        /// one setting in this station that carries a secret is the one setting
+        /// that never travels over HTTP.
+        /// </remarks>
+        public Boolean                        WebPaymentsEnabled     { get; }
+
+        /// <summary>
+        /// Where the display of this station is, or null when it has none.
+        /// </summary>
+        public URL?                           KioskURL               { get; }
+
+        /// <summary>
+        /// The display API, on its own server and its own port.
+        /// </summary>
+        public KioskHTTPAPI?                  KioskAPI               { get; }
 
         /// <summary>
         /// How this station resolves names.
@@ -279,6 +336,9 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="EVSEs">What this station is made of, unless the configuration file says otherwise; one 22 kW type 2 socket by default.</param>
         /// <param name="UplinkPowerLimit_kW">The most this station may draw from the grid, unless the configuration file says otherwise; unknown by default.</param>
         /// <param name="CalibrationCertificates">The calibration certificates it runs under, unless the configuration file says otherwise; none by default.</param>
+        /// <param name="KioskPort">The TCP port the display listens on; 8081 by default. Its own server on its own port - see KioskHTTPAPI.</param>
+        /// <param name="KioskHostname">The address the display listens on; the same as the web interface by default.</param>
+        /// <param name="NoKiosk">Whether to leave the display out entirely, so that the station listens on one port.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
@@ -297,6 +357,9 @@ namespace cloud.charging.open.ChargingStation
                                IEnumerable<EVSEConfig>?  EVSEs          = null,
                                Decimal?               UplinkPowerLimit_kW  = null,
                                IEnumerable<CalibrationCertificate>?  CalibrationCertificates = null,
+                               IPPort?                KioskPort         = null,
+                               IIPAddress?            KioskHostname     = null,
+                               Boolean                NoKiosk           = false,
                                IStaticContentSource?  Frontend          = null,
                                V2GOptions?            V2G               = null,
                                EventLog?              Log               = null,
@@ -465,6 +528,24 @@ namespace cloud.charging.open.ChargingStation
 
             LogCalibrationCertificates(this.CalibrationCertificates);
 
+            this.RFIDReaders = configuration?.RFID ?? [];
+
+            LogRFIDReaders(this.RFIDReaders);
+
+            this.Operator = configuration?.Operator ?? new OperatorConfiguration();
+
+            this.WebPaymentsEnabled = configuration?.WebPayments?.Enabled == true &&
+                                      configuration.WebPayments.URLTemplate.HasValue;
+
+            if (configuration?.WebPayments?.Enabled == true && !configuration.WebPayments.URLTemplate.HasValue)
+                this.Log.Warning(
+                    $"Web payments are switched on in '{this.ConfigFile.Path}' but no 'urlTemplate' is configured; " +
+                    "the display will show no QR code.",
+                    "kiosk", "config"
+                );
+
+            this.webPayments = configuration?.WebPayments;
+
             #endregion
 
             #region The HTTP server, the JSON API and the web interface
@@ -582,6 +663,70 @@ namespace cloud.charging.open.ChargingStation
 
             #endregion
 
+            #region The display, on a server and a port of its own
+
+            // Its own listener rather than another page, so that the screen in
+            // the car park and the administration of this station are two
+            // sockets that can be bound to two addresses - see KioskHTTPAPI
+            // for the whole argument. Building it here and starting it in
+            // Start(), like the other one.
+            if (!NoKiosk)
+            {
+
+                var kioskAddress  = KioskHostname ?? address;
+                var kioskPort     = KioskPort     ?? DefaultKioskPort;
+
+                if (kioskAddress.Equals(address) && kioskPort == port)
+                    throw new ArgumentException(
+                              $"The display and the web interface would both listen on {address}:{port}. " +
+                              "The point of the display being its own server is that it is somewhere else.",
+                              nameof(KioskPort)
+                          );
+
+                this.kioskServer  = new HTTPServer(
+                                        IPAddress:       kioskAddress,
+                                        TCPPort:         kioskPort,
+                                        HTTPServerName:  $"OpenChargingCloud ChargingStation Display v{Version}",
+                                        DNSClient:       dnsClient
+                                    );
+
+                this.KioskURL     = URL.Parse($"http://{kioskAddress}:{kioskPort}/");
+
+                this.KioskAPI     = new KioskHTTPAPI(
+                                        HTTPServer:  kioskServer,
+                                        Station:     this,
+                                        Log:         this.Log
+                                    );
+
+                if (this.Frontend.TryGet(KioskHTTPAPI.IndexFile, out _))
+                    kioskServer.AddHTTPAPI().
+                                MapSinglePageApplication(
+                                    this.Frontend,
+                                    new SinglePageAppOptions {
+                                        // The same bundle as the web interface,
+                                        // entered at its other door. The assets
+                                        // are shared; the page is not.
+                                        IndexFile       = KioskHTTPAPI.IndexFile,
+                                        IndexTransform  = html => html.Replace("{{ServerVersion}}", $"v{Version}", StringComparison.Ordinal)
+                                    }
+                                );
+
+                else
+                    this.Log.Error(
+                        $"No display page to serve ({this.Frontend.Description} has no '{KioskHTTPAPI.IndexFile}'): " +
+                        "the display API answers, the screen gets nothing.",
+                        "kiosk"
+                    );
+
+                kioskServer.OnHTTPRequest += (server, request, cancellationToken) => {
+                    this.Log.Debug($"{request.HTTPMethod} {request.Path} from {request.RemoteSocket}", "kiosk", "http");
+                    return Task.CompletedTask;
+                };
+
+            }
+
+            #endregion
+
             #region The OCPP nodes
 
             // Built from the EVSEs above, and rebuilt whenever those change -
@@ -614,9 +759,15 @@ namespace cloud.charging.open.ChargingStation
 
             await httpServer.Start();
 
+            if (kioskServer is not null)
+                await kioskServer.Start();
+
             started = true;
 
             Log.Notice($"The web interface is listening on {WebInterfaceURL}", "web", "http");
+
+            if (KioskURL.HasValue)
+                Log.Notice($"The display is listening on {KioskURL.Value} - no sign-in, and nothing of the administration on it.", "kiosk", "http");
             Log.Info   ($"The JSON API is at {WebInterfaceURL}{httpRootPath.ToString().Trim('/')}/v1/status", "web", "http");
 
             // After the web interface, so that whoever is watching the Logs
@@ -657,6 +808,9 @@ namespace cloud.charging.open.ChargingStation
                 await V2G.DisposeAsync();
                 V2G = null;
             }
+
+            if (kioskServer is not null)
+                await kioskServer.Stop();
 
             await httpServer.Stop();
 

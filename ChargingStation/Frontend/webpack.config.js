@@ -11,10 +11,17 @@ const appVersion            = require('./package.json').version;
 // by ../ChargingStation.csproj (target "EmbedFrontend"):
 //
 //   dist/index.html                     the SPA stub, served for every page URL
+//   dist/kiosk.html                     the display on the front of the station
 //   dist/favicon.svg
-//   dist/assets/app.<contenthash>.js    one bundle
-//   dist/assets/app.<contenthash>.css   one stylesheet
+//   dist/assets/main.<contenthash>.js   the web interface
+//   dist/assets/kiosk.<contenthash>.js  the display
+//   dist/assets/*.<contenthash>.css     one stylesheet each
 //   dist/assets/*                       fonts, images, source maps
+//
+// Two entry points and two pages, because they are served by two different
+// servers on two different ports - see KioskHTTPAPI.cs. One bundle would put
+// the sign-in form and every configuration page into the file a screen in a
+// car park downloads, which is exactly what the two ports are there to avoid.
 //
 // Directory names below dist/ must not contain dots: the server maps the URL
 // path "assets/app.1234.js" onto the manifest resource name
@@ -26,7 +33,10 @@ module.exports = (env, argv) => {
 
     return {
 
-        entry:   './src/main.ts',
+        entry: {
+            main:   './src/main.ts',
+            kiosk:  './src/kiosk.ts'
+        },
         target:  ['web', 'es2022'],
 
         // No eval-based devtool: the page is served with a strict
@@ -71,7 +81,20 @@ module.exports = (env, argv) => {
             }),
             new HtmlWebpackPlugin({
                 template:  './src/index.html',
+                filename:  'index.html',
+                chunks:    ['main'],
                 favicon:   './src/favicon.svg',
+                title:     'Charging Station',
+                version:   appVersion
+            }),
+            new HtmlWebpackPlugin({
+                template:  './src/kiosk.html',
+                filename:  'kiosk.html',
+                chunks:    ['kiosk'],
+                // No favicon: html-webpack-plugin would emit a second copy of
+                // it, and both pages are served from the same dist/ anyway.
+                inject:    'head',
+                scriptLoading: 'defer',
                 title:     'Charging Station',
                 version:   appVersion
             })

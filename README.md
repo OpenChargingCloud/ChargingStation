@@ -147,7 +147,12 @@ Everything this station can be told in writing lives in one file,
   "power": { "uplinkPowerLimit_kW": 55 },
   "evses": [ { "id": 1, "maxPower_kW": 22,
                "connectors": [ { "id": 1, "type": "sType2", "maxPower_kW": 22 } ] } ],
-  "calibration": [ { "id": "meter-evse-1", "pem": "-----BEGIN CERTIFICATE-----\n..." } ]
+  "calibration": [ { "id": "meter-evse-1", "pem": "-----BEGIN CERTIFICATE-----\n..." } ],
+  "rfid":  [ { "id": "reader-a", "kind": "PC/SC", "evse": 1, "enabled": true } ],
+  "operator": { "name": "Stadtwerke Musterstadt",
+                "emps": [ { "id": "emp-one", "name": "Elektro Mobil GmbH", "tokenPrefixes": [ "04A2" ] } ] },
+  "webPayments": { "enabled": true, "urlTemplate": "https://pay.example.org/{evseId}/{TOTP}",
+                   "sharedSecret": "..." }
 }
 ```
 
@@ -177,6 +182,7 @@ interface will not delete the part it did not understand.
 | `/configuration/nts`         | the time source: on/off, the server, the cookie pool, and "Sync now" |
 | `/configuration/power`       | what the grid connection allows, against what the EVSEs could draw |
 | `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
+| `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
 | `/configuration/calibration` | the calibration certificates this station runs under |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
@@ -185,6 +191,7 @@ interface will not delete the part it did not understand.
     POST /api/v1/configuration/nts/sync     NTS-KE + one authenticated NTP request
     GET  /api/v1/configuration/power        PUT with {"uplinkPowerLimit_kW": 55}, null clears it
     GET  /api/v1/configuration/evses        PUT with {"evses": [...]}, all of them at once
+    GET  /api/v1/configuration/rfid         PUT with {"readers": [...]}, all of them at once
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
 
 Every change takes effect at once - no restart, and no page that says a restart
@@ -207,19 +214,25 @@ Every login carries roles, in `web-login.json`:
 | role | may |
 |---|---|
 | `viewer`      | read the configuration |
-| `cpo`         | that, plus change DNS and NTS and run their tests |
-| `installer`   | that, plus take an EVSE out of service, the power limits, the calibration certificates |
+| `cpo`         | that, plus change DNS and NTS, run their tests, and take an EVSE or a card reader out of service |
+| `installer`   | that, plus the power limits and the calibration certificates |
 | `systemadmin` | that, plus change what the station is made of |
 
 The two steps above the operator are different in kind, and that is the whole
 reason there are two of them.
 
-The **installer** works on equipment that is already there: takes an EVSE out
-of service, and corrects the numbers and the papers that came with it. The grid
-operator says the connection may draw 55 kW rather than the 80 kW on the order,
-the cable that went in is a 32 A one, and here is the certificate of the meter
-that was fitted. All of that gets corrected, and lowering a limit or taking an
-outlet out of service is safe in the careful direction.
+Taking something out of service is the **operator's**: something is wrong with
+an outlet, or somebody is working on it, and the person who finds that out is
+the one running the station rather than the one who installed it a year ago. It
+is also the one statement here that is safe to be wrong about in the careful
+direction - a station that says an outlet is unusable when it is not serves
+nobody, which is a nuisance; the other way round is a driver standing in the
+rain.
+
+The **installer** works on equipment that is already there and corrects the
+numbers and the papers that came with it. The grid operator says the connection
+may draw 55 kW rather than the 80 kW on the order, the cable that went in is a
+32 A one, and here is the certificate of the meter that was fitted.
 
 The **system administrator** says what the equipment *is* - how many sockets
 there are and what shape they have. That is a claim nothing further down can
@@ -370,6 +383,112 @@ out within 90 days is a warning in the log at every start, because a
 certificate running out does not stop a station from charging: it stops what it
 charged from being billable, which is noticed a month later by somebody who was
 not there.
+
+
+### RFID
+
+A station has one reader for the whole housing or one per EVSE, and which of the
+two it is changes what the display has to do: a reader that belongs to the
+station has to ask which outlet the card is for, a reader beside an outlet does
+not. So `"evse": null` is the station-wide case, there is at most one reader per
+place, and the placement is configured rather than discovered.
+
+The kinds are an open set, for the same reason connector types are: a reader
+this station has no driver for is still a reader somebody bolted on, and
+refusing to write it down would not make it go away. It is configured, it is
+shown, it is said once in the log, and it reads nothing.
+
+**`GraphDefined.FakeRFID` is the one kind with anything behind it**, and its
+cards are typed into the display rather than held against it. That is for
+testing and says so on the page, in the log at every start, and on the display.
+
+A UID is normalised on the way in - upper case, no separators - because readers
+disagree about colons and dashes and a station that passed those on as it found
+them would report one card as several.
+
+### Operator and providers
+
+`"operator"` is whose station this is: a name and maybe a logo, and the list of
+e-mobility providers whose cards the display puts a name to. Cards are
+recognised by the start of their UID, which is a coarse rule and deliberately
+so - it is enough to print a name on a screen and nowhere near enough to bill
+anybody, which is the right way round for a thing on a wall in public. Somebody
+charging ad hoc has no provider, and the name over that session is the
+operator's, because that is who they are buying from.
+
+### Web payments
+
+`"webPayments"` is the QR code on the display: a URL carrying a time-based
+one-time password over a shared secret, so that a photograph of yesterday's
+screen is worth nothing. `{evseId}` in the template is filled in per outlet and
+`{TOTP}` with the password. A code with less than five seconds left is not shown
+at all - a code somebody photographs and then cannot use is worse than no code,
+because the second attempt looks like the station is broken.
+
+**This is the one section with no page and no HTTP route.** The shared secret is
+the one piece of configuration in this station worth stealing, and the display
+it ends up on hangs in public - so it stays in the file, and changing it is
+editing the file and restarting. Everything else this station can be told still
+changes while it runs.
+
+## The display
+
+A page with no sign-in on it, for the screen on the front of the station:
+`http://<host>:2349/` by default, `--kiosk-port <n>`, `--no-kiosk` to leave it
+out. It shows each EVSE with its label, whether it is free, reserved, charging
+or out of service, what it is drawing against what it could, the shape and limit
+of each cable, who is charging (PnC, RFID, AdHoc or Remote) and their provider's
+name or logo, the QR code to pay with, and a card symbol where there is a
+reader.
+
+### Why a second server and not a second page
+
+Everything on the display is public by design, and the machine it is shown on is
+a screen bolted to a charging station in a car park. Somebody with a keyboard, a
+USB port or a way out of a browser's full-screen mode is standing at that
+machine, and whatever that machine can reach, they can reach.
+
+A page on the main server would mean the display and the administration share an
+origin: the sign-in form, the session cookie and every configuration route are
+one URL away from the screen, and keeping them apart would rest on every route
+being correctly gated, for ever, by everybody who adds one. A second listener
+makes it a property of the deployment instead of a property of the code - and,
+the part that actually matters, it can be **bound to a different address**: the
+display on the screen's own network, the administration on the maintenance side,
+neither reachable from the other's wire. That is a sentence somebody can check
+with a port scanner, which "we reviewed the handlers" is not.
+
+    $ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:2349/api/v1/auth/login
+    404
+
+The cost is one more socket: the same process, the same station object, the same
+log, and a second entry point in the bundle so that the file a screen in a car
+park downloads does not contain the sign-in form and every configuration page.
+
+The display can read, and it can do exactly one thing: hold a card against a
+reader whose cards are typed in. A station with only real readers configured has
+no write on that port at all, and the refusal is by what the reader is rather
+than by who is asking - which is the only kind of rule that holds where there is
+no sign-in.
+
+### What drives it
+
+The status of an EVSE comes from its own configuration and from the sessions;
+the QR code is a real one-time password over the configured secret. The sessions
+are started and stopped by the card readers, and today the only reader with
+anything behind it is the fake one - so a station nobody has touched shows every
+outlet as free. Nothing here is connected to a CSMS, because nothing in this
+station is yet.
+
+**The power figure is simulated and says so**, on the screen and in the JSON.
+This station has no energy meter and is not connected to anything that has one.
+A dash where the power should be would be honest and useless to look at; a
+number that pretends to be a meter reading would be useful and a lie.
+
+The page polls every two seconds rather than holding an event stream open. A
+display is the one client where a dropped connection must not be noticed by
+anybody: polling recovers by itself, and by the time somebody walks up to the
+screen it is right again.
 
 
 ## The clock
