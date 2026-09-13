@@ -29,6 +29,8 @@ using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.Kiosk;
 using cloud.charging.open.ChargingStation.RFID;
 
+using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -48,8 +50,8 @@ namespace cloud.charging.open.ChargingStation
     /// second TCP port and not a careful choice of fields.
     ///
     /// **What drives it.** The status of an EVSE comes from its own
-    /// configuration - an inoperative EVSE says so - and from the sessions
-    /// below. The QR code is a real time-based one-time password over the
+    /// configuration - an inoperative EVSE says so - from OCPP's reservations
+    /// (see ChargingStation.Reservations.cs) and from the sessions below. The QR code is a real time-based one-time password over the
     /// shared secret this station is configured with, worked out afresh every
     /// time somebody asks. The sessions are started and stopped by the RFID
     /// readers, and today the only reader with anything behind it is the fake
@@ -141,11 +143,15 @@ namespace cloud.charging.open.ChargingStation
 
             sessions.TryGetValue(EVSE.Id, out var session);
 
+            var reservation = ReservationJSON(EVSE.Id, Now);
+
             var status  = !EVSE.Operative
                               ? EVSEStatus.Inoperative
                               : session is not null
                                     ? EVSEStatus.Occupied
-                                    : EVSEStatus.Available;
+                                    : reservation is not null
+                                          ? EVSEStatus.Reserved
+                                          : EVSEStatus.Available;
 
             var reader  = Readers.FirstOrDefault(candidate => candidate.EVSEId == EVSE.Id && candidate.Enabled);
 
@@ -187,6 +193,8 @@ namespace cloud.charging.open.ChargingStation
                                                                      new JProperty("url",        qrCode.Value.URL),
                                                                      new JProperty("expiresAt",  qrCode.Value.EndTime.ToString("o"))
                                                                  )),
+
+                       new JProperty("reservation",        reservation),
 
                        new JProperty("rfid",               reader is null ? null : ReaderJSON(reader))
 
@@ -397,6 +405,24 @@ namespace cloud.charging.open.ChargingStation
             var now      = TimeProvider.GetUtcNow();
             var started  = false;
 
+            // An outlet held for somebody lets that somebody in and nobody
+            // else. The card is how they prove it is theirs, which is why the
+            // display does not print the token it is waiting for.
+            var reservation = cs02.ReservationOf(OCPPv2_1.EVSE_Id.Parse(evse.Id));
+
+            if (reservation is not null &&
+                !sessions.ContainsKey(evse.Id) &&
+                !reservation.Admits(new OCPPv2_1.IdToken(token.UID, OCPPv2_1.IdTokenType.ISO14443)))
+            {
+                Log.Notice(
+                    $"Card {token} was turned away from EVSE {evse.Id}: it is held under reservation {reservation.Id} " +
+                    $"until {reservation.ExpiryDate:HH:mm:ss}.",
+                    "rfid", "reservation", "kiosk"
+                );
+                Error = $"EVSE {evse.Id} is reserved until {reservation.ExpiryDate.ToLocalTime():HH:mm}.";
+                return false;
+            }
+
             if (sessions.TryGetValue(evse.Id, out var running))
             {
 
@@ -407,6 +433,8 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 sessions.TryRemove(evse.Id, out _);
+
+                SetCharging(evse.Id, false);
 
                 Log.Notice(
                     $"Card {token} stopped the session at EVSE {evse.Id} after {(now - running.StartedAt).TotalSeconds:F0} s (reader '{reader.Id}').",
@@ -430,6 +458,17 @@ namespace cloud.charging.open.ChargingStation
 
                 started = true;
 
+                SetCharging(evse.Id, true);
+
+                // The reservation has done its job: the person it was held for
+                // is here and plugged in. Leaving it standing would hold the
+                // outlet against its own driver when they stop and start again.
+                if (reservation is not null)
+                {
+                    cs02.CancelReservation(reservation.Id);
+                    Log.Notice($"The reservation {reservation.Id} was taken up at EVSE {evse.Id}.", "rfid", "reservation", "kiosk");
+                }
+
                 Log.Notice(
                     $"Card {token} started a session at EVSE {evse.Id} " +
                     (provider is null ? "for a provider this station does not recognise" : $"for {provider.Name}") +
@@ -447,6 +486,27 @@ namespace cloud.charging.open.ChargingStation
                      );
 
             return true;
+
+        }
+
+        #endregion
+
+        #region (private) SetCharging(EVSEId, Charging)
+
+        /// <summary>
+        /// Tell the OCPP node that an outlet is in use, or is not.
+        /// </summary>
+        /// <remarks>
+        /// So that the node can answer a ReserveNow truthfully. Two places that
+        /// may disagree about whether an outlet is busy is one place too many,
+        /// and the one a CSMS asks is the node.
+        /// </remarks>
+        private void SetCharging(Byte     EVSEId,
+                                 Boolean  Charging)
+        {
+
+            if (cs02.TryGetEVSE(OCPPv2_1.EVSE_Id.Parse(EVSEId), out var evse))
+                evse.IsCharging = Charging;
 
         }
 
@@ -471,6 +531,9 @@ namespace cloud.charging.open.ChargingStation
                 return;
 
             var ended = sessions.Count;
+
+            foreach (var evseId in sessions.Keys)
+                SetCharging(evseId, false);
 
             sessions.Clear();
 

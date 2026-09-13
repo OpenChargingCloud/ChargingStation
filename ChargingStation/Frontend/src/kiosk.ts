@@ -51,6 +51,8 @@ interface KioskEVSE {
     powerIsSimulated:  boolean;
     connectors:        Connector[];
     session:           { method: string; startedAt: string; provider: Provider | null } | null;
+    /** Set while an OCPP ReserveNow is holding this outlet. */
+    reservation:       { until: string; minutesLeft: number } | null;
     qrCode:            { url: string; expiresAt: string } | null;
     rfid:              Reader | null;
 }
@@ -180,6 +182,14 @@ function evseCard(EVSE: KioskEVSE) {
                     <span class="kiosk-connector">${connector.type} <span class="kw">${connector.maxPower_kW} kW</span></span>
                 `)}
             </div>
+
+            ${EVSE.reservation && !EVSE.session
+                  ? html`
+                      <div class="kiosk-reserved">
+                          Held for ${EVSE.reservation.minutesLeft} more minute(s) - hold the right card against the reader.
+                      </div>
+                    `
+                  : ''}
 
             ${EVSE.session
                   ? html`

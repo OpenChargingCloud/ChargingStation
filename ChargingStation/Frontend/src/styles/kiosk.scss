@@ -206,6 +206,19 @@ html, body.kiosk-body {
 
 }
 
+// An outlet that is held says so and says for how long, and deliberately does
+// not say for whom: a display in a car park printing somebody's card number is
+// printing it for everybody walking past.
+.kiosk-reserved {
+    margin-top:     auto;
+    padding:        1vmin 1.4vmin;
+    border-radius:  0.8vmin;
+    background:     rgba(217, 164, 65, 0.14);
+    color:          $kiosk-reserved;
+    font-size:      2.1vmin;
+    line-height:    1.35;
+}
+
 .kiosk-session {
     display:      flex;
     align-items:  center;

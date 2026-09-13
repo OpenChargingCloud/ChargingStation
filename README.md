@@ -192,6 +192,8 @@ interface will not delete the part it did not understand.
     GET  /api/v1/configuration/power        PUT with {"uplinkPowerLimit_kW": 55}, null clears it
     GET  /api/v1/configuration/evses        PUT with {"evses": [...]}, all of them at once
     GET  /api/v1/configuration/rfid         PUT with {"readers": [...]}, all of them at once
+    GET  /api/v1/reservations               POST {"idToken": "...", "evse": 1, "minutes": 15}
+    POST /api/v1/reservations/cancel        {"reservationId": "..."}
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
 
 Every change takes effect at once - no restart, and no page that says a restart
@@ -471,9 +473,45 @@ no write on that port at all, and the refusal is by what the reader is rather
 than by who is asking - which is the only kind of rule that holds where there is
 no sign-in.
 
+### Reservations
+
+`reserved` on the display is OCPP's: a `ReserveNow` makes it, a
+`CancelReservation` or its own expiry date ends it, and it is kept in the
+OCPP 2.1 node rather than beside it - a second list would be a second opinion
+about whether an outlet is taken. The station answers as OCPP expects:
+`Rejected` for a request it cannot make sense of (an EVSE it does not have, a
+date already past, a plug that outlet does not have), `Unavailable` for an
+outlet out of service, `Occupied` for one that is charging or already held.
+A reservation naming no EVSE is a promise that one will be free, and is refused
+when none could be.
+
+A held outlet shows no QR code - somebody paying at the screen would be buying
+an outlet that belongs to somebody else - and it lets exactly one card in: the
+one it is held for, or one of its group. The right card starts charging and
+takes the reservation up; the wrong one is turned away with the time it runs
+out at. **The display never shows the token it is waiting for**: a screen in a
+car park printing somebody's card number is printing it for everybody walking
+past, and the way to prove the outlet is yours is to hold your card against the
+reader.
+
+Nothing is connected to a CSMS yet, so `POST /api/v1/reservations` builds a real
+`ReserveNowRequest` and hands it to the same method the incoming OCPP handler
+calls. It is a way in, not a second implementation - the day a CSMS does
+connect, it is the same code answering it. Holding an outlet takes it out of
+general use, which is the same kind of statement as taking one out of service,
+so it is the operator's.
+
+Reconfiguring the EVSEs rebuilds both OCPP nodes, and a new node starts knowing
+nothing - so what is charging and what is held is carried across. A corrected
+number or a switch is the same station and both survive; a change to the
+hardware is a different station, and a reservation for "EVSE 2" would afterwards
+be a promise about something else, so those are let go of and said so about in
+the log.
+
 ### What drives it
 
-The status of an EVSE comes from its own configuration and from the sessions;
+The status of an EVSE comes from its own configuration, from OCPP's
+reservations, and from the sessions;
 the QR code is a real one-time password over the configured secret. The sessions
 are started and stopped by the card readers, and today the only reader with
 anything behind it is the fake one - so a station nobody has touched shows every

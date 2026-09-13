@@ -921,13 +921,23 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
-                var previous = EVSEs;
+                var previous     = EVSEs;
+
+                // Captured before the nodes are thrown away. Everything the old
+                // node knew that is not in the configuration file lives in it,
+                // and the new one starts knowing nothing.
+                var wasReserved  = cs02.Reservations.ToArray();
+                var wasCharging  = sessions.Keys.ToArray();
 
                 EVSEs = evses;
 
                 try
                 {
+
                     (cs01, cs02) = BuildOCPPNodes(evses);
+
+                    CarryOverToNewNode(wasCharging, wasReserved, Change);
+
                 }
                 catch (Exception e)
                 {
@@ -958,14 +968,6 @@ namespace cloud.charging.open.ChargingStation
 
                 LogCustomConnectorTypes(evses);
                 LogPowerLimits();
-
-                if (Change.HasFlag(EVSEChange.Hardware))
-                    StopAllSessions("the EVSEs of this station were changed");
-
-                else if (Change.HasFlag(EVSEChange.Availability))
-                    foreach (var gone in evses.Where(evse => !evse.Operative))
-                        if (sessions.TryRemove(gone.Id, out var ended))
-                            Log.Notice($"The session at EVSE {gone.Id} was ended: it was taken out of service ({ended}).", "kiosk");
 
                 return true;
 
@@ -1250,6 +1252,89 @@ namespace cloud.charging.open.ChargingStation
                 if (webPayments.TOTPLength.HasValue)    controller.Length        = webPayments.TOTPLength.Value;
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) CarryOverToNewNode(WasCharging, WasReserved, Change)
+
+        /// <summary>
+        /// Put onto the freshly built OCPP node everything the old one knew
+        /// that the configuration file does not hold.
+        /// </summary>
+        /// <remarks>
+        /// A node is told what it is made of when it is built, so changing the
+        /// EVSEs means building another one - and the new one starts knowing
+        /// nothing. Without this, correcting one cable's limit would quietly
+        /// drop every reservation this station had promised and forget that
+        /// anybody was charging.
+        ///
+        /// What survives depends on what changed. A change to the hardware is a
+        /// different station: an outlet may have stopped existing or become a
+        /// different socket, and a reservation for "EVSE 2" would afterwards be
+        /// a promise about something else. Those are let go of, out loud. A
+        /// corrected number or a switch is the same station and everything
+        /// carries over - except on an outlet that has just been taken out of
+        /// service, which is a promise this station can no longer keep.
+        /// </remarks>
+        private void CarryOverToNewNode(IReadOnlyList<Byte>                      WasCharging,
+                                        IReadOnlyList<OCPPv2_1.CS.Reservation>   WasReserved,
+                                        EVSEChange                               Change)
+        {
+
+            #region Who is charging
+
+            if (Change.HasFlag(EVSEChange.Hardware))
+                StopAllSessions("the EVSEs of this station were changed");
+
+            else
+                foreach (var evseId in WasCharging)
+                {
+
+                    var evse = EVSEs.FirstOrDefault(candidate => candidate.Id == evseId);
+
+                    if (evse is not null && evse.Operative)
+                        SetCharging(evseId, true);
+
+                    else if (sessions.TryRemove(evseId, out var ended))
+                        Log.Notice($"The session at EVSE {evseId} was ended: {ended} - that EVSE is out of service.", "kiosk");
+
+                }
+
+            #endregion
+
+            #region What is held
+
+            foreach (var reservation in WasReserved)
+            {
+
+                if (Change.HasFlag(EVSEChange.Hardware))
+                {
+                    Log.Notice(
+                        $"The reservation {reservation.Id} was let go: the EVSEs of this station were changed, " +
+                        "and it was a promise about the ones it used to have.",
+                        "reservation"
+                    );
+                    continue;
+                }
+
+                if (reservation.EVSEId.HasValue &&
+                    !EVSEs.Any(evse => evse.Id == reservation.EVSEId.Value.Value && evse.Operative))
+                {
+                    Log.Notice(
+                        $"The reservation {reservation.Id} at EVSE {reservation.EVSEId.Value.Value} was let go: " +
+                        "that EVSE was taken out of service.",
+                        "reservation"
+                    );
+                    continue;
+                }
+
+                cs02.Restore(reservation);
+
+            }
+
+            #endregion
 
         }
 

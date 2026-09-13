@@ -204,6 +204,10 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       GetRFIDConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       PutRFIDConfiguration,         HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/reservations",        GetReservations,     HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/reservations",        PostReserveNow,      HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/reservations/cancel", PostCancelReservation, HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
             AddHandler(HTTPMethod.GET,
@@ -598,6 +602,81 @@ namespace cloud.charging.open.ChargingStation
             if (Change.HasFlag(EVSEChange.Hardware))      permissions |= Permissions.ChangeHardware;
 
             return permissions;
+
+        }
+
+        #endregion
+
+        #region (private) GetReservations(Request) / PostReserveNow(Request) / PostCancelReservation(Request)
+
+        /// <summary>
+        /// GET /api/v1/reservations: what this station is holding, and for how
+        /// much longer.
+        /// </summary>
+        private Task<HTTPResponse> GetReservations(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.ReservationsJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/reservations with {"idToken": "...", "evse": 1, "minutes": 15}:
+        /// hold an outlet.
+        /// </summary>
+        /// <remarks>
+        /// A real OCPP <c>ReserveNow</c> is built and answered by the same code
+        /// a CSMS would reach, so this is a way in rather than a second
+        /// implementation - see ChargingStation.Reservations.cs. It exists
+        /// because nothing is connected to a CSMS yet, and a station on a desk
+        /// should still be able to show what a reservation looks like.
+        ///
+        /// Holding an outlet takes it out of general use until it runs out,
+        /// which is the same kind of statement as taking one out of service -
+        /// so it takes the same permission, and it is the operator's.
+        /// </remarks>
+        private Task<HTTPResponse> PostReserveNow(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryReserveNow(json, out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/reservations/cancel with {"reservationId": "..."}:
+        /// let an outlet go again.
+        /// </summary>
+        private Task<HTTPResponse> PostCancelReservation(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryCancelReservation(json, out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
 
         }
 
