@@ -247,7 +247,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) StartV2GEndpoint (CancellationToken)
+        #region (private) StartV2GEndpoint  (CancellationToken)
 
         /// <summary>
         /// The TCP listener a vehicle connects to once it knows where it is.
@@ -304,7 +304,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) AcceptLoop      (CancellationToken)
+        #region (private) AcceptLoop        (CancellationToken)
 
         /// <summary>
         /// Every vehicle that connects, and the first thing it says.
@@ -376,7 +376,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) StartSDPServer  (CancellationToken)
+        #region (private) StartSDPServer    (CancellationToken)
 
         /// <summary>
         /// The answer to a vehicle asking where the V2G endpoint is.
@@ -454,7 +454,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) StartSLACListener(CancellationToken)
+        #region (private) StartSLACListener (CancellationToken)
 
         /// <summary>
         /// The matching of the powerline modem in the car to the one here.
@@ -521,7 +521,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) OpenSlacTransport()
+        #region (private) OpenSlacTransport ()
 
         /// <summary>
         /// The medium SLAC listens on, or null when there is none to listen on.

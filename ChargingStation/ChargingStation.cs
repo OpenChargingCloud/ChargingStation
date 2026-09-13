@@ -17,8 +17,6 @@
 
 #region Usings
 
-using System.Reflection;
-
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
@@ -158,9 +156,21 @@ namespace cloud.charging.open.ChargingStation
         public String                 Version                { get; }
 
         /// <summary>
-        /// When this charging station was created.
+        /// Where this charging station reads the time.
         /// </summary>
-        public DateTimeOffset         CreatedAt              { get; } = Timestamp.Now;
+        /// <remarks>
+        /// A charging station is measured by its clock - what a meter reading
+        /// is worth, whether a certificate is still valid, what a log line
+        /// means - so the clock is something to be handed in rather than
+        /// reached for. The system clock by default; an NTS-disciplined or a
+        /// fake one where a test or a calibration says so.
+        /// </remarks>
+        public TimeProvider           TimeProvider           { get; }
+
+        /// <summary>
+        /// When this charging station was created, by its own clock.
+        /// </summary>
+        public DateTimeOffset         CreatedAt              { get; }
 
         #endregion
 
@@ -183,6 +193,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX ends up in the log.</param>
+        /// <param name="TimeProvider">Where this station reads the time; the system clock by default.</param>
         public ChargingStation(DNSClient?             DNSClient         = null,
                                NTSClient?             NTSClient         = null,
                                HTTPServer?            HTTPServer        = null,
@@ -195,13 +206,25 @@ namespace cloud.charging.open.ChargingStation
                                EventLog?              Log               = null,
                                Boolean                LogToConsole      = true,
                                LogLevel               ConsoleLogLevel   = LogLevel.Info,
-                               Boolean                BridgeDebugLog    = true)
+                               Boolean                BridgeDebugLog    = true,
+                               TimeProvider?          TimeProvider      = null)
         {
 
-            #region The log, first of all - everything below it may want to say something
+            #region The clock, before anything that wants to know the time
+
+            // First of all, and not for tidiness: the event log below stamps
+            // every entry with this, so a clock set afterwards would leave the
+            // log reading the system one - and a log on a different clock than
+            // the station it belongs to cannot be held against anything.
+            this.TimeProvider  = TimeProvider ?? System.TimeProvider.System;
+            this.CreatedAt     = this.TimeProvider.GetUtcNow();
+
+            #endregion
+
+            #region The log, next - everything below it may want to say something
 
             this.Version      = typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
-            this.Log          = Log ?? new EventLog();
+            this.Log          = Log ?? new EventLog(TimeProvider: this.TimeProvider);
 
             this.consoleLog   = LogToConsole
                                     ? new ConsoleLog(this.Log, ConsoleLogLevel)
@@ -225,7 +248,7 @@ namespace cloud.charging.open.ChargingStation
             this.LoginFile = LoginFile ?? new WebLoginFile(WebLoginFile.DefaultFileName);
 
             if (this.LoginFile.TryLoad(out var loadedLogin, out var loginError) && loadedLogin is not null)
-                this.Sessions = new WebSessions(loadedLogin);
+                this.Sessions = new WebSessions(loadedLogin,   TimeProvider: this.TimeProvider);
 
             else
             {
@@ -244,7 +267,7 @@ namespace cloud.charging.open.ChargingStation
 
                 this.LoginFile.Save(generated);
 
-                this.Sessions           = new WebSessions(generated);
+                this.Sessions           = new WebSessions(generated, TimeProvider: this.TimeProvider);
                 this.GeneratedPassword  = password;
 
                 this.Log.Notice($"No web login found, so one was made up and written to '{this.LoginFile.Path}'.", "web", "auth");
@@ -257,10 +280,14 @@ namespace cloud.charging.open.ChargingStation
 
             this.dnsClient     = DNSClient    ?? new DNSClient();
 
+            // The clock goes to the time client too: a station that reads one
+            // clock itself and disciplines another would have two, which is
+            // one more than a charging station may have.
             this.ntsClient     = NTSClient    ?? new NTSClient(
                                                      DomainName.Parse("ptbtime1.ptb.de"),
                                                      Timeout:         TimeSpan.FromSeconds(10),
-                                                     DNSClient:       dnsClient
+                                                     DNSClient:       dnsClient,
+                                                     TimeProvider:    this.TimeProvider
                                                  );
 
             #endregion
@@ -587,7 +614,7 @@ namespace cloud.charging.open.ChargingStation
 
                    new JProperty("time",       new JObject(
                        new JProperty("nts",            ntsClient.Hostname.ToString()),
-                       new JProperty("now",            Timestamp.Now.ToString("o"))
+                       new JProperty("now",            TimeProvider.GetUtcNow().ToString("o"))
                    )),
 
                    new JProperty("ocpp",       new JArray(

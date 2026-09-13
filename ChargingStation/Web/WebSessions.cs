@@ -109,6 +109,12 @@ namespace cloud.charging.open.ChargingStation.Web
         public TimeSpan          MaximumLifetime   { get; }
 
         /// <summary>
+        /// Where the sessions read the time: when one was created, when it was
+        /// last seen, and whether it has expired.
+        /// </summary>
+        public TimeProvider      TimeProvider      { get; }
+
+        /// <summary>
         /// How many sessions are live right now.
         /// </summary>
         public Int32             Count
@@ -126,11 +132,13 @@ namespace cloud.charging.open.ChargingStation.Web
         /// <param name="CookieName">The name of the session cookie.</param>
         /// <param name="IdleTimeout">A session ends when it was not used for this long; 12 hours by default.</param>
         /// <param name="MaximumLifetime">A session ends this long after the sign-in at the latest; 7 days by default.</param>
+        /// <param name="TimeProvider">Where the sessions read the time; the system clock by default.</param>
         public WebSessions(WebLoginSettings  Login,
                            Boolean           SecureCookies     = false,
                            HTTPCookieName?   CookieName        = null,
                            TimeSpan?         IdleTimeout       = null,
-                           TimeSpan?         MaximumLifetime   = null)
+                           TimeSpan?         MaximumLifetime   = null,
+                           TimeProvider?     TimeProvider      = null)
         {
 
             this.Login            = Login ?? throw new ArgumentNullException(nameof(Login));
@@ -138,10 +146,12 @@ namespace cloud.charging.open.ChargingStation.Web
             this.CookieName       = CookieName      ?? DefaultCookieName;
             this.IdleTimeout      = IdleTimeout     ?? DefaultIdleTimeout;
             this.MaximumLifetime  = MaximumLifetime ?? DefaultMaximumLifetime;
+            this.TimeProvider     = TimeProvider    ?? System.TimeProvider.System;
 
             this.Store            = new SessionStore(
                                         IdleTimeout:      this.IdleTimeout,
-                                        MaximumLifetime:  this.MaximumLifetime
+                                        MaximumLifetime:  this.MaximumLifetime,
+                                        TimeProvider:     this.TimeProvider
                                     );
 
         }

@@ -84,7 +84,7 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public const           Int32     DefaultLogPageSize  = 500;
 
-        private readonly DateTimeOffset  startedAt = Timestamp.Now;
+        private readonly DateTimeOffset  startedAt;
 
         #endregion
 
@@ -144,6 +144,7 @@ namespace cloud.charging.open.ChargingStation
             this.Station   = Station;
             this.Sessions  = Sessions;
             this.Log       = Log;
+            this.startedAt = Station.TimeProvider.GetUtcNow();
 
             this.Version   = Version
                                  ?? typeof(CSHTTPAPI).Assembly.GetName().Version?.ToString(3)
@@ -292,7 +293,7 @@ namespace cloud.charging.open.ChargingStation
             if (!TryGetSession(Request, out _, out var unauthorized))
                 return Task.FromResult(unauthorized);
 
-            var now = Timestamp.Now;
+            var now = Station.TimeProvider.GetUtcNow();
 
             return Task.FromResult(
                        JSONResponse(

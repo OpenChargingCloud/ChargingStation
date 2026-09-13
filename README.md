@@ -133,6 +133,35 @@ difference between "the listener is bound" and "a vehicle came all the way
 through SLAC and SDP and got here".
 
 
+## The clock
+
+`ChargingStation` takes a `TimeProvider` as its last constructor parameter and
+hands it to everything of its own that asks what time it is: the timestamp of
+every log entry, `CreatedAt`, the uptime the status resource reports, and the
+sessions - through Hermod's `SessionStore`, which takes one too. The system
+clock by default; an NTS-disciplined or a fake one where a test or a
+calibration says so.
+
+It is assigned first in the constructor, before the event log is built, because
+the log stamps its entries with it - a clock set afterwards would leave the log
+reading the system one, which is a log that cannot be held against anything.
+
+```csharp
+sealed class FixedClock(DateTimeOffset Start) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = Start;
+    public override DateTimeOffset GetUtcNow() => Now;
+}
+
+var clock   = new FixedClock(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
+var station = new ChargingStation(TimeProvider: clock);
+
+station.Sessions.TryLogin("root", password, out var session);   // 1 live session
+clock.Now = clock.Now.AddHours(13);                             // past the 12 hour idle timeout
+var gone  = station.Sessions.Count;                             // 0
+```
+
+
 ## The log
 
 Every entry carries a timestamp, a level (`debug`, `info`, `notice`,

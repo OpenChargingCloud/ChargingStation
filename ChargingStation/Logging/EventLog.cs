@@ -69,7 +69,18 @@ namespace cloud.charging.open.ChargingStation.Logging
         /// <summary>
         /// How many entries are kept in memory.
         /// </summary>
-        public Int32   Capacity    { get; }
+        public Int32         Capacity      { get; }
+
+        /// <summary>
+        /// Where the timestamp of an entry comes from.
+        /// </summary>
+        /// <remarks>
+        /// Handed in rather than reached for: a log whose times come from
+        /// somewhere else than the rest of the station is a log that cannot be
+        /// held against anything - and a test that cannot move the clock can
+        /// only ever watch the log say "now".
+        /// </remarks>
+        public TimeProvider  TimeProvider  { get; }
 
         /// <summary>
         /// The number of the newest entry; 0 when nothing has been logged yet.
@@ -128,13 +139,16 @@ namespace cloud.charging.open.ChargingStation.Logging
         /// Create an event log keeping the given number of entries.
         /// </summary>
         /// <param name="Capacity">How many entries are kept in memory.</param>
-        public EventLog(Int32 Capacity = DefaultCapacity)
+        /// <param name="TimeProvider">Where the timestamp of an entry comes from; the system clock by default.</param>
+        public EventLog(Int32          Capacity       = DefaultCapacity,
+                        TimeProvider?  TimeProvider   = null)
         {
 
             if (Capacity < 1)
                 throw new ArgumentOutOfRangeException(nameof(Capacity), "An event log must be able to keep at least one entry!");
 
-            this.Capacity = Capacity;
+            this.Capacity      = Capacity;
+            this.TimeProvider  = TimeProvider ?? System.TimeProvider.System;
 
         }
 
@@ -179,7 +193,7 @@ namespace cloud.charging.open.ChargingStation.Logging
 
                 entry = new LogEntry(
                             ++lastId,
-                            Timestamp.Now,
+                            TimeProvider.GetUtcNow(),
                             Level,
                             Normalize(Tags),
                             Message?.Trim() ?? "",
