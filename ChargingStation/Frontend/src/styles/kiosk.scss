@@ -18,6 +18,17 @@ $kiosk-out:         #6b7a8c;
 
 $kiosk-font:        system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
 
+// The smallest a thing may be and still be hit with a finger.
+//
+// Everything on this screen is sized in vmin, which is right for a display
+// read from three metres away and wrong for one that is touched: on an
+// 800x480 panel a vmin is under five pixels, and the cancel button came out
+// seventeen pixels high with eight-pixel type. Nobody hits that, and nobody
+// reads it either. So every control has a floor in real pixels, and the
+// larger of the two wins.
+$touch-target:      44px;
+$touch-target-big:  48px;
+
 
 *, *::before, *::after {
     box-sizing: border-box;
@@ -99,7 +110,7 @@ html, body.kiosk-body {
 
     .kiosk-btn.release {
         padding:       0.4vmin 1.2vmin;
-        font-size:     1.8vmin;
+        font-size:     max(1.8vmin, 14px);
         border-color:  rgba(217, 164, 65, 0.5);
         color:         $kiosk-reserved;
         cursor:        pointer;
@@ -373,7 +384,7 @@ html, body.kiosk-body {
     // and it asks for the card anyway.
     .kiosk-btn.release {
         padding:       0.7vmin 1.4vmin;
-        font-size:     1.9vmin;
+        font-size:     max(1.9vmin, 14px);
         border-color:  rgba(217, 164, 65, 0.5);
         color:         $kiosk-reserved;
         cursor:        pointer;
@@ -471,6 +482,8 @@ html, body.kiosk-body {
         display: none;
     }
 
+    // The controls are deliberately not shrunk here. Everything else on a
+    // short card gives way so that what somebody has to touch does not.
     .kiosk-power .now  { font-size: 5vmin;   }
     .kiosk-power .of   { font-size: 2vmin;   }
     .kiosk-sim         { font-size: 1.5vmin; }
@@ -502,7 +515,7 @@ html, body.kiosk-body {
         .kiosk-btn.release {
             flex:       0 0 auto;
             padding:    0.5vmin 1vmin;
-            font-size:  1.7vmin;
+            font-size:  max(1.7vmin, 14px);
         }
 
     }
@@ -532,6 +545,7 @@ html, body.kiosk-body {
 
     display:          flex;
     align-items:      center;
+    justify-content:  center;
     gap:              1.4vmin;
     padding:          1.6vmin 3vmin;
     border:           1px solid $kiosk-border;
@@ -539,12 +553,14 @@ html, body.kiosk-body {
     background:       $kiosk-surface;
     color:            $kiosk-text;
     font:             inherit;
-    font-size:        2.6vmin;
+    font-size:        max(2.6vmin, 15px);
+    min-height:       $touch-target;
 
     &.small {
-        padding:    0.9vmin 1.6vmin;
-        font-size:  2.1vmin;
-        align-self: flex-start;
+        padding:     0.9vmin 1.6vmin;
+        font-size:   max(2.1vmin, 14px);
+        min-height:  $touch-target;
+        align-self:  flex-start;
     }
 
     // Only a reader whose cards are typed in is something to press. A real one
@@ -603,7 +619,9 @@ html, body.kiosk-body {
 
 .kiosk-dialog {
 
-    width:           min(64vmin, 100%);
+    // Big enough to type in even where a vmin is tiny: 64vmin of an 800x480
+    // panel is 307 pixels, which was a dialog with four-millimetre buttons.
+    width:           min(max(64vmin, 420px), 92vw);
     display:         flex;
     flex-direction:  column;
     gap:             1.6vmin;
@@ -632,7 +650,11 @@ html, body.kiosk-body {
         background:     $kiosk-bg;
         color:          $kiosk-text;
         font:           inherit;
-        font-size:      2.8vmin;
+        // Never under sixteen pixels: a smaller field is one a phone-like
+        // browser zooms into when it is tapped, and a kiosk that zooms is a
+        // kiosk somebody has to un-zoom by hand.
+        font-size:      max(2.8vmin, 17px);
+        min-height:     $touch-target-big;
         // A UID is hexadecimal; a proportional font makes two of them hard to
         // tell apart.
         font-family:    ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -667,7 +689,9 @@ html, body.kiosk-body {
     background:     transparent;
     color:          $kiosk-text;
     font:           inherit;
-    font-size:      2.4vmin;
+    font-size:      max(2.4vmin, 15px);
+    min-height:     $touch-target;
+    min-width:      $touch-target;
     cursor:         pointer;
 
     &.primary {

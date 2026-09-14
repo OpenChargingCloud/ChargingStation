@@ -639,6 +639,15 @@ busy the plug list goes first, since it is the one thing nobody standing there
 can act on. The outlet still says whether it is free, which is what matters from
 three metres away.
 
+**It is touched, not clicked.** Everything on this screen is sized in vmin,
+which is right for something read from three metres away and wrong for
+something poked with a finger: on an 800x480 panel a vmin is under five pixels,
+and the cancel button came out seventeen pixels high with eight-pixel type.
+Every control now has a floor in real pixels - 44 px for a button, 48 px and
+17 px type for a field, which is also the size below which a browser zooms in
+when a field is tapped. Where a card gets short the text and the spacing give
+way; the controls do not.
+
 **Out of contact it stops claiming things.** Measured by killing the station
 with the page open: after about thirteen seconds the heading says so, the cards
 dim and the status word becomes "not known" - "free" is a promise that somebody
