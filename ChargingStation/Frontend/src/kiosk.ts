@@ -621,7 +621,12 @@ function evseCard(EVSE: KioskEVSE) {
                         `
                       : html`<div class="kiosk-power"><span class="of">${words.upTo(EVSE.maxPower_kW)}</span></div>`;
 
+    // The cell is what the grid sizes, and the card fills it. Two elements
+    // rather than one because a card cannot be measured against itself: the
+    // rules that make a short card compact have to live on something outside
+    // it, and this is the smallest something there is.
     return html`
+        <div class="kiosk-evse-cell">
         <section class="kiosk-evse ${offline ? 'unknown' : EVSE.status}">
 
             <div class="kiosk-evse-head">
@@ -688,6 +693,7 @@ function evseCard(EVSE: KioskEVSE) {
                   : ''}
 
         </section>
+        </div>
     `;
 
 }

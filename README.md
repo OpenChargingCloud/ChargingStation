@@ -623,6 +623,22 @@ display is the one client where a dropped connection must not be noticed by
 anybody: polling recovers by itself, and by the time somebody walks up to the
 screen it is right again.
 
+**It is exactly the screen, never more.** A display has no scroll bar and nobody
+in front of it to use one: anything below the fold does not exist. Six outlets
+on a 1080p screen used to put the second row half off the bottom, and the
+station looked like it had four. Checked at 1920x1080, 1080x1920 portrait,
+1024x600 and 800x480, with six outlets in every state at once - nothing
+overflows and nothing scrolls.
+
+What gives way as the cards get shorter is decided rather than left to the
+browser. Each card is measured against its own cell, and below about 420 px
+there is no room for a code a phone could read - so none is drawn, because an
+unreadable code is worse than none: somebody tries, fails, and blames the
+station. Below 400 px everything moves closer together, and on an outlet that is
+busy the plug list goes first, since it is the one thing nobody standing there
+can act on. The outlet still says whether it is free, which is what matters from
+three metres away.
+
 **Out of contact it stops claiming things.** Measured by killing the station
 with the page open: after about thirteen seconds the heading says so, the cards
 dim and the status word becomes "not known" - "free" is a promise that somebody

@@ -37,11 +37,19 @@ html, body.kiosk-body {
 }
 
 #kiosk {
+
     display:         flex;
     flex-direction:  column;
-    min-height:      100vh;
     padding:         2vmin 2.5vmin;
     gap:             2vmin;
+
+    // Exactly the screen, and never more. A display has no scroll bar and
+    // nobody in front of it to use one: anything below the fold is not "further
+    // down", it does not exist. Six outlets on a 1080p screen used to put the
+    // second row half off the bottom, and the station looked like it had four.
+    height:          100vh;
+    overflow:        hidden;
+
 }
 
 .kiosk-loading {
@@ -203,6 +211,11 @@ html, body.kiosk-body {
     gap:                    2vmin;
     grid-template-columns:  repeat(auto-fit, minmax(min(34vmin, 100%), 1fr));
 
+    // Without this a grid inside a flex column refuses to be smaller than its
+    // content, and "exactly the screen" above becomes "the screen, plus
+    // whatever hangs off it".
+    min-height:             0;
+
     // The outlets fill the screen rather than sitting in a band at the top: a
     // display is a fixed rectangle and every unused centimetre of it is a
     // centimetre the numbers could have been bigger in.
@@ -216,14 +229,30 @@ html, body.kiosk-body {
 
 }
 
+// What the grid sizes. The card inside it fills it, and everything inside the
+// card is measured against this: a QR code is "as large as fits here" rather
+// than "as large as fits on a screen with two outlets on it", and a card too
+// short for what it holds can be told to draw itself compactly - which a card
+// cannot be told about itself, because a container query may not style the
+// thing it is asking about.
+.kiosk-evse-cell {
+    display:         flex;
+    min-height:      0;
+    container-type:  size;
+}
+
 .kiosk-evse {
 
+    flex:            1 1 auto;
     display:         flex;
     flex-direction:  column;
     gap:             1.4vmin;
     padding:         2.4vmin;
     border-radius:   1.6vmin;
     background:      $kiosk-surface;
+
+    min-height:      0;
+    overflow:        hidden;
     // The status is the first thing anybody looks for, so it is a stripe down
     // the side rather than a word to find.
     border-left:     0.9vmin solid $kiosk-out;
@@ -381,23 +410,107 @@ html, body.kiosk-body {
 
 .kiosk-qr {
 
-    display:         flex;
-    flex-direction:  column;
-    align-items:     center;
-    gap:             0.8vmin;
-    margin-top:      auto;
-    padding-top:     1vmin;
+    display:          flex;
+    flex-direction:   column;
+    align-items:      center;
+    justify-content:  flex-end;
+    gap:              0.8vmin;
+    padding-top:      1vmin;
+
+    margin-top:       auto;
 
     // The code itself is an SVG built in the browser. White behind it because
     // a QR code on a dark ground is one many phones will not read.
+    //
+    // Sized against the card rather than the screen: whichever of "a fair share
+    // of this screen", "what is left of this card's height" and "this card's
+    // width" is smallest. A code drawn larger than its card is a code with its
+    // corners cut off, and a QR code with a corner missing is not a QR code.
     svg {
-        width:          22vmin;
+        width:          min(22vmin, 40cqh, 80cqw);
         max-width:      100%;
         height:         auto;
         background:     #ffffff;
         padding:        1.2vmin;
         border-radius:  1vmin;
         display:        block;
+    }
+
+}
+
+// A card needs roughly 250 px for its heading, its power and its plugs before
+// a code starts, and a code under about 150 px is one a phone will not read. So
+// below this there is no code worth drawing: an unreadable one is worse than
+// none - somebody tries, fails, and blames the station - and the outlet still
+// says it is free, which is the part that matters from three metres away.
+@container (max-height: 420px) {
+    .kiosk-qr {
+        display: none;
+    }
+}
+
+// Below this a card cannot hold what it holds at full size. Everything closer
+// together rather than anything cut off.
+@container (max-height: 400px) {
+
+    // Everything closer together rather than anything cut off. A card this
+    // short carries a headline, what is plugged in, and whatever the back end
+    // asked to be read - all three belong to somebody standing in front of it,
+    // and the browser choosing which one falls off the bottom is not a
+    // decision, it is an accident.
+    .kiosk-evse {
+        gap:      0.8vmin;
+        padding:  1.4vmin 1.8vmin;
+    }
+
+    // On an outlet that is busy, which plugs it has is the one thing nobody
+    // standing there can act on - and on a card this short something has to
+    // give way so that who is charging, and whatever the back end asked to be
+    // read, both stay whole.
+    .kiosk-evse.occupied .kiosk-connectors {
+        display: none;
+    }
+
+    .kiosk-power .now  { font-size: 5vmin;   }
+    .kiosk-power .of   { font-size: 2vmin;   }
+    .kiosk-sim         { font-size: 1.5vmin; }
+    .kiosk-connector   { font-size: 1.7vmin; padding: 0.3vmin 0.8vmin; }
+    .kiosk-session     { font-size: 1.8vmin; gap: 0.8vmin; }
+    .kiosk-method      { font-size: 1.7vmin; padding: 0.3vmin 0.9vmin; }
+    .kiosk-emp         { font-size: 1.9vmin; }
+    .kiosk-emp-logo    { height: 3vmin;      }
+
+    // A card this short has room for the sentence or for the button under it,
+    // not both - and the half that got cut was the button. Side by side they
+    // both fit, and the outlet keeps the one thing somebody standing at it can
+    // actually do about a reservation.
+    .kiosk-reserved {
+
+        flex-direction:  row;
+        align-items:     center;
+        gap:             1vmin;
+        font-size:       1.8vmin;
+
+        span {
+            display:             -webkit-box;
+            -webkit-line-clamp:  2;
+            line-clamp:          2;
+            -webkit-box-orient:  vertical;
+            overflow:            hidden;
+        }
+
+        .kiosk-btn.release {
+            flex:       0 0 auto;
+            padding:    0.5vmin 1vmin;
+            font-size:  1.7vmin;
+        }
+
+    }
+
+    // Same reasoning: two lines of a message, then the rest is cut rather than
+    // pushing the outlet off its own card.
+    .kiosk-messages.evse {
+        font-size: 1.8vmin;
     }
 
 }
