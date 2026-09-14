@@ -199,6 +199,11 @@ html, body.kiosk-body {
     &.reserved     { border-left-color: $kiosk-reserved;  }
     &.inoperative  { border-left-color: $kiosk-out; opacity: 0.6; }
 
+    // Out of contact with the station. Not an error state of the outlet - the
+    // outlet may be perfectly fine - but the screen has no business looking
+    // confident about something it was last told half a minute ago.
+    &.unknown      { border-left-color: $kiosk-out; opacity: 0.45; }
+
 }
 
 .kiosk-evse-head {
@@ -225,6 +230,7 @@ html, body.kiosk-body {
     .occupied  &    { color: $kiosk-charging;  }
     .reserved  &    { color: $kiosk-reserved;  }
     .inoperative &  { color: $kiosk-out;       }
+    .unknown     &  { color: $kiosk-out;       }
 
 }
 

@@ -581,6 +581,22 @@ display is the one client where a dropped connection must not be noticed by
 anybody: polling recovers by itself, and by the time somebody walks up to the
 screen it is right again.
 
+**Out of contact it stops claiming things.** Measured by killing the station
+with the page open: after about thirteen seconds the heading says so, the cards
+dim and the status word becomes "not known" - "free" is a promise that somebody
+can walk up and plug in, and a screen that has not been told anything for half
+a minute cannot make it. The payment codes go at once rather than when the
+banner appears, because a code carries about thirty seconds of life and a dead
+one is worse than none: somebody scans it, pays nothing, and concludes the
+station is broken. Starting the station again brings all of it back on its own,
+with nobody touching the screen.
+
+How much life a code has left is worked out from the difference between two of
+the station's own timestamps, never by comparing one of them with this
+machine's clock. A screen bolted to a wall has whatever clock somebody left in
+it. Tested with that clock seven minutes out: no effect. A clock that *jumps* -
+an NTP correction - costs one poll cycle, after which it is consistent again.
+
 
 ## The clock
 

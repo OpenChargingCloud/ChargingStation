@@ -167,7 +167,7 @@ async function poll(): Promise<void> {
     if (dialogFor !== null)
         return;
 
-    const signature = JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature() });
+    const signature = JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes() });
 
     if (signature === shown)
         return;
@@ -184,7 +184,7 @@ function draw(): void {
     // Whatever is drawn now is what is on screen. Set here rather than only in
     // the poll, so that a redraw somebody caused by pressing something does not
     // leave the poll believing the screen still shows the older thing.
-    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature() });
+    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes() });
 
     if (state === null) {
         render(root, html`<div class="kiosk-loading">...</div>`);
@@ -261,6 +261,47 @@ function anyCardReader(): Reader | null {
 }
 
 
+/**
+ * How long ago the station said what the screen is showing.
+ *
+ * Measured against the local clock only through the difference between two
+ * readings of it - never by comparing the station's timestamp with this
+ * machine's. A screen bolted to a wall in a car park has whatever clock
+ * somebody left in it, and a display that decided a payment code was dead
+ * because its own clock ran four minutes fast would be wrong in the direction
+ * that costs a sale.
+ */
+function ageOfWhatIsShown(): number {
+    return lastAnswer === 0 ? 0 : Date.now() - lastAnswer;
+}
+
+
+/**
+ * Whether a payment code is still worth pointing a phone at.
+ *
+ * The code carries a one-time password with about thirty seconds of life. The
+ * station tells us when it stops being valid and when it said so, and the
+ * difference between those two is how long it had at that moment - so what is
+ * left is that, minus how long ago we were told. No absolute clocks meet
+ * anywhere in that sentence, which is the point.
+ *
+ * A code that has run out is taken off the screen rather than left there.
+ * Somebody who scans a dead one pays nothing and concludes the station is
+ * broken, which is worse than finding no code at all: no code is a station
+ * that cannot take a payment right now, a dead code is a station that lies.
+ */
+function qrCodeStillGood(QRCode: { url: string; expiresAt: string }): boolean {
+
+    if (state === null)
+        return false;
+
+    const hadLeft = Date.parse(QRCode.expiresAt) - Date.parse(state.timestamp);
+
+    return Number.isFinite(hadLeft) && hadLeft > ageOfWhatIsShown();
+
+}
+
+
 /** The reader a card for this outlet would be held against, when there is one. */
 function readerFor(EVSE: KioskEVSE): Reader | null {
     return EVSE.rfid?.fake ? EVSE.rfid
@@ -318,11 +359,11 @@ function evseCard(EVSE: KioskEVSE) {
                       : html`<div class="kiosk-power"><span class="of">up to ${EVSE.maxPower_kW} kW</span></div>`;
 
     return html`
-        <section class="kiosk-evse ${EVSE.status}">
+        <section class="kiosk-evse ${offline ? 'unknown' : EVSE.status}">
 
             <div class="kiosk-evse-head">
                 <span class="kiosk-evse-label">${EVSE.label}</span>
-                <span class="kiosk-status">${statusWord(EVSE.status)}</span>
+                <span class="kiosk-status">${offline ? 'not known' : statusWord(EVSE.status)}</span>
             </div>
 
             ${power}
@@ -363,7 +404,7 @@ function evseCard(EVSE: KioskEVSE) {
                     `
                   : ''}
 
-            ${EVSE.qrCode
+            ${EVSE.qrCode && qrCodeStillGood(EVSE.qrCode)
                   ? html`
                       <div class="kiosk-qr">
                           ${qrSVG(EVSE.qrCode.url)}
@@ -590,7 +631,14 @@ async function present(): Promise<void> {
 }
 
 
-/** What a status is called on a screen somebody reads from three metres away. */
+/**
+ * What a status is called on a screen somebody reads from three metres away.
+ *
+ * Only called while this station is being heard from. Out of contact the word
+ * is not shown at all: "free" is a promise that somebody can walk up and plug
+ * in, and a display that has not been told anything for half a minute is in no
+ * position to make it.
+ */
 function statusWord(Status: KioskEVSE['status']): string {
     return Status === 'available'   ? 'free'
          : Status === 'reserved'    ? 'reserved'
@@ -665,6 +713,22 @@ function cycleSignature(): string {
     return [state.messages ?? [], ...state.evses.map(evse => evse.messages ?? [])].
                map(messages => messagesToShow(messages).map(message => message.id).join(',')).
                join('|');
+
+}
+
+
+/**
+ * Which outlets are showing a payment code, as a string.
+ *
+ * Part of what "the screen already shows this" means. Without it, a code that
+ * ran out while the station was unreachable would stay drawn: nothing else
+ * about the answer changes when the answer stops arriving.
+ */
+function liveCodes(): string {
+
+    return state === null
+               ? ''
+               : state.evses.map(evse => evse.qrCode && qrCodeStillGood(evse.qrCode) ? '1' : '0').join('');
 
 }
 
