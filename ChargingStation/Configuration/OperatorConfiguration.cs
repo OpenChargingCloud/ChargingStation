@@ -37,10 +37,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// </remarks>
     /// <param name="Name">The operator of this station, as the display shows it.</param>
     /// <param name="Logo">A URL to the operator's logo, or a data: URI holding it.</param>
+    /// <param name="Language">What the display speaks, e.g. "de".</param>
     /// <param name="EMPs">The e-mobility providers whose cards this station recognises.</param>
-    public sealed record OperatorConfiguration(String?                           Name   = null,
-                                               String?                           Logo   = null,
-                                               IReadOnlyList<EMobilityProvider>? EMPs   = null)
+    public sealed record OperatorConfiguration(String?                           Name       = null,
+                                               String?                           Logo       = null,
+                                               String?                           Language   = null,
+                                               IReadOnlyList<EMobilityProvider>? EMPs       = null)
     {
 
         #region Data
@@ -48,7 +50,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// <summary>
         /// The name of this section in the configuration file.
         /// </summary>
-        public const String  SectionName = "operator";
+        public const String  SectionName        = "operator";
+
+        /// <summary>
+        /// The longest a language tag may be written.
+        /// </summary>
+        public const Int32   MaxLanguageLength  = 12;
 
         #endregion
 
@@ -58,7 +65,23 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this section says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => Name is null && Logo is null && EMPs is null;
+            => Name is null && Logo is null && Language is null && EMPs is null;
+
+
+        /// <summary>
+        /// The language without its region, e.g. "de" for "de-AT".
+        /// </summary>
+        /// <remarks>
+        /// What a display is written in and what a region says about money and
+        /// dates are two different questions, and only the first one is asked
+        /// here: a station in Austria shows the same German words as one in
+        /// Germany.
+        /// </remarks>
+        public String? PrimaryLanguage
+
+            => Language?.Split('-')[0].ToLowerInvariant() is { Length: > 0 } primary
+                   ? primary
+                   : null;
 
         #endregion
 
@@ -112,6 +135,34 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (!EMobilityProvider.TryParseLogo(JSON.Value<String>("logo"), SectionName, out var logo, out Error))
                 return false;
 
+            #region Language
+
+            var language = JSON.Value<String>("language")?.Trim();
+
+            if (String.IsNullOrEmpty(language))
+                language = null;
+
+            else
+            {
+
+                if (language.Length > MaxLanguageLength)
+                {
+                    Error = $"'{SectionName}.language' may be at most {MaxLanguageLength} characters long.";
+                    return false;
+                }
+
+                // A language tag, not a sentence: letters and hyphens, which is
+                // what "de", "de-AT" and "pt-BR" are made of.
+                if (!language.All(character => Char.IsAsciiLetter(character) || character == '-'))
+                {
+                    Error = $"'{SectionName}.language' is a language tag such as \"de\" or \"de-AT\".";
+                    return false;
+                }
+
+            }
+
+            #endregion
+
             #region EMPs
 
             List<EMobilityProvider>? emps = null;
@@ -153,7 +204,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new OperatorConfiguration(name, logo, emps);
+            Configuration = new OperatorConfiguration(name, logo, language, emps);
             return true;
 
         }
@@ -175,6 +226,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             if (Logo is not null)
                 json.Add("logo", Logo);
+
+            if (Language is not null)
+                json.Add("language", Language);
 
             if (EMPs is not null)
                 json.Add("emps", new JArray(EMPs.Select(provider => provider.ToJSON())));

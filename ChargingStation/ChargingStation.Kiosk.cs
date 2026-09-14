@@ -122,8 +122,12 @@ namespace cloud.charging.open.ChargingStation
             return new JObject(
 
                        new JProperty("station",      new JObject(
-                                                         new JProperty("name",  Operator.Name),
-                                                         new JProperty("logo",  Operator.Logo)
+                                                         new JProperty("name",      Operator.Name),
+                                                         new JProperty("logo",      Operator.Logo),
+                                                         // What the screen speaks. The page has words of its
+                                                         // own to put on it - "free", "scan to charge" - and
+                                                         // they are no use in a language nobody there reads.
+                                                         new JProperty("language",  Operator.Language)
                                                      )),
 
                        new JProperty("timestamp",    now.ToString("o")),

@@ -123,20 +123,55 @@ namespace cloud.charging.open.ChargingStation
         #region (private static) TextOf(Message)
 
         /// <summary>
-        /// The one line of a message that goes on the screen.
+        /// The one line of a message that goes on the screen, in the language
+        /// this station is set to.
         /// </summary>
         /// <remarks>
-        /// A message carries its text in several languages, and this station
-        /// has no idea who is standing in front of it - so the first one wins,
-        /// which is the order the CSMS wrote them in and therefore the closest
-        /// thing to a stated preference there is. Nothing here guesses from a
-        /// browser's Accept-Language: the browser is a screen bolted to a wall,
-        /// and its language is whoever set the screen up, not whoever is
-        /// reading it.
+        /// A message may carry its text several times over, once per language,
+        /// which is what the plural in <c>MessageContents</c> is for. Which one
+        /// belongs on the screen is not a question about whoever is standing in
+        /// front of it - nothing here can know that, and nothing guesses from a
+        /// browser's Accept-Language, because the browser is a screen on a wall
+        /// and its language is whoever set it up. It is a question about where
+        /// the station stands, which is configuration: <c>operator.language</c>.
+        ///
+        /// The fall-back runs from exact, through the language without its
+        /// region, to a text that named no language at all, to whatever came
+        /// first. A station told nothing takes the first, which is the order
+        /// the sender wrote them in and the closest thing to a stated
+        /// preference there is.
         /// </remarks>
-        private static String TextOf(OCPPv2_1.MessageInfo Message)
+        private String TextOf(OCPPv2_1.MessageInfo Message)
+        {
 
-            => Message.Messages.FirstOrDefault()?.Content ?? "";
+            var contents = Message.Messages.ToArray();
+
+            if (contents.Length == 0)
+                return "";
+
+            var wanted   = Operator.Language?.ToLowerInvariant();
+            var primary  = Operator.PrimaryLanguage;
+
+            if (wanted is not null)
+            {
+
+                var exact = contents.FirstOrDefault(content => content.Language.HasValue &&
+                                                               String.Equals(content.Language.Value.ToString(), wanted, StringComparison.OrdinalIgnoreCase));
+
+                if (exact is not null)
+                    return exact.Content;
+
+                var sameLanguage = contents.FirstOrDefault(content => content.Language.HasValue &&
+                                                                      String.Equals(content.Language.Value.ToString().Split('-')[0], primary, StringComparison.OrdinalIgnoreCase));
+
+                if (sameLanguage is not null)
+                    return sameLanguage.Content;
+
+            }
+
+            return (contents.FirstOrDefault(content => !content.Language.HasValue) ?? contents[0]).Content;
+
+        }
 
         #endregion
 

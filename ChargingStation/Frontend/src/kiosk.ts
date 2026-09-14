@@ -74,9 +74,130 @@ interface KioskEVSE {
     rfid:              Reader | null;
 }
 
+/**
+ * The words this page puts on the screen itself.
+ *
+ * Not the messages - those arrive already written, in the language the station
+ * was configured with. These are the fixed words around them, and they are no
+ * more use in a language nobody standing there reads than a message would be.
+ *
+ * English is the base and the fall-back; a language this page has never heard
+ * of falls back to it rather than showing empty labels, which is the failure
+ * somebody can at least work with.
+ */
+interface Vocabulary {
+    free:               string;
+    reserved:           string;
+    charging:           string;
+    outOfService:       string;
+    notKnown:           string;
+    upTo:               (kW: number) => string;
+    simulated:          string;
+    scanToCharge:       string;
+    tapACard:           string;
+    holdYourCard:       string;
+    card:               string;
+    noConnection:       string;
+    heldFor:            (minutes: number) => string;
+    keptFree:           (outlets: number, minutes: number) => string;
+    cancelReservation:  string;
+    presentACard:       string;
+    cancelTheHold:      string;
+    onlyTheRightCard:   string;
+    testReader:         (id: string) => string;
+    cardUID:            string;
+    whichOutlet:        string;
+    back:               string;
+    present:            string;
+}
+
+const english: Vocabulary = {
+    free:               'free',
+    reserved:           'reserved',
+    charging:           'charging',
+    outOfService:       'out of service',
+    notKnown:           'not known',
+    upTo:               kW => `up to ${kW} kW`,
+    simulated:          'simulated',
+    scanToCharge:       'Scan to charge',
+    tapACard:           'Tap a card',
+    holdYourCard:       'Hold your card here',
+    card:               'Card',
+    noConnection:       'no connection to the station',
+    heldFor:            minutes => `Held for ${minutes} more minute(s) - hold the right card against the reader.`,
+    keptFree:           (outlets, minutes) => outlets === 1
+                                                  ? `One outlet is being kept free for somebody on their way - ${minutes} more minute(s).`
+                                                  : `${outlets} outlets are being kept free for somebody on their way - ${minutes} more minute(s).`,
+    cancelReservation:  'Cancel reservation',
+    presentACard:       'Present a card',
+    cancelTheHold:      'Cancel the reservation',
+    onlyTheRightCard:   'Only the card this outlet is being held for can let it go.',
+    testReader:         id => `'${id}' is a test reader, so a card is typed rather than held against it.`,
+    cardUID:            'Card UID',
+    whichOutlet:        'Which outlet',
+    back:               'Back',
+    present:            'Present'
+};
+
+const german: Vocabulary = {
+    free:               'frei',
+    reserved:           'reserviert',
+    charging:           'lädt',
+    outOfService:       'außer Betrieb',
+    notKnown:           'unbekannt',
+    upTo:               kW => `bis zu ${kW} kW`,
+    simulated:          'simuliert',
+    scanToCharge:       'Zum Laden scannen',
+    tapACard:           'Karte eingeben',
+    holdYourCard:       'Karte hier auflegen',
+    card:               'Karte',
+    noConnection:       'keine Verbindung zur Ladestation',
+    heldFor:            minutes => `Noch ${minutes} Minute(n) reserviert – bitte die passende Karte auflegen.`,
+    keptFree:           (outlets, minutes) => outlets === 1
+                                                  ? `Ein Ladepunkt wird freigehalten – noch ${minutes} Minute(n).`
+                                                  : `${outlets} Ladepunkte werden freigehalten – noch ${minutes} Minute(n).`,
+    cancelReservation:  'Reservierung stornieren',
+    presentACard:       'Karte auflegen',
+    cancelTheHold:      'Reservierung stornieren',
+    onlyTheRightCard:   'Nur die Karte, für die reserviert wurde, kann die Reservierung auflösen.',
+    testReader:         id => `„${id}" ist ein Testleser – die Karte wird eingetippt statt aufgelegt.`,
+    cardUID:            'Karten-UID',
+    whichOutlet:        'Welcher Ladepunkt',
+    back:               'Zurück',
+    present:            'Auflegen'
+};
+
+const vocabularies: Record<string, Vocabulary> = {
+    en:  english,
+    de:  german
+};
+
+/** The words to use, by what the station was configured to speak. */
+let words = english;
+
+/**
+ * Pick the words, and tell the browser which language the page is in.
+ *
+ * By the language without its region: a station in Austria shows the same
+ * German words as one in Germany, and a page that had to carry "de-AT" as well
+ * as "de" would be carrying two copies of one language.
+ */
+function chooseWords(Language: string | null | undefined): void {
+
+    const primary = (Language ?? 'en').split('-')[0].toLowerCase();
+
+    words = vocabularies[primary] ?? english;
+
+    // So that a screen reader, a spell checker and the browser's own hyphen
+    // rules all know what they are looking at.
+    document.documentElement.lang = words === english ? 'en' : primary;
+
+}
+
+
 /** Everything on the display, in one answer. */
 interface KioskState {
-    station:      { name: string | null; logo: string | null };
+    station:      { name: string | null; logo: string | null; language: string | null };
     timestamp:    string;
     evses:        KioskEVSE[];
     /**
@@ -151,6 +272,8 @@ async function poll(): Promise<void> {
 
         state       = await response.json() as KioskState;
         lastAnswer  = Date.now();
+
+        chooseWords(state.station.language);
         offline     = false;
     }
     catch
@@ -205,19 +328,16 @@ function draw(): void {
                   ? html`
                       <div class="kiosk-hold">
                           <span>
-                              ${current.holds.count === 1
-                                    ? html`One outlet is being kept free for somebody on their way`
-                                    : html`${current.holds.count} outlets are being kept free for somebody on their way`}
-                              - ${current.holds.minutesLeft} more minute(s).
+                              ${words.keptFree(current.holds.count, current.holds.minutesLeft)}
                           </span>
                           ${anyCardReader()
-                                ? html`<button type="button" class="kiosk-btn release" id="release-hold">Cancel</button>`
+                                ? html`<button type="button" class="kiosk-btn release" id="release-hold">${words.cancelReservation}</button>`
                                 : ''}
                       </div>
                     `
                   : ''}
 
-            ${offline ? html`<span class="kiosk-offline">no connection to the station</span>` : ''}
+            ${offline ? html`<span class="kiosk-offline">${words.noConnection}</span>` : ''}
         </header>
 
         ${messageBand(current.messages ?? [], 'station')}
@@ -233,7 +353,7 @@ function draw(): void {
                               data-reader="${current.rfid.id}"
                               ${current.rfid.fake ? '' : html`disabled`}>
                           <i class="kiosk-rfid-icon"></i>
-                          <span>${current.rfid.fake ? 'Tap a card' : 'Hold your card here'}</span>
+                          <span>${current.rfid.fake ? words.tapACard : words.holdYourCard}</span>
                       </button>
                   </footer>
                 `
@@ -353,17 +473,17 @@ function evseCard(EVSE: KioskEVSE) {
                           <div class="kiosk-power">
                               <span class="now">${EVSE.currentPower_kW.toFixed(1)}</span>
                               <span class="of">/ ${EVSE.maxPower_kW} kW</span>
-                              ${EVSE.powerIsSimulated ? html`<span class="kiosk-sim" title="This station has no energy meter; the figure is simulated.">simulated</span>` : ''}
+                              ${EVSE.powerIsSimulated ? html`<span class="kiosk-sim" title="This station has no energy meter; the figure is simulated.">${words.simulated}</span>` : ''}
                           </div>
                         `
-                      : html`<div class="kiosk-power"><span class="of">up to ${EVSE.maxPower_kW} kW</span></div>`;
+                      : html`<div class="kiosk-power"><span class="of">${words.upTo(EVSE.maxPower_kW)}</span></div>`;
 
     return html`
         <section class="kiosk-evse ${offline ? 'unknown' : EVSE.status}">
 
             <div class="kiosk-evse-head">
                 <span class="kiosk-evse-label">${EVSE.label}</span>
-                <span class="kiosk-status">${offline ? 'not known' : statusWord(EVSE.status)}</span>
+                <span class="kiosk-status">${offline ? words.notKnown : statusWord(EVSE.status)}</span>
             </div>
 
             ${power}
@@ -379,11 +499,11 @@ function evseCard(EVSE: KioskEVSE) {
             ${EVSE.reservation && !EVSE.session
                   ? html`
                       <div class="kiosk-reserved">
-                          <span>Held for ${EVSE.reservation.minutesLeft} more minute(s) - hold the right card against the reader.</span>
+                          <span>${words.heldFor(EVSE.reservation.minutesLeft)}</span>
                           ${readerFor(EVSE)
                                 ? html`
                                     <button type="button" class="kiosk-btn release" data-release="${EVSE.id}">
-                                        Cancel reservation
+                                        ${words.cancelReservation}
                                     </button>
                                   `
                                 : ''}
@@ -408,7 +528,7 @@ function evseCard(EVSE: KioskEVSE) {
                   ? html`
                       <div class="kiosk-qr">
                           ${qrSVG(EVSE.qrCode.url)}
-                          <span class="kiosk-qr-hint">Scan to charge</span>
+                          <span class="kiosk-qr-hint">${words.scanToCharge}</span>
                       </div>
                     `
                   : ''}
@@ -419,7 +539,7 @@ function evseCard(EVSE: KioskEVSE) {
                               data-reader="${EVSE.rfid.id}" data-evse="${EVSE.id}"
                               ${EVSE.rfid.fake ? '' : html`disabled`}>
                           <i class="kiosk-rfid-icon"></i>
-                          <span>${EVSE.rfid.fake ? 'Tap a card' : 'Card'}</span>
+                          <span>${EVSE.rfid.fake ? words.tapACard : words.card}</span>
                       </button>
                     `
                   : ''}
@@ -439,19 +559,17 @@ function cardDialog(Current: KioskState) {
     return html`
         <div class="kiosk-modal" id="modal">
             <div class="kiosk-dialog" role="dialog" aria-modal="true"
-                 aria-label="${releasing ? 'Cancel a reservation' : 'Present a card'}">
+                 aria-label="${releasing ? words.cancelTheHold : words.presentACard}">
 
-                <h2>${releasing ? 'Cancel the reservation' : 'Present a card'}</h2>
+                <h2>${releasing ? words.cancelTheHold : words.presentACard}</h2>
 
                 <p class="kiosk-dialog-hint">
-                    ${releasing
-                          ? html`Only the card this outlet is being held for can let it go.`
-                          : ''}
-                    '${reader.id}' is a test reader, so a card is typed rather than held against it.
+                    ${releasing ? html`${words.onlyTheRightCard}` : ''}
+                    ${words.testReader(reader.id)}
                 </p>
 
                 <label>
-                    Card UID
+                    ${words.cardUID}
                     <input type="text" id="uid" value="${dialogUID}" placeholder="04A22B3C4D5E6F"
                            autocomplete="off" spellcheck="false" />
                 </label>
@@ -459,7 +577,7 @@ function cardDialog(Current: KioskState) {
                 ${forEVSE === null && !releasing
                       ? html`
                           <label>
-                              Which outlet
+                              ${words.whichOutlet}
                               <select id="which-evse">
                                   ${Current.evses.map(evse => html`
                                       <option value="${evse.id}">${evse.label}</option>
@@ -472,9 +590,9 @@ function cardDialog(Current: KioskState) {
                 <div class="kiosk-dialog-note">${dialogNote}</div>
 
                 <div class="kiosk-dialog-actions">
-                    <button type="button" id="dialog-cancel" class="kiosk-btn">Back</button>
+                    <button type="button" id="dialog-cancel" class="kiosk-btn">${words.back}</button>
                     <button type="button" id="dialog-ok"     class="kiosk-btn primary">
-                        ${releasing ? 'Cancel the reservation' : 'Present'}
+                        ${releasing ? words.cancelTheHold : words.present}
                     </button>
                 </div>
 
@@ -640,10 +758,10 @@ async function present(): Promise<void> {
  * position to make it.
  */
 function statusWord(Status: KioskEVSE['status']): string {
-    return Status === 'available'   ? 'free'
-         : Status === 'reserved'    ? 'reserved'
-         : Status === 'occupied'    ? 'charging'
-         : 'out of service';
+    return Status === 'available'   ? words.free
+         : Status === 'reserved'    ? words.reserved
+         : Status === 'occupied'    ? words.charging
+         : words.outOfService;
 }
 
 
