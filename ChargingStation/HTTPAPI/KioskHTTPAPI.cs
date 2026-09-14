@@ -58,11 +58,14 @@ namespace cloud.charging.open.ChargingStation
     /// The cost is one more socket. That is the whole of it: the same process,
     /// the same station object, the same log.
     ///
-    /// **What it can do.** Read everything on the display, and one write:
-    /// holding a card against a reader whose cards are typed in - the fake one.
-    /// A station with only real readers configured has no write here at all.
-    /// There is no sign-in, no session and no cookie, so there is nothing here
-    /// to steal and nothing to be tricked into doing on somebody else's behalf.
+    /// **What it can do.** Read everything on the display, and two writes -
+    /// starting or stopping a charge, and letting a reservation go - both of
+    /// which need a card held against a reader whose cards are typed in, the
+    /// fake one. A station with only real readers configured has no write here
+    /// at all. There is no sign-in, no session and no cookie, so there is
+    /// nothing here to steal and nothing to be tricked into doing on somebody
+    /// else's behalf: what you may do here is what you can hold up, not who you
+    /// say you are.
     /// </remarks>
     public class KioskHTTPAPI : HTTPAPI
     {
@@ -125,8 +128,9 @@ namespace cloud.charging.open.ChargingStation
             this.Station  = Station;
             this.Log      = Log;
 
-            AddHandler(HTTPPath.Root + "kiosk",       GetKiosk,     HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "kiosk/rfid",  PostRFIDCard, HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "kiosk",                    GetKiosk,          HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "kiosk/rfid",               PostRFIDCard,      HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "kiosk/reservation/cancel", PostCancelHold,    HTTPMethod.POST);
 
         }
 
@@ -181,6 +185,41 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+
+        #region (private) PostCancelHold(Request)
+
+        /// <summary>
+        /// POST /api/kiosk/reservation/cancel with {"uid": "...", "evse": 1}:
+        /// let a held outlet go again.
+        /// </summary>
+        /// <remarks>
+        /// The card is the whole of the authorisation, because at a screen with
+        /// no sign-in in front of it there is nothing else anybody can prove.
+        /// Anybody may press the button; only the card the outlet is held for
+        /// gets anywhere, and the display never showed which card that is.
+        /// </remarks>
+        private async Task<HTTPResponse> PostCancelHold(HTTPRequest Request)
+        {
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            if (!Station.TryReleaseReservation(json.Value<String>("reader"),
+                                               json["evse"]?.Type == JTokenType.Integer ? (Byte?) json.Value<Byte>("evse") : null,
+                                               json.Value<String>("uid"),
+                                               out var result,
+                                               out var error))
+            {
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, error);
+            }
+
+            await Task.CompletedTask;
+
+            return JSONResponse(Request, HTTPStatusCode.OK, result);
+
+        }
+
+        #endregion
 
         #region (private static) TryParseJSONObject(Request, out JSON, out ErrorResponse)
 

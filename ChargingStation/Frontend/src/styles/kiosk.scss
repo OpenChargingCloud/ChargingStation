@@ -210,13 +210,30 @@ html, body.kiosk-body {
 // not say for whom: a display in a car park printing somebody's card number is
 // printing it for everybody walking past.
 .kiosk-reserved {
-    margin-top:     auto;
-    padding:        1vmin 1.4vmin;
-    border-radius:  0.8vmin;
-    background:     rgba(217, 164, 65, 0.14);
-    color:          $kiosk-reserved;
-    font-size:      2.1vmin;
-    line-height:    1.35;
+
+    display:         flex;
+    flex-direction:  column;
+    align-items:     flex-start;
+    gap:             1vmin;
+    margin-top:      auto;
+    padding:         1vmin 1.4vmin;
+    border-radius:   0.8vmin;
+    background:      rgba(217, 164, 65, 0.14);
+    color:           $kiosk-reserved;
+    font-size:       2.1vmin;
+    line-height:     1.35;
+
+    // Letting a reservation go is not the thing somebody walking up to a
+    // station is here to do, so it is a quiet button rather than a loud one -
+    // and it asks for the card anyway.
+    .kiosk-btn.release {
+        padding:       0.7vmin 1.4vmin;
+        font-size:     1.9vmin;
+        border-color:  rgba(217, 164, 65, 0.5);
+        color:         $kiosk-reserved;
+        cursor:        pointer;
+    }
+
 }
 
 .kiosk-session {

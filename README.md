@@ -494,6 +494,14 @@ car park printing somebody's card number is printing it for everybody walking
 past, and the way to prove the outlet is yours is to hold your card against the
 reader.
 
+The display can also let a reservation go: a held outlet carries a "Cancel
+reservation" button, and pressing it asks for the card. That is the whole of the
+authorisation, and it is the only kind there can be on a port with no sign-in -
+anybody may press the button, only the card gets anywhere. A card that is not
+the one is refused without being told how close it was. So the two things the
+display can change are the same gesture with the same proof: what you may do
+here is what you can hold up, not who you say you are.
+
 Nothing is connected to a CSMS yet, so `POST /api/v1/reservations` builds a real
 `ReserveNowRequest` and hands it to the same method the incoming OCPP handler
 calls. It is a way in, not a second implementation - the day a CSMS does

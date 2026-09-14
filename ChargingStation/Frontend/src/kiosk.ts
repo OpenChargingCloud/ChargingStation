@@ -79,8 +79,14 @@ let state:      KioskState | null = null;
 let lastAnswer  = 0;
 let offline     = false;
 
-/** The reader the card dialog is open for, or null when it is closed. */
-let dialogFor: { reader: Reader; evse: number | null } | null = null;
+/**
+ * What the card dialog is open for, or null when it is closed.
+ *
+ * 'present' is holding a card against a reader - start or stop. 'release' is
+ * letting a held outlet go. Both are the same gesture and the same proof: at a
+ * screen with no sign-in, the card is the only thing anybody can show.
+ */
+let dialogFor: { reader: Reader; evse: number | null; mode: 'present' | 'release' } | null = null;
 let dialogUID  = '';
 let dialogNote = '';
 
@@ -155,6 +161,14 @@ function draw(): void {
 }
 
 
+/** The reader a card for this outlet would be held against, when there is one. */
+function readerFor(EVSE: KioskEVSE): Reader | null {
+    return EVSE.rfid?.fake ? EVSE.rfid
+         : state?.rfid?.fake ? state.rfid
+         : null;
+}
+
+
 function evseCard(EVSE: KioskEVSE) {
 
     const power = EVSE.status === 'occupied' && EVSE.currentPower_kW !== null
@@ -186,7 +200,14 @@ function evseCard(EVSE: KioskEVSE) {
             ${EVSE.reservation && !EVSE.session
                   ? html`
                       <div class="kiosk-reserved">
-                          Held for ${EVSE.reservation.minutesLeft} more minute(s) - hold the right card against the reader.
+                          <span>Held for ${EVSE.reservation.minutesLeft} more minute(s) - hold the right card against the reader.</span>
+                          ${readerFor(EVSE)
+                                ? html`
+                                    <button type="button" class="kiosk-btn release" data-release="${EVSE.id}">
+                                        Cancel reservation
+                                    </button>
+                                  `
+                                : ''}
                       </div>
                     `
                   : ''}
@@ -232,16 +253,21 @@ function evseCard(EVSE: KioskEVSE) {
 
 function cardDialog(Current: KioskState) {
 
-    const reader   = dialogFor!.reader;
-    const forEVSE  = dialogFor!.evse;
+    const reader    = dialogFor!.reader;
+    const forEVSE   = dialogFor!.evse;
+    const releasing = dialogFor!.mode === 'release';
 
     return html`
         <div class="kiosk-modal" id="modal">
-            <div class="kiosk-dialog" role="dialog" aria-modal="true" aria-label="Present a card">
+            <div class="kiosk-dialog" role="dialog" aria-modal="true"
+                 aria-label="${releasing ? 'Cancel a reservation' : 'Present a card'}">
 
-                <h2>Present a card</h2>
+                <h2>${releasing ? 'Cancel the reservation' : 'Present a card'}</h2>
 
                 <p class="kiosk-dialog-hint">
+                    ${releasing
+                          ? html`Only the card this outlet is being held for can let it go.`
+                          : ''}
                     '${reader.id}' is a test reader, so a card is typed rather than held against it.
                 </p>
 
@@ -251,7 +277,7 @@ function cardDialog(Current: KioskState) {
                            autocomplete="off" spellcheck="false" />
                 </label>
 
-                ${forEVSE === null
+                ${forEVSE === null && !releasing
                       ? html`
                           <label>
                               Which outlet
@@ -267,8 +293,10 @@ function cardDialog(Current: KioskState) {
                 <div class="kiosk-dialog-note">${dialogNote}</div>
 
                 <div class="kiosk-dialog-actions">
-                    <button type="button" id="dialog-cancel" class="kiosk-btn">Cancel</button>
-                    <button type="button" id="dialog-ok"     class="kiosk-btn primary">Present</button>
+                    <button type="button" id="dialog-cancel" class="kiosk-btn">Back</button>
+                    <button type="button" id="dialog-ok"     class="kiosk-btn primary">
+                        ${releasing ? 'Cancel the reservation' : 'Present'}
+                    </button>
                 </div>
 
             </div>
@@ -293,7 +321,34 @@ function wire(): void {
             if (!reader?.fake)
                 return;
 
-            dialogFor  = { reader, evse: button.dataset.evse ? Number(button.dataset.evse) : null };
+            dialogFor  = { reader, evse: button.dataset.evse ? Number(button.dataset.evse) : null, mode: 'present' };
+            dialogUID  = '';
+            dialogNote = '';
+
+            draw();
+
+            root.querySelector<HTMLInputElement>('#uid')?.focus();
+
+        });
+    });
+
+    root.querySelectorAll<HTMLButtonElement>('[data-release]').forEach(button => {
+        button.addEventListener('click', () => {
+
+            if (state === null)
+                return;
+
+            const evseId  = Number(button.dataset.release);
+            const evse    = state.evses.find(candidate => candidate.id === evseId);
+            const reader  = evse ? readerFor(evse) : null;
+
+            if (!reader)
+                return;
+
+            // Always for this one outlet, even at a reader that serves the
+            // whole housing: the button is on the card of the outlet being let
+            // go, so there is nothing to ask.
+            dialogFor  = { reader, evse: evseId, mode: 'release' };
             dialogUID  = '';
             dialogNote = '';
 
@@ -344,10 +399,11 @@ async function present(): Promise<void> {
         return;
 
     const which = root.querySelector<HTMLSelectElement>('#which-evse');
+    const where = dialogFor.mode === 'release' ? '/kiosk/reservation/cancel' : '/kiosk/rfid';
 
     try
     {
-        const response = await fetch(`${config.apiBase}/kiosk/rfid`, {
+        const response = await fetch(`${config.apiBase}${where}`, {
                                    method:   'POST',
                                    headers:  { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                                    body:     JSON.stringify({

@@ -352,49 +352,8 @@ namespace cloud.charging.open.ChargingStation
 
             Result = null;
 
-            if (!RFIDToken.TryParse(UID, out var token, out Error))
+            if (!TryReadCard(ReaderId, EVSEId, UID, out var token, out var reader, out var evse, out Error))
                 return false;
-
-            var readers = RFIDReaders.Where(reader => reader.Enabled).ToArray();
-
-            var reader  = ReaderId is not null
-                              ? readers.FirstOrDefault(candidate => String.Equals(candidate.Id, ReaderId, StringComparison.OrdinalIgnoreCase))
-                              : readers.Length == 1
-                                    ? readers[0]
-                                    : null;
-
-            if (reader is null)
-            {
-                Error = ReaderId is null
-                            ? "This station has more than one RFID reader; say which one."
-                            : $"This station has no RFID reader called '{ReaderId}' switched on.";
-                return false;
-            }
-
-            if (!reader.IsFake)
-            {
-                // Not a refusal about permission but about physics: a real
-                // reader reads cards, and there is no way to hand one a card
-                // over HTTP.
-                Error = $"'{reader.Id}' is a {reader.Kind} reader; a card is held against it, not typed into it.";
-                return false;
-            }
-
-            var evseId = reader.EVSEId ?? EVSEId;
-
-            if (evseId is null)
-            {
-                Error = "This reader serves the whole station, so it needs to be told which EVSE the card is for.";
-                return false;
-            }
-
-            var evse = EVSEs.FirstOrDefault(candidate => candidate.Id == evseId);
-
-            if (evse is null)
-            {
-                Error = $"This station has no EVSE {evseId}.";
-                return false;
-            }
 
             if (!evse.Operative)
             {
@@ -483,6 +442,150 @@ namespace cloud.charging.open.ChargingStation
                          new JProperty("uid",      token.UID),
                          new JProperty("started",  started),
                          new JProperty("stopped",  !started)
+                     );
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private) TryReadCard(ReaderId, EVSEId, UID, out Token, out Reader, out EVSE, out Error)
+
+        /// <summary>
+        /// The card, the reader it was held against and the outlet it is for -
+        /// or the sentence saying why none of that came together.
+        /// </summary>
+        /// <remarks>
+        /// The narrow door every card on the display comes through, whether it
+        /// is starting a charge or letting a reservation go. The reader has to
+        /// exist, be switched on, and be one whose cards are typed in: a
+        /// station with only real readers configured answers every card sent to
+        /// it with a refusal, no matter what the request says.
+        /// </remarks>
+        private Boolean TryReadCard(String?                                 ReaderId,
+                                    Byte?                                   EVSEId,
+                                    String?                                 UID,
+                                    [NotNullWhen(true)]  out RFIDToken?        Token,
+                                    [NotNullWhen(true)]  out RFIDReaderConfig? Reader,
+                                    [NotNullWhen(true)]  out EVSEConfig?       EVSE,
+                                    [NotNullWhen(false)] out String?           Error)
+        {
+
+            Token   = null;
+            Reader  = null;
+            EVSE    = null;
+
+            if (!RFIDToken.TryParse(UID, out Token, out Error))
+                return false;
+
+            var readers = RFIDReaders.Where(reader => reader.Enabled).ToArray();
+
+            Reader = ReaderId is not null
+                         ? readers.FirstOrDefault(candidate => String.Equals(candidate.Id, ReaderId, StringComparison.OrdinalIgnoreCase))
+                         : readers.Length == 1
+                               ? readers[0]
+                               : null;
+
+            if (Reader is null)
+            {
+                Error = ReaderId is null
+                            ? "This station has more than one RFID reader; say which one."
+                            : $"This station has no RFID reader called '{ReaderId}' switched on.";
+                return false;
+            }
+
+            if (!Reader.IsFake)
+            {
+                // Not a refusal about permission but about physics: a real
+                // reader reads cards, and there is no way to hand one a card
+                // over HTTP.
+                Error = $"'{Reader.Id}' is a {Reader.Kind} reader; a card is held against it, not typed into it.";
+                Reader = null;
+                return false;
+            }
+
+            var evseId = Reader.EVSEId ?? EVSEId;
+
+            if (evseId is null)
+            {
+                Error   = "This reader serves the whole station, so it needs to be told which EVSE the card is for.";
+                Reader  = null;
+                return false;
+            }
+
+            EVSE = EVSEs.FirstOrDefault(candidate => candidate.Id == evseId);
+
+            if (EVSE is null)
+            {
+                Error   = $"This station has no EVSE {evseId}.";
+                Reader  = null;
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region TryReleaseReservation(ReaderId, EVSEId, UID, out Result, out Error)
+
+        /// <summary>
+        /// Let a held outlet go again, from the display.
+        /// </summary>
+        /// <remarks>
+        /// The second and last thing the display can change, and it is the same
+        /// rule as the first: the only way to say that a reservation is yours,
+        /// at a screen with no sign-in in front of it, is to hold the card it
+        /// is held for against the reader. Anybody walking past can press the
+        /// button; only the card gets anywhere.
+        ///
+        /// A card that is not the one is turned away without being told how
+        /// close it was, and the display never showed the token to begin with -
+        /// see <see cref="ReservationJSON"/>.
+        /// </remarks>
+        public Boolean TryReleaseReservation(String?                           ReaderId,
+                                             Byte?                             EVSEId,
+                                             String?                           UID,
+                                             [NotNullWhen(true)]  out JObject? Result,
+                                             [NotNullWhen(false)] out String?  Error)
+        {
+
+            Result = null;
+
+            if (!TryReadCard(ReaderId, EVSEId, UID, out var token, out var reader, out var evse, out Error))
+                return false;
+
+            var reservation = cs02.ReservationOf(OCPPv2_1.EVSE_Id.Parse(evse.Id));
+
+            if (reservation is null)
+            {
+                Error = $"EVSE {evse.Id} is not being held for anybody.";
+                return false;
+            }
+
+            if (!reservation.Admits(new OCPPv2_1.IdToken(token.UID, OCPPv2_1.IdTokenType.ISO14443)))
+            {
+                Log.Notice(
+                    $"Card {token} tried to let go of the reservation {reservation.Id} at EVSE {evse.Id} and is not the card it is held for.",
+                    "rfid", "reservation", "kiosk"
+                );
+                Error = "That is not the card this EVSE is being held for.";
+                return false;
+            }
+
+            cs02.CancelReservation(reservation.Id);
+
+            Log.Notice(
+                $"Card {token} let go of the reservation {reservation.Id} at EVSE {evse.Id} (reader '{reader.Id}').",
+                "rfid", "reservation", "kiosk"
+            );
+
+            Result = new JObject(
+                         new JProperty("evse",       evse.Id),
+                         new JProperty("uid",        token.UID),
+                         new JProperty("cancelled",  true)
                      );
 
             return true;
