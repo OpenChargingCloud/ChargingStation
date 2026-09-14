@@ -1,7 +1,7 @@
 import qrcode from 'qrcode-generator';
 
 import { config } from './config';
-import { html, must, raw, render } from './html';
+import { html, HTMLFragment, must, raw, render } from './html';
 
 import './styles/kiosk.scss';
 
@@ -86,6 +86,22 @@ let lastAnswer  = 0;
 let offline     = false;
 
 /**
+ * What the screen is currently showing, as a string.
+ *
+ * The page is drawn by replacing all of it, which is fine for a screen that
+ * changes when something happens and wrong for one that is rebuilt every two
+ * seconds whether or not anything did: every redraw throws away the elements
+ * that were there, and with them anything the browser was keeping in them -
+ * the caret, the focus, and on a touch screen the keyboard that was open.
+ *
+ * So a poll that brings back what is already on screen draws nothing. The
+ * timestamp is left out of the comparison on purpose: it is the one field that
+ * differs every single time, and comparing it would make this test always say
+ * "changed" and do nothing at all.
+ */
+let shown: string | null = null;
+
+/**
  * What the card dialog is open for, or null when it is closed.
  *
  * 'present' is holding a card against a reader - start or stop. 'release' is
@@ -117,12 +133,31 @@ async function poll(): Promise<void> {
         offline = state !== null && Date.now() - lastAnswer > staleAfter;
     }
 
+    // Somebody is holding a card against this station. Whatever the outlets are
+    // doing can wait the two seconds until they have finished typing: a modal
+    // is over them and nobody is reading them, and redrawing underneath it
+    // takes the keyboard away mid-word.
+    if (dialogFor !== null)
+        return;
+
+    const signature = JSON.stringify({ ...state, timestamp: undefined, offline });
+
+    if (signature === shown)
+        return;
+
+    shown = signature;
+
     draw();
 
 }
 
 
 function draw(): void {
+
+    // Whatever is drawn now is what is on screen. Set here rather than only in
+    // the poll, so that a redraw somebody caused by pressing something does not
+    // leave the poll believing the screen still shows the older thing.
+    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline });
 
     if (state === null) {
         render(root, html`<div class="kiosk-loading">...</div>`);
@@ -506,6 +541,11 @@ function statusWord(Status: KioskEVSE['status']): string {
  */
 function qrSVG(URL: string) {
 
+    const remembered = drawnQRCodes.get(URL);
+
+    if (remembered !== undefined)
+        return remembered;
+
     const qr = qrcode(0, 'M');
 
     qr.addData(URL);
@@ -514,9 +554,23 @@ function qrSVG(URL: string) {
     // raw(), because createSvgTag returns markup rather than text. What went
     // into it is a URL this station generated from its own template and its
     // own secret - nothing a visitor typed reaches this function.
-    return raw(qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }));
+    const svg = raw(qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }));
+
+    // One code per URL, and the URLs change every half minute or so. Kept
+    // small rather than cleared on a timer: an entry costs a few hundred bytes
+    // and a display that has been on for a week has seen twenty thousand of
+    // them, which is worth neither the memory nor a timer to avoid it.
+    if (drawnQRCodes.size >= 8)
+        drawnQRCodes.clear();
+
+    drawnQRCodes.set(URL, svg);
+
+    return svg;
 
 }
+
+/** The codes already drawn, so that the same URL is not encoded twice. */
+const drawnQRCodes = new Map<string, HTMLFragment>();
 
 
 void poll();
