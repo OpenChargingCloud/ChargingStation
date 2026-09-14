@@ -130,6 +130,32 @@ namespace cloud.charging.open.ChargingStation
 
         private readonly  WebPaymentsConfiguration?            webPayments;
 
+        /// <summary>
+        /// When this station last managed to check its clock, what it found,
+        /// and against whom.
+        /// </summary>
+        /// <remarks>
+        /// Three fields rather than one object because they are written from
+        /// one place and read from another, and the alternative - digging them
+        /// back out of the JSON of the last check - would make the display
+        /// depend on the shape of a diagnostic.
+        /// </remarks>
+        private           DateTimeOffset?                      lastTimeCheck;
+        private           TimeSpan?                            lastTimeCheckOffset;
+        private           String?                              lastTimeCheckServer;
+
+        /// <summary>
+        /// The clock that makes this station check its own, when NTS is on.
+        /// </summary>
+        private           ITimer?                              timeCheckTimer;
+
+        /// <summary>
+        /// What the file said about the time client, kept because the parts of
+        /// it that are not the client itself - how often to check, and what the
+        /// operator claims about the server - are read long afterwards.
+        /// </summary>
+        private           NTSConfiguration?                    ntsSettings;
+
         private readonly  ConsoleLog?                          consoleLog;
         private readonly  TraceBridge?                         traceBridge;
 
@@ -498,6 +524,8 @@ namespace cloud.charging.open.ChargingStation
             if (configuration?.NTS is not null)
                 ApplyNTSConfiguration(configuration.NTS);
 
+            this.ntsSettings = configuration?.NTS;
+
             #endregion
 
             #region The EVSEs this station has
@@ -762,6 +790,8 @@ namespace cloud.charging.open.ChargingStation
             if (kioskServer is not null)
                 await kioskServer.Start();
 
+            StartCheckingTheClock();
+
             started = true;
 
             Log.Notice($"The web interface is listening on {WebInterfaceURL}", "web", "http");
@@ -808,6 +838,9 @@ namespace cloud.charging.open.ChargingStation
                 await V2G.DisposeAsync();
                 V2G = null;
             }
+
+            timeCheckTimer?.Dispose();
+            timeCheckTimer = null;
 
             if (kioskServer is not null)
                 await kioskServer.Stop();

@@ -109,6 +109,16 @@ interface Vocabulary {
     whichOutlet:        string;
     back:               string;
     present:            string;
+    legalTime:          (authority: string) => string;
+    checkedAgainst:     (server: string) => string;
+    timeUnverified:     string;
+    notClaimed:         string;
+    ntsOff:             string;
+    neverChecked:       string;
+    stale:              string;
+    offBy:              (milliseconds: number) => string;
+    secondsAgo:         (seconds: number) => string;
+    minutesAgo:         (minutes: number) => string;
 }
 
 const english: Vocabulary = {
@@ -136,7 +146,17 @@ const english: Vocabulary = {
     cardUID:            'Card UID',
     whichOutlet:        'Which outlet',
     back:               'Back',
-    present:            'Present'
+    present:            'Present',
+    legalTime:          authority => `legal time · ${authority}`,
+    checkedAgainst:     server => `checked against ${server},`,
+    timeUnverified:     'time not verified',
+    notClaimed:         'no time authority configured',
+    ntsOff:             'time checking is switched off',
+    neverChecked:       'not checked yet',
+    stale:              'last check too long ago',
+    offBy:              milliseconds => `clock is ${milliseconds > 0 ? '+' : ''}${milliseconds} ms out`,
+    secondsAgo:         seconds => `${seconds} s ago`,
+    minutesAgo:         minutes => `${minutes} min ago`
 };
 
 const german: Vocabulary = {
@@ -164,7 +184,17 @@ const german: Vocabulary = {
     cardUID:            'Karten-UID',
     whichOutlet:        'Welcher Ladepunkt',
     back:               'Zurück',
-    present:            'Auflegen'
+    present:            'Auflegen',
+    legalTime:          authority => `gesetzliche Zeit · ${authority}`,
+    checkedAgainst:     server => `geprüft gegen ${server},`,
+    timeUnverified:     'Zeit ungeprüft',
+    notClaimed:         'keine Zeitautorität konfiguriert',
+    ntsOff:             'Zeitprüfung ist abgeschaltet',
+    neverChecked:       'noch nicht geprüft',
+    stale:              'letzte Prüfung zu lange her',
+    offBy:              milliseconds => `Uhr weicht um ${milliseconds > 0 ? '+' : ''}${milliseconds} ms ab`,
+    secondsAgo:         seconds => `vor ${seconds} s`,
+    minutesAgo:         minutes => `vor ${minutes} min`
 };
 
 const vocabularies: Record<string, Vocabulary> = {
@@ -199,6 +229,23 @@ function chooseWords(Language: string | null | undefined): void {
 interface KioskState {
     station:      { name: string | null; logo: string | null; language: string | null };
     timestamp:    string;
+    /**
+     * What time the station thinks it is, and what that is worth.
+     *
+     * The station decides the word "legal", not this page: whether a clock
+     * carries a country's legal time is a fact about an institution and a
+     * measurement, and a screen is in no position to work either of them out.
+     */
+    clock:        {
+                      now:        string;
+                      source:     string;
+                      nts:        { enabled: boolean; server: string | null; lastServer: string | null;
+                                    checkedAt: string | null; ageSeconds: number | null;
+                                    offset_ms: number | null; everySeconds: number };
+                      legal:      boolean;
+                      authority:  string | null;
+                      why:        string | null;
+                  };
     evses:        KioskEVSE[];
     /**
      * Outlets held without saying which. A reservation that names no EVSE is a
@@ -290,7 +337,7 @@ async function poll(): Promise<void> {
     if (dialogFor !== null)
         return;
 
-    const signature = JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes() });
+    const signature = JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes(), clock: clockSignature() });
 
     if (signature === shown)
         return;
@@ -307,7 +354,7 @@ function draw(): void {
     // Whatever is drawn now is what is on screen. Set here rather than only in
     // the poll, so that a redraw somebody caused by pressing something does not
     // leave the poll believing the screen still shows the older thing.
-    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes() });
+    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature(), codes: liveCodes(), clock: clockSignature() });
 
     if (state === null) {
         render(root, html`<div class="kiosk-loading">...</div>`);
@@ -338,6 +385,9 @@ function draw(): void {
                   : ''}
 
             ${offline ? html`<span class="kiosk-offline">${words.noConnection}</span>` : ''}
+
+            ${clockCorner(current)}
+
         </header>
 
         ${messageBand(current.messages ?? [], 'station')}
@@ -418,6 +468,99 @@ function qrCodeStillGood(QRCode: { url: string; expiresAt: string }): boolean {
     const hadLeft = Date.parse(QRCode.expiresAt) - Date.parse(state.timestamp);
 
     return Number.isFinite(hadLeft) && hadLeft > ageOfWhatIsShown();
+
+}
+
+
+/**
+ * The clock, and one line under it saying what it is worth.
+ *
+ * The time shown is the station's, carried forward by the local clock between
+ * polls - the difference between two local readings, never an absolute one, so
+ * that a screen whose own clock is wrong still shows the station's time.
+ *
+ * The digits are written in place by a ticking timer rather than by redrawing
+ * the page, which would throw away the caret of anybody typing a card number
+ * once a second.
+ */
+function clockCorner(Current: KioskState) {
+
+    const clock = Current.clock;
+
+    if (clock === undefined)
+        return '';
+
+    const why = clock.why === 'notClaimed'   ? words.notClaimed
+              : clock.why === 'ntsOff'       ? words.ntsOff
+              : clock.why === 'neverChecked' ? words.neverChecked
+              : clock.why === 'stale'        ? words.stale
+              : clock.why === 'offBy'        ? words.offBy(clock.nts.offset_ms ?? 0)
+              : '';
+
+    // Without the root dot. "ptbtime1.ptb.de." is the correct way to write a
+    // fully qualified name and the wrong way to put one in front of somebody.
+    const server = (clock.nts.lastServer ?? clock.nts.server)?.replace(/\.$/, '') ?? null;
+
+    return html`
+        <div class="kiosk-clock ${clock.legal ? 'legal' : 'unverified'}">
+            <span class="kiosk-time" id="clock">${clockText()}</span>
+            <span class="kiosk-time-note">
+                ${clock.legal && clock.authority
+                      ? html`${words.legalTime(clock.authority)}`
+                      : html`${words.timeUnverified}${why ? html` · ${why}` : ''}`}
+                ${server !== null && clock.nts.checkedAt !== null
+                      ? html`<br />${words.checkedAgainst(server)} <span id="clock-age">${ageText()}</span>`
+                      : ''}
+            </span>
+        </div>
+    `;
+
+}
+
+
+/**
+ * How long ago the clock was last checked, in words.
+ *
+ * Worked out on the page rather than read off the answer, for the same reason
+ * the time itself is: it changes every second, and a screen that redrew itself
+ * because a number of seconds went up would be back to throwing away the caret
+ * of anybody typing a card number.
+ */
+function ageText(): string {
+
+    const checkedAt = state?.clock?.nts?.checkedAt;
+
+    if (!checkedAt)
+        return '';
+
+    const seconds = (Date.parse(state!.clock.now) + ageOfWhatIsShown() - Date.parse(checkedAt)) / 1000;
+
+    return !Number.isFinite(seconds) || seconds < 0
+               ? ''
+               : seconds < 120
+                     ? words.secondsAgo(Math.round(seconds))
+                     : words.minutesAgo(Math.round(seconds / 60));
+
+}
+
+
+/**
+ * The station's time as a wall clock, now.
+ *
+ * Its clock plus however long ago it said so - measured as the difference
+ * between two readings of this machine's clock, so that a screen whose own
+ * clock is hours out still shows the station's time to the second.
+ */
+function clockText(): string {
+
+    if (state === null)
+        return '';
+
+    const stationNow = new Date(Date.parse(state.clock?.now ?? state.timestamp) + ageOfWhatIsShown());
+
+    return Number.isNaN(stationNow.getTime())
+               ? ''
+               : stationNow.toLocaleTimeString(document.documentElement.lang || 'en', { hour12: false });
 
 }
 
@@ -851,6 +994,35 @@ function liveCodes(): string {
 }
 
 
+/**
+ * What is worth redrawing about the clock.
+ *
+ * Everything except the two fields that change because time passed - the time
+ * itself and the age of the last check. Those are written into their elements
+ * by the ticker below; leaving them in here would redraw the whole page once
+ * a second, which is exactly what this comparison exists to stop.
+ */
+function clockSignature(): string {
+
+    const clock = state?.clock;
+
+    if (clock === undefined)
+        return '';
+
+    return JSON.stringify({
+               legal:      clock.legal,
+               why:        clock.why,
+               authority:  clock.authority,
+               enabled:    clock.nts.enabled,
+               server:     clock.nts.server,
+               last:       clock.nts.lastServer,
+               checkedAt:  clock.nts.checkedAt,
+               offset:     clock.nts.offset_ms
+           });
+
+}
+
+
 /** Whether anywhere on this screen has more than one message taking turns. */
 function hasSomethingToCycle(): boolean {
 
@@ -866,6 +1038,24 @@ function hasSomethingToCycle(): boolean {
 
 void poll();
 setInterval(() => void poll(), pollEvery);
+
+// The digits only. Written straight into the element rather than through a
+// redraw, because a page that rebuilt itself once a second would take the
+// keyboard away from anybody typing a card number - which is the whole reason
+// this display stopped redrawing itself in the first place.
+setInterval(() => {
+
+    const digits = document.querySelector<HTMLElement>('#clock');
+
+    if (digits !== null)
+        digits.textContent = clockText();
+
+    const age = document.querySelector<HTMLElement>('#clock-age');
+
+    if (age !== null)
+        age.textContent = ageText();
+
+}, 1000);
 
 // The cycle turns on its own clock rather than on the poll's: how long a line
 // stays readable has nothing to do with how often this station is asked what it

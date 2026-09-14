@@ -526,6 +526,48 @@ hardware is a different station, and a reservation for "EVSE 2" would afterwards
 be a promise about something else, so those are let go of and said so about in
 the log.
 
+### The clock, and what it is worth
+
+The display carries the time, and under it one line saying what that time is
+worth. Two different questions, and a charging station has to keep them apart.
+
+The time shown is the station's **own system clock**. Whether it is any good is
+answered by asking a server that knows - and **this station does not set its
+clock from the answer**. It measures the difference and reports it. Stepping the
+clock of a machine that meters energy and writes signed records is not something
+a background task does by surprise: a jump backwards puts two readings out of
+order with nothing in the record to say why. Measuring is the part that can be
+done safely and the part that tells somebody whether there is a problem.
+
+**"Legal time" is never guessed.** Nothing here can tell from a hostname whether
+a server disseminates a country's legal time - that is a fact about an
+institution, not about DNS. So the operator says so in `nts.legalTimeAuthority`,
+and the station then repeats that claim only while it can stand behind all four
+of:
+
+| | |
+|---|---|
+| the claim exists | `legalTimeAuthority` is configured |
+| checking is on | NTS is enabled |
+| it was actually checked | and recently - `legalTimeMaxAgeSeconds`, an hour by default |
+| the clock was close | within `legalTimeToleranceSeconds`, a second by default |
+
+Any one of them missing and the display says the time is unverified **and why**:
+`no time authority configured`, `time checking is switched off`, `not checked
+yet`, `last check too long ago`, or `clock is -347 ms out`. A true statement
+about a station that has not checked is worth more than the word "legal" over a
+clock nobody verified.
+
+The check runs by itself every `nts.checkEverySeconds` (fifteen minutes by
+default), the first one a minute after starting - everything else is still
+coming up, and a display that says "unverified" for a minute after a start is
+telling the truth.
+
+The digits tick in place rather than through a redraw, and the time comes from
+the station's clock carried forward by the difference between two readings of
+the screen's own - so a screen whose clock is hours out still shows the
+station's time to the second.
+
 ### Display messages
 
 OCPP 2.1's `SetDisplayMessage`, shown where it says it should be shown. Three

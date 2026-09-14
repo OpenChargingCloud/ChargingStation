@@ -132,6 +132,12 @@ namespace cloud.charging.open.ChargingStation
 
                        new JProperty("timestamp",    now.ToString("o")),
 
+                       // The clock, and what it is worth. A charging station
+                       // that shows a time somebody may later be billed against
+                       // should say in the same breath whether that time has
+                       // been checked, against whom, and how long ago.
+                       new JProperty("clock",        ClockJSON()),
+
                        new JProperty("evses",        new JArray(EVSEs.Select(evse => EVSEPresentationJSON(evse, now, readers)))),
 
                        // The station-wide reader, when there is one. A reader

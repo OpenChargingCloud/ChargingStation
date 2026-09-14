@@ -348,8 +348,20 @@ namespace cloud.charging.open.ChargingStation
 
                 var roundTrip = query.StopwatchRoundTripTime;
 
+                // What the exchange was actually for. The clock of this station
+                // is not stepped by it - see the remarks on this method - so
+                // the offset is the whole of the result: it is the difference
+                // between what this station believes and what a server that
+                // knows was saying at the same moment.
+                var offset    = query.Response?.ClockOffset;
+
+                lastTimeCheck        = TimeProvider.GetUtcNow();
+                lastTimeCheckOffset  = offset;
+                lastTimeCheckServer  = client.Hostname.ToString();
+
                 Log.Notice(
                     $"NTS: {client.Hostname} answered in {stopwatch.ElapsedMilliseconds} ms" +
+                    (offset.HasValue ? $", this station's clock is {offset.Value.TotalMilliseconds:+0.0;-0.0;0} ms off" : "") +
                     (roundTrip.HasValue ? $" (round trip {roundTrip.Value.TotalMilliseconds:F1} ms)" : "") +
                     $", {query.RemainingCookiesAfterQuery} cookie(s) left.",
                     "nts", "ntp", "test"
@@ -370,6 +382,8 @@ namespace cloud.charging.open.ChargingStation
                                new JProperty("ntpServers",         new JArray(response.NTPv4ServerNames)),
                                new JProperty("warnings",           new JArray(response.WarningMessages))
                            )),
+
+                           new JProperty("offset_ms",      offset?.TotalMilliseconds),
 
                            new JProperty("ntp",            new JObject(
                                new JProperty("attempts",           query.Attempts),

@@ -99,6 +99,40 @@ html, body.kiosk-body {
 
 }
 
+// The clock, and what it is worth.
+//
+// Right-hand end of the heading, small: somebody walking up to a charging
+// station is not there to read the time, but somebody who may later be billed
+// for what happened at it has every right to see which clock it happened on.
+.kiosk-clock {
+
+    display:         flex;
+    flex-direction:  column;
+    align-items:     flex-end;
+    margin-left:     auto;
+    line-height:     1.25;
+
+    // Only the badge is coloured. The digits stay plain: a time that turns red
+    // reads as a broken clock, and the clock is not what is in question - what
+    // is known about it is.
+    &.legal      .kiosk-time-note { color: $kiosk-free;     }
+    &.unverified .kiosk-time-note { color: $kiosk-reserved; }
+
+}
+
+.kiosk-time {
+    font-size:             3.2vmin;
+    font-weight:           600;
+    // So the line does not twitch sideways once a second.
+    font-variant-numeric:  tabular-nums;
+}
+
+.kiosk-time-note {
+    font-size:   1.7vmin;
+    text-align:  right;
+    color:       $kiosk-muted;
+}
+
 .kiosk-offline {
     margin-left:    auto;
     padding:        0.4vmin 1.4vmin;

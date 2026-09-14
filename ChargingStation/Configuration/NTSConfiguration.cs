@@ -42,14 +42,50 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="NTSKEPort">Where its key exchange listens; 4460 unless said otherwise.</param>
     /// <param name="NTPPort">Where its NTP service listens; 123 unless said otherwise.</param>
     /// <param name="Timeout">How long one exchange may take.</param>
-    public sealed record NTSConfiguration(Boolean?     Enabled     = null,
-                                          DomainName?  Hostname    = null,
-                                          IPPort?      NTSKEPort   = null,
-                                          IPPort?      NTPPort     = null,
-                                          TimeSpan?    Timeout     = null)
+    /// <param name="CheckEvery">How often this station checks its clock against that server.</param>
+    /// <param name="LegalTimeAuthority">Who stands behind that server's time, e.g. "PTB" - the operator saying so, because this station cannot find out by itself.</param>
+    /// <param name="LegalTimeTolerance">How far this station's own clock may be from it and still count.</param>
+    /// <param name="LegalTimeMaxAge">How old the last check may be and still count.</param>
+    public sealed record NTSConfiguration(Boolean?     Enabled               = null,
+                                          DomainName?  Hostname              = null,
+                                          IPPort?      NTSKEPort             = null,
+                                          IPPort?      NTPPort               = null,
+                                          TimeSpan?    Timeout               = null,
+                                          TimeSpan?    CheckEvery            = null,
+                                          String?      LegalTimeAuthority    = null,
+                                          TimeSpan?    LegalTimeTolerance    = null,
+                                          TimeSpan?    LegalTimeMaxAge       = null)
     {
 
         #region Data
+
+        /// <summary>
+        /// How often this station checks its clock against its time server,
+        /// when nobody says otherwise.
+        /// </summary>
+        /// <remarks>
+        /// Often enough that a clock drifting at the rate a cheap oscillator
+        /// drifts is caught long before it matters, and rarely enough that a
+        /// public time server does not notice this station at all.
+        /// </remarks>
+        public static readonly TimeSpan  DefaultCheckEvery        = TimeSpan.FromMinutes(15);
+
+        /// <summary>
+        /// How far this station's clock may be from the time it was checked
+        /// against and still be called legal time, when nobody says otherwise.
+        /// </summary>
+        public static readonly TimeSpan  DefaultLegalTolerance    = TimeSpan.FromSeconds(1);
+
+        /// <summary>
+        /// How old the last check may be and still count, when nobody says
+        /// otherwise.
+        /// </summary>
+        public static readonly TimeSpan  DefaultLegalMaxAge       = TimeSpan.FromHours(1);
+
+        /// <summary>
+        /// The longest the name of a time authority may be written.
+        /// </summary>
+        public const           Int32     MaxAuthorityLength       = 80;
 
         /// <summary>
         /// The name of this section in the configuration file.
@@ -91,7 +127,11 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 !ConfigurationReader.TryReadString (JSON, "hostname",        "nts", 253, out var hostname,  out Error) ||
                 !ConfigurationReader.TryReadPort   (JSON, "ntsKEPort",       "nts",      out var ntsKEPort, out Error) ||
                 !ConfigurationReader.TryReadPort   (JSON, "ntpPort",         "nts",      out var ntpPort,   out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  "nts", 0.1, MaxTimeoutSeconds, out var timeout, out Error))
+                !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  "nts", 0.1, MaxTimeoutSeconds, out var timeout, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", "nts", 10, 86400, out var checkEvery, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", "nts", 0.001, 60, out var tolerance, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", "nts", 10, 86400, out var maxAge, out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", "nts", MaxAuthorityLength, out var authority, out Error))
             {
                 return false;
             }
@@ -109,7 +149,11 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                 domainName,
                                 ntsKEPort,
                                 ntpPort,
-                                timeout
+                                timeout,
+                                checkEvery,
+                                authority,
+                                tolerance,
+                                maxAge
                             );
 
             return true;
@@ -134,6 +178,11 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (NTSKEPort.HasValue)    json.Add("ntsKEPort",       NTSKEPort.Value.ToUInt16());
             if (NTPPort.  HasValue)    json.Add("ntpPort",         NTPPort.  Value.ToUInt16());
             if (Timeout.  HasValue)    json.Add("timeoutSeconds",  Timeout.  Value.TotalSeconds);
+
+            if (CheckEvery.HasValue)          json.Add("checkEverySeconds",           CheckEvery.        Value.TotalSeconds);
+            if (LegalTimeAuthority is not null) json.Add("legalTimeAuthority",        LegalTimeAuthority);
+            if (LegalTimeTolerance.HasValue)  json.Add("legalTimeToleranceSeconds",   LegalTimeTolerance.Value.TotalSeconds);
+            if (LegalTimeMaxAge.   HasValue)  json.Add("legalTimeMaxAgeSeconds",      LegalTimeMaxAge.   Value.TotalSeconds);
 
             return json;
 

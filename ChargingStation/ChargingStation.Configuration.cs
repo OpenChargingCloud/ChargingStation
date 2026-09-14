@@ -415,6 +415,12 @@ namespace cloud.charging.open.ChargingStation
         private void ApplyNTSConfiguration(NTSConfiguration Configuration)
         {
 
+            // Kept whole: what this method does with the client is only half of
+            // it, and the other half - how often to check, and what the
+            // operator claims about the server - is read from elsewhere and
+            // much later. See ChargingStation.Clock.cs.
+            ntsSettings = Configuration;
+
             var changed  = new List<String>();
 
             var hostname = Configuration.Hostname  ?? ntsClient.Hostname;
