@@ -494,13 +494,21 @@ car park printing somebody's card number is printing it for everybody walking
 past, and the way to prove the outlet is yours is to hold your card against the
 reader.
 
+A reservation that names **no** EVSE is a promise that one outlet will be free
+rather than a claim on any particular one, so it is shown where it is true -
+across the heading of the display, not beside an outlet it would be saying
+something untrue about. It carries its own button and is let go of the same way.
+
 The display can also let a reservation go: a held outlet carries a "Cancel
 reservation" button, and pressing it asks for the card. That is the whole of the
 authorisation, and it is the only kind there can be on a port with no sign-in -
 anybody may press the button, only the card gets anywhere. A card that is not
-the one is refused without being told how close it was. So the two things the
-display can change are the same gesture with the same proof: what you may do
-here is what you can hold up, not who you say you are.
+the one is refused without being told how close it was - and for the hold over
+the whole station the refusal does not even say that there is one, because a
+card somebody else's promise is none of is a card that should not learn it
+exists. So the two things the display can change are the same gesture with the
+same proof: what you may do here is what you can hold up, not who you say you
+are.
 
 Nothing is connected to a CSMS yet, so `POST /api/v1/reservations` builds a real
 `ReserveNowRequest` and hands it to the same method the incoming OCPP handler

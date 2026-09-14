@@ -74,6 +74,31 @@ html, body.kiosk-body {
     object-fit: contain;
 }
 
+// The hold that belongs to no outlet, said where it is true: over the whole
+// station. Beside the name rather than in a band of its own, so that a screen
+// with nothing held on it looks exactly as it did.
+.kiosk-hold {
+
+    display:        flex;
+    align-items:    center;
+    gap:            1.2vmin;
+    margin-left:    2vmin;
+    padding:        0.5vmin 1.4vmin;
+    border-radius:  0.8vmin;
+    background:     rgba(217, 164, 65, 0.14);
+    color:          $kiosk-reserved;
+    font-size:      2vmin;
+
+    .kiosk-btn.release {
+        padding:       0.4vmin 1.2vmin;
+        font-size:     1.8vmin;
+        border-color:  rgba(217, 164, 65, 0.5);
+        color:         $kiosk-reserved;
+        cursor:        pointer;
+    }
+
+}
+
 .kiosk-offline {
     margin-left:    auto;
     padding:        0.4vmin 1.4vmin;

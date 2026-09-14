@@ -104,6 +104,37 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region StationHoldJSON(Now)
+
+        /// <summary>
+        /// The outlets this station is holding without saying which, for the
+        /// heading of the display - or null when it is holding none that way.
+        /// </summary>
+        /// <remarks>
+        /// A reservation that names no EVSE is a promise that one will be free
+        /// rather than a claim on any particular one, so it cannot be shown
+        /// beside an outlet without saying something untrue about that outlet.
+        /// It belongs where it is true: over the whole station.
+        ///
+        /// The soonest expiry, because that is the one a passer-by can act on -
+        /// it is when a machine stops being kept from them.
+        /// </remarks>
+        public JObject? StationHoldJSON(DateTimeOffset Now)
+        {
+
+            var holds = Reservations.Where(reservation => !reservation.EVSEId.HasValue).ToArray();
+
+            return holds.Length == 0
+                       ? null
+                       : new JObject(
+                             new JProperty("count",        holds.Length),
+                             new JProperty("minutesLeft",  (Int32) Math.Ceiling((holds.Min(hold => hold.ExpiryDate) - Now).TotalMinutes))
+                         );
+
+        }
+
+        #endregion
+
         #region TryReserveNow(JSON, out Result, out Error)
 
         /// <summary>

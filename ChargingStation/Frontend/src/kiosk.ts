@@ -62,6 +62,12 @@ interface KioskState {
     station:      { name: string | null; logo: string | null };
     timestamp:    string;
     evses:        KioskEVSE[];
+    /**
+     * Outlets held without saying which. A reservation that names no EVSE is a
+     * promise that one will be free rather than a claim on any particular one,
+     * so it belongs over the whole station and not beside an outlet.
+     */
+    holds:        { count: number; minutesLeft: number } | null;
     rfid:         Reader | null;
     webPayments:  boolean;
 }
@@ -132,6 +138,23 @@ function draw(): void {
                   ? html`<img class="kiosk-logo" src="${current.station.logo}" alt="${current.station.name ?? ''}" />`
                   : ''}
             <h1>${current.station.name ?? 'Charging Station'}</h1>
+
+            ${current.holds
+                  ? html`
+                      <div class="kiosk-hold">
+                          <span>
+                              ${current.holds.count === 1
+                                    ? html`One outlet is being kept free for somebody on their way`
+                                    : html`${current.holds.count} outlets are being kept free for somebody on their way`}
+                              - ${current.holds.minutesLeft} more minute(s).
+                          </span>
+                          ${anyCardReader()
+                                ? html`<button type="button" class="kiosk-btn release" id="release-hold">Cancel</button>`
+                                : ''}
+                      </div>
+                    `
+                  : ''}
+
             ${offline ? html`<span class="kiosk-offline">no connection to the station</span>` : ''}
         </header>
 
@@ -158,6 +181,19 @@ function draw(): void {
 
     wire();
 
+}
+
+
+/**
+ * Any reader on this station a card could be typed into.
+ *
+ * For the hold over the whole station, which belongs to no outlet and so has no
+ * outlet's reader: whichever reader can read a card will do, because the card
+ * is the proof and the reader is only the way in.
+ */
+function anyCardReader(): Reader | null {
+    return state?.rfid?.fake ? state.rfid
+         : state?.evses.map(evse => evse.rfid).find(reader => reader?.fake) ?? null;
 }
 
 
@@ -330,6 +366,25 @@ function wire(): void {
             root.querySelector<HTMLInputElement>('#uid')?.focus();
 
         });
+    });
+
+    root.querySelector<HTMLButtonElement>('#release-hold')?.addEventListener('click', () => {
+
+        const reader = anyCardReader();
+
+        if (!reader)
+            return;
+
+        // No outlet: this is the hold that names none, and the station finds
+        // the one this card can speak for.
+        dialogFor  = { reader, evse: null, mode: 'release' };
+        dialogUID  = '';
+        dialogNote = '';
+
+        draw();
+
+        root.querySelector<HTMLInputElement>('#uid')?.focus();
+
     });
 
     root.querySelectorAll<HTMLButtonElement>('[data-release]').forEach(button => {

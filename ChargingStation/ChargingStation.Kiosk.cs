@@ -123,6 +123,12 @@ namespace cloud.charging.open.ChargingStation
                                                          ? null
                                                          : ReaderJSON(stationReader)),
 
+                       // A reservation that names no EVSE belongs over the
+                       // whole station rather than beside an outlet: it is a
+                       // promise that one will be free, not a claim on any one
+                       // of them.
+                       new JProperty("holds",        StationHoldJSON(now)),
+
                        new JProperty("webPayments",  WebPaymentsEnabled)
 
                    );
@@ -352,8 +358,11 @@ namespace cloud.charging.open.ChargingStation
 
             Result = null;
 
-            if (!TryReadCard(ReaderId, EVSEId, UID, out var token, out var reader, out var evse, out Error))
+            if (!TryReadCard(ReaderId, UID, out var token, out var reader, out Error) ||
+                !TryResolveEVSE(reader, EVSEId, out var evse, out Error))
+            {
                 return false;
+            }
 
             if (!evse.Operative)
             {
@@ -464,17 +473,14 @@ namespace cloud.charging.open.ChargingStation
         /// it with a refusal, no matter what the request says.
         /// </remarks>
         private Boolean TryReadCard(String?                                 ReaderId,
-                                    Byte?                                   EVSEId,
                                     String?                                 UID,
                                     [NotNullWhen(true)]  out RFIDToken?        Token,
                                     [NotNullWhen(true)]  out RFIDReaderConfig? Reader,
-                                    [NotNullWhen(true)]  out EVSEConfig?       EVSE,
                                     [NotNullWhen(false)] out String?           Error)
         {
 
             Token   = null;
             Reader  = null;
-            EVSE    = null;
 
             if (!RFIDToken.TryParse(UID, out Token, out Error))
                 return false;
@@ -505,12 +511,37 @@ namespace cloud.charging.open.ChargingStation
                 return false;
             }
 
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private) TryResolveEVSE(Reader, EVSEId, out EVSE, out Error)
+
+        /// <summary>
+        /// Which outlet a card held against the given reader is for.
+        /// </summary>
+        /// <remarks>
+        /// A reader beside an outlet answers this by standing where it stands,
+        /// and what the request says about it is beside the point: somebody
+        /// holding a card against the reader on EVSE 1 is at EVSE 1. A reader
+        /// for the whole housing has to be told.
+        /// </remarks>
+        private Boolean TryResolveEVSE(RFIDReaderConfig                 Reader,
+                                       Byte?                            EVSEId,
+                                       [NotNullWhen(true)]  out EVSEConfig? EVSE,
+                                       [NotNullWhen(false)] out String?     Error)
+        {
+
+            EVSE   = null;
+            Error  = null;
+
             var evseId = Reader.EVSEId ?? EVSEId;
 
             if (evseId is null)
             {
-                Error   = "This reader serves the whole station, so it needs to be told which EVSE the card is for.";
-                Reader  = null;
+                Error = "This reader serves the whole station, so it needs to be told which EVSE the card is for.";
                 return false;
             }
 
@@ -518,8 +549,7 @@ namespace cloud.charging.open.ChargingStation
 
             if (EVSE is null)
             {
-                Error   = $"This station has no EVSE {evseId}.";
-                Reader  = null;
+                Error = $"This station has no EVSE {evseId}.";
                 return false;
             }
 
@@ -544,7 +574,15 @@ namespace cloud.charging.open.ChargingStation
         /// A card that is not the one is turned away without being told how
         /// close it was, and the display never showed the token to begin with -
         /// see <see cref="ReservationJSON"/>.
+        ///
+        /// Which reservation is meant comes from the request rather than from
+        /// where the reader stands, and <paramref name="EVSEId"/> being null
+        /// means the one over the whole station - the hold that names no outlet
+        /// and therefore has no outlet to be let go at. The reader is the thing
+        /// that reads a card here, not the thing that says which promise is
+        /// being given back.
         /// </remarks>
+        /// <param name="EVSEId">The outlet whose hold is meant, or null for the one over the whole station.</param>
         public Boolean TryReleaseReservation(String?                           ReaderId,
                                              Byte?                             EVSEId,
                                              String?                           UID,
@@ -554,36 +592,47 @@ namespace cloud.charging.open.ChargingStation
 
             Result = null;
 
-            if (!TryReadCard(ReaderId, EVSEId, UID, out var token, out var reader, out var evse, out Error))
+            if (!TryReadCard(ReaderId, UID, out var token, out var reader, out Error))
                 return false;
 
-            var reservation = cs02.ReservationOf(OCPPv2_1.EVSE_Id.Parse(evse.Id));
+            var card  = new OCPPv2_1.IdToken(token.UID, OCPPv2_1.IdTokenType.ISO14443);
+            var where = EVSEId.HasValue ? $"EVSE {EVSEId.Value}" : "this station";
+
+            var reservation = EVSEId.HasValue
+                                  ? cs02.ReservationOf(OCPPv2_1.EVSE_Id.Parse(EVSEId.Value))
+                                  // Among the holds that name no outlet, the
+                                  // one this card can speak for. Somebody
+                                  // else's is none of this card's business, and
+                                  // saying so would say that it exists.
+                                  : cs02.Reservations.FirstOrDefault(hold => !hold.EVSEId.HasValue && hold.Admits(card));
 
             if (reservation is null)
             {
-                Error = $"EVSE {evse.Id} is not being held for anybody.";
+                Error = EVSEId.HasValue
+                            ? $"EVSE {EVSEId.Value} is not being held for anybody."
+                            : "This station is not holding anything for that card.";
                 return false;
             }
 
-            if (!reservation.Admits(new OCPPv2_1.IdToken(token.UID, OCPPv2_1.IdTokenType.ISO14443)))
+            if (!reservation.Admits(card))
             {
                 Log.Notice(
-                    $"Card {token} tried to let go of the reservation {reservation.Id} at EVSE {evse.Id} and is not the card it is held for.",
+                    $"Card {token} tried to let go of the reservation {reservation.Id} at {where} and is not the card it is held for.",
                     "rfid", "reservation", "kiosk"
                 );
-                Error = "That is not the card this EVSE is being held for.";
+                Error = $"That is not the card {(EVSEId.HasValue ? "this EVSE" : "this station")} is being held for.";
                 return false;
             }
 
             cs02.CancelReservation(reservation.Id);
 
             Log.Notice(
-                $"Card {token} let go of the reservation {reservation.Id} at EVSE {evse.Id} (reader '{reader.Id}').",
+                $"Card {token} let go of the reservation {reservation.Id} at {where} (reader '{reader.Id}').",
                 "rfid", "reservation", "kiosk"
             );
 
             Result = new JObject(
-                         new JProperty("evse",       evse.Id),
+                         new JProperty("evse",       EVSEId.HasValue ? EVSEId.Value : null),
                          new JProperty("uid",        token.UID),
                          new JProperty("cancelled",  true)
                      );
