@@ -194,6 +194,8 @@ interface will not delete the part it did not understand.
     GET  /api/v1/configuration/rfid         PUT with {"readers": [...]}, all of them at once
     GET  /api/v1/reservations               POST {"idToken": "...", "evse": 1, "minutes": 15}
     POST /api/v1/reservations/cancel        {"reservationId": "..."}
+    GET  /api/v1/messages                   POST {"text": "...", "priority": "...", "state": "...", "evse": 1}
+    POST /api/v1/messages/clear             {"id": "..."}
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
 
 Every change takes effect at once - no restart, and no page that says a restart
@@ -523,6 +525,41 @@ number or a switch is the same station and both survive; a change to the
 hardware is a different station, and a reservation for "EVSE 2" would afterwards
 be a promise about something else, so those are let go of and said so about in
 the log.
+
+### Display messages
+
+OCPP 2.1's `SetDisplayMessage`, shown where it says it should be shown. Three
+things decide that, and all three come from the message rather than from the
+screen:
+
+| | |
+|---|---|
+| **when** | a start and an end; a message whose time has passed is not a message |
+| **where** | no EVSE means the whole housing, an EVSE means beside that outlet |
+| **what is happening** | `Charging`, `Idle`, `Unavailable`, ... or nothing, for always |
+
+So "unplug before you leave" is written once, for the charging state, and is on
+screen exactly while somebody is charging - not before, not after, and not at
+the outlet next to them.
+
+**They stack.** A station holds as many as a back end sends, and the priority
+says how they share the screen: `AlwaysFront` and `InFront` stay put,
+everything else takes its turn, about seven seconds each, in a fixed order so
+that a message does not lose its place when another arrives. A screen that can
+only ever show one line has to be taken apart the first time a second message
+arrives, which is why this was built with the second one in mind.
+
+This station shows text and says so: `ASCII` and `UTF8` are accepted, `HTML`,
+`URI` and `QRCODE` are refused with `NotSupportedMessageFormat` rather than
+accepted and quietly dropped. A message for an EVSE it does not have is
+`Rejected`. A message arriving under an id it already holds **replaces** it -
+that is a back end correcting or extending a message, and refusing it would
+leave no way to change one except to clear it and hope nobody reads the screen
+in between.
+
+`POST /api/v1/messages` builds a real `MessageInfo` and hands it to the same
+method the incoming OCPP handler calls, for the same reason the reservations do.
+Saying something on the front of the station is the operator's to do.
 
 ### What drives it
 

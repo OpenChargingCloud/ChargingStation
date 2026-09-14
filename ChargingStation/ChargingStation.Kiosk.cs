@@ -77,6 +77,21 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public static readonly TimeSpan MinimumQRCodeTime = TimeSpan.FromSeconds(5);
 
+        /// <summary>
+        /// The longest a display message may be.
+        /// </summary>
+        /// <remarks>
+        /// A line somebody reads from three metres away while walking past. Not
+        /// a rule of OCPP, which says nothing about length: a rule of the
+        /// screen this ends up on.
+        /// </remarks>
+        public const Int32 MaxMessageLength = 200;
+
+        /// <summary>
+        /// The longest a display message may be asked to stay.
+        /// </summary>
+        public static readonly TimeSpan MaxMessageTime = TimeSpan.FromDays(7);
+
         #endregion
 
         #region Kiosk state
@@ -128,6 +143,11 @@ namespace cloud.charging.open.ChargingStation
                        // promise that one will be free, not a claim on any one
                        // of them.
                        new JProperty("holds",        StationHoldJSON(now)),
+
+                       // What a back end asked this station to say, for the
+                       // housing as a whole. The ones tied to an outlet are on
+                       // that outlet below.
+                       new JProperty("messages",     DisplayMessagesJSON(StationMessageState(), null, now)),
 
                        new JProperty("webPayments",  WebPaymentsEnabled)
 
@@ -201,6 +221,8 @@ namespace cloud.charging.open.ChargingStation
                                                                  )),
 
                        new JProperty("reservation",        reservation),
+
+                       new JProperty("messages",           DisplayMessagesJSON(MessageStateOf(EVSE), EVSE.Id, Now)),
 
                        new JProperty("rfid",               reader is null ? null : ReaderJSON(reader))
 

@@ -208,6 +208,10 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/reservations",        PostReserveNow,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/reservations/cancel", PostCancelReservation, HTTPMethod.POST);
 
+            AddHandler(HTTPPath.Root + "v1/messages",        GetMessages,       HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/messages",        PostMessage,       HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/messages/clear",  PostClearMessage,  HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/logs",          GetLogs,           HTTPMethod.GET);
 
             AddHandler(HTTPMethod.GET,
@@ -602,6 +606,80 @@ namespace cloud.charging.open.ChargingStation
             if (Change.HasFlag(EVSEChange.Hardware))      permissions |= Permissions.ChangeHardware;
 
             return permissions;
+
+        }
+
+        #endregion
+
+        #region (private) GetMessages(Request) / PostMessage(Request) / PostClearMessage(Request)
+
+        /// <summary>
+        /// GET /api/v1/messages: what this station has been asked to say, and
+        /// which of it is on the screen at this moment.
+        /// </summary>
+        private Task<HTTPResponse> GetMessages(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.MessagesJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/messages with {"text": "...", "priority": "...",
+        /// "state": "...", "evse": 1, "minutes": 60}: put a message in front of
+        /// whoever is standing at this station.
+        /// </summary>
+        /// <remarks>
+        /// A real OCPP SetDisplayMessage, answered by the same code a CSMS
+        /// would reach - see ChargingStation.Messages.cs. It exists because
+        /// nothing is connected to a CSMS yet.
+        ///
+        /// Saying something on the front of the station is the operator's to
+        /// do: it is how a station tells somebody that the car park closes at
+        /// ten, and it changes nothing about what the station is or what it may
+        /// deliver.
+        /// </remarks>
+        private Task<HTTPResponse> PostMessage(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryShowMessage(json, out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/messages/clear with {"id": "..."}: take one off again.
+        /// </summary>
+        private Task<HTTPResponse> PostClearMessage(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryClearMessage(json, out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
 
         }
 

@@ -927,6 +927,7 @@ namespace cloud.charging.open.ChargingStation
                 // node knew that is not in the configuration file lives in it,
                 // and the new one starts knowing nothing.
                 var wasReserved  = cs02.Reservations.ToArray();
+                var wasSaying    = cs02.DisplayMessages.ToArray();
                 var wasCharging  = sessions.Keys.ToArray();
 
                 EVSEs = evses;
@@ -936,7 +937,7 @@ namespace cloud.charging.open.ChargingStation
 
                     (cs01, cs02) = BuildOCPPNodes(evses);
 
-                    CarryOverToNewNode(wasCharging, wasReserved, Change);
+                    CarryOverToNewNode(wasCharging, wasReserved, wasSaying, Change);
 
                 }
                 catch (Exception e)
@@ -1280,6 +1281,7 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         private void CarryOverToNewNode(IReadOnlyList<Byte>                      WasCharging,
                                         IReadOnlyList<OCPPv2_1.CS.Reservation>   WasReserved,
+                                        IReadOnlyList<OCPPv2_1.MessageInfo>      WasSaying,
                                         EVSEChange                               Change)
         {
 
@@ -1331,6 +1333,33 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 cs02.Restore(reservation);
+
+            }
+
+            #endregion
+
+            #region What it was saying
+
+            // Unlike a reservation, a message is not a promise to anybody and
+            // survives a change to the hardware: "the car park closes at ten"
+            // is as true after an outlet was renamed as before. Only one tied
+            // to an outlet that has stopped existing has nowhere left to be
+            // shown.
+            foreach (var message in WasSaying)
+            {
+
+                if (message.Display?.EVSE is not null &&
+                    !EVSEs.Any(evse => evse.Id == message.Display.EVSE.Id.Value))
+                {
+                    Log.Notice(
+                        $"The display message {message.Id} was dropped: it was for EVSE {message.Display.EVSE.Id.Value}, " +
+                        "and this station no longer has one.",
+                        "message"
+                    );
+                    continue;
+                }
+
+                cs02.RestoreDisplayMessage(message);
 
             }
 

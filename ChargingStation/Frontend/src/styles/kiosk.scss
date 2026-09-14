@@ -109,6 +109,57 @@ html, body.kiosk-body {
 }
 
 
+// What a back end asked this station to say
+//
+// A band across the screen for the housing, a line on the card for one outlet.
+// Quiet by default: a message is something to read, not an alarm - the one that
+// asked to stay at the front is the only one that raises its voice.
+.kiosk-messages {
+
+    display:         flex;
+    flex-direction:  column;
+    gap:             0.8vmin;
+
+    &.station {
+        padding:        1.2vmin 2vmin;
+        border-radius:  1vmin;
+        background:     rgba(59, 157, 252, 0.10);
+        border-left:    0.6vmin solid rgba(59, 157, 252, 0.55);
+        font-size:      2.4vmin;
+    }
+
+    &.evse {
+        font-size: 2.1vmin;
+    }
+
+}
+
+.kiosk-message {
+
+    line-height:  1.35;
+
+    // Long enough to be a paragraph is long enough to push an outlet off the
+    // screen, so it is cut rather than allowed to.
+    display:             -webkit-box;
+    -webkit-line-clamp:  3;
+    line-clamp:          3;
+    -webkit-box-orient:  vertical;
+    overflow:            hidden;
+
+    &.front {
+        font-weight: 600;
+        color:       $kiosk-text;
+    }
+
+    .kiosk-messages.evse & {
+        padding:        0.8vmin 1.2vmin;
+        border-radius:  0.8vmin;
+        background:     rgba(59, 157, 252, 0.10);
+    }
+
+}
+
+
 // The outlets
 
 .kiosk-evses {

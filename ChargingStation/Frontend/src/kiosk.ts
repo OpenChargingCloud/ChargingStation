@@ -32,6 +32,21 @@ interface Provider {
     logo:  string | null;
 }
 
+/**
+ * Something a back end asked this station to say.
+ *
+ * They stack, and the priority says how: AlwaysFront and InFront stay on
+ * screen, everything else takes its turn. Which of them arrive here at all has
+ * already been decided by the station - a message only applies in certain
+ * states or at certain outlets, and it is the station that knows what it is
+ * doing right now.
+ */
+interface DisplayMessage {
+    id:        string;
+    priority:  'AlwaysFront' | 'InFront' | 'NormalCycle' | string;
+    text:      string;
+}
+
 /** A card reader, and whether its cards are typed in. */
 interface Reader {
     id:     string;
@@ -53,6 +68,8 @@ interface KioskEVSE {
     session:           { method: string; startedAt: string; provider: Provider | null } | null;
     /** Set while an OCPP ReserveNow is holding this outlet. */
     reservation:       { until: string; minutesLeft: number } | null;
+    /** What to say at this outlet, most important first. */
+    messages:          DisplayMessage[];
     qrCode:            { url: string; expiresAt: string } | null;
     rfid:              Reader | null;
 }
@@ -68,6 +85,8 @@ interface KioskState {
      * so it belongs over the whole station and not beside an outlet.
      */
     holds:        { count: number; minutesLeft: number } | null;
+    /** What to say for the whole housing, most important first. */
+    messages:     DisplayMessage[];
     rfid:         Reader | null;
     webPayments:  boolean;
 }
@@ -75,6 +94,14 @@ interface KioskState {
 
 /** How often the display asks again. */
 const pollEvery = 2000;
+
+/**
+ * How long each message of the normal cycle gets.
+ *
+ * Long enough to read a line of text twice from a few metres away while
+ * walking past, which is the only speed that matters here.
+ */
+const cycleEvery = 7000;
 
 /** How long a failed poll is tolerated before the screen says so. */
 const staleAfter = 15000;
@@ -140,7 +167,7 @@ async function poll(): Promise<void> {
     if (dialogFor !== null)
         return;
 
-    const signature = JSON.stringify({ ...state, timestamp: undefined, offline });
+    const signature = JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature() });
 
     if (signature === shown)
         return;
@@ -157,7 +184,7 @@ function draw(): void {
     // Whatever is drawn now is what is on screen. Set here rather than only in
     // the poll, so that a redraw somebody caused by pressing something does not
     // leave the poll believing the screen still shows the older thing.
-    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline });
+    shown = state === null ? null : JSON.stringify({ ...state, timestamp: undefined, offline, cycle: cycleSignature() });
 
     if (state === null) {
         render(root, html`<div class="kiosk-loading">...</div>`);
@@ -192,6 +219,8 @@ function draw(): void {
 
             ${offline ? html`<span class="kiosk-offline">no connection to the station</span>` : ''}
         </header>
+
+        ${messageBand(current.messages ?? [], 'station')}
 
         <main class="kiosk-evses kiosk-count-${Math.min(current.evses.length, 6)}">
             ${current.evses.map(evse => evseCard(evse))}
@@ -240,6 +269,42 @@ function readerFor(EVSE: KioskEVSE): Reader | null {
 }
 
 
+/**
+ * The messages to put on screen out of the ones that apply.
+ *
+ * Everything that asked to stay, stays. The rest take turns, one at a time,
+ * and always in the same order - so a message does not vanish for a round
+ * because another one arrived.
+ */
+function messagesToShow(Messages: DisplayMessage[]): DisplayMessage[] {
+
+    const pinned   = Messages.filter(message => message.priority === 'AlwaysFront' || message.priority === 'InFront');
+    const cycling  = Messages.filter(message => message.priority !== 'AlwaysFront' && message.priority !== 'InFront');
+
+    return cycling.length === 0
+               ? pinned
+               : [...pinned, cycling[cycle % cycling.length]];
+
+}
+
+
+function messageBand(Messages: DisplayMessage[], Where: string) {
+
+    const showing = messagesToShow(Messages);
+
+    return showing.length === 0
+               ? ''
+               : html`
+                   <div class="kiosk-messages ${Where}">
+                       ${showing.map(message => html`
+                           <div class="kiosk-message ${message.priority === 'AlwaysFront' ? 'front' : ''}">${message.text}</div>
+                       `)}
+                   </div>
+                 `;
+
+}
+
+
 function evseCard(EVSE: KioskEVSE) {
 
     const power = EVSE.status === 'occupied' && EVSE.currentPower_kW !== null
@@ -267,6 +332,8 @@ function evseCard(EVSE: KioskEVSE) {
                     <span class="kiosk-connector">${connector.type} <span class="kw">${connector.maxPower_kW} kW</span></span>
                 `)}
             </div>
+
+            ${messageBand(EVSE.messages ?? [], 'evse')}
 
             ${EVSE.reservation && !EVSE.session
                   ? html`
@@ -569,9 +636,67 @@ function qrSVG(URL: string) {
 
 }
 
+/**
+ * Which of the cycling messages is being shown, counted up for ever.
+ *
+ * One counter for the whole screen rather than one per outlet: two places
+ * changing their text at different moments makes a display look broken, and
+ * the eye reads the whole thing as one surface.
+ */
+let cycle = 0;
+
 /** The codes already drawn, so that the same URL is not encoded twice. */
 const drawnQRCodes = new Map<string, HTMLFragment>();
 
 
+/**
+ * Which cycling message each place is showing, as a string.
+ *
+ * Part of what "the screen already shows this" means, so that the cycle moving
+ * on is a change like any other and nothing else has to know about it. When
+ * there is at most one cycling message anywhere, this never varies - and a
+ * station with nothing to say goes back to not redrawing at all.
+ */
+function cycleSignature(): string {
+
+    if (state === null)
+        return '';
+
+    return [state.messages ?? [], ...state.evses.map(evse => evse.messages ?? [])].
+               map(messages => messagesToShow(messages).map(message => message.id).join(',')).
+               join('|');
+
+}
+
+
+/** Whether anywhere on this screen has more than one message taking turns. */
+function hasSomethingToCycle(): boolean {
+
+    if (state === null)
+        return false;
+
+    return [state.messages ?? [], ...state.evses.map(evse => evse.messages ?? [])].
+               some(messages => messages.filter(message => message.priority !== 'AlwaysFront' &&
+                                                           message.priority !== 'InFront').length > 1);
+
+}
+
+
 void poll();
 setInterval(() => void poll(), pollEvery);
+
+// The cycle turns on its own clock rather than on the poll's: how long a line
+// stays readable has nothing to do with how often this station is asked what it
+// is doing. It never draws over the card dialog, for the same reason the poll
+// does not.
+setInterval(() => {
+
+    cycle++;
+
+    // Only where there is actually something to take turns. One message, or
+    // none, means nothing changes when the counter does - and a station with
+    // nothing to say goes back to asking twice a second and drawing never.
+    if (dialogFor === null && hasSomethingToCycle())
+        poll();
+
+}, cycleEvery);
