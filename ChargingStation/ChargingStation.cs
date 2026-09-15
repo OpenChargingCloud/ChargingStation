@@ -362,7 +362,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="EVSEs">What this station is made of, unless the configuration file says otherwise; one 22 kW type 2 socket by default.</param>
         /// <param name="UplinkPowerLimit_kW">The most this station may draw from the grid, unless the configuration file says otherwise; unknown by default.</param>
         /// <param name="CalibrationCertificates">The calibration certificates it runs under, unless the configuration file says otherwise; none by default.</param>
-        /// <param name="KioskPort">The TCP port the display listens on; 8081 by default. Its own server on its own port - see KioskHTTPAPI.</param>
+        /// <param name="KioskPort">The TCP port the display listens on; DefaultKioskPort by default. Its own server on its own port - see KioskHTTPAPI.</param>
         /// <param name="KioskHostname">The address the display listens on; the same as the web interface by default.</param>
         /// <param name="NoKiosk">Whether to leave the display out entirely, so that the station listens on one port.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
