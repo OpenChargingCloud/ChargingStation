@@ -408,7 +408,14 @@ html, body.kiosk-body {
     // ":only-child" is "this card has no code on it". It is not the same as
     // "no code is drawn": a card too short for one still has the element,
     // hidden - which is why the rule that hides it says this as well.
-    &:only-child {
+    // Not on an outlet nobody can use. What an outlet could draw is a claim
+    // about something that is going to happen, and on one that is out of
+    // service, or one this screen has not heard about for half a minute,
+    // nothing is. Such a card stays sparse on purpose: dimmed, with a grey
+    // stripe and its heading saying so, which is the whole message. Filling it
+    // put "up to 150 kW" in large type in the middle of an outlet that could
+    // not deliver a watt.
+    .kiosk-evse:not(.inoperative):not(.unknown) > &:only-child {
         @include fills-the-card;
     }
 
@@ -621,8 +628,9 @@ html, body.kiosk-body {
     }
 
     // Hidden, not gone: the element is still there, so the card has to be told
-    // separately that the space the code would have taken is now free.
-    .kiosk-evse-info {
+    // separately that the space the code would have taken is now free. Same
+    // exception as above - not on an outlet nobody can use.
+    .kiosk-evse:not(.inoperative):not(.unknown) .kiosk-evse-info {
         @include fills-the-card;
     }
 

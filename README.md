@@ -818,6 +818,22 @@ it cut in half. And it is centred by its block rather than by its own margin:
 `margin: auto` on a flex item swallows the free space instead of handing it to
 the item, which collapsed the code to 150 px.
 
+**A card nobody can use fills with nothing.** The rule below says what stands in
+the middle of a card that has no payment code on it, and it first said "the
+power reading" for every one of them - which on an outlet that is out of service
+put *up to 150 kW* in large type in the middle of something that cannot deliver
+a watt, and did the same on a card the screen had not heard about for half a
+minute. Both now stay sparse on purpose: dimmed, a grey stripe, and a heading
+that says so. That is the whole message, and an empty card under it is the right
+amount of nothing.
+
+Out of contact the power reading goes as well. A figure to a tenth of a kilowatt
+printed beside the word "not known" is two answers to the same question, and it
+is the one part of a card that reads as live because it moves. What the cable
+can carry is a fact about the equipment, so that is what is left standing. Who
+was last charging there stays too - a name does not read as a measurement, and
+the heading over it already says how much the screen knows.
+
 **A card with no code has the same hole in it, and the reading fills it.** An
 outlet that is charging or held has nothing to scan, which used to leave its
 words at the top and two thirds of nothing under them. The power reading now

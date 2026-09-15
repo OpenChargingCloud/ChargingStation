@@ -126,6 +126,7 @@ interface Vocabulary {
     notClaimed:         string;
     ntsOff:             string;
     neverChecked:       string;
+    timeNotYetChecked:  string;
     stale:              string;
     offBy:              (milliseconds: number) => string;
     secondsAgo:         (seconds: number) => string;
@@ -168,6 +169,7 @@ const english: Vocabulary = {
     notClaimed:         'no time authority configured',
     ntsOff:             'time checking is switched off',
     neverChecked:       'not checked yet',
+    timeNotYetChecked:  'time not checked yet',
     stale:              'last check too long ago',
     offBy:              milliseconds => `clock is ${milliseconds > 0 ? '+' : ''}${milliseconds} ms out`,
     secondsAgo:         seconds => `${seconds} s ago`,
@@ -210,6 +212,7 @@ const german: Vocabulary = {
     notClaimed:         'keine Zeitautorität konfiguriert',
     ntsOff:             'Zeitprüfung ist abgeschaltet',
     neverChecked:       'noch nicht geprüft',
+    timeNotYetChecked:  'Zeit noch nicht geprüft',
     stale:              'letzte Prüfung zu lange her',
     offBy:              milliseconds => `Uhr weicht um ${milliseconds > 0 ? '+' : ''}${milliseconds} ms ab`,
     secondsAgo:         seconds => `vor ${seconds} s`,
@@ -613,7 +616,12 @@ function clockCorner(Current: KioskState) {
             <span class="kiosk-time-note">
                 ${clock.legal && clock.authority
                       ? html`${words.legalTime(clock.authority)}`
-                      : html`${words.timeUnverified}${why ? html` · ${why}` : ''}`}
+                      : clock.why === 'neverChecked'
+                            // On its own: "time unverified - not checked yet"
+                            // is the same sentence twice, and a line that says
+                            // one thing twice reads as a line nobody wrote.
+                            ? html`${words.timeNotYetChecked}`
+                            : html`${words.timeUnverified}${why ? html` · ${why}` : ''}`}
                 ${server !== null && clock.nts.checkedAt !== null
                       ? html`<br />${words.checkedAgainst(server)} <span id="clock-age">${ageText()}</span>`
                       : ''}
@@ -842,7 +850,12 @@ function messageBand(Messages: DisplayMessage[], Where: string) {
 
 function evseCard(EVSE: KioskEVSE) {
 
-    const power = EVSE.status === 'occupied' && EVSE.currentPower_kW !== null
+    // Out of contact, what an outlet is drawing is a number from the last time
+    // anybody said - printed to a tenth of a kilowatt beside the word "not
+    // known", which is two answers to the same question. What the cable can
+    // carry is a fact about the equipment and stays true, so that is what is
+    // left standing.
+    const power = !offline && EVSE.status === 'occupied' && EVSE.currentPower_kW !== null
                       ? html`
                           <div class="kiosk-power">
                               <span class="now">${EVSE.currentPower_kW.toFixed(1)}</span>
