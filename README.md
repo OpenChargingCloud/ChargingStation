@@ -487,6 +487,31 @@ outlet out of service, `Occupied` for one that is charging or already held.
 A reservation naming no EVSE is a promise that one will be free, and is refused
 when none could be.
 
+**Taking an outlet out of service does not pull anybody's plug.** It used to:
+setting `operative` to false while a car was charging ended the session on the
+spot, and the display went from "charging" to "out of service" with the cable
+still in the car. The reasoning was the one that is right for a *reservation* -
+a promise this station can no longer keep - and wrong for a session, which is
+not a promise but a car on a cable. OCPP says the same thing in its own words:
+a `ChangeAvailability` arriving during a transaction is answered `Scheduled`
+and takes effect when that transaction ends. And it is what an operator means
+when they tick the box the evening before the work.
+
+So it now takes effect in three steps. At once: no new session, no new
+reservation, and every reservation that was held for later is let go of, out
+loud. Meanwhile: the car keeps charging, the display says `charging` and adds
+one line under it - *out of service after this session* - which is the one
+thing the person on that cable needs to know and nobody else does. And the card
+that started the session can still stop it, which took its own fix: the
+out-of-service check sat in front of the stop branch, so the driver would have
+been the only person unable to end their own session. When they unplug, the
+outlet is out of service, with nothing further to do.
+
+Measured end to end: session survives the change and keeps drawing, a different
+card is turned away with *another card is charging here* rather than *out of
+service*, the same card stops it, and the outlet is `inoperative` on the next
+poll. A reservation for it is refused throughout.
+
 A held outlet shows no QR code - somebody paying at the screen would be buying
 an outlet that belongs to somebody else - and it lets exactly one card in: the
 one it is held for, or one of its group. The right card starts charging and

@@ -67,13 +67,18 @@ namespace cloud.charging.open.ChargingStation
         /// state is written for. <c>Faulted</c> is deliberately never returned -
         /// nothing in this station diagnoses a fault, and a state it cannot
         /// tell the truth about is one it should not claim.
+        ///
+        /// Charging is asked first, because an outlet taken out of service
+        /// under a running session is still an outlet with a car on it, and
+        /// whoever is standing at it is reading the message written for people
+        /// who are charging - not the one about the outlet being closed.
         /// </remarks>
         public OCPPv2_1.MessageState MessageStateOf(EVSEConfig EVSE)
 
-            => !EVSE.Operative
-                   ? OCPPv2_1.MessageState.Unavailable
-                   : sessions.ContainsKey(EVSE.Id)
-                         ? OCPPv2_1.MessageState.Charging
+            => sessions.ContainsKey(EVSE.Id)
+                   ? OCPPv2_1.MessageState.Charging
+                   : !EVSE.Operative
+                         ? OCPPv2_1.MessageState.Unavailable
                          : OCPPv2_1.MessageState.Idle;
 
         /// <summary>
@@ -88,7 +93,7 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public OCPPv2_1.MessageState StationMessageState()
 
-            => EVSEs.Any(evse => evse.Operative && sessions.ContainsKey(evse.Id))
+            => EVSEs.Any(evse => sessions.ContainsKey(evse.Id))
                    ? OCPPv2_1.MessageState.Charging
                    : EVSEs.All(evse => !evse.Operative)
                          ? OCPPv2_1.MessageState.Unavailable

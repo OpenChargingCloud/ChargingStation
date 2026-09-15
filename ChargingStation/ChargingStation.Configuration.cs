@@ -1282,8 +1282,16 @@ namespace cloud.charging.open.ChargingStation
         /// different socket, and a reservation for "EVSE 2" would afterwards be
         /// a promise about something else. Those are let go of, out loud. A
         /// corrected number or a switch is the same station and everything
-        /// carries over - except on an outlet that has just been taken out of
-        /// service, which is a promise this station can no longer keep.
+        /// carries over - except a reservation on an outlet that has just been
+        /// taken out of service, which is a promise this station can no longer
+        /// keep.
+        ///
+        /// A session that is already running is not one of those promises: it
+        /// is a car on a cable. Taking an outlet out of service stops new
+        /// sessions and lets go of what was held for later; it takes effect on
+        /// the running one when that one ends, which is what OCPP means when it
+        /// answers a ChangeAvailability with Scheduled, and what an operator
+        /// means when they tick the box the evening before the work.
         /// </remarks>
         private void CarryOverToNewNode(IReadOnlyList<Byte>                      WasCharging,
                                         IReadOnlyList<OCPPv2_1.CS.Reservation>   WasReserved,
@@ -1302,11 +1310,24 @@ namespace cloud.charging.open.ChargingStation
 
                     var evse = EVSEs.FirstOrDefault(candidate => candidate.Id == evseId);
 
-                    if (evse is not null && evse.Operative)
-                        SetCharging(evseId, true);
+                    if (evse is null)
+                    {
+                        if (sessions.TryRemove(evseId, out var gone))
+                            Log.Notice($"The session at EVSE {evseId} was ended: {gone} - that EVSE is no longer there.", "kiosk");
+                        continue;
+                    }
 
-                    else if (sessions.TryRemove(evseId, out var ended))
-                        Log.Notice($"The session at EVSE {evseId} was ended: {ended} - that EVSE is out of service.", "kiosk");
+                    SetCharging(evseId, true);
+
+                    // Out of service from now on for everybody else, and for
+                    // this car when it unplugs. Said out loud because it is the
+                    // one thing about the change that does not happen at once.
+                    if (!evse.Operative)
+                        Log.Notice(
+                            $"EVSE {evseId} goes out of service when the session on it ends: {sessions[evseId]}. " +
+                            "Taking an EVSE out of service does not stop a car that is already charging.",
+                            "kiosk"
+                        );
 
                 }
 

@@ -577,6 +577,15 @@ html, body.kiosk-body {
 
 }
 
+// Charging now, out of service afterwards. In the out-of-service colour rather
+// than the charging one, because it is the part that is not good news - but
+// under the status word and not instead of it: the outlet is working, and the
+// person reading this is plugged into it.
+.kiosk-closing {
+    color:      $kiosk-out;
+    font-size:  max(1.9vmin, 13px);
+}
+
 // Drawn rather than a font: one icon is not worth an icon font on a screen
 // that has to come up without the network.
 .kiosk-rfid-icon {

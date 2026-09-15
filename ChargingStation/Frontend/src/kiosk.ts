@@ -60,6 +60,15 @@ interface KioskEVSE {
     id:                number;
     label:             string;
     status:            'available' | 'reserved' | 'occupied' | 'inoperative';
+    /**
+     * Charging now, and out of service once this session ends.
+     *
+     * Taking an outlet out of service does not pull the plug on a car that is
+     * already on it - the change takes effect when the cable comes out. Which
+     * makes this the one thing the person on that cable needs to know and
+     * nobody else does: it works now, and it will not be here afterwards.
+     */
+    closing:           boolean;
     maxPower_kW:       number;
     currentPower_kW:   number | null;
     /** Always true while something is charging: this station has no meter. */
@@ -90,6 +99,7 @@ interface Vocabulary {
     reserved:           string;
     charging:           string;
     outOfService:       string;
+    outOfServiceAfter:  string;
     notKnown:           string;
     upTo:               (kW: number) => string;
     simulated:          string;
@@ -128,6 +138,7 @@ const english: Vocabulary = {
     reserved:           'reserved',
     charging:           'charging',
     outOfService:       'out of service',
+    outOfServiceAfter:  'out of service after this session',
     notKnown:           'not known',
     upTo:               kW => `up to ${kW} kW`,
     simulated:          'simulated',
@@ -168,6 +179,7 @@ const german: Vocabulary = {
     reserved:           'reserviert',
     charging:           'lädt',
     outOfService:       'außer Betrieb',
+    outOfServiceAfter:  'nach diesem Ladevorgang außer Betrieb',
     notKnown:           'unbekannt',
     upTo:               kW => `bis zu ${kW} kW`,
     simulated:          'simuliert',
@@ -724,6 +736,10 @@ function evseCard(EVSE: KioskEVSE) {
                 <span class="kiosk-evse-label">${EVSE.label}</span>
                 <span class="kiosk-status">${offline ? words.notKnown : statusWord(EVSE.status)}</span>
             </div>
+
+            ${EVSE.closing && !offline
+                  ? html`<div class="kiosk-closing">${words.outOfServiceAfter}</div>`
+                  : ''}
 
             ${power}
 

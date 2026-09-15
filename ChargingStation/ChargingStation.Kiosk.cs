@@ -181,13 +181,23 @@ namespace cloud.charging.open.ChargingStation
 
             var reservation = ReservationJSON(EVSE.Id, Now);
 
-            var status  = !EVSE.Operative
-                              ? EVSEStatus.Inoperative
-                              : session is not null
-                                    ? EVSEStatus.Occupied
+            // A car that is charging is charging, whatever the
+            // configuration now says about the outlet it is on: an outlet taken
+            // out of service under a running session goes out of service when
+            // that session ends, not while somebody is standing at it. Out of
+            // service beats held, because a hold on an outlet nobody can use is
+            // let go of at the same moment.
+            var status  = session is not null
+                              ? EVSEStatus.Occupied
+                              : !EVSE.Operative
+                                    ? EVSEStatus.Inoperative
                                     : reservation is not null
                                           ? EVSEStatus.Reserved
                                           : EVSEStatus.Available;
+
+            // Charging now, and not to be used again afterwards. The one thing
+            // the person on this cable needs to know that nobody else does.
+            var closing = session is not null && !EVSE.Operative;
 
             var reader  = Readers.FirstOrDefault(candidate => candidate.EVSEId == EVSE.Id && candidate.Enabled);
 
@@ -200,6 +210,7 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("id",                 EVSE.Id),
                        new JProperty("label",              EVSE.PhysicalReference ?? EVSE.Id.ToString()),
                        new JProperty("status",             status.ToString().ToLowerInvariant()),
+                       new JProperty("closing",            closing),
 
                        new JProperty("maxPower_kW",        EVSE.MaxPower_kW),
                        new JProperty("currentPower_kW",    session?.SimulatedPower_kW(Now, EVSE.MaxPower_kW)),
@@ -396,7 +407,11 @@ namespace cloud.charging.open.ChargingStation
                 return false;
             }
 
-            if (!evse.Operative)
+            // Out of service turns cards away - except the one that is
+            // already charging here. Whoever started a session has to be able to
+            // end it, and an outlet does not stop being their way of doing that
+            // because an operator ticked a box while they were away.
+            if (!evse.Operative && !sessions.ContainsKey(evse.Id))
             {
                 Error = $"EVSE {evse.Id} is out of service.";
                 return false;
