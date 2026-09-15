@@ -699,28 +699,41 @@ for leaving a hole in the last row - a clean three by two reads better than four
 and two. It is written straight onto the grid, so a screen being turned costs no
 redraw and takes nobody's keyboard away.
 
-**On a card with room for it, the code stands beside the outlet rather than
-under it.** Stacked, the code gets whatever height the words above it left over
-and the card is empty to its left and right: 604 px of code on a card 1844 px
-wide, with 1240 px of that width carrying nothing. Beside them it is limited by
-the height of the whole card instead. The threshold is 560 px of card width,
-which is where both halves still work.
+**The payment code is large and in the middle of the card.** It takes the whole
+of the card the words did not need and sits in the centre of it - about two
+fifths of the card's width at every size measured, which is one code growing
+with the screen rather than a number written down anywhere: 380 px at 1920x1080,
+507 px at 2560x1440, 763 px at 3840x2160.
 
-It also decides when there is no code worth drawing at all - a code under about
-150 px is one a phone will not read, and an unreadable one is worse than none.
-Stacked, the code gets what is left under a heading, a power reading and a row
-of plugs, so a card under 420 px tall has nothing useful left; beside them it
-has the height of the whole card, and 230 px of card is still scannable. Six
-outlets on a 1920x1080 screen sit at 416 px, on the wrong side of the first line
-and the right side of the second: with one rule for both, every one of the six
-showed no way to pay. They now show a 279 px code each.
+Putting it beside the words instead of under them makes it bigger on paper and
+looked wrong on the screen: the code off to one side, "bis zu 150 kW" broken
+across two lines next to it, and the bottom third of the card empty. Under the
+words and centred is what a card this shape wants.
 
-And the code takes what is left rather than a share fixed in advance. It used to
-be a fraction of the card's height, which held only as long as nothing above it
-changed size - the moment the type grew, the code was pushed off the bottom of
-its own card, overflowing both cards on a 1920x1080 screen with the line under
-it cut in half. Everything else on a card is as big as what it says; the code is
-the one part that gives.
+Three things had to be true for that, and each of them was measured rather than
+assumed. The words are exactly as tall as what they say - as a growing element
+they competed with the code for the card and won, leaving the code 158 px on a
+card 854 px tall. The code is the one part that gives, so it can never be pushed
+off the bottom when the type above it grows - as a fixed fraction of the card's
+height it was, overflowing both cards on a 1920x1080 screen with the line under
+it cut in half. And it is centred by its block rather than by its own margin:
+`margin: auto` on a flex item swallows the free space instead of handing it to
+the item, which collapsed the code to 150 px.
+
+**A card with no code has the same hole in it, and the reading fills it.** An
+outlet that is charging or held has nothing to scan, which used to leave its
+words at the top and two thirds of nothing under them. The power reading now
+takes that space and sits in the middle of it, so the two kinds of card mirror
+each other: the code on one, the figure on the other, both large, both centred.
+It has to be said in two places - a card too short for a code still has the
+element, only hidden, so it is not the same question - which cost one round of
+looking at an empty card at 800x480 to notice.
+
+Below 380 px of card height there is no code worth drawing: one under about
+150 px is one a phone will not read, and an unreadable code is worse than none -
+somebody tries, fails, and blames the station. The outlet still says it is free,
+which is the part that matters from three metres away. Six outlets on a
+1920x1080 screen sit just above that line and show a 179 px code each.
 
 **The payment code never goes away.** Measured on the wire: with a thirty-second
 validity the station answered `qrCode: null` for four seconds out of every

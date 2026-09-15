@@ -54,6 +54,23 @@ $touch-target-big:  48px;
 /// a 120 px name and a 420 px payment code on a card 1844 px wide, and left a
 /// tenth of the card empty. The card's own proportions are what keeps
 /// everything in scale; nothing needs a number on top of that.
+/// Give what is left of the card to the reading in the middle of it.
+///
+/// Used where a card has no payment code on it - charging, held, or too short
+/// for one. Without it the words sit at the top of a card that is otherwise
+/// empty.
+@mixin fills-the-card {
+
+    flex:  1 1 auto;
+
+    .kiosk-power {
+        flex:             1 1 auto;
+        align-content:    center;
+        justify-content:  center;
+    }
+
+}
+
 @function card($hundredths) {
     @return string.unquote("min(#{$hundredths}cqw, #{$hundredths}cqh)");
 }
@@ -285,8 +302,8 @@ html, body.kiosk-body {
     flex:            1 1 auto;
     display:         flex;
     flex-direction:  column;
-    gap:             max(#{card(3.6)}, 4px);
-    padding:         max(#{card(6.1)}, 8px);
+    gap:             max(#{card(2.8)}, 4px);
+    padding:         max(#{card(5.2)}, 8px);
     border-radius:   1.6vmin;
     background:      $kiosk-surface;
 
@@ -308,16 +325,32 @@ html, body.kiosk-body {
 
 }
 
-// Everything on a card except the payment code. One element so that a card with
-// room for it can put the two beside each other instead of under each other -
-// see the rule at the bottom of this file.
+// Everything on a card except the payment code. One element so that the code
+// can be handed the whole of the card these words did not need.
 .kiosk-evse-info {
-    flex:            1 1 auto;
+    // Exactly as tall as what it says, and no taller. Growing, it competed with
+    // the code for the card and won: the code's block came out 244 px of an
+    // 854 px card, and the code inside it 158 px.
+    flex:            0 0 auto;
     display:         flex;
     flex-direction:  column;
     gap:             inherit;
     min-width:       0;
     min-height:      0;
+
+    // An outlet that is charging, or held, has no code to draw - and without
+    // one it is a card with its words at the top and two thirds of nothing
+    // under them. What belongs in that space is the figure somebody standing
+    // there is looking at, so the power takes it and sits in the middle of it,
+    // the way the code does on the card beside it.
+    //
+    // ":only-child" is "this card has no code on it". It is not the same as
+    // "no code is drawn": a card too short for one still has the element,
+    // hidden - which is why the rule that hides it says this as well.
+    &:only-child {
+        @include fills-the-card;
+    }
+
 }
 
 .kiosk-evse-head {
@@ -365,8 +398,12 @@ html, body.kiosk-body {
         font-variant-numeric:    tabular-nums;
     }
 
+    // Smaller than it was. What an outlet can do at most is worth saying and
+    // is not worth a third of the card: every line this gives up is a line the
+    // code grows by, and the code is the half of this card somebody actually
+    // has to do something with.
     .of {
-        font-size:  max(12px, #{card(6.6)});
+        font-size:  max(12px, #{card(4.8)});
         color:      $kiosk-muted;
     }
 
@@ -395,7 +432,7 @@ html, body.kiosk-body {
     padding:        0.5vmin 1.2vmin;
     border:         1px solid $kiosk-border;
     border-radius:  0.8vmin;
-    font-size:      max(10px, #{card(5.3)});
+    font-size:      max(10px, #{card(4.2)});
 
     .kw {
         color:       $kiosk-muted;
@@ -470,25 +507,23 @@ html, body.kiosk-body {
     gap:              max(#{card(2)}, 3px);
     padding-top:      max(#{card(2.5)}, 3px);
 
-    // Everything else on a card is as big as what it says; the code is as big
-    // as what is left. So it is the one part that gives, and it takes the space
-    // the rest did not want rather than a share of the card decided in advance.
-    //
-    // It used to be a fixed fraction of the card's height, which held as long as
-    // nothing above it changed size. The moment the type grew, the code was
-    // pushed off the bottom of its own card - overflowing both cards on a
-    // 1920x1080 screen with the line under it cut in half.
+    // The code is what this card is for, so it takes the whole of the card that
+    // the words did not need, and sits in the middle of it. Everything else is
+    // as big as what it says; this is the one part that gives, which is also
+    // what stops it being pushed off the bottom when the type above it grows.
     flex:             1 1 0;
     min-height:       0;
     overflow:         hidden;
+    justify-content:  center;
 
     // The code itself is an SVG built in the browser. White behind it because
     // a QR code on a dark ground is one many phones will not read.
     //
-    // Square, and as large as both of the things that run out first allow:
-    // the height left over in this block after the line under it, and the width
-    // of the card. A code drawn larger than its card is a code with its corners
-    // cut off, and a QR code with a corner missing is not a QR code.
+    // Square, centred, and as large as the two things that run out first
+    // allow: the height left in this block after the line under it, and very
+    // nearly the whole width of the card. A code drawn larger than its card is
+    // a code with its corners cut off, and a QR code with a corner missing is
+    // not a QR code.
     //
     // It used to carry an absolute cap - 22vmin, which held it to 238 px on a
     // card 922 px wide, and later 420 px, which did the same thing one screen
@@ -498,8 +533,11 @@ html, body.kiosk-body {
         flex:           1 1 0;
         min-height:     0;
         width:          auto;
-        max-width:      100%;
+        max-width:      min(100%, 92cqw);
         aspect-ratio:   1 / 1;
+        // Sideways only. `margin: auto` on a flex item swallows the free space
+        // instead of handing it to the item, which collapsed the code to 150 px
+        // on a card 922 px wide. Upright centring is the block's job below.
         margin:         0 auto;
         box-sizing:     border-box;
         background:     #ffffff;
@@ -510,75 +548,23 @@ html, body.kiosk-body {
 
 }
 
-// Wide enough to read the outlet and scan the code side by side.
-//
-// Stacked, the code is limited by whatever height the words above it left over,
-// and the card is empty to the left and right of it: on a 3840x2160 panel with
-// two outlets, a 604 px code on a card 1844 px wide, with 1240 px of that width
-// carrying nothing. Beside them it is limited by the height of the whole card
-// instead, which on that screen is more than twice as much code to point a
-// telephone at.
-//
-// 560 px is where both halves still work: under that the words are down to a
-// couple of narrow lines and a code that small is not worth the loss.
-@container (min-width: 560px) {
-
-    .kiosk-evse {
-        flex-direction:  row;
-        align-items:     stretch;
-    }
-
-    .kiosk-evse-info {
-        flex:  1 1 0;
-    }
-
-    .kiosk-qr {
-
-        // Sized by the code inside it; the words take whatever is left.
-        flex:             0 0 auto;
-        padding-top:      0;
-        margin-top:       0;
-        justify-content:  center;
-
-        // Measured against the card, both ways: three quarters of its height,
-        // or a little under half its width, whichever runs out first. Against
-        // the card and not against this block, because this block is only as
-        // wide as what is in it - asking it how wide it is while deciding how
-        // wide to be is a question with no answer, and the browser answers it
-        // by making the code smaller than either limit.
-        svg {
-            flex:    0 0 auto;
-            width:   min(74cqh, 46cqw);
-            height:  auto;
-        }
-
-    }
-
-}
-
-// When there is no code worth drawing. A code under about 150 px is one a phone
-// will not read, and an unreadable one is worse than none: somebody tries,
+// When there is no code worth drawing. A card needs its heading and what is
+// plugged into it before a code starts, and a code under about 150 px is one a
+// phone will not read - an unreadable one is worse than none: somebody tries,
 // fails, and blames the station. The outlet still says it is free, which is the
 // part that matters from three metres away.
-//
-// Where that point lies depends on which way round the card is laid out, which
-// is why there are two rules. Stacked, the code gets what is left under a
-// heading, a power reading and a row of plugs - call it 250 px - so a card
-// under 420 px tall has nothing useful left. Beside them, the code has the
-// height of the whole card to work with, and 230 px of card is still a code
-// somebody can scan. Six outlets on a 1920x1080 screen sit at 416 px, which is
-// on the wrong side of the first line and the right side of the second: with
-// one rule for both, every one of them showed no way to pay.
-@container (max-width: 559.98px) and (max-height: 420px) {
-    .kiosk-qr {
-        display: none;
-    }
-}
+@container (max-height: 380px) {
 
-@container (min-width: 560px) and (max-height: 230px) {
     .kiosk-qr {
         display: none;
     }
+
+    // Hidden, not gone: the element is still there, so the card has to be told
+    // separately that the space the code would have taken is now free.
+    .kiosk-evse-info {
+        @include fills-the-card;
+    }
+
 }
 
 // Below this a card cannot hold what it holds at full size. Everything closer
@@ -650,7 +636,7 @@ html, body.kiosk-body {
 }
 
 .kiosk-qr-hint {
-    font-size:  max(10px, #{card(5.1)});
+    font-size:  max(10px, #{card(4.2)});
     color:      $kiosk-muted;
 }
 
