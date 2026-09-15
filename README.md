@@ -71,6 +71,29 @@ dotnet run --project ChargingStationCLI -- --frontend libs/ChargingStation/Charg
 webpack has just written.
 
 
+## The tests
+
+```
+dotnet test libs/ChargingStation/ChargingStationTests
+```
+
+`ShutdownTests` is what is there so far: a station that is told to stop has to
+stop - with nobody watching, with a browser on the Logs page, with several, and
+with no display at all. The ones with a browser are the point of them. An event
+stream is a request that has been answered and is still being written to, and
+it waits for the next log entry rather than for its socket, so the server
+closing that socket underneath it does not end it; a station with one browser
+watching used to take a kill timeout to shut down instead of stopping. `Stop()`
+ends the streams first, and these say it still does.
+
+Each test builds its own station, on ports the operating system has just
+confirmed are free and with its own directory for the two files a station
+writes. Nothing reaches the network: the configuration written before each
+station switches the time client off, which is what stops the clock check from
+being scheduled at all, and a station is built with `V2GOptions.Off` unless it
+is handed something else.
+
+
 ## What is where
 
 | | |
