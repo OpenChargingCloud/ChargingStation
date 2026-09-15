@@ -119,6 +119,8 @@ interface Vocabulary {
     offBy:              (milliseconds: number) => string;
     secondsAgo:         (seconds: number) => string;
     minutesAgo:         (minutes: number) => string;
+    noAnswer:           string;
+    sending:            string;
 }
 
 const english: Vocabulary = {
@@ -156,7 +158,9 @@ const english: Vocabulary = {
     stale:              'last check too long ago',
     offBy:              milliseconds => `clock is ${milliseconds > 0 ? '+' : ''}${milliseconds} ms out`,
     secondsAgo:         seconds => `${seconds} s ago`,
-    minutesAgo:         minutes => `${minutes} min ago`
+    minutesAgo:         minutes => `${minutes} min ago`,
+    noAnswer:           'The station did not answer.',
+    sending:            'One moment...'
 };
 
 const german: Vocabulary = {
@@ -194,7 +198,9 @@ const german: Vocabulary = {
     stale:              'letzte Prüfung zu lange her',
     offBy:              milliseconds => `Uhr weicht um ${milliseconds > 0 ? '+' : ''}${milliseconds} ms ab`,
     secondsAgo:         seconds => `vor ${seconds} s`,
-    minutesAgo:         minutes => `vor ${minutes} min`
+    minutesAgo:         minutes => `vor ${minutes} min`,
+    noAnswer:           'Die Station hat nicht geantwortet.',
+    sending:            'Einen Moment...'
 };
 
 const vocabularies: Record<string, Vocabulary> = {
@@ -274,6 +280,25 @@ const cycleEvery = 7000;
 /** How long a failed poll is tolerated before the screen says so. */
 const staleAfter = 15000;
 
+/**
+ * How long the station is given to answer before the request is given up on.
+ *
+ * `fetch` has no deadline of its own. A station that accepts the connection and
+ * then says nothing - wedged, rather than down - leaves the promise pending for
+ * ever, and a page that only learns it is unreachable from a rejection never
+ * learns it at all. Measured against one wedged on purpose: twenty-six requests
+ * outstanding after a minute, no warning on the screen, and an outlet still
+ * drawn as free while a car was charging on it. A display that lies about a
+ * free bay is worse than a dark one.
+ *
+ * Four seconds for asking, because the answer normally takes single-digit
+ * milliseconds and this has to be well under `staleAfter` for the warning to
+ * appear when it says it will. Longer for doing something, because starting a
+ * session or placing a hold goes out over OCPP and back.
+ */
+const answerWithin = 4000;
+const actWithin    = 10000;
+
 const root = must<HTMLElement>(document, '#kiosk');
 
 let state:      KioskState | null = null;
@@ -307,17 +332,79 @@ let dialogFor: { reader: Reader; evse: number | null; mode: 'present' | 'release
 let dialogUID  = '';
 let dialogNote = '';
 
+/**
+ * Whether the card has already been sent and the answer is still on its way.
+ *
+ * Both a lock and something to look at. Nothing on screen used to change when
+ * the button was pressed, so somebody who pressed it again - which is what
+ * everybody does when a screen does not react - sent the card a second time,
+ * and the second card stopped the session the first one had started. Seen in
+ * the station's own log: started, stopped after one second, started again.
+ */
+let sending = false;
 
-async function poll(): Promise<void> {
+
+/**
+ * Ask the station something, and give up if it does not answer.
+ *
+ * The deadline covers reading the body as well as opening the connection: a
+ * station that sends its headers and then stops mid-answer hangs just as
+ * thoroughly as one that never starts. Aborting cancels the stream, which is
+ * what makes the `json()` below fail rather than wait.
+ */
+async function ask(Where:   string,
+                   Within:  number,
+                   How?:    RequestInit): Promise<{ ok: boolean; status: number; body: unknown }> {
+
+    const giveUp = new AbortController();
+    const timer  = setTimeout(() => giveUp.abort(), Within);
 
     try
     {
-        const response = await fetch(`${config.apiBase}/kiosk`, { headers: { 'Accept': 'application/json' } });
+        const response = await fetch(`${config.apiBase}${Where}`, {
+                                   ...How,
+                                   signal:   giveUp.signal,
+                                   headers:  { 'Accept': 'application/json', ...How?.headers }
+                               });
 
-        if (!response.ok)
-            throw new Error(`${response.status}`);
+        return { ok: response.ok, status: response.status, body: await response.json() };
+    }
+    finally
+    {
+        clearTimeout(timer);
+    }
 
-        state       = await response.json() as KioskState;
+}
+
+
+/**
+ * Whether the station is being asked right now.
+ *
+ * One at a time. Without this, a station that is slow to answer collects a
+ * second request every two seconds - and since the browser will only hold a
+ * handful of connections to one host open, a station that recovers finds a
+ * queue of stale questions in front of the only one that matters. A poll
+ * skipped because the last one has not come back yet is no loss: the next tick
+ * is two seconds away and asks the same thing.
+ */
+let asking = false;
+
+
+async function poll(): Promise<void> {
+
+    if (asking)
+        return;
+
+    asking = true;
+
+    try
+    {
+        const answer = await ask('/kiosk', answerWithin);
+
+        if (!answer.ok)
+            throw new Error(`${answer.status}`);
+
+        state       = answer.body as KioskState;
         lastAnswer  = Date.now();
 
         chooseWords(state.station.language);
@@ -328,6 +415,10 @@ async function poll(): Promise<void> {
         // Not drawn as an error straight away: a display that flashes a warning
         // every time one request is lost is a display people stop reading.
         offline = state !== null && Date.now() - lastAnswer > staleAfter;
+    }
+    finally
+    {
+        asking = false;
     }
 
     // Somebody is holding a card against this station. Whatever the outlets are
@@ -739,9 +830,11 @@ function cardDialog(Current: KioskState) {
                 <div class="kiosk-dialog-note">${dialogNote}</div>
 
                 <div class="kiosk-dialog-actions">
-                    <button type="button" id="dialog-cancel" class="kiosk-btn">${words.back}</button>
-                    <button type="button" id="dialog-ok"     class="kiosk-btn primary">
-                        ${releasing ? words.cancelTheHold : words.present}
+                    <button type="button" id="dialog-cancel" class="kiosk-btn" ${sending ? html`disabled` : ''}>
+                        ${words.back}
+                    </button>
+                    <button type="button" id="dialog-ok"     class="kiosk-btn primary" ${sending ? html`disabled` : ''}>
+                        ${sending ? words.sending : releasing ? words.cancelTheHold : words.present}
                     </button>
                 </div>
 
@@ -854,34 +947,44 @@ function close(): void {
     dialogFor  = null;
     dialogUID  = '';
     dialogNote = '';
+    sending    = false;
     draw();
 }
 
 
 async function present(): Promise<void> {
 
-    if (dialogFor === null)
+    if (dialogFor === null || sending)
         return;
 
     const which = root.querySelector<HTMLSelectElement>('#which-evse');
     const where = dialogFor.mode === 'release' ? '/kiosk/reservation/cancel' : '/kiosk/rfid';
 
+    // Read before the redraw below takes the elements away, and held rather
+    // than read again afterwards: this card is on its way to that outlet.
+    const what  = {
+                      reader:  dialogFor.reader.id,
+                      evse:    dialogFor.evse ?? (which ? Number(which.value) : undefined),
+                      uid:     dialogUID
+                  };
+
+    sending     = true;
+    dialogNote  = '';
+    draw();
+
     try
     {
-        const response = await fetch(`${config.apiBase}${where}`, {
-                                   method:   'POST',
-                                   headers:  { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                                   body:     JSON.stringify({
-                                                 reader:  dialogFor.reader.id,
-                                                 evse:    dialogFor.evse ?? (which ? Number(which.value) : undefined),
-                                                 uid:     dialogUID
-                                             })
-                               });
+        const answer = await ask(where, actWithin, {
+                                 method:   'POST',
+                                 headers:  { 'Content-Type': 'application/json' },
+                                 body:     JSON.stringify(what)
+                             });
 
-        const body = await response.json() as { error?: string; started?: boolean };
+        const body = answer.body as { error?: string; started?: boolean };
 
-        if (!response.ok) {
-            dialogNote = body.error ?? `${response.status}`;
+        if (!answer.ok) {
+            sending    = false;
+            dialogNote = body.error ?? `${answer.status}`;
             draw();
             return;
         }
@@ -889,9 +992,13 @@ async function present(): Promise<void> {
         close();
         void poll();
     }
-    catch (problem)
+    catch
     {
-        dialogNote = problem instanceof Error ? problem.message : 'The station did not answer.';
+        // Whatever went wrong - no connection, no answer within the deadline, an
+        // answer that was not JSON - what somebody standing here needs to know
+        // is the same thing, and it is not "Failed to fetch".
+        sending    = false;
+        dialogNote = words.noAnswer;
         draw();
     }
 

@@ -701,4 +701,13 @@ html, body.kiosk-body {
         font-weight:   600;
     }
 
+    // While the card is on its way. The button keeps its size so that nothing
+    // moves under the finger that is still on it, and stops looking like
+    // something to press - which is the whole point: pressing it again is how
+    // somebody ends up stopping the session they just started.
+    &:disabled {
+        cursor:   default;
+        opacity:  0.55;
+    }
+
 }

@@ -664,6 +664,36 @@ machine's clock. A screen bolted to a wall has whatever clock somebody left in
 it. Tested with that clock seven minutes out: no effect. A clock that *jumps* -
 an NTP correction - costs one poll cycle, after which it is consistent again.
 
+**Every question has a deadline, and only one is asked at a time.** A station
+that is *down* rejects the connection and the page above notices. A station that
+is *wedged* - alive enough to accept the connection, not alive enough to answer
+- does neither, and `fetch` has no deadline of its own. Measured against one
+wedged on purpose: twenty-six requests outstanding after a minute, growing by
+one every two seconds, no warning anywhere on the screen, and an outlet still
+drawn as free while a car was charging on it. Nothing had failed, so nothing had
+been caught, so the page went on believing what it last heard - with the clock
+ticking away in the corner, which is what made it look healthy. A display that
+lies about a free bay is worse than a dark one.
+
+Each request is now given four seconds, which is well under the thirteen it
+takes for the screen to say it is out of contact, and only one is in flight at a
+time. The same wedged station: ten requests over a minute, nine given up on, one
+outstanding, the warning where it belongs - and when the station answered again
+the screen caught up within five seconds without anybody touching it. The
+one-at-a-time rule matters for that last part: a browser holds only a handful of
+connections to one host, and a station that comes back should not find a queue
+of stale questions in front of the only one that matters.
+
+**A card is sent once.** Pressing the button used to change nothing on screen,
+so people did what everybody does with a screen that does not react - pressed it
+again. Three taps, three cards, and in the station's own log: started, stopped
+after one second, started again. An even number of taps and somebody walks away
+from an outlet that is not charging. The button now says "one moment" and both
+buttons go inactive until the answer arrives, or until ten seconds have passed,
+after which it says the station did not answer *in the language the screen is
+in* and keeps the typed card number so nobody has to enter it twice. Measured
+the same way: three taps, one card, one session.
+
 
 ## The clock
 
