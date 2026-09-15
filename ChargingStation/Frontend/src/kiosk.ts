@@ -752,14 +752,44 @@ function readerFor(EVSE: KioskEVSE): Reader | null {
  * and always in the same order - so a message does not vanish for a round
  * because another one arrived.
  */
+/**
+ * How many notices one place on this screen shows at a time.
+ *
+ * A display on a charging station is there to show the outlets. Four notices
+ * that all asked to stay at the front took 542 px of a 1080 px screen - half of
+ * it - and left the two outlets 268 px each with no payment code on either, a
+ * station that had stopped saying how to charge at it. OCPP lets a back end ask
+ * for the front; on a screen this size it cannot be given to everybody at once.
+ *
+ * Two, then. Nothing is dropped for it - see below.
+ */
+const atMostMessages = 2;
+
+
+/**
+ * Which of them to show, now.
+ *
+ * More asked for the front than there is front to give, so they take turns at
+ * it: each comes round rather than the last few never being seen. And one place
+ * is kept for the ordinary ones whenever there are any, so a back end cannot
+ * push them off the screen by marking everything important.
+ */
 function messagesToShow(Messages: DisplayMessage[]): DisplayMessage[] {
 
     const pinned   = Messages.filter(message => message.priority === 'AlwaysFront' || message.priority === 'InFront');
     const cycling  = Messages.filter(message => message.priority !== 'AlwaysFront' && message.priority !== 'InFront');
 
-    return cycling.length === 0
-               ? pinned
-               : [...pinned, cycling[cycle % cycling.length]];
+    const forPinned  = Math.max(1, atMostMessages - (cycling.length > 0 ? 1 : 0));
+
+    const shown = pinned.length > forPinned
+                      ? Array.from({ length: forPinned },
+                                   (_, slot) => pinned[(cycle + slot) % pinned.length])
+                      : [...pinned];
+
+    if (shown.length < atMostMessages && cycling.length > 0)
+        shown.push(cycling[cycle % cycling.length]);
+
+    return shown;
 
 }
 
@@ -1227,15 +1257,21 @@ function clockSignature(): string {
 }
 
 
-/** Whether anywhere on this screen has more than one message taking turns. */
+/**
+ * Whether anywhere on this screen has more to say than it is showing.
+ *
+ * Asked by comparing the two rather than by repeating the rule above: whatever
+ * decides how many places there are, this stays true. Messages that asked to
+ * stay at the front take turns as well when there are more of them than places,
+ * and that is a turn this has to keep as much as any other.
+ */
 function hasSomethingToCycle(): boolean {
 
     if (state === null)
         return false;
 
     return [state.messages ?? [], ...state.evses.map(evse => evse.messages ?? [])].
-               some(messages => messages.filter(message => message.priority !== 'AlwaysFront' &&
-                                                           message.priority !== 'InFront').length > 1);
+               some(messages => messages.length > messagesToShow(messages).length);
 
 }
 

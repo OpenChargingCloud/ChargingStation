@@ -737,6 +737,30 @@ their card against the reader - sat squeezed against the bottom edge. A card
 knows which it is, so it is asked: with a reservation on it, the notice fills
 the card and the power goes back to being a line under the heading.
 
+**No back end can take the screen away from the outlets.** Four notices that all
+asked to stay at the front took 542 px of a 1080 px screen - half of it - and
+left the two outlets 268 px each with no payment code on either: a charging
+station that had stopped saying how to charge at it. OCPP lets a back end ask
+for the front, and on a fixed screen that cannot be given to everybody at once.
+
+So one place on the screen shows two notices at a time. Nothing is dropped for
+it: when more ask for the front than there are places, they take turns at it,
+and one place is always kept for the ordinary cycling ones so that marking
+everything important cannot push them off. Measured with four pinned and one
+cycling: the band went from 542 px to 179 px, the outlets from 268 px back to
+654 with a 289 px code each, and all five notices came round inside forty
+seconds. Under all of that the band will not take more than a quarter of the
+screen whatever the rule above ever becomes.
+
+**And no notice can take the card away from its payment code.** The two share a
+card's height and only the code gives, so one 195-character message on one
+outlet took its code from 304 px down to 134 - under the 150 px a phone can read
+- on a card still saying "scan to charge". A card's message now says what fits
+and ends in an ellipsis when there is more; anything long enough to need the
+room belongs in the band across the top, which has the width of the screen for
+it. With a long message on both outlets *and* a band above them, the codes stay
+at 197 px.
+
 **A display message is meant to be read from where the cars are.** The
 operator's own sentences were the smallest type on the screen: 26 px for the
 station's band and 23 px for an outlet's on a 1920x1080 panel, which is a notice

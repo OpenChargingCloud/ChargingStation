@@ -253,15 +253,43 @@ html, body.kiosk-body {
     // screen; an outlet's is measured against its card, like everything else on
     // one.
     &.station {
+
         padding:        1.2vmin 2vmin;
         border-radius:  1vmin;
         background:     rgba(59, 157, 252, 0.10);
         border-left:    0.6vmin solid rgba(59, 157, 252, 0.55);
         font-size:      max(3.3vmin, 15px);
+
+        // A backstop under the rule that decides how many notices are shown at
+        // once: whatever that rule ever becomes, the outlets keep three
+        // quarters of the screen. They are what somebody walked up to read.
+        max-height:     25vh;
+        overflow:       hidden;
+
     }
 
+    // An outlet's band is also the one thing on a card that can grow without
+    // limit, and what it grows at the expense of is the payment code - the two
+    // share the same height and only the code gives. One 195-character message
+    // on one outlet took its code from 304 px down to 134, under the 150 px a
+    // phone can read, on a card still saying "scan to charge" - somebody tries,
+    // fails, and blames the station.
+    //
+    // So a card's message says what fits and ends in an ellipsis when there is
+    // more. An outlet's message is a short note by nature; anything long enough
+    // to need the room belongs in the band across the top, which has the width
+    // of the screen for it.
     &.evse {
-        font-size: max(#{card(4.8)}, 13px);
+
+        font-size:   max(#{card(4.2)}, 13px);
+        max-height:  18cqh;
+        overflow:    hidden;
+
+        .kiosk-message {
+            -webkit-line-clamp:  2;
+            line-clamp:          2;
+        }
+
     }
 
 }
