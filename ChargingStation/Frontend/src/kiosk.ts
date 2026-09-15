@@ -107,6 +107,7 @@ interface Vocabulary {
     tapACard:           string;
     holdYourCard:       string;
     card:               string;
+    readerOutOfOrder:   string;
     noConnection:       string;
     heldFor:            (minutes: number) => string;
     keptFree:           (outlets: number, minutes: number) => string;
@@ -146,6 +147,7 @@ const english: Vocabulary = {
     tapACard:           'Tap a card',
     holdYourCard:       'Hold your card here',
     card:               'Card',
+    readerOutOfOrder:   'Card reader out of order',
     noConnection:       'no connection to the station',
     heldFor:            minutes => `Held for ${minutes} more minute(s) - hold the right card against the reader.`,
     keptFree:           (outlets, minutes) => outlets === 1
@@ -187,6 +189,7 @@ const german: Vocabulary = {
     tapACard:           'Karte eingeben',
     holdYourCard:       'Karte hier auflegen',
     card:               'Karte',
+    readerOutOfOrder:   'Kartenleser gestört',
     noConnection:       'keine Verbindung zur Ladestation',
     heldFor:            minutes => `Noch ${minutes} Minute(n) reserviert – bitte die passende Karte auflegen.`,
     keptFree:           (outlets, minutes) => outlets === 1
@@ -502,11 +505,11 @@ function draw(): void {
         ${current.rfid
               ? html`
                   <footer class="kiosk-foot">
-                      <button type="button" class="kiosk-rfid ${current.rfid.fake ? 'tappable' : ''}"
+                      <button type="button" class="kiosk-rfid ${readerClass(current.rfid)}"
                               data-reader="${current.rfid.id}"
-                              ${current.rfid.fake ? '' : html`disabled`}>
+                              ${current.rfid.fake && current.rfid.ready ? '' : html`disabled`}>
                           <i class="kiosk-rfid-icon"></i>
-                          <span>${current.rfid.fake ? words.tapACard : words.holdYourCard}</span>
+                          <span>${readerWords(current.rfid, words.holdYourCard)}</span>
                       </button>
                   </footer>
                 `
@@ -737,6 +740,32 @@ function applyColumns(): void {
 }
 
 
+/**
+ * What to call a reader, and how to draw it.
+ *
+ * A reader this station has no driver for is configured, is wired to the
+ * housing, and reads nothing - the station says so in its own log at every
+ * start. The display was not saying it: it drew the same quiet "Card" label as
+ * a working one, so somebody held their card against a reader that could not
+ * answer and had been told to.
+ *
+ * Not hidden, said. The reader is a physical thing on the front of the station
+ * and somebody walking up will try it whether or not this screen mentions it;
+ * what a screen can do is tell them why nothing happened.
+ */
+function readerClass(Reader: Reader): string {
+    return !Reader.ready       ? 'out'
+         : Reader.fake         ? 'tappable'
+         :                       '';
+}
+
+function readerWords(Reader: Reader, WhenReal: string): string {
+    return !Reader.ready  ? words.readerOutOfOrder
+         : Reader.fake    ? words.tapACard
+         :                  WhenReal;
+}
+
+
 /** The reader a card for this outlet would be held against, when there is one. */
 function readerFor(EVSE: KioskEVSE): Reader | null {
     return EVSE.rfid?.fake ? EVSE.rfid
@@ -882,11 +911,11 @@ function evseCard(EVSE: KioskEVSE) {
 
             ${EVSE.rfid
                   ? html`
-                      <button type="button" class="kiosk-rfid small ${EVSE.rfid.fake ? 'tappable' : ''}"
+                      <button type="button" class="kiosk-rfid small ${readerClass(EVSE.rfid)}"
                               data-reader="${EVSE.rfid.id}" data-evse="${EVSE.id}"
-                              ${EVSE.rfid.fake ? '' : html`disabled`}>
+                              ${EVSE.rfid.fake && EVSE.rfid.ready ? '' : html`disabled`}>
                           <i class="kiosk-rfid-icon"></i>
-                          <span>${EVSE.rfid.fake ? words.tapACard : words.card}</span>
+                          <span>${readerWords(EVSE.rfid, words.card)}</span>
                       </button>
                     `
                   : ''}

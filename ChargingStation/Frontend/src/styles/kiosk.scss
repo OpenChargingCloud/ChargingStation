@@ -743,6 +743,15 @@ html, body.kiosk-body {
         color:   $kiosk-muted;
     }
 
+    // A reader this station cannot read with. In the out-of-service colour,
+    // because that is what it is: a way of charging that is not available,
+    // which is the same thing the stripe down the side of a card says.
+    &.out {
+        color:         $kiosk-out;
+        border-color:  rgba(148, 163, 184, 0.35);
+        opacity:       1;
+    }
+
 }
 
 // Charging now, out of service afterwards. In the out-of-service colour rather

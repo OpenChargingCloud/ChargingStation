@@ -450,6 +450,25 @@ screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
 `Remote` needs a back end to ask over OCPP; the display can draw both, and
 nothing here can cause either yet.
 
+### A reader that cannot read says so
+
+This station has a driver for exactly one kind of RFID reader, and it warns at
+every start about any other: *it is configured, it is shown, and it will read
+nothing*. The display was not saying it. It drew the same quiet "Card" label
+next to a reader with no driver as next to a working one, so somebody walked up,
+held their card against the housing, and nothing happened - after a screen had
+told them that was the way to charge.
+
+It now says *card reader out of order*, in the colour a card uses for out of
+service, on the outlet's card or in the footer depending on where the reader is.
+Not hidden: the reader is a physical thing on the front of the station and
+somebody will try it whether or not this screen mentions it. What a screen can
+do is tell them why nothing happened.
+
+The field it reads was already on the wire and had been ignored since the
+display was written - the station knew, the answer said so, and the page threw
+it away.
+
 ### The other end of the QR code
 
 The code on the display is only half of a payment: somebody scans it, pays
