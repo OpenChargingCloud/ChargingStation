@@ -88,6 +88,19 @@ namespace cloud.charging.open.ChargingStation
 
         private readonly DateTimeOffset  startedAt;
 
+        /// <summary>
+        /// Cancelled when this station is shutting down, so that the event
+        /// streams end.
+        /// </summary>
+        /// <remarks>
+        /// A browser on the Logs page holds a request open that is not waiting
+        /// on its socket but on the next log entry, so closing the socket under
+        /// it does not end it - and an HTTP server that waits for every request
+        /// it started would then never finish stopping. This is what ends them
+        /// instead; see <see cref="CloseEventStreams"/>.
+        /// </remarks>
+        private readonly CancellationTokenSource  shutdown = new ();
+
         #endregion
 
         #region Properties
@@ -1076,6 +1089,15 @@ namespace cloud.charging.open.ChargingStation
 
                            HTTPSSEWorker   = async (response, stream) => {
 
+                               // Either the browser going away or this station
+                               // shutting down ends the stream. The second one
+                               // is not something the request's own token knows
+                               // about - see CloseEventStreams().
+                               using var ending = CancellationTokenSource.CreateLinkedTokenSource(
+                                                      Request.CancellationToken,
+                                                      shutdown.Token
+                                                  );
+
                                try
                                {
 
@@ -1088,18 +1110,18 @@ namespace cloud.charging.open.ChargingStation
                                    // station the browser would otherwise wait
                                    // for its first byte until its own read
                                    // timeout expired.
-                                   await stream.FlushAsync(Request.CancellationToken);
+                                   await stream.FlushAsync(ending.Token);
 
                                    await foreach (var httpEvent in Events.GetAllEventsGreater(
                                                                        clientId,
                                                                        Request.GetHeaderField(HTTPRequestHeaderField.LastEventId),
-                                                                       Request.CancellationToken
+                                                                       ending.Token
                                                                    ))
                                    {
                                        await stream.WriteAsync(httpEvent.SerializedHeader);
                                        await stream.WriteAsync(httpEvent.SerializedData);
                                        await stream.WriteAsync("\n\n");
-                                       await stream.FlushAsync(Request.CancellationToken);
+                                       await stream.FlushAsync(ending.Token);
                                    }
 
                                }
@@ -1127,6 +1149,34 @@ namespace cloud.charging.open.ChargingStation
 
                        }.WithCommonSecurityHeaders().AsImmutable
                    );
+
+        }
+
+        #endregion
+
+        #region CloseEventStreams()
+
+        /// <summary>
+        /// End every open event stream, so that the HTTP server can stop.
+        /// </summary>
+        /// <remarks>
+        /// Called by <see cref="ChargingStation.Stop"/> before the servers are
+        /// stopped, and not by the server itself: an event stream is a request
+        /// that has been answered and is still being written to, and Hermod
+        /// waits for every request it started before it reports itself stopped.
+        /// Closing the socket underneath one does not wake it, because it is
+        /// waiting for the next log entry and not for the network - so without
+        /// this, a station with one browser on its Logs page never finishes
+        /// shutting down.
+        ///
+        /// The browsers see the connection end and reconnect by themselves;
+        /// that is what the retry interval of the stream is for.
+        /// </remarks>
+        public void CloseEventStreams()
+        {
+
+            if (!shutdown.IsCancellationRequested)
+                shutdown.Cancel();
 
         }
 

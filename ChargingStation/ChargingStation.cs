@@ -842,6 +842,13 @@ namespace cloud.charging.open.ChargingStation
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
 
+            // Before the servers, and that order is the whole point: every
+            // browser with the Logs page open holds a request that is waiting
+            // for the next log entry rather than for its socket, and the HTTP
+            // server waits for every request it started. Closing the sockets
+            // does not wake those, so they are ended here first.
+            API.CloseEventStreams();
+
             if (kioskServer is not null)
                 await kioskServer.Stop();
 
