@@ -63,10 +63,35 @@ $touch-target-big:  48px;
 
     flex:  1 1 auto;
 
+    // What somebody standing at this outlet is looking at. Charging, that is
+    // the figure it is drawing.
     .kiosk-power {
         flex:             1 1 auto;
         align-content:    center;
         justify-content:  center;
+    }
+
+    // Held for somebody, it is the notice saying so and the way to let it go -
+    // not "up to 22 kW", which is what a card with a reservation on it used to
+    // put in the middle of itself while the notice that matters sat at the
+    // bottom edge. Asked with :has() because it is a question about this card:
+    // is there a reservation on it.
+    &:has(.kiosk-reserved) {
+
+        // Back to a line under the heading, where it belongs when it is not
+        // the thing being read: left where every other line on the card
+        // starts, and no bigger than it needs to be.
+        .kiosk-power {
+            flex:             0 0 auto;
+            justify-content:  flex-start;
+        }
+
+        .kiosk-reserved {
+            flex:             1 1 auto;
+            margin-top:       0;
+            justify-content:  center;
+        }
+
     }
 
 }
@@ -219,16 +244,24 @@ html, body.kiosk-body {
     flex-direction:  column;
     gap:             0.8vmin;
 
+    // A display message is a sentence somebody wrote to be read by the people
+    // standing at this station, so it has to be readable from where they are
+    // standing. At 2.4vmin it came out 26 px on a 1920x1080 screen, which is a
+    // notice for somebody at arm's length and not for somebody at a car.
+    //
+    // The station's band is measured against the screen, because it spans the
+    // screen; an outlet's is measured against its card, like everything else on
+    // one.
     &.station {
         padding:        1.2vmin 2vmin;
         border-radius:  1vmin;
         background:     rgba(59, 157, 252, 0.10);
         border-left:    0.6vmin solid rgba(59, 157, 252, 0.55);
-        font-size:      2.4vmin;
+        font-size:      max(3.3vmin, 15px);
     }
 
     &.evse {
-        font-size: 2.1vmin;
+        font-size: max(#{card(4.8)}, 13px);
     }
 
 }
@@ -630,7 +663,7 @@ html, body.kiosk-body {
     // Same reasoning: two lines of a message, then the rest is cut rather than
     // pushing the outlet off its own card.
     .kiosk-messages.evse {
-        font-size: max(11px, #{card(4.6)});
+        font-size: max(11px, #{card(4.2)});
     }
 
 }

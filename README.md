@@ -729,6 +729,21 @@ It has to be said in two places - a card too short for a code still has the
 element, only hidden, so it is not the same question - which cost one round of
 looking at an empty card at 800x480 to notice.
 
+**Held for somebody, the notice is what stands in the middle.** The rule above
+first put the power reading there on every card with no code, which on a
+reserved outlet meant "up to 22 kW" floating alone in the centre while the
+notice that somebody standing there needs - how long it is held, and to hold
+their card against the reader - sat squeezed against the bottom edge. A card
+knows which it is, so it is asked: with a reservation on it, the notice fills
+the card and the power goes back to being a line under the heading.
+
+**A display message is meant to be read from where the cars are.** The
+operator's own sentences were the smallest type on the screen: 26 px for the
+station's band and 23 px for an outlet's on a 1920x1080 panel, which is a notice
+for somebody at arm's length. The station's band is measured against the screen
+because it spans the screen, an outlet's against its card like everything else
+on one, and both come out at 36 px there and about 72 px on a 3840x2160 panel.
+
 Below 380 px of card height there is no code worth drawing: one under about
 150 px is one a phone will not read, and an unreadable code is worse than none -
 somebody tries, fails, and blames the station. The outlet still says it is free,
