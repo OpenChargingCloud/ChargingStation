@@ -77,14 +77,30 @@ webpack has just written.
 dotnet test libs/ChargingStation/ChargingStationTests
 ```
 
-`ShutdownTests` is what is there so far: a station that is told to stop has to
-stop - with nobody watching, with a browser on the Logs page, with several, and
-with no display at all. The ones with a browser are the point of them. An event
-stream is a request that has been answered and is still being written to, and
-it waits for the next log entry rather than for its socket, so the server
-closing that socket underneath it does not end it; a station with one browser
-watching used to take a kill timeout to shut down instead of stopping. `Stop()`
-ends the streams first, and these say it still does.
+They start real stations and talk to them over HTTP the way the browser does.
+
+| | |
+|---|---|
+| `WebInterfaceTests`     | the stub, the hashed bundle, deep links, a real 404 for a missing asset - and the display's own page out of the same bundle |
+| `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
+| `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
+| `EventLogTests`         | the snapshot, the filters, and the live stream |
+| `ClockTests`            | what "legal time" needs before the station will say it |
+| `ShutdownTests`         | a station that is told to stop stops |
+
+Two of them are about the station having two doors. The display is a second
+single-page application on a second server, with no sign-in at all - so its
+port has to serve its own page and none of the administration. It is worth
+asserting rather than assuming: the session cookie really does reach that
+port, because cookies belong to a host and not to a port. What keeps the two
+apart is that they are two servers with two sets of resources.
+
+`ShutdownTests` is the one with a history. An event stream is a request that
+has been answered and is still being written to, and it waits for the next log
+entry rather than for its socket, so the server closing that socket underneath
+it does not end it; a station with one browser on the Logs page used to take a
+kill timeout to shut down instead of stopping. `Stop()` ends the streams
+first, and these say it still does.
 
 Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for the two files a station
