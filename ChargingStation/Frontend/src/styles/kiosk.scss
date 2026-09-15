@@ -1,3 +1,5 @@
+@use "sass:string";
+
 // The display on the front of the charging station.
 //
 // Its own stylesheet, not the web interface's: this is read from two or three
@@ -28,6 +30,33 @@ $kiosk-font:        system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", s
 // larger of the two wins.
 $touch-target:      44px;
 $touch-target-big:  48px;
+
+/// One hundredth of the shorter side of the card this is inside - the card's
+/// own vmin.
+///
+/// What is on a card belongs to the card, not to the screen. Sized in vmin, a
+/// station with two outlets drew them in the type of a station with eight: on a
+/// 1920x1080 screen each card came out 922x854 with a 28-pixel status word and
+/// a 238-pixel payment code on it, which is a card three quarters empty and a
+/// word nobody reads from three metres. In these units the same markup is small
+/// when there are eight outlets and large when there are two, and nothing has
+/// to be told which.
+///
+/// The numbers are calibrated so that six outlets on an 800x480 panel come out
+/// exactly as they did before: that case was measured and fixed, and this is
+/// meant to change the others, not that one.
+///
+/// Floors, and no ceilings. The display this is for is a wide, high-resolution
+/// panel, and a browser on one of those usually runs a CSS pixel per physical
+/// pixel - so the same 64 px of type is half the size it would be on a 1080p
+/// panel of the same diagonal. Ceilings measured in pixels therefore punish
+/// exactly the screens this is meant for: with them in, a 3840x2160 panel drew
+/// a 120 px name and a 420 px payment code on a card 1844 px wide, and left a
+/// tenth of the card empty. The card's own proportions are what keeps
+/// everything in scale; nothing needs a number on top of that.
+@function card($hundredths) {
+    @return string.unquote("min(#{$hundredths}cqw, #{$hundredths}cqh)");
+}
 
 
 *, *::before, *::after {
@@ -220,6 +249,11 @@ html, body.kiosk-body {
     flex:                   1 1 auto;
     display:                grid;
     gap:                    2vmin;
+    // What the page writes over as soon as it has drawn anything - it knows
+    // how many outlets there are and how the screen is shaped, and picks the
+    // arrangement whose cards come out closest to square. This is what is on
+    // screen for the one frame before that, and what is left if the script
+    // never runs at all.
     grid-template-columns:  repeat(auto-fit, minmax(min(34vmin, 100%), 1fr));
 
     // Without this a grid inside a flex column refuses to be smaller than its
@@ -231,12 +265,6 @@ html, body.kiosk-body {
     // display is a fixed rectangle and every unused centimetre of it is a
     // centimetre the numbers could have been bigger in.
     grid-auto-rows:         1fr;
-
-    // One outlet gets the whole screen; two share it side by side. Beyond
-    // that the automatic columns above are closer to right than anything
-    // written out by hand would be.
-    &.kiosk-count-1 { grid-template-columns: 1fr;             }
-    &.kiosk-count-2 { grid-template-columns: repeat(2, 1fr);  }
 
 }
 
@@ -257,8 +285,8 @@ html, body.kiosk-body {
     flex:            1 1 auto;
     display:         flex;
     flex-direction:  column;
-    gap:             1.4vmin;
-    padding:         2.4vmin;
+    gap:             max(#{card(3.6)}, 4px);
+    padding:         max(#{card(6.1)}, 8px);
     border-radius:   1.6vmin;
     background:      $kiosk-surface;
 
@@ -266,7 +294,7 @@ html, body.kiosk-body {
     overflow:        hidden;
     // The status is the first thing anybody looks for, so it is a stripe down
     // the side rather than a word to find.
-    border-left:     0.9vmin solid $kiosk-out;
+    border-left:     max(#{card(2.3)}, 4px) solid $kiosk-out;
 
     &.available    { border-left-color: $kiosk-free;      }
     &.occupied     { border-left-color: $kiosk-charging;  }
@@ -280,22 +308,36 @@ html, body.kiosk-body {
 
 }
 
+// Everything on a card except the payment code. One element so that a card with
+// room for it can put the two beside each other instead of under each other -
+// see the rule at the bottom of this file.
+.kiosk-evse-info {
+    flex:            1 1 auto;
+    display:         flex;
+    flex-direction:  column;
+    gap:             inherit;
+    min-width:       0;
+    min-height:      0;
+}
+
 .kiosk-evse-head {
     display:          flex;
     align-items:      baseline;
     justify-content:  space-between;
-    gap:              1.5vmin;
+    gap:              max(#{card(3.8)}, 6px);
 }
 
 .kiosk-evse-label {
-    font-size:    5vmin;
+    // Capped, because past a point a bigger letter stops meaning anything: it
+    // is a name, not a headline.
+    font-size:    max(20px, #{card(12.7)});
     font-weight:  700;
     line-height:  1;
 }
 
 .kiosk-status {
 
-    font-size:       2.6vmin;
+    font-size:       max(12px, #{card(6.6)});
     font-weight:     600;
     text-transform:  uppercase;
     letter-spacing:  0.06em;
@@ -312,11 +354,11 @@ html, body.kiosk-body {
 
     display:      flex;
     align-items:  baseline;
-    gap:          1vmin;
+    gap:          max(#{card(2.5)}, 4px);
     flex-wrap:    wrap;
 
     .now {
-        font-size:               7vmin;
+        font-size:               max(24px, #{card(17.8)});
         font-weight:             700;
         line-height:             1;
         // So the number does not jump sideways while it counts up.
@@ -324,7 +366,7 @@ html, body.kiosk-body {
     }
 
     .of {
-        font-size:  2.6vmin;
+        font-size:  max(12px, #{card(6.6)});
         color:      $kiosk-muted;
     }
 
@@ -338,14 +380,14 @@ html, body.kiosk-body {
     border:         1px solid $kiosk-border;
     border-radius:  999px;
     color:          $kiosk-muted;
-    font-size:      1.7vmin;
+    font-size:      max(9px, #{card(4.3)});
     letter-spacing: 0.04em;
 }
 
 .kiosk-connectors {
     display:    flex;
     flex-wrap:  wrap;
-    gap:        0.8vmin;
+    gap:        max(#{card(2)}, 3px);
 }
 
 .kiosk-connector {
@@ -353,7 +395,7 @@ html, body.kiosk-body {
     padding:        0.5vmin 1.2vmin;
     border:         1px solid $kiosk-border;
     border-radius:  0.8vmin;
-    font-size:      2.1vmin;
+    font-size:      max(10px, #{card(5.3)});
 
     .kw {
         color:       $kiosk-muted;
@@ -376,7 +418,7 @@ html, body.kiosk-body {
     border-radius:   0.8vmin;
     background:      rgba(217, 164, 65, 0.14);
     color:           $kiosk-reserved;
-    font-size:       2.1vmin;
+    font-size:       max(11px, #{card(5.3)});
     line-height:     1.35;
 
     // Letting a reservation go is not the thing somebody walking up to a
@@ -404,18 +446,18 @@ html, body.kiosk-body {
     border-radius:  0.8vmin;
     background:     rgba(59, 157, 252, 0.18);
     color:          $kiosk-charging;
-    font-size:      2.1vmin;
+    font-size:      max(10px, #{card(5.3)});
     font-weight:    600;
 }
 
 .kiosk-emp {
-    font-size:  2.4vmin;
+    font-size:  max(11px, #{card(6.1)});
     color:      $kiosk-text;
 }
 
 .kiosk-emp-logo {
-    height:      4vmin;
-    max-width:   18vmin;
+    height:      max(14px, #{card(10.2)});
+    max-width:   60%;
     object-fit:  contain;
 }
 
@@ -425,36 +467,115 @@ html, body.kiosk-body {
     flex-direction:   column;
     align-items:      center;
     justify-content:  flex-end;
-    gap:              0.8vmin;
-    padding-top:      1vmin;
+    gap:              max(#{card(2)}, 3px);
+    padding-top:      max(#{card(2.5)}, 3px);
 
-    margin-top:       auto;
+    // Everything else on a card is as big as what it says; the code is as big
+    // as what is left. So it is the one part that gives, and it takes the space
+    // the rest did not want rather than a share of the card decided in advance.
+    //
+    // It used to be a fixed fraction of the card's height, which held as long as
+    // nothing above it changed size. The moment the type grew, the code was
+    // pushed off the bottom of its own card - overflowing both cards on a
+    // 1920x1080 screen with the line under it cut in half.
+    flex:             1 1 0;
+    min-height:       0;
+    overflow:         hidden;
 
     // The code itself is an SVG built in the browser. White behind it because
     // a QR code on a dark ground is one many phones will not read.
     //
-    // Sized against the card rather than the screen: whichever of "a fair share
-    // of this screen", "what is left of this card's height" and "this card's
-    // width" is smallest. A code drawn larger than its card is a code with its
-    // corners cut off, and a QR code with a corner missing is not a QR code.
+    // Square, and as large as both of the things that run out first allow:
+    // the height left over in this block after the line under it, and the width
+    // of the card. A code drawn larger than its card is a code with its corners
+    // cut off, and a QR code with a corner missing is not a QR code.
+    //
+    // It used to carry an absolute cap - 22vmin, which held it to 238 px on a
+    // card 922 px wide, and later 420 px, which did the same thing one screen
+    // size further up. On the wide high-resolution panel this display is for,
+    // a cap in pixels only ever makes the better screen show the smaller code.
     svg {
-        width:          min(22vmin, 40cqh, 80cqw);
+        flex:           1 1 0;
+        min-height:     0;
+        width:          auto;
         max-width:      100%;
-        height:         auto;
+        aspect-ratio:   1 / 1;
+        margin:         0 auto;
+        box-sizing:     border-box;
         background:     #ffffff;
-        padding:        1.2vmin;
+        padding:        max(#{card(2.5)}, 4px);
         border-radius:  1vmin;
         display:        block;
     }
 
 }
 
-// A card needs roughly 250 px for its heading, its power and its plugs before
-// a code starts, and a code under about 150 px is one a phone will not read. So
-// below this there is no code worth drawing: an unreadable one is worse than
-// none - somebody tries, fails, and blames the station - and the outlet still
-// says it is free, which is the part that matters from three metres away.
-@container (max-height: 420px) {
+// Wide enough to read the outlet and scan the code side by side.
+//
+// Stacked, the code is limited by whatever height the words above it left over,
+// and the card is empty to the left and right of it: on a 3840x2160 panel with
+// two outlets, a 604 px code on a card 1844 px wide, with 1240 px of that width
+// carrying nothing. Beside them it is limited by the height of the whole card
+// instead, which on that screen is more than twice as much code to point a
+// telephone at.
+//
+// 560 px is where both halves still work: under that the words are down to a
+// couple of narrow lines and a code that small is not worth the loss.
+@container (min-width: 560px) {
+
+    .kiosk-evse {
+        flex-direction:  row;
+        align-items:     stretch;
+    }
+
+    .kiosk-evse-info {
+        flex:  1 1 0;
+    }
+
+    .kiosk-qr {
+
+        // Sized by the code inside it; the words take whatever is left.
+        flex:             0 0 auto;
+        padding-top:      0;
+        margin-top:       0;
+        justify-content:  center;
+
+        // Measured against the card, both ways: three quarters of its height,
+        // or a little under half its width, whichever runs out first. Against
+        // the card and not against this block, because this block is only as
+        // wide as what is in it - asking it how wide it is while deciding how
+        // wide to be is a question with no answer, and the browser answers it
+        // by making the code smaller than either limit.
+        svg {
+            flex:    0 0 auto;
+            width:   min(74cqh, 46cqw);
+            height:  auto;
+        }
+
+    }
+
+}
+
+// When there is no code worth drawing. A code under about 150 px is one a phone
+// will not read, and an unreadable one is worse than none: somebody tries,
+// fails, and blames the station. The outlet still says it is free, which is the
+// part that matters from three metres away.
+//
+// Where that point lies depends on which way round the card is laid out, which
+// is why there are two rules. Stacked, the code gets what is left under a
+// heading, a power reading and a row of plugs - call it 250 px - so a card
+// under 420 px tall has nothing useful left. Beside them, the code has the
+// height of the whole card to work with, and 230 px of card is still a code
+// somebody can scan. Six outlets on a 1920x1080 screen sit at 416 px, which is
+// on the wrong side of the first line and the right side of the second: with
+// one rule for both, every one of them showed no way to pay.
+@container (max-width: 559.98px) and (max-height: 420px) {
+    .kiosk-qr {
+        display: none;
+    }
+}
+
+@container (min-width: 560px) and (max-height: 230px) {
     .kiosk-qr {
         display: none;
     }
@@ -470,8 +591,8 @@ html, body.kiosk-body {
     // and the browser choosing which one falls off the bottom is not a
     // decision, it is an accident.
     .kiosk-evse {
-        gap:      0.8vmin;
-        padding:  1.4vmin 1.8vmin;
+        gap:      max(#{card(2)}, 3px);
+        padding:  max(#{card(3.6)}, 5px) max(#{card(4.6)}, 6px);
     }
 
     // On an outlet that is busy, which plugs it has is the one thing nobody
@@ -484,14 +605,14 @@ html, body.kiosk-body {
 
     // The controls are deliberately not shrunk here. Everything else on a
     // short card gives way so that what somebody has to touch does not.
-    .kiosk-power .now  { font-size: 5vmin;   }
-    .kiosk-power .of   { font-size: 2vmin;   }
-    .kiosk-sim         { font-size: 1.5vmin; }
-    .kiosk-connector   { font-size: 1.7vmin; padding: 0.3vmin 0.8vmin; }
-    .kiosk-session     { font-size: 1.8vmin; gap: 0.8vmin; }
-    .kiosk-method      { font-size: 1.7vmin; padding: 0.3vmin 0.9vmin; }
-    .kiosk-emp         { font-size: 1.9vmin; }
-    .kiosk-emp-logo    { height: 3vmin;      }
+    .kiosk-power .now  { font-size: max(22px, #{card(12.7)}); }
+    .kiosk-power .of   { font-size: max(11px, #{card(5.1)}); }
+    .kiosk-sim         { font-size: max(9px, #{card(3.8)}); }
+    .kiosk-connector   { font-size: max(9px, #{card(4.3)}); padding: 0.3vmin 0.8vmin; }
+    .kiosk-session     { font-size: max(10px, #{card(4.6)}); gap: max(#{card(2)}, 3px); }
+    .kiosk-method      { font-size: max(9px, #{card(4.3)}); padding: 0.3vmin 0.9vmin; }
+    .kiosk-emp         { font-size: max(10px, #{card(4.8)}); }
+    .kiosk-emp-logo    { height:    max(12px, #{card(7.6)}); }
 
     // A card this short has room for the sentence or for the button under it,
     // not both - and the half that got cut was the button. Side by side they
@@ -501,8 +622,8 @@ html, body.kiosk-body {
 
         flex-direction:  row;
         align-items:     center;
-        gap:             1vmin;
-        font-size:       1.8vmin;
+        gap:             max(#{card(2.5)}, 4px);
+        font-size:       max(11px, #{card(4.6)});
 
         span {
             display:             -webkit-box;
@@ -523,13 +644,13 @@ html, body.kiosk-body {
     // Same reasoning: two lines of a message, then the rest is cut rather than
     // pushing the outlet off its own card.
     .kiosk-messages.evse {
-        font-size: 1.8vmin;
+        font-size: max(11px, #{card(4.6)});
     }
 
 }
 
 .kiosk-qr-hint {
-    font-size:  2vmin;
+    font-size:  max(10px, #{card(5.1)});
     color:      $kiosk-muted;
 }
 
@@ -583,7 +704,7 @@ html, body.kiosk-body {
 // person reading this is plugged into it.
 .kiosk-closing {
     color:      $kiosk-out;
-    font-size:  max(1.9vmin, 13px);
+    font-size:  max(13px, #{card(4.8)});
 }
 
 // Drawn rather than a font: one icon is not worth an icon font on a screen

@@ -495,7 +495,7 @@ function draw(): void {
 
         ${messageBand(current.messages ?? [], 'station')}
 
-        <main class="kiosk-evses kiosk-count-${Math.min(current.evses.length, 6)}">
+        <main class="kiosk-evses">
             ${current.evses.map(evse => evseCard(evse))}
         </main>
 
@@ -668,6 +668,75 @@ function clockText(): string {
 }
 
 
+/**
+ * How many columns to lay the outlets out in.
+ *
+ * The stylesheet used to decide this from a minimum column width, with one
+ * exception written out by hand: two outlets always side by side. Which is
+ * right on a screen wider than it is tall and wrong on one turned upright -
+ * two outlets on a 1080x1920 panel came out 502 px wide and 1694 tall, a
+ * column of air with a letter at the top of it.
+ *
+ * So it is worked out from the two things that actually decide it, both of
+ * which this page knows and the stylesheet cannot: how many outlets there are,
+ * and the shape of the screen. Every arrangement is tried and the one whose
+ * cards come out closest to square wins, with a small penalty for leaving a
+ * hole in the last row - a clean three by two reads better than four and two.
+ */
+function columnsFor(Count: number): number {
+
+    if (Count < 2)
+        return 1;
+
+    const width   = root.clientWidth  || window.innerWidth;
+    const height  = root.clientHeight || window.innerHeight;
+
+    if (width <= 0 || height <= 0)
+        return Count;
+
+    let best       = 1;
+    let bestScore  = Infinity;
+
+    for (let columns = 1; columns <= Count; columns++) {
+
+        const rows      = Math.ceil(Count / columns);
+        const cardWide  = width  / columns;
+        const cardTall  = height / rows;
+
+        // How far from square, plus a tenth for each empty place in the grid.
+        const score     = Math.max(cardWide / cardTall, cardTall / cardWide) +
+                          0.1 * (columns * rows - Count);
+
+        if (score < bestScore) {
+            bestScore  = score;
+            best       = columns;
+        }
+
+    }
+
+    return best;
+
+}
+
+
+/**
+ * Put that number on the grid.
+ *
+ * Written straight onto the element rather than through a redraw, so that a
+ * screen being turned or a window being dragged does not take the keyboard away
+ * from somebody typing a card number - the same reason the clock ticks the way
+ * it does.
+ */
+function applyColumns(): void {
+
+    const grid = root.querySelector<HTMLElement>('.kiosk-evses');
+
+    if (grid !== null && state !== null)
+        grid.style.gridTemplateColumns = `repeat(${columnsFor(state.evses.length)}, minmax(0, 1fr))`;
+
+}
+
+
 /** The reader a card for this outlet would be held against, when there is one. */
 function readerFor(EVSE: KioskEVSE): Reader | null {
     return EVSE.rfid?.fake ? EVSE.rfid
@@ -732,6 +801,8 @@ function evseCard(EVSE: KioskEVSE) {
         <div class="kiosk-evse-cell">
         <section class="kiosk-evse ${offline ? 'unknown' : EVSE.status}">
 
+        <div class="kiosk-evse-info">
+
             <div class="kiosk-evse-head">
                 <span class="kiosk-evse-label">${EVSE.label}</span>
                 <span class="kiosk-status">${offline ? words.notKnown : statusWord(EVSE.status)}</span>
@@ -779,15 +850,6 @@ function evseCard(EVSE: KioskEVSE) {
                     `
                   : ''}
 
-            ${EVSE.qrCode && qrCodeStillGood(EVSE.qrCode)
-                  ? html`
-                      <div class="kiosk-qr">
-                          ${qrSVG(EVSE.qrCode.url)}
-                          <span class="kiosk-qr-hint">${words.scanToCharge}</span>
-                      </div>
-                    `
-                  : ''}
-
             ${EVSE.rfid
                   ? html`
                       <button type="button" class="kiosk-rfid small ${EVSE.rfid.fake ? 'tappable' : ''}"
@@ -796,6 +858,17 @@ function evseCard(EVSE: KioskEVSE) {
                           <i class="kiosk-rfid-icon"></i>
                           <span>${EVSE.rfid.fake ? words.tapACard : words.card}</span>
                       </button>
+                    `
+                  : ''}
+
+        </div>
+
+            ${EVSE.qrCode && qrCodeStillGood(EVSE.qrCode)
+                  ? html`
+                      <div class="kiosk-qr">
+                          ${qrSVG(EVSE.qrCode.url)}
+                          <span class="kiosk-qr-hint">${words.scanToCharge}</span>
+                      </div>
                     `
                   : ''}
 
@@ -862,6 +935,8 @@ function cardDialog(Current: KioskState) {
 
 
 function wire(): void {
+
+    applyColumns();
 
     root.querySelectorAll<HTMLButtonElement>('[data-reader]').forEach(button => {
         button.addEventListener('click', () => {
@@ -1167,6 +1242,11 @@ function hasSomethingToCycle(): boolean {
 
 void poll();
 setInterval(() => void poll(), pollEvery);
+
+// A screen that is turned, or a window being dragged while somebody sets the
+// station up. Two outlets belong side by side on one shape and above each other
+// on the other, and nothing else about the page has to change for that.
+window.addEventListener('resize', applyColumns);
 
 // The digits only. Written straight into the element rather than through a
 // redraw, because a page that rebuilt itself once a second would take the

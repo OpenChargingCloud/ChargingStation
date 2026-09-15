@@ -664,6 +664,76 @@ busy the plug list goes first, since it is the one thing nobody standing there
 can act on. The outlet still says whether it is free, which is what matters from
 three metres away.
 
+**Two outlets, wide, and high resolution.** That is the display this is built
+for, and the numbers below are measured on it. Everything still works on a small
+panel or a portrait one - there are floors and a fallback for both - but where
+the two pull in different directions, this one wins.
+
+**What is on a card is measured against the card, not against the screen.**
+Sized in vmin, a station with two outlets drew them in the type of a station
+with eight: on 1920x1080 each card came out 922x854 with a 28-pixel status word,
+16-pixel plug labels and a 238-pixel payment code on it - a card three quarters
+empty, in a size nobody reads from three metres. The card is already a
+container, so its contents are now given in hundredths of its shorter side, and
+the same markup is small when there are eight outlets and large when there are
+two without anything having to be told which. The numbers are calibrated so that
+six outlets on an 800x480 panel come out exactly as they did before: that case
+was measured and fixed, and this was meant to change the others.
+
+Floors, and **no ceilings**. A browser on a high-resolution panel usually runs a
+CSS pixel per physical pixel, so the same 64 px of type is half the size it
+would be on a 1080p panel of the same diagonal - which means a ceiling in pixels
+punishes exactly the screen this is for. With the ceilings I first wrote in, a
+3840x2160 panel drew a 120 px name and a 420 px code on a card 1844 px wide and
+left a tenth of the card empty. Without them: 217 px, and the code is limited by
+the card and nothing else.
+
+**How many columns is decided by the page, not the stylesheet.** It used to come
+from a minimum column width with one exception written out by hand - two outlets
+always side by side - which is right on a screen wider than it is tall and wrong
+on one turned upright: two outlets on a 1080x1920 panel came out 502 px wide and
+1694 tall, a column of air with a letter at the top of it. The page knows how
+many outlets there are and what shape the screen is, tries every arrangement,
+and takes the one whose cards come out closest to square, with a small penalty
+for leaving a hole in the last row - a clean three by two reads better than four
+and two. It is written straight onto the grid, so a screen being turned costs no
+redraw and takes nobody's keyboard away.
+
+**On a card with room for it, the code stands beside the outlet rather than
+under it.** Stacked, the code gets whatever height the words above it left over
+and the card is empty to its left and right: 604 px of code on a card 1844 px
+wide, with 1240 px of that width carrying nothing. Beside them it is limited by
+the height of the whole card instead. The threshold is 560 px of card width,
+which is where both halves still work.
+
+It also decides when there is no code worth drawing at all - a code under about
+150 px is one a phone will not read, and an unreadable one is worse than none.
+Stacked, the code gets what is left under a heading, a power reading and a row
+of plugs, so a card under 420 px tall has nothing useful left; beside them it
+has the height of the whole card, and 230 px of card is still scannable. Six
+outlets on a 1920x1080 screen sit at 416 px, on the wrong side of the first line
+and the right side of the second: with one rule for both, every one of the six
+showed no way to pay. They now show a 279 px code each.
+
+And the code takes what is left rather than a share fixed in advance. It used to
+be a fraction of the card's height, which held only as long as nothing above it
+changed size - the moment the type grew, the code was pushed off the bottom of
+its own card, overflowing both cards on a 1920x1080 screen with the line under
+it cut in half. Everything else on a card is as big as what it says; the code is
+the one part that gives.
+
+**The payment code never goes away.** Measured on the wire: with a thirty-second
+validity the station answered `qrCode: null` for four seconds out of every
+thirty - twice a minute, for as long as it stands there - because it would not
+hand out a password with less than five seconds left on it. Which is right as
+far as it goes: a code somebody photographs and then cannot use is worse than no
+code. But the answer is not to show nothing, it is to show the password that is
+about to begin. TOTP is verified against three - the one before, the one now and
+the one next - which is what makes that safe, and it is the same triple the
+generator already hands back. So the outlet standing free always has a way to
+pay at it, and the card does not jump its layout twice a minute as the code
+comes and goes.
+
 **It is touched, not clicked.** Everything on this screen is sized in vmin,
 which is right for something read from three metres away and wrong for
 something poked with a finger: on an 800x480 panel a vmin is under five pixels,
