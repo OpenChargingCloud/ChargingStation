@@ -441,9 +441,49 @@ A page with no sign-in on it, for the screen on the front of the station:
 `http://<host>:2349/` by default, `--kiosk-port <n>`, `--no-kiosk` to leave it
 out. It shows each EVSE with its label, whether it is free, reserved, charging
 or out of service, what it is drawing against what it could, the shape and limit
-of each cable, who is charging (PnC, RFID, AdHoc or Remote) and their provider's
-name or logo, the QR code to pay with, and a card symbol where there is a
-reader.
+of each cable, who is charging and their provider's name or logo, the QR code
+to pay with, and a card symbol where there is a reader.
+
+Two of the four ways a session can be authorised can actually begin at this
+station today: a card held against a reader (`RFID`), and a payment made at the
+screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
+`Remote` needs a back end to ask over OCPP; the display can draw both, and
+nothing here can cause either yet.
+
+### The other end of the QR code
+
+The code on the display is only half of a payment: somebody scans it, pays
+somewhere, and then something has to tell this station to start charging. Until
+that existed, the only session this station could begin was a card one - so
+`AdHoc`, the word the display has for paying at the screen and the one case
+where the name over a session is the operator's rather than a provider's, could
+be drawn and could not happen.
+
+    POST /api/v1/sessions/webpayment   {"evse": 1, "totp": "IByMnF0JnxcD"}
+    POST /api/v1/sessions/stop         {"evse": 1}
+
+The proof is the one-time password out of the URL that was scanned, checked
+against this station's own secret rather than taken on trust, and against the
+same three the display is drawn from - the one before, the one now and the one
+next - so a payment that took a few seconds still works and a photograph of
+yesterday's screen does not. It is compared in fixed time: the route is behind a
+sign-in, so a timing oracle is a small thing, but comparing a secret carefully
+costs nothing.
+
+The password is not a door on its own. Both routes sit on the administrative
+API, behind the sign-in, and need the same permission as holding an outlet for
+somebody - both are statements about who may use an outlet next, and both are
+the operator's to make. A payment back end signs in like anything else. The
+password says which screen was read; the sign-in says who is allowed to state
+that a payment happened. Neither route is on the display's own server: starting
+and stopping charges is not for whoever is walking past.
+
+A payment is turned away for an outlet that is out of service, already charging,
+held for somebody else, or not there - a hold is against a card and a payment
+carries none, so letting one in would hand somebody's outlet to whoever paid
+fastest. Stopping exists because these sessions have no other way to end: a card
+session is stopped by the card that started it, and one paid for at the screen
+has no card to hold up again.
 
 ### Why a second server and not a second page
 

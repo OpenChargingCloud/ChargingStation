@@ -208,6 +208,9 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/reservations",        PostReserveNow,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/reservations/cancel", PostCancelReservation, HTTPMethod.POST);
 
+            AddHandler(HTTPPath.Root + "v1/sessions/webpayment", PostWebPaymentSession, HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/sessions/stop",       PostStopSession,       HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/messages",        GetMessages,       HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/messages",        PostMessage,       HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/messages/clear",  PostClearMessage,  HTTPMethod.POST);
@@ -728,6 +731,77 @@ namespace cloud.charging.open.ChargingStation
                 return Task.FromResult(errorResponse);
 
             if (!Station.TryReserveNow(json, out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/sessions/webpayment with {"evse": 1, "totp": "..."}:
+        /// somebody paid at the screen, so start charging there.
+        /// </summary>
+        /// <remarks>
+        /// The other end of the QR code on the display, and the only way an
+        /// AdHoc session can begin - see TryStartWebPayment for what the
+        /// password proves and what it does not.
+        ///
+        /// Behind the sign-in, and at the same permission as holding an outlet
+        /// for somebody: both are statements about who may use an outlet next,
+        /// and both are the operator's to make. A payment back end that calls
+        /// this signs in like anything else.
+        /// </remarks>
+        private Task<HTTPResponse> PostWebPaymentSession(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var evse = json["evse"]?.Value<Byte?>();
+
+            if (evse is null)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "Which EVSE was paid for? Send \"evse\"."));
+
+            if (!Station.TryStartWebPayment(evse.Value, json["totp"]?.Value<String>(), out var result, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/sessions/stop with {"evse": 1}: stop what is charging
+        /// there.
+        /// </summary>
+        /// <remarks>
+        /// For the sessions that have no other way to end: a card session is
+        /// stopped by the card that started it, and one paid for at the screen
+        /// has no card to hold up again. Deliberately not on the display's own
+        /// server - stopping somebody else's charge is not something for
+        /// whoever is walking past.
+        /// </remarks>
+        private Task<HTTPResponse> PostStopSession(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var evse = json["evse"]?.Value<Byte?>();
+
+            if (evse is null)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "Which EVSE? Send \"evse\"."));
+
+            if (!Station.TryStopSession(evse.Value, out var result, out var error))
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
 
             return Task.FromResult(

@@ -333,6 +333,202 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region TryStartWebPayment(EVSEId, TOTP, out Result, out Error) / TryStopSession(EVSEId, ...)
+
+        /// <summary>
+        /// Somebody paid at the screen: start charging at that outlet.
+        /// </summary>
+        /// <remarks>
+        /// The other end of the QR code. Until this existed the code on the
+        /// display led to a payment page and no further: the only session this
+        /// station could start was a card one, so <c>AdHoc</c> - the word the
+        /// display has for somebody paying at the screen, and the one case where
+        /// the name over a session is the operator's rather than a provider's -
+        /// could not happen. The display could draw it and nothing could cause
+        /// it.
+        ///
+        /// The proof is the one-time password out of the URL that was scanned,
+        /// checked against this station's own secret rather than taken on
+        /// trust. It is checked against the same three the display is drawn
+        /// from - the one before, the one now and the one next - so a payment
+        /// that took a few seconds still works, and a photograph of yesterday's
+        /// screen does not.
+        ///
+        /// The password is not a door on its own: the route that reaches this
+        /// is behind the sign-in like every other one on the administrative API,
+        /// and needs the same permission as taking an outlet out of general use.
+        /// The password says which screen was read; the sign-in says who is
+        /// allowed to state that a payment happened.
+        /// </remarks>
+        /// <param name="EVSEId">Which outlet was paid for.</param>
+        /// <param name="TOTP">The password out of the scanned URL.</param>
+        /// <param name="Result">What happened, for the caller.</param>
+        /// <param name="Error">Why nothing happened.</param>
+        public Boolean TryStartWebPayment(Byte                              EVSEId,
+                                          String?                           TOTP,
+                                          [NotNullWhen(true)]  out JObject? Result,
+                                          [NotNullWhen(false)] out String?  Error)
+        {
+
+            Result = null;
+
+            if (!WebPaymentsEnabled || webPayments?.URLTemplate is null)
+            {
+                Error = "This station takes no web payments.";
+                return false;
+            }
+
+            var evse = EVSEs.FirstOrDefault(candidate => candidate.Id == EVSEId);
+
+            if (evse is null)
+            {
+                Error = $"This station has no EVSE {EVSEId}.";
+                return false;
+            }
+
+            // Out of service turns a payment away for the same reason it turns a
+            // card away - and an outlet on its way out of service is one nobody
+            // new should be starting on.
+            if (!evse.Operative)
+            {
+                Error = $"EVSE {EVSEId} is out of service.";
+                return false;
+            }
+
+            if (sessions.ContainsKey(EVSEId))
+            {
+                Error = $"EVSE {EVSEId} is already charging.";
+                return false;
+            }
+
+            var now          = TimeProvider.GetUtcNow();
+            var reservation  = cs02.ReservationOf(OCPPv2_1.EVSE_Id.Parse(EVSEId));
+
+            // An outlet held for somebody is held against a card, and a payment
+            // at the screen carries no card. Letting one in would hand somebody
+            // else's outlet to whoever paid fastest.
+            if (reservation is not null)
+            {
+                Error = $"EVSE {EVSEId} is reserved until {reservation.ExpiryDate.ToLocalTime():HH:mm}.";
+                return false;
+            }
+
+            if (!IsOneOfOurPasswords(TOTP, now))
+            {
+                Log.Notice($"A web payment for EVSE {EVSEId} was turned away: the password is not one this station issued, or it has run out.", "webpayment", "kiosk");
+                Error = "That payment code is not one this station issued, or it has run out.";
+                return false;
+            }
+
+            sessions[EVSEId] = new ChargingSession(
+                                   EVSEId,
+                                   AuthorizationMethod.AdHoc,
+                                   null,
+                                   null,
+                                   now
+                               );
+
+            SetCharging(EVSEId, true);
+
+            Log.Notice($"A web payment started a session at EVSE {EVSEId}.", "webpayment", "kiosk");
+
+            Result = new JObject(
+                         new JProperty("evse",     EVSEId),
+                         new JProperty("method",   AuthorizationMethod.AdHoc.ToString()),
+                         new JProperty("started",  true)
+                     );
+
+            Error = null;
+            return true;
+
+        }
+
+        /// <summary>
+        /// Whether that is one of the passwords this station is showing.
+        /// </summary>
+        /// <remarks>
+        /// The three around now, compared without giving away where they stop
+        /// matching. The route above is behind a sign-in, so a timing oracle
+        /// here is a small thing - but it is a secret being compared, and
+        /// comparing a secret carefully costs nothing.
+        /// </remarks>
+        private Boolean IsOneOfOurPasswords(String? TOTP, DateTimeOffset Now)
+        {
+
+            if (String.IsNullOrWhiteSpace(TOTP) || webPayments is null)
+                return false;
+
+            try
+            {
+
+                var (previous, current, next, _, _) = TOTPGenerator.GenerateTOTPs(
+                                                          webPayments.SharedSecret ?? "",
+                                                          webPayments.ValidityTime,
+                                                          webPayments.TOTPLength,
+                                                          TOTPTimestamp: Now
+                                                      );
+
+                var given = TOTP.Trim();
+
+                return Same(given, previous) | Same(given, current) | Same(given, next);
+
+            }
+            catch (Exception e)
+            {
+                Log.Debug($"A web payment password could not be checked: {e.Message}", "webpayment");
+                return false;
+            }
+
+        }
+
+        private static Boolean Same(String A, String B)
+            => System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                   System.Text.Encoding.UTF8.GetBytes(A),
+                   System.Text.Encoding.UTF8.GetBytes(B)
+               );
+
+        /// <summary>
+        /// Stop whatever is charging at an outlet.
+        /// </summary>
+        /// <remarks>
+        /// The operator's way, for the sessions that have no other one: a card
+        /// session is stopped by the card that started it, and a session paid
+        /// for at the screen has no card to hold up again. Not on the display's
+        /// own server - this is not something for somebody walking past to do.
+        /// </remarks>
+        public Boolean TryStopSession(Byte                              EVSEId,
+                                      [NotNullWhen(true)]  out JObject? Result,
+                                      [NotNullWhen(false)] out String?  Error)
+        {
+
+            Result = null;
+
+            if (!sessions.TryRemove(EVSEId, out var ended))
+            {
+                Error = $"Nothing is charging at EVSE {EVSEId}.";
+                return false;
+            }
+
+            SetCharging(EVSEId, false);
+
+            var seconds = (TimeProvider.GetUtcNow() - ended.StartedAt).TotalSeconds;
+
+            Log.Notice($"The session at EVSE {EVSEId} was stopped from the web interface after {seconds:F0} s: {ended}.", "kiosk");
+
+            Result = new JObject(
+                         new JProperty("evse",     EVSEId),
+                         new JProperty("method",   ended.Method.ToString()),
+                         new JProperty("seconds",  Math.Round(seconds)),
+                         new JProperty("stopped",  true)
+                     );
+
+            Error = null;
+            return true;
+
+        }
+
+        #endregion
+
         #region (private) ProviderJSON(Session) / ReaderJSON(Reader)
 
         /// <summary>
