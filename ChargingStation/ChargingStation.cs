@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Collections.Concurrent;
+using System.Net.Sockets;
 
 using Newtonsoft.Json.Linq;
 
@@ -118,6 +119,8 @@ namespace cloud.charging.open.ChargingStation
         private readonly  SemaphoreSlim                        reconfigureLock = new (1, 1);
 
         private readonly  HTTPServer                           httpServer;
+
+
         private readonly  HTTPPath                             httpRootPath;
 
         /// <summary>
@@ -127,6 +130,8 @@ namespace cloud.charging.open.ChargingStation
         private readonly  ConcurrentDictionary<Byte, ChargingSession>  sessions = [];
 
         private readonly  HTTPServer?                          kioskServer;
+
+
 
         private readonly  WebPaymentsConfiguration?            webPayments;
 
@@ -255,6 +260,11 @@ namespace cloud.charging.open.ChargingStation
         public URL?                           KioskURL               { get; }
 
         /// <summary>
+        /// The port the display listens on, or null where there is no display.
+        /// </summary>
+        public IPPort?                        KioskPort              { get; }
+
+        /// <summary>
         /// The display API, on its own server and its own port.
         /// </summary>
         public KioskHTTPAPI?                  KioskAPI               { get; }
@@ -331,6 +341,11 @@ namespace cloud.charging.open.ChargingStation
         /// The URL to open in a browser.
         /// </summary>
         public URL                    WebInterfaceURL        { get; }
+
+        /// <summary>
+        /// The port the web interface listens on.
+        /// </summary>
+        public IPPort                 HTTPPort               { get; }
 
         /// <summary>
         /// The version of this charging station.
@@ -608,6 +623,7 @@ namespace cloud.charging.open.ChargingStation
 
             this.httpRootPath  = HTTPRootPath ?? CSHTTPAPI.DefaultAPIPath;
 
+            this.HTTPPort        = port;
             this.WebInterfaceURL = URL.Parse($"http://{address}:{port}/");
 
             // 1) The JSON API at "/api". Registered first, so that it is the
@@ -736,6 +752,7 @@ namespace cloud.charging.open.ChargingStation
                                         DNSClient:       dnsClient
                                     );
 
+                this.KioskPort    = kioskPort;
                 this.KioskURL     = URL.Parse($"http://{kioskAddress}:{kioskPort}/");
 
                 this.KioskAPI     = new KioskHTTPAPI(
@@ -803,10 +820,25 @@ namespace cloud.charging.open.ChargingStation
             if (started)
                 return;
 
-            await httpServer.Start();
+            await Listen(httpServer, HTTPPort, StationPort.WebInterface);
 
-            if (kioskServer is not null)
-                await kioskServer.Start();
+            if (kioskServer is not null && KioskPort.HasValue)
+            {
+                try
+                {
+                    await Listen(kioskServer, KioskPort.Value, StationPort.Display);
+                }
+                catch (PortUnavailableException)
+                {
+                    // The web interface already has its port by now. Nothing
+                    // is left behind by a process that is about to end anyway,
+                    // but a caller that catches this and carries on - a test,
+                    // or a station that tries another port - should not be
+                    // holding a socket it never got to use.
+                    await httpServer.Stop();
+                    throw;
+                }
+            }
 
             StartCheckingTheClock();
 
@@ -833,6 +865,34 @@ namespace cloud.charging.open.ChargingStation
             //var ws01response  = ws01.HTTPStatusCode;
 
             //await cs02.Start();
+
+        }
+
+        #endregion
+
+        #region (private) Listen(Server, Port, Whose)
+
+        /// <summary>
+        /// Take a port, and say which one it was where it cannot be had.
+        /// </summary>
+        /// <remarks>
+        /// The socket layer throws the same exception for both of this
+        /// station's servers, and its own words for it name neither the port
+        /// nor what the port was for. Both are known here.
+        /// </remarks>
+        private static async Task Listen(HTTPServer   Server,
+                                         IPPort       Port,
+                                         StationPort  Whose)
+        {
+
+            try
+            {
+                await Server.Start();
+            }
+            catch (SocketException problem)
+            {
+                throw new PortUnavailableException(Port, Whose, problem);
+            }
 
         }
 

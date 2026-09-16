@@ -57,10 +57,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <param name="Configuration">What its configuration file says, or null for a station nobody has configured.</param>
         /// <param name="WithDisplay">Whether it also listens for the display, as a station does unless told otherwise.</param>
         /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
+        /// <param name="HTTPPort">A port of its own rather than a free one, for a test about two stations wanting the same.</param>
+        /// <param name="KioskPort">The same for the display.</param>
         public static ChargingStation New(String         Directory,
                                           JObject?       Configuration   = null,
                                           Boolean        WithDisplay     = true,
-                                          TimeProvider?  Clock           = null)
+                                          TimeProvider?  Clock           = null,
+                                          IPPort?        HTTPPort        = null,
+                                          IPPort?        KioskPort       = null)
         {
 
             System.IO.Directory.CreateDirectory(Directory);
@@ -71,8 +75,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 File.WriteAllText(configFile, Configuration.ToString());
 
             return new ChargingStation(
-                       HTTPPort:         IPPort.Parse(FreePort()),
-                       KioskPort:        WithDisplay ? IPPort.Parse(FreePort()) : null,
+                       HTTPPort:         HTTPPort  ?? IPPort.Parse(FreePort()),
+                       KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
                        NoKiosk:          !WithDisplay,
                        LoginFile:        new WebLoginFile    (Path.Combine(Directory, "web-login.json")),
                        ConfigFile:       new StationConfigFile(configFile),
