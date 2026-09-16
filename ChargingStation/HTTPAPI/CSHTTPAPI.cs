@@ -217,6 +217,16 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", GetCalibrationConfiguration, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", PutCalibrationConfiguration, HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/configuration/authentications",        GetConnectionsAndAuth,     HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/authentications",        PostAuthentication,        HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/authentications/update", PostUpdateAuthentication,  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/authentications/remove", PostRemoveAuthentication,  HTTPMethod.POST);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/connections",            GetConnectionsAndAuth,     HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections",            PostConnection,            HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/update",     PostUpdateConnection,      HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/remove",     PostRemoveConnection,      HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        GetClientCertificates,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates/import", PostClientCertificate,   HTTPMethod.POST);
@@ -1063,6 +1073,267 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.CalibrationConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetConnectionsAndAuth(Request) / Post...Authentication(Request) / Post...Connection(Request)
+
+        /// <summary>
+        /// The whole picture both pages work from: the credentials, the
+        /// connections, and the client certificates a connection may name.
+        /// </summary>
+        /// <remarks>
+        /// One answer for two pages rather than two answers, because the
+        /// Connections page needs the credentials in order to offer them and
+        /// the Authentication page needs the connections in order to say which
+        /// ones would break. Two routes returning it is a convenience for
+        /// whoever reads the API; they are deliberately the same handler, so
+        /// the two pages can never come to disagree about what exists.
+        ///
+        /// The passwords and shared secrets are not in here. What is in here
+        /// is whether each set of credentials has one - see
+        /// <see cref="AuthenticationEntry.ToJSON"/>, which leaves them out
+        /// unless it is writing the file itself.
+        /// </remarks>
+        private Task<HTTPResponse> GetConnectionsAndAuth(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// What both pages are handed, in one place.
+        /// </summary>
+        private JObject ConnectionsJSON()
+        {
+
+            var json = Station.Connections.ToJSON();
+
+            // Which certificates a connection may point at. Read from the
+            // certificate store rather than remembered here, so that one
+            // removed on the page next door is gone from this list too.
+            json.Add(
+                new JProperty("certificates",
+                    new JArray(
+                        Station.ClientCertificates.Entries.Select(entry =>
+                            new JObject(
+                                new JProperty("id",              entry.Id),
+                                new JProperty("subject",         entry.Subject),
+                                new JProperty("algorithm",       entry.Algorithm),
+                                new JProperty("hasCertificate",  entry.Certificate is not null),
+                                new JProperty("canBeHeldUp",     entry.CanBeHeldUp)
+                            )))));
+
+            return json;
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/authentications with
+        /// {"description", "kind", "login", "secret", ...}: one set of
+        /// credentials this station can prove itself with.
+        /// </summary>
+        /// <remarks>
+        /// At the permission that changes how this station reaches the outside
+        /// world, the same as the certificates and the name servers: a login
+        /// for a back end is a statement about how this station gets to one,
+        /// and nothing about what the equipment is or what it measures.
+        /// </remarks>
+        private Task<HTTPResponse> PostAuthentication(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryAddAuthentication(json.Value<String>("description"),
+                                                           json.Value<String>("kind"),
+                                                           json.Value<String>("login"),
+                                                           json.Value<String>("secret"),
+                                                           out var id,
+                                                           out var error,
+                                                           json.Value<Double?> ("validitySeconds"),
+                                                           json.Value<UInt32?>("length"),
+                                                           json.Value<String> ("alphabet"),
+                                                           json.Value<String> ("hashAlgorithm"),
+                                                           json.Value<Boolean?>("tlsChannelBinding")))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("id",          id),
+                                        new JProperty("connections", ConnectionsJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/authentications/update with {"id", ...}.
+        /// </summary>
+        /// <remarks>
+        /// A secret left out means the one already there stays. That is what
+        /// makes it possible to correct a description without being shown the
+        /// password - and being shown it is exactly what this station never
+        /// does.
+        /// </remarks>
+        private Task<HTTPResponse> PostUpdateAuthentication(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryUpdateAuthentication(json.Value<String>("id"),
+                                                              json.Value<String>("description"),
+                                                              json.Value<String>("kind"),
+                                                              json.Value<String>("login"),
+                                                              json.Value<String>("secret"),
+                                                              out var error,
+                                                              json.Value<Double?> ("validitySeconds"),
+                                                              json.Value<UInt32?>("length"),
+                                                              json.Value<String> ("alphabet"),
+                                                              json.Value<String> ("hashAlgorithm"),
+                                                              json.Value<Boolean?>("tlsChannelBinding")))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/authentications/remove with {"id"}.
+        /// </summary>
+        /// <remarks>
+        /// Refused while a connection is using it, and the refusal names the
+        /// connection: the alternative leaves a station that cannot dial home
+        /// and tells nobody why.
+        /// </remarks>
+        private Task<HTTPResponse> PostRemoveAuthentication(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryRemoveAuthentication(json.Value<String>("id"), out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections with
+        /// {"description", "url", "connectionType", ...}: one place this
+        /// station dials.
+        /// </summary>
+        private Task<HTTPResponse> PostConnection(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryAddConnection(json.Value<String>("description"),
+                                                       json.Value<String>("url"),
+                                                       json.Value<String>("connectionType"),
+                                                       json.Value<Boolean?>("automaticReconnect"),
+                                                       json.Value<String>("authenticationId"),
+                                                       json.Value<String>("certificateId"),
+                                                       out var id,
+                                                       out var error))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("id",          id),
+                                        new JProperty("connections", ConnectionsJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/update with {"id", ...}.
+        /// </summary>
+        private Task<HTTPResponse> PostUpdateConnection(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryUpdateConnection(json.Value<String>("id"),
+                                                          json.Value<String>("description"),
+                                                          json.Value<String>("url"),
+                                                          json.Value<String>("connectionType"),
+                                                          json.Value<Boolean?>("automaticReconnect"),
+                                                          json.Value<String>("authenticationId"),
+                                                          json.Value<String>("certificateId"),
+                                                          out var error))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/remove with {"id"}.
+        /// </summary>
+        /// <remarks>
+        /// The credentials it was using stay behind: they are frequently the
+        /// ones whatever replaces it will use.
+        /// </remarks>
+        private Task<HTTPResponse> PostRemoveConnection(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryRemoveConnection(json.Value<String>("id"), out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
                    );
 
         }

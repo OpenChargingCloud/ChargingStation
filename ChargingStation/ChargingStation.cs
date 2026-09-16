@@ -208,6 +208,18 @@ namespace cloud.charging.open.ChargingStation
         public ClientCertificateStore ClientCertificates     { get; }
 
         /// <summary>
+        /// The places this station dials, and the credentials it proves itself
+        /// with when it gets there.
+        /// </summary>
+        /// <remarks>
+        /// Beside the certificates and for the same reason, and with the same
+        /// care over what is secret: the passwords and shared secrets are
+        /// written where only their owner may read them, and nothing hands
+        /// them back out.
+        /// </remarks>
+        public ConnectionStore        Connections           { get; }
+
+        /// <summary>
         /// The EVSEs this station has, right now.
         /// </summary>
         /// <remarks>
@@ -516,6 +528,20 @@ namespace cloud.charging.open.ChargingStation
             // parameter, which is null at this point - the same trap that once
             // stopped this station from starting at all.
             this.ClientCertificates.OnNotice += (level, message) => this.Log.Log(level, message, "ocpp", "certificates");
+
+            this.Connections = new ConnectionStore(
+                                   System.IO.Path.Combine(
+                                       System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
+                                       ConnectionStore.DefaultDirectoryName
+                                   ),
+                                   TimeProvider
+                               );
+
+            // Which certificates exist is the certificate store's business and
+            // changes while this one is alive, so it is asked rather than told
+            // once.
+            this.Connections.KnownCertificateIds  = () => this.ClientCertificates.Entries.Select(entry => entry.Id);
+            this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
 
             StationConfiguration? configuration = null;
 

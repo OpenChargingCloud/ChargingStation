@@ -363,6 +363,105 @@ export interface RFIDConfiguration {
     file:        string;
 }
 
+/**
+ * One set of credentials this station can prove itself with.
+ *
+ * The secret half is never in here. `hasSecret` is what takes its place, so a
+ * page can tell "not configured yet" from "configured, and you are not being
+ * shown it".
+ */
+export interface StationLogin {
+    id:                  string;
+    /** What somebody wrote down that it is for, e.g. "CSMS login". */
+    description:         string;
+    kind:                'basic' | 'totp';
+    /** The name the other end knows this station by. */
+    login:               string;
+    createdAt:           string;
+    hasSecret:           boolean;
+    /** Whether the one-time password is bound to the TLS session. TOTP only. */
+    tlsChannelBinding?:  boolean;
+    validitySeconds?:    number;
+    length?:             number;
+    alphabet?:           string;
+    hashAlgorithm?:      string;
+}
+
+/** What goes in when credentials are written down or changed. */
+export interface LoginToSave {
+    id?:                 string;
+    description:         string;
+    kind:                'basic' | 'totp';
+    login:               string;
+    /** Empty means "keep whatever is already there". */
+    secret:              string;
+    validitySeconds?:    number;
+    length?:             number;
+    alphabet?:           string;
+    hashAlgorithm?:      string;
+    tlsChannelBinding?:  boolean;
+}
+
+/** One place this station dials. */
+export interface StationConnection {
+    id:                  string;
+    description:         string;
+    url:                 string;
+    connectionType:      string;
+    automaticReconnect:  boolean;
+    /** Whether the URL makes a TLS connection, which decides what the rest can mean. */
+    secure:              boolean;
+    createdAt:           string;
+    authenticationId?:   string;
+    certificateId?:      string;
+    warnings?:           string[];
+}
+
+/** What goes in when a connection is written down or changed. */
+export interface ConnectionToSave {
+    id?:                 string;
+    description:         string;
+    url:                 string;
+    connectionType:      string;
+    automaticReconnect:  boolean;
+    authenticationId:    string | null;
+    certificateId:       string | null;
+}
+
+/** A client certificate, as far as a connection is concerned. */
+export interface ConnectionCertificate {
+    id:                  string;
+    subject:             string;
+    algorithm:           string;
+    hasCertificate:      boolean;
+    canBeHeldUp:         boolean;
+}
+
+/**
+ * Everything the two pages work from.
+ *
+ * One shape for both, from one handler on the station: the Connections page
+ * needs the credentials in order to offer them, and the Authentication page
+ * needs the connections in order to say which ones a removal would break.
+ */
+export interface StationConnections {
+    directory:             string;
+    authentications:       StationLogin[];
+    connections:           StationConnection[];
+    certificates:          ConnectionCertificate[];
+    connectionTypes:       string[];
+    maxDescriptionLength:  number;
+    minSharedSecretLength: number;
+    /** Always false, and said out loud: a secret is written here and never read back. */
+    secretsAreReadable:    boolean;
+    totpDefaults: {
+        validitySeconds:   number;
+        length:            number;
+        alphabet:          string;
+        hashAlgorithm:     string;
+    };
+}
+
 /** One kind of key this station will make for itself. */
 export interface KeyAlgorithm {
     /** How it is written in the API, e.g. "ed448". */
@@ -742,6 +841,40 @@ export const api = {
          * off - and the station works that out by comparing.
          */
         save:  (readers: RFIDReader[])   => request<RFIDConfiguration>('PUT', '/configuration/rfid', { readers })
+    },
+
+    authentications: {
+
+        get:     ()                  => request<StationConnections>('GET', '/configuration/authentications'),
+
+        add:     (entry: LoginToSave) =>
+                     request<{ id: string; connections: StationConnections }>(
+                         'POST', '/configuration/authentications', entry),
+
+        /** A secret left empty keeps the one already there. */
+        update:  (entry: LoginToSave) =>
+                     request<StationConnections>('POST', '/configuration/authentications/update', entry),
+
+        /** Refused while a connection is using it, and the refusal names it. */
+        remove:  (id: string) =>
+                     request<StationConnections>('POST', '/configuration/authentications/remove', { id })
+
+    },
+
+    connections: {
+
+        get:     ()                       => request<StationConnections>('GET', '/configuration/connections'),
+
+        add:     (entry: ConnectionToSave) =>
+                     request<{ id: string; connections: StationConnections }>(
+                         'POST', '/configuration/connections', entry),
+
+        update:  (entry: ConnectionToSave) =>
+                     request<StationConnections>('POST', '/configuration/connections/update', entry),
+
+        remove:  (id: string) =>
+                     request<StationConnections>('POST', '/configuration/connections/remove', { id })
+
     },
 
     certificates: {

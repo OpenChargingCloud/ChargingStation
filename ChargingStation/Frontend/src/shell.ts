@@ -34,6 +34,8 @@ export const menu: MenuEntry[] = [
             { path: '/configuration/display',     label: 'Display',         icon: 'fa-desktop'                   },
             { path: '/configuration/evses',       label: 'EVSEs',           icon: 'fa-plug'                      },
             { path: '/configuration/rfid',        label: 'RFID',            icon: 'fa-id-card'                   },
+            { path: '/configuration/authentication', label: 'Authentication', icon: 'fa-user-lock'              },
+            { path: '/configuration/connections', label: 'Connections',     icon: 'fa-network-wired'             },
             { path: '/configuration/certificates', label: 'Certificates',   icon: 'fa-key'                      },
             { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-certificate'               }
         ]
