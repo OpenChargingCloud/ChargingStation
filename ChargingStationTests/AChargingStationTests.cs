@@ -83,6 +83,32 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region What this station is made of
+
+        /// <summary>
+        /// What its configuration file says before it is built.
+        /// </summary>
+        /// <remarks>
+        /// Overridden by a fixture that needs a station with something on it -
+        /// outlets, a card reader, an operator. The time client stays switched
+        /// off in all of them, which is what keeps a test run off the network.
+        /// </remarks>
+        protected virtual JObject Configuration
+            => TestStations.Offline;
+
+        /// <summary>
+        /// Where it reads the time, or null for the system clock.
+        /// </summary>
+        /// <remarks>
+        /// Overridden by a fixture that has to decide what time it is - a
+        /// one-time password is a function of the clock, and a test that waited
+        /// for a real half-minute to pass would be a test nobody runs.
+        /// </remarks>
+        protected virtual TimeProvider? Clock
+            => null;
+
+        #endregion
+
         #region SetUp / TearDown
 
         [SetUp]
@@ -91,7 +117,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Directory  = TestStations.TemporaryDirectory("tests");
 
-            Station    = TestStations.New(Directory, TestStations.Offline);
+            Station    = TestStations.New(Directory, Configuration, Clock: Clock);
 
             // Null would mean the login came from a file, and there was no file.
             Password   = Station.GeneratedPassword

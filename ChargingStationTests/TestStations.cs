@@ -56,9 +56,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <param name="Directory">Where its web login and its configuration go; created when it does not exist.</param>
         /// <param name="Configuration">What its configuration file says, or null for a station nobody has configured.</param>
         /// <param name="WithDisplay">Whether it also listens for the display, as a station does unless told otherwise.</param>
-        public static ChargingStation New(String    Directory,
-                                          JObject?  Configuration   = null,
-                                          Boolean   WithDisplay     = true)
+        /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
+        public static ChargingStation New(String         Directory,
+                                          JObject?       Configuration   = null,
+                                          Boolean        WithDisplay     = true,
+                                          TimeProvider?  Clock           = null)
         {
 
             System.IO.Directory.CreateDirectory(Directory);
@@ -75,7 +77,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                        LoginFile:        new WebLoginFile    (Path.Combine(Directory, "web-login.json")),
                        ConfigFile:       new StationConfigFile(configFile),
                        LogToConsole:     false,
-                       BridgeDebugLog:   false
+                       BridgeDebugLog:   false,
+                       TimeProvider:     Clock
                    );
 
         }

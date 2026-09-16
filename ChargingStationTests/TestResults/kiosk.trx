@@ -1,0 +1,249 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="9a5e3743-2aa3-40c1-8225-cee99bb8d8c3" name="achim@OCTAL 2026-09-16 05:49:04" runUser="OCTAL\achim" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-16T05:49:04.0886180+02:00" queuing="2026-09-16T05:49:04.0886185+02:00" start="2026-09-16T05:49:02.2022891+02:00" finish="2026-09-16T05:49:05.8580880+02:00" />
+  <TestSettings name="default" id="2609034b-bd86-4455-baf3-76cc49e8015f">
+    <Deployment runDeploymentRoot="achim_OCTAL_2026-09-16_05_49_04" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="85901bd5-13a8-4209-82f6-1d17f545af6e" testId="41c20e84-75c8-1312-bc59-1a84fa5e30ac" testName="APasswordThisStationDidNotIssueStartsNothing" computerName="OCTAL" duration="00:00:00.1524490" startTime="2026-09-16T05:49:04.2252402+02:00" endTime="2026-09-16T05:49:04.3776888+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="85901bd5-13a8-4209-82f6-1d17f545af6e" />
+    <UnitTestResult executionId="dbb56df9-2b68-496b-88d5-1d6b5a6ea3b1" testId="78b92a7b-1be8-32d4-14d4-96ea9422dff5" testName="APaymentCodeIsAlwaysOnOffer" computerName="OCTAL" duration="00:00:00.1445500" startTime="2026-09-16T05:49:04.3777126+02:00" endTime="2026-09-16T05:49:04.5222619+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="dbb56df9-2b68-496b-88d5-1d6b5a6ea3b1">
+      <Output>
+        <ErrorInfo>
+          <Message>  The display had no payment code 24 s in.&#xD;
+Assert.That(PasswordOnTheDisplay(1), Is.Not.Null)&#xD;
+  Expected: not null&#xD;
+  But was:  null&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.APaymentCodeIsAlwaysOnOffer() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 288&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.APaymentCodeIsAlwaysOnOffer() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 288&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="aa8270be-27c5-4b30-8350-3b0978149c8f" testId="b620a303-281d-f8be-21b3-5941585f76d4" testName="ThePasswordOnTheDisplayStartsACharge" computerName="OCTAL" duration="00:00:00.1570510" startTime="2026-09-16T05:49:05.6269746+02:00" endTime="2026-09-16T05:49:05.7840246+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="aa8270be-27c5-4b30-8350-3b0978149c8f">
+      <Output>
+        <ErrorInfo>
+          <Message>  The display was showing no payment code to pay with.&#xD;
+Assert.That(password, Is.Not.Null)&#xD;
+  Expected: not null&#xD;
+  But was:  null&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.ThePasswordOnTheDisplayStartsACharge() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 507&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.ThePasswordOnTheDisplayStartsACharge() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 507&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="39d3d7a8-8b6a-44f3-9e0e-25590e793b81" testId="79928fda-440c-a242-1e40-b2771b713af5" testName="APaymentIsTurnedAwayFromAHeldOutlet" computerName="OCTAL" duration="00:00:00.1602090" startTime="2026-09-16T05:49:04.5222859+02:00" endTime="2026-09-16T05:49:04.6824950+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="39d3d7a8-8b6a-44f3-9e0e-25590e793b81" />
+    <UnitTestResult executionId="77ce5856-0bf4-4406-bc17-6488786fe537" testId="c9e189e6-cf19-cf49-e31c-1dac647d8773" testName="AChargePaidForAtTheScreenCanBeStopped" computerName="OCTAL" duration="00:00:00.7867400" startTime="2026-09-16T05:49:02.8399019+02:00" endTime="2026-09-16T05:49:03.6265334+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="77ce5856-0bf4-4406-bc17-6488786fe537" />
+    <UnitTestResult executionId="60a4cc96-9500-48fe-849b-32ca937d83cc" testId="9e78923c-2afe-f5c3-452f-069a2525f6df" testName="ADifferentCardIsTurnedAwayFromAnOutletSomebodyIsChargingAt" computerName="OCTAL" duration="00:00:00.2339260" startTime="2026-09-16T05:49:03.6286549+02:00" endTime="2026-09-16T05:49:03.8625809+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="60a4cc96-9500-48fe-849b-32ca937d83cc">
+      <Output>
+        <ErrorInfo>
+          <Message>  Somebody who walked up to a busy outlet was told it was out of service.&#xD;
+Assert.That(refused, Does.Contain("Another card"))&#xD;
+  Expected: String containing "Another card"&#xD;
+  But was:  "EVSE 1 is out of service."&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.ADifferentCardIsTurnedAwayFromAnOutletSomebodyIsChargingAt() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 429&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.ADifferentCardIsTurnedAwayFromAnOutletSomebodyIsChargingAt() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 429&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="2008c968-cd0d-4b15-acf4-cdd9e8106681" testId="9af03b48-686e-a983-c52e-ab56a1776bfe" testName="AnOutletOnItsWayOutOfServiceTakesNoNewSession" computerName="OCTAL" duration="00:00:00.1786760" startTime="2026-09-16T05:49:04.0465398+02:00" endTime="2026-09-16T05:49:04.2252150+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2008c968-cd0d-4b15-acf4-cdd9e8106681" />
+    <UnitTestResult executionId="02644a56-2eab-4a66-8c90-e16469a92053" testId="72b67319-c8f7-7afb-fa4a-00919b7d39de" testName="TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging" computerName="OCTAL" duration="00:00:00.1725990" startTime="2026-09-16T05:49:04.9986859+02:00" endTime="2026-09-16T05:49:05.1712837+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="02644a56-2eab-4a66-8c90-e16469a92053">
+      <Output>
+        <ErrorInfo>
+          <Message>Multiple failures or warnings in test:&#xD;
+  1)   The outlet stopped saying it was charging while a car was on it.&#xD;
+Assert.That(outlet.Value&lt;String&gt;("status"), Is.EqualTo("occupied"))&#xD;
+  Expected string length 8 but was 11. Strings differ at index 0.&#xD;
+  Expected: "occupied"&#xD;
+  But was:  "inoperative"&#xD;
+  -----------^&#xD;
+&#xD;
+     at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 371&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+&#xD;
+  2)   The display was not told the outlet goes out of service when this session ends.&#xD;
+Assert.That(outlet.Value&lt;Boolean&gt;("closing"), Is.True)&#xD;
+  Expected: True&#xD;
+  But was:  False&#xD;
+&#xD;
+     at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 374&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+&#xD;
+  3)   The session was ended.&#xD;
+Assert.That(outlet["session"]?.Type, Is.Not.EqualTo(JTokenType.Null))&#xD;
+  Expected: not equal to Null&#xD;
+  But was:  Null&#xD;
+&#xD;
+     at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 377&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 371&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+
+2)    at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 374&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+
+3)    at cloud.charging.open.ChargingStation.Tests.KioskTests.&lt;&gt;c__DisplayClass18_0.&lt;TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging&gt;b__0() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 377&#xD;
+   at NUnit.Framework.Assert.Multiple(Action action)&#xD;
+   at cloud.charging.open.ChargingStation.Tests.KioskTests.TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 369&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="b370ee65-1341-4c15-b17a-4eaf2a7f7334" testId="47f051ae-08bb-e227-c008-dc1b80a466cb" testName="StartingAndStoppingChargesNeedsASignIn" computerName="OCTAL" duration="00:00:00.1599380" startTime="2026-09-16T05:49:04.8387265+02:00" endTime="2026-09-16T05:49:04.9986640+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b370ee65-1341-4c15-b17a-4eaf2a7f7334" />
+    <UnitTestResult executionId="c1e01436-8311-4a73-a7e2-bde7f949e3a4" testId="456a137f-dd46-07e4-a785-e317cf014b24" testName="TheDisplayNeedsNoSignInAndTheWebInterfaceIsNotOnItsPort" computerName="OCTAL" duration="00:00:00.1397509" startTime="2026-09-16T05:49:05.3367445+02:00" endTime="2026-09-16T05:49:05.4764949+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c1e01436-8311-4a73-a7e2-bde7f949e3a4" />
+    <UnitTestResult executionId="27b513c2-af35-4b98-8f43-3a31b11fe0d1" testId="97cf8c9b-9e6c-02b3-da3e-037bb179ecc3" testName="TheDisplayNeverCarriesTheSharedSecret" computerName="OCTAL" duration="00:00:00.1504130" startTime="2026-09-16T05:49:05.4765215+02:00" endTime="2026-09-16T05:49:05.6269332+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="27b513c2-af35-4b98-8f43-3a31b11fe0d1" />
+    <UnitTestResult executionId="5487b1ca-8dc3-4c8d-8e81-3769007cee2f" testId="f4b011c5-34be-1a94-c98f-180e0525aa7b" testName="NearTheEndOfASlotTheNextPasswordIsShown" computerName="OCTAL" duration="00:00:00.1561790" startTime="2026-09-16T05:49:04.6825201+02:00" endTime="2026-09-16T05:49:04.8386986+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5487b1ca-8dc3-4c8d-8e81-3769007cee2f">
+      <Output>
+        <ErrorInfo>
+          <Message>System.NullReferenceException : Object reference not set to an instance of an object.</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.NearTheEndOfASlotTheNextPasswordIsShown() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 314&#xD;
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)&#xD;
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.NearTheEndOfASlotTheNextPasswordIsShown() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 314&#xD;
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)&#xD;
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="6895a459-cfde-4986-9688-86ebe691d506" testId="459a0619-8171-9867-6b13-7c04c363f417" testName="AnOutletChargingUnderAScheduledCloseIsStillCharging" computerName="OCTAL" duration="00:00:00.1837720" startTime="2026-09-16T05:49:03.8627362+02:00" endTime="2026-09-16T05:49:04.0465077+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="6895a459-cfde-4986-9688-86ebe691d506">
+      <Output>
+        <ErrorInfo>
+          <Message>  An outlet with a car on it called itself unavailable.&#xD;
+Assert.That(Station.MessageStateOf(evse), Is.EqualTo(OCPPv2_1.MessageState.Charging))&#xD;
+  Expected: Charging&#xD;
+  But was:  Unavailable&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.AnOutletChargingUnderAScheduledCloseIsStillCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 466&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.AnOutletChargingUnderAScheduledCloseIsStillCharging() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 466&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="9e2e1d05-0298-46c1-8d64-3be45ae7606e" testId="6d1ea7c9-4a5a-93c2-2ee0-14d56d9f6379" testName="TheCardThatStartedASessionCanStillStopItOnAClosingOutlet" computerName="OCTAL" duration="00:00:00.1653760" startTime="2026-09-16T05:49:05.1713184+02:00" endTime="2026-09-16T05:49:05.3366936+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="9e2e1d05-0298-46c1-8d64-3be45ae7606e">
+      <Output>
+        <ErrorInfo>
+          <Message>  The card that started the session could not stop it: EVSE 1 is out of service.&#xD;
+Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out var result, out var stopping), Is.True)&#xD;
+  Expected: True&#xD;
+  But was:  False&#xD;
+</Message>
+          <StackTrace>   at cloud.charging.open.ChargingStation.Tests.KioskTests.TheCardThatStartedASessionCanStillStopItOnAClosingOutlet() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 400&#xD;
+
+1)    at cloud.charging.open.ChargingStation.Tests.KioskTests.TheCardThatStartedASessionCanStillStopItOnAClosingOutlet() in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\KioskTests.cs:line 400&#xD;
+
+</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="APaymentIsTurnedAwayFromAHeldOutlet" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="79928fda-440c-a242-1e40-b2771b713af5">
+      <Execution id="39d3d7a8-8b6a-44f3-9e0e-25590e793b81" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="APaymentIsTurnedAwayFromAHeldOutlet" />
+    </UnitTest>
+    <UnitTest name="TheDisplayNeverCarriesTheSharedSecret" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="97cf8c9b-9e6c-02b3-da3e-037bb179ecc3">
+      <Execution id="27b513c2-af35-4b98-8f43-3a31b11fe0d1" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="TheDisplayNeverCarriesTheSharedSecret" />
+    </UnitTest>
+    <UnitTest name="StartingAndStoppingChargesNeedsASignIn" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="47f051ae-08bb-e227-c008-dc1b80a466cb">
+      <Execution id="b370ee65-1341-4c15-b17a-4eaf2a7f7334" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="StartingAndStoppingChargesNeedsASignIn" />
+    </UnitTest>
+    <UnitTest name="APasswordThisStationDidNotIssueStartsNothing" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="41c20e84-75c8-1312-bc59-1a84fa5e30ac">
+      <Execution id="85901bd5-13a8-4209-82f6-1d17f545af6e" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="APasswordThisStationDidNotIssueStartsNothing" />
+    </UnitTest>
+    <UnitTest name="TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="72b67319-c8f7-7afb-fa4a-00919b7d39de">
+      <Execution id="02644a56-2eab-4a66-8c90-e16469a92053" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="TakingAnOutletOutOfServiceDoesNotStopACarThatIsCharging" />
+    </UnitTest>
+    <UnitTest name="AChargePaidForAtTheScreenCanBeStopped" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="c9e189e6-cf19-cf49-e31c-1dac647d8773">
+      <Execution id="77ce5856-0bf4-4406-bc17-6488786fe537" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="AChargePaidForAtTheScreenCanBeStopped" />
+    </UnitTest>
+    <UnitTest name="NearTheEndOfASlotTheNextPasswordIsShown" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="f4b011c5-34be-1a94-c98f-180e0525aa7b">
+      <Execution id="5487b1ca-8dc3-4c8d-8e81-3769007cee2f" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="NearTheEndOfASlotTheNextPasswordIsShown" />
+    </UnitTest>
+    <UnitTest name="APaymentCodeIsAlwaysOnOffer" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="78b92a7b-1be8-32d4-14d4-96ea9422dff5">
+      <Execution id="dbb56df9-2b68-496b-88d5-1d6b5a6ea3b1" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="APaymentCodeIsAlwaysOnOffer" />
+    </UnitTest>
+    <UnitTest name="TheCardThatStartedASessionCanStillStopItOnAClosingOutlet" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="6d1ea7c9-4a5a-93c2-2ee0-14d56d9f6379">
+      <Execution id="9e2e1d05-0298-46c1-8d64-3be45ae7606e" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="TheCardThatStartedASessionCanStillStopItOnAClosingOutlet" />
+    </UnitTest>
+    <UnitTest name="TheDisplayNeedsNoSignInAndTheWebInterfaceIsNotOnItsPort" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="456a137f-dd46-07e4-a785-e317cf014b24">
+      <Execution id="c1e01436-8311-4a73-a7e2-bde7f949e3a4" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="TheDisplayNeedsNoSignInAndTheWebInterfaceIsNotOnItsPort" />
+    </UnitTest>
+    <UnitTest name="AnOutletOnItsWayOutOfServiceTakesNoNewSession" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="9af03b48-686e-a983-c52e-ab56a1776bfe">
+      <Execution id="2008c968-cd0d-4b15-acf4-cdd9e8106681" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="AnOutletOnItsWayOutOfServiceTakesNoNewSession" />
+    </UnitTest>
+    <UnitTest name="ADifferentCardIsTurnedAwayFromAnOutletSomebodyIsChargingAt" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="9e78923c-2afe-f5c3-452f-069a2525f6df">
+      <Execution id="60a4cc96-9500-48fe-849b-32ca937d83cc" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="ADifferentCardIsTurnedAwayFromAnOutletSomebodyIsChargingAt" />
+    </UnitTest>
+    <UnitTest name="ThePasswordOnTheDisplayStartsACharge" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="b620a303-281d-f8be-21b3-5941585f76d4">
+      <Execution id="aa8270be-27c5-4b30-8350-3b0978149c8f" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="ThePasswordOnTheDisplayStartsACharge" />
+    </UnitTest>
+    <UnitTest name="AnOutletChargingUnderAScheduledCloseIsStillCharging" storage="d:\coding\openchargingcloud\chargingstationcli\libs\chargingstation\chargingstationtests\bin\debug\net10.0\chargingstationtests.dll" id="459a0619-8171-9867-6b13-7c04c363f417">
+      <Execution id="6895a459-cfde-4986-9688-86ebe691d506" />
+      <TestMethod codeBase="D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll" adapterTypeName="executor://nunit3testexecutor/" className="cloud.charging.open.ChargingStation.Tests.KioskTests" name="AnOutletChargingUnderAScheduledCloseIsStillCharging" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="41c20e84-75c8-1312-bc59-1a84fa5e30ac" executionId="85901bd5-13a8-4209-82f6-1d17f545af6e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="78b92a7b-1be8-32d4-14d4-96ea9422dff5" executionId="dbb56df9-2b68-496b-88d5-1d6b5a6ea3b1" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b620a303-281d-f8be-21b3-5941585f76d4" executionId="aa8270be-27c5-4b30-8350-3b0978149c8f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="79928fda-440c-a242-1e40-b2771b713af5" executionId="39d3d7a8-8b6a-44f3-9e0e-25590e793b81" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="c9e189e6-cf19-cf49-e31c-1dac647d8773" executionId="77ce5856-0bf4-4406-bc17-6488786fe537" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9e78923c-2afe-f5c3-452f-069a2525f6df" executionId="60a4cc96-9500-48fe-849b-32ca937d83cc" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9af03b48-686e-a983-c52e-ab56a1776bfe" executionId="2008c968-cd0d-4b15-acf4-cdd9e8106681" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="72b67319-c8f7-7afb-fa4a-00919b7d39de" executionId="02644a56-2eab-4a66-8c90-e16469a92053" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="47f051ae-08bb-e227-c008-dc1b80a466cb" executionId="b370ee65-1341-4c15-b17a-4eaf2a7f7334" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="456a137f-dd46-07e4-a785-e317cf014b24" executionId="c1e01436-8311-4a73-a7e2-bde7f949e3a4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="97cf8c9b-9e6c-02b3-da3e-037bb179ecc3" executionId="27b513c2-af35-4b98-8f43-3a31b11fe0d1" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="f4b011c5-34be-1a94-c98f-180e0525aa7b" executionId="5487b1ca-8dc3-4c8d-8e81-3769007cee2f" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="459a0619-8171-9867-6b13-7c04c363f417" executionId="6895a459-cfde-4986-9688-86ebe691d506" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="6d1ea7c9-4a5a-93c2-2ee0-14d56d9f6379" executionId="9e2e1d05-0298-46c1-8d64-3be45ae7606e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Ergebnisse nicht in einer Liste" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="Alle geladenen Ergebnisse" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Failed">
+    <Counters total="14" executed="14" passed="7" failed="7" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>NUnit Adapter 6.3.0.0: Test execution started&#xD;
+Running selected tests in D:\Coding\OpenChargingCloud\ChargingStationCLI\libs\ChargingStation\ChargingStationTests\bin\Debug\net10.0\ChargingStationTests.dll&#xD;
+   NUnit3TestExecutor discovered 14 of 14 NUnit test cases using Current Discovery mode, Non-Explicit run&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

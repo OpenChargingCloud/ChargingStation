@@ -489,6 +489,37 @@ screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
 `Remote` needs a back end to ask over OCPP; the display can draw both, and
 nothing here can cause either yet.
 
+### What is held down by a test
+
+Everything above was found by driving a real display and measuring it, which
+catches things a test never would - how large a code is drawn, what fills a
+card, whether a button can be hit with a thumb. It also vanishes the moment the
+browser is closed. `KioskTests` pins what is underneath: what the station says,
+and what it lets happen.
+
+It pins what has actually been wrong, which is not the same list as what could
+be wrong: the payment code never being absent and the next one being handed out
+early; an outlet taken out of service keeping the car that is already on it; the
+card that started a session still being able to stop it; somebody else's card
+being turned away for the right reason; an outlet charging under a scheduled
+close still counting as charging to OCPP's display messages; a payment code this
+station did not issue starting nothing; the one on the display starting a charge
+under the operator's own name; a payment not being able to take an outlet
+somebody is holding; and neither starting nor stopping being reachable without
+signing in or from the display's own port. And that the shared secret never
+appears in what the display is sent - asked of the whole answer as text, because
+the way it would get out is a field nobody thought about.
+
+Each of those was broken on purpose afterwards to see the tests fail: reverting
+two of the fixes turns seven of the fourteen red, which is the only evidence a
+passing test ever offers that it was worth writing.
+
+One thing the fixture had to work around. The clock it hands the station starts
+at the real now rather than at a date somebody picked, because the OCPP node
+inside the station still reads a system clock of its own: a station moved to
+last March finds its reservations already expired and its sign-in already over.
+That is worth fixing on its own and is not a display problem.
+
 ### A reader that cannot read says so
 
 This station has a driver for exactly one kind of RFID reader, and it warns at
