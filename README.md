@@ -510,9 +510,28 @@ signing in or from the display's own port. And that the shared secret never
 appears in what the display is sent - asked of the whole answer as text, because
 the way it would get out is a field nobody thought about.
 
+The page has its own, for the part of it that is a decision rather than a
+drawing: how many columns the outlets go in, which notices are shown this turn,
+and whether a payment code is still worth putting on a screen. Those three moved
+into `kiosk-rules.ts`, which touches no document, reads no clock and knows
+nothing about a browser - everything it needs is handed to it - and
+`kiosk-rules.test.ts` asks them directly.
+
+    npm test           in ChargingStation/Frontend
+
+Node's own runner reading the TypeScript as it stands: no bundler, no browser,
+and no dependency that was not already here. Sixteen tests in a sixth of a
+second. They pin the two rules that were written this month and verified by
+watching a screen - that four notices demanding the front cannot take it all,
+that each of them still comes round, that the ordinary ones keep a place
+whatever is marked important, and that two outlets go side by side on a wide
+screen and above each other on an upright one.
+
 Each of those was broken on purpose afterwards to see the tests fail: reverting
-two of the fixes turns seven of the fourteen red, which is the only evidence a
-passing test ever offers that it was worth writing.
+two of the fixes turns seven of the fourteen red on the station side, and
+putting the two old display rules back turns five of the sixteen red on the
+page - which is the only evidence a passing test ever offers that it was worth
+writing.
 
 One thing the fixture had to work around. The clock it hands the station starts
 at the real now rather than at a date somebody picked, because the OCPP node

@@ -1,5 +1,13 @@
 import qrcode from 'qrcode-generator';
 
+// What the page decides, as opposed to what it draws. Kept apart so it can be
+// asked directly - see kiosk-rules.test.ts.
+import { columnsFor        as howManyColumns,
+         hasMoreToSay,
+         messagesToShow    as whichMessagesToShow,
+         qrCodeIsStillGood,
+         type DisplayMessage } from './kiosk-rules';
+
 import { config } from './config';
 import { html, HTMLFragment, must, raw, render } from './html';
 
@@ -41,12 +49,6 @@ interface Provider {
  * states or at certain outlets, and it is the station that knows what it is
  * doing right now.
  */
-interface DisplayMessage {
-    id:        string;
-    priority:  'AlwaysFront' | 'InFront' | 'NormalCycle' | string;
-    text:      string;
-}
-
 /** A card reader, and whether its cards are typed in. */
 interface Reader {
     id:     string;
@@ -571,12 +573,8 @@ function ageOfWhatIsShown(): number {
  */
 function qrCodeStillGood(QRCode: { url: string; expiresAt: string }): boolean {
 
-    if (state === null)
-        return false;
-
-    const hadLeft = Date.parse(QRCode.expiresAt) - Date.parse(state.timestamp);
-
-    return Number.isFinite(hadLeft) && hadLeft > ageOfWhatIsShown();
+    return state !== null &&
+           qrCodeIsStillGood(QRCode.expiresAt, state.timestamp, ageOfWhatIsShown());
 
 }
 
@@ -679,53 +677,12 @@ function clockText(): string {
 }
 
 
-/**
- * How many columns to lay the outlets out in.
- *
- * The stylesheet used to decide this from a minimum column width, with one
- * exception written out by hand: two outlets always side by side. Which is
- * right on a screen wider than it is tall and wrong on one turned upright -
- * two outlets on a 1080x1920 panel came out 502 px wide and 1694 tall, a
- * column of air with a letter at the top of it.
- *
- * So it is worked out from the two things that actually decide it, both of
- * which this page knows and the stylesheet cannot: how many outlets there are,
- * and the shape of the screen. Every arrangement is tried and the one whose
- * cards come out closest to square wins, with a small penalty for leaving a
- * hole in the last row - a clean three by two reads better than four and two.
- */
+/** How many columns to lay the outlets out in - see kiosk-rules. */
 function columnsFor(Count: number): number {
 
-    if (Count < 2)
-        return 1;
-
-    const width   = root.clientWidth  || window.innerWidth;
-    const height  = root.clientHeight || window.innerHeight;
-
-    if (width <= 0 || height <= 0)
-        return Count;
-
-    let best       = 1;
-    let bestScore  = Infinity;
-
-    for (let columns = 1; columns <= Count; columns++) {
-
-        const rows      = Math.ceil(Count / columns);
-        const cardWide  = width  / columns;
-        const cardTall  = height / rows;
-
-        // How far from square, plus a tenth for each empty place in the grid.
-        const score     = Math.max(cardWide / cardTall, cardTall / cardWide) +
-                          0.1 * (columns * rows - Count);
-
-        if (score < bestScore) {
-            bestScore  = score;
-            best       = columns;
-        }
-
-    }
-
-    return best;
+    return howManyColumns(Count,
+                          root.clientWidth  || window.innerWidth,
+                          root.clientHeight || window.innerHeight);
 
 }
 
@@ -789,44 +746,10 @@ function readerFor(EVSE: KioskEVSE): Reader | null {
  * and always in the same order - so a message does not vanish for a round
  * because another one arrived.
  */
-/**
- * How many notices one place on this screen shows at a time.
- *
- * A display on a charging station is there to show the outlets. Four notices
- * that all asked to stay at the front took 542 px of a 1080 px screen - half of
- * it - and left the two outlets 268 px each with no payment code on either, a
- * station that had stopped saying how to charge at it. OCPP lets a back end ask
- * for the front; on a screen this size it cannot be given to everybody at once.
- *
- * Two, then. Nothing is dropped for it - see below.
- */
-const atMostMessages = 2;
-
-
-/**
- * Which of them to show, now.
- *
- * More asked for the front than there is front to give, so they take turns at
- * it: each comes round rather than the last few never being seen. And one place
- * is kept for the ordinary ones whenever there are any, so a back end cannot
- * push them off the screen by marking everything important.
- */
+/** Which notices to show, now - see kiosk-rules. */
 function messagesToShow(Messages: DisplayMessage[]): DisplayMessage[] {
 
-    const pinned   = Messages.filter(message => message.priority === 'AlwaysFront' || message.priority === 'InFront');
-    const cycling  = Messages.filter(message => message.priority !== 'AlwaysFront' && message.priority !== 'InFront');
-
-    const forPinned  = Math.max(1, atMostMessages - (cycling.length > 0 ? 1 : 0));
-
-    const shown = pinned.length > forPinned
-                      ? Array.from({ length: forPinned },
-                                   (_, slot) => pinned[(cycle + slot) % pinned.length])
-                      : [...pinned];
-
-    if (shown.length < atMostMessages && cycling.length > 0)
-        shown.push(cycling[cycle % cycling.length]);
-
-    return shown;
+    return whichMessagesToShow(Messages, cycle);
 
 }
 
@@ -1311,21 +1234,14 @@ function clockSignature(): string {
 }
 
 
-/**
- * Whether anywhere on this screen has more to say than it is showing.
- *
- * Asked by comparing the two rather than by repeating the rule above: whatever
- * decides how many places there are, this stays true. Messages that asked to
- * stay at the front take turns as well when there are more of them than places,
- * and that is a turn this has to keep as much as any other.
- */
+/** Whether anywhere on this screen has more to say than it is showing. */
 function hasSomethingToCycle(): boolean {
 
     if (state === null)
         return false;
 
     return [state.messages ?? [], ...state.evses.map(evse => evse.messages ?? [])].
-               some(messages => messages.length > messagesToShow(messages).length);
+               some(messages => hasMoreToSay(messages, cycle));
 
 }
 
