@@ -424,6 +424,20 @@ export const dnsPage: Page = {
         }
 
 
+        /**
+         * What each name server is allowed, in seconds: its own timeout where
+         * it has one, and the client's where it has not.
+         *
+         * The station tries them in turn, so this is the list the page has to
+         * be willing to wait for - what it is given up on is the station going
+         * quiet, never the patience the station was configured with.
+         */
+        function whatTheServersAreAllowed(): number[] {
+            return (current?.servers ?? []).map(server => server.queryTimeoutSeconds ??
+                                                          current?.settings.queryTimeoutSeconds ?? 0);
+        }
+
+
         async function runQuery(form: HTMLFormElement): Promise<void> {
 
             const error = must<HTMLElement>(content, '#query-error');
@@ -441,7 +455,7 @@ export const dnsPage: Page = {
 
             try
             {
-                result = await api.dns.query(testName, testTypes);
+                result = await api.dns.query(testName, testTypes, whatTheServersAreAllowed());
             }
             catch (problem)
             {

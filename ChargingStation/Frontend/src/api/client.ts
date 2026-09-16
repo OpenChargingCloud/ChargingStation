@@ -371,19 +371,101 @@ export interface CalibrationCertificateUpdate {
 }
 
 
+/**
+ * The station answered, and said no.
+ *
+ * The fields are written out rather than declared in the constructor, as are
+ * NoAnswer's below: constructor parameter properties are one of the few pieces
+ * of TypeScript that cannot simply be stripped away, and this file is read as
+ * it stands by the same test runner that reads the display's rules.
+ */
 export class ApiError extends Error {
 
-    constructor(public readonly status:  number,
-                message:                 string,
-                public readonly body?:   unknown) {
+    readonly status:  number;
+    readonly body?:   unknown;
+
+    constructor(status:   number,
+                message:  string,
+                body?:    unknown) {
+
         super(message);
-        this.name = 'ApiError';
+
+        this.name    = 'ApiError';
+        this.status  = status;
+        this.body    = body;
+
     }
 
     get isUnauthorized(): boolean {
         return this.status === 401;
     }
 
+}
+
+
+/**
+ * Nothing came back at all.
+ *
+ * Not an ApiError, because the two are different things to be told: an
+ * ApiError is the station answering and saying no, with a sentence of its own
+ * about why. This is the station saying nothing - and a page that can tell the
+ * two apart can say so, instead of repeating a status that was never sent.
+ */
+export class NoAnswer extends Error {
+
+    readonly reason:  'ran out of time' | 'could not be reached';
+
+    constructor(reason:   'ran out of time' | 'could not be reached',
+                message:  string) {
+
+        super(message);
+
+        this.name    = 'NoAnswer';
+        this.reason  = reason;
+
+    }
+
+}
+
+
+/**
+ * How long the web interface waits for the station to answer about itself.
+ *
+ * Measured against a station that had gone quiet rather than away - the case
+ * a refused connection does not cover, and the one a car park's network
+ * actually produces: 98 seconds after Save, the request was still open, both
+ * buttons of the form were still greyed out, and the page said nothing at all.
+ * Seven pages clicked through in that state left nine requests hanging, more
+ * than the browser will even keep connections open for.
+ *
+ * Fifteen seconds is four orders of magnitude more than this station needs:
+ * every read and write of its own configuration measured between 1 and 7
+ * milliseconds. That is the point. The deadline is here to notice silence and
+ * not slowness, so it can be generous enough that a slow link never trips it.
+ */
+export const answerWithin = 15_000;
+
+/**
+ * And how long for the station to do something and then answer.
+ *
+ * Longer, because a write is a file and - for the EVSEs - the OCPP nodes being
+ * rebuilt from it, and because giving up on a write is the worse mistake of
+ * the two to make: the station may have carried it out and only been slow to
+ * say so.
+ */
+export const actWithin = 30_000;
+
+/**
+ * How long a question the station has to put to somebody else may take.
+ *
+ * The station tries its name servers in turn, so the longest a lookup can
+ * honestly take is one timeout per server: two servers at three seconds each
+ * was measured at 6.2 seconds. The page waits for all of them and the usual
+ * allowance on top, so that what it gives up on is silence from the station
+ * rather than patience the station was told to have.
+ */
+export function afterAsking(Timeouts: number[]): number {
+    return Timeouts.reduce((total, seconds) => total + seconds * 1000, 0) + answerWithin;
 }
 
 
@@ -395,32 +477,66 @@ export function onUnauthorized(handler: () => void): void {
 }
 
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/**
+ * One request to the station, with a deadline.
+ *
+ * The deadline covers reading the body as well as opening the connection: a
+ * station that sends its headers and then stops mid-answer hangs exactly as
+ * thoroughly as one that never starts.
+ *
+ * Exported so that the tests can drive it at a deadline short enough to be a
+ * test; everything the pages do goes through `api` below.
+ */
+export async function request<T>(method:  string,
+                                 path:    string,
+                                 body?:   unknown,
+                                 within:  number = method === 'GET' ? answerWithin : actWithin): Promise<T> {
 
     const headers: Record<string, string> = { 'Accept': 'application/json' };
 
     if (body !== undefined)
         headers['Content-Type'] = 'application/json';
 
-    // Same origin, so the session cookie travels with every request.
-    const response = await fetch(config.apiBase + path, {
-                               method,
-                               headers,
-                               credentials: 'same-origin',
-                               body: body !== undefined ? JSON.stringify(body) : undefined
-                           });
+    const giveUp = new AbortController();
+    const timer  = setTimeout(() => giveUp.abort(), within);
 
-    if (response.status === 401)
-        unauthorizedHandler?.();
+    let response:  Response;
+    let text:      string;
 
-    if (response.status === 204) {
-        // Nothing to read, but reading it lets the browser finish the request
-        // cleanly instead of aborting an unconsumed body.
-        await response.arrayBuffer();
-        return undefined as T;
+    try
+    {
+
+        // Same origin, so the session cookie travels with every request.
+        response = await fetch(config.apiBase + path, {
+                             method,
+                             headers,
+                             credentials: 'same-origin',
+                             signal:      giveUp.signal,
+                             body:        body !== undefined ? JSON.stringify(body) : undefined
+                         });
+
+        if (response.status === 401)
+            unauthorizedHandler?.();
+
+        if (response.status === 204) {
+            // Nothing to read, but reading it lets the browser finish the
+            // request cleanly instead of aborting an unconsumed body.
+            await response.arrayBuffer();
+            return undefined as T;
+        }
+
+        text = await response.text();
+
+    }
+    catch (problem)
+    {
+        throw nothingCameBack(problem, method, within, giveUp.signal.aborted);
+    }
+    finally
+    {
+        clearTimeout(timer);
     }
 
-    const text = await response.text();
     let json: unknown = null;
 
     try {
@@ -446,6 +562,48 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 
+/**
+ * What to say when nothing came back, in words somebody can act on.
+ *
+ * A read that runs out of time changed nothing, and can be told so. A write
+ * that runs out of time is the honest awkward case: the page stopped waiting,
+ * but the station may well have done the thing and been slow to say so, and
+ * telling somebody that it did not work would invite them to do it twice. So
+ * it says what is actually known - that the waiting stopped - and where to
+ * look for the rest.
+ */
+function nothingCameBack(Problem:  unknown,
+                         Method:   string,
+                         Within:   number,
+                         GaveUp:   boolean): unknown {
+
+    const seconds = Math.round(Within / 1000);
+
+    if (GaveUp)
+        return new NoAnswer(
+                   'ran out of time',
+                   Method === 'GET'
+                       ? `The station did not answer within ${seconds} seconds. ` +
+                         'It may be busy, restarting, or no longer reachable from here.'
+                       : `The station did not answer within ${seconds} seconds, so this page ` +
+                         'stopped waiting. It may still have carried this out - reload to see ' +
+                         'what it now says.'
+               );
+
+    // The browser's own word for this is "Failed to fetch", which on a page
+    // about a charging station names neither the station nor what to do next.
+    if (Problem instanceof TypeError)
+        return new NoAnswer(
+                   'could not be reached',
+                   'The station could not be reached. It may be switched off, restarting, ' +
+                   'or on the other side of a network that is down.'
+               );
+
+    return Problem;
+
+}
+
+
 export const api = {
 
     /** The Server-Sent Events stream; the browser sends the session cookie along. */
@@ -464,16 +622,32 @@ export const api = {
         get:   ()                    => request<DNSConfiguration>('GET', '/configuration/dns'),
         /** Only the fields given are changed; the answer is the whole configuration as it now stands. */
         save:  (update: DNSUpdate)   => request<DNSConfiguration>('PUT', '/configuration/dns', update),
-        /** Make the station look a name up. A POST because it sends traffic. */
-        query: (name: string, recordTypes: string[]) =>
-                   request<DNSQueryResult>('POST', '/configuration/dns/query', { name, recordTypes })
+        /**
+         * Make the station look a name up. A POST because it sends traffic.
+         *
+         * @param timeouts  what each name server is allowed, in seconds: the
+         *                  station tries them in turn, so their sum is the
+         *                  longest this can honestly take.
+         */
+        query: (name: string, recordTypes: string[], timeouts: number[]) =>
+                   request<DNSQueryResult>('POST', '/configuration/dns/query', { name, recordTypes },
+                                           afterAsking(timeouts))
     },
 
     nts: {
         get:   ()                    => request<NTSConfiguration>('GET', '/configuration/nts'),
         save:  (update: NTSUpdate)   => request<NTSConfiguration>('PUT', '/configuration/nts', update),
-        /** One key exchange and one authenticated NTP request, with every step in the log. */
-        sync:  ()                    => request<NTSConfiguration>('POST', '/configuration/nts/sync', {})
+        /**
+         * One key exchange and one authenticated NTP request, with every step
+         * in the log - two steps over the network, so two of the station's own
+         * timeouts before the page stops believing in it.
+         *
+         * @param timeoutSeconds  what the station allows each of the two steps.
+         */
+        sync:  (timeoutSeconds: number) => request<NTSConfiguration>(
+                                               'POST', '/configuration/nts/sync', {},
+                                               afterAsking([timeoutSeconds, timeoutSeconds])
+                                           )
     },
 
     display: {

@@ -6,6 +6,19 @@ import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey } from '../ui';
 
 /**
+ * What the NTS client allows itself when the station has not been told.
+ *
+ * The station's answer carries the timeout it was configured with, and null
+ * where it was configured with none - and it does not repeat what the client
+ * then falls back to, which is three seconds. This is only used to work out
+ * how long this page waits for "Sync now", and the page allows the station
+ * fifteen seconds on top of it, so being wrong here by a few seconds costs
+ * nothing at all.
+ */
+const theClientsOwnTimeout = 3;
+
+
+/**
  * Where this charging station reads the time.
  *
  * Pointing it at another server replaces the client rather than reconfiguring
@@ -334,7 +347,7 @@ export const ntsPage: Page = {
                 // The answer carries the whole configuration as well as the
                 // result, because an exchange moves the cookie pool and the
                 // record of the last key exchange that this page is showing.
-                current = await api.nts.sync();
+                current = await api.nts.sync(current?.settings.timeoutSeconds ?? theClientsOwnTimeout);
             }
             catch (problem)
             {
