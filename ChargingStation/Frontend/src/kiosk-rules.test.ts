@@ -16,13 +16,16 @@ import { describe, it }     from 'node:test';
 
 import { atMostMessages,
          bundleIn,
+         cableLimitWorthSaying,
          columnsFor,
          darkestDim,
          dimTo,
          driftAt,
          driftSteps,
          hasMoreToSay,
+         howTightlyToListCables,
          messagesToShow,
+         nameOfCable,
          qrCodeIsStillGood,
          whatIsHappening,
          type DisplayMessage } from './kiosk-rules.ts';
@@ -393,6 +396,85 @@ describe('what counts as something happening', () => {
         const free = () => ({ evses: [evse()], messages: [], timestamp: String(Math.random()) }) as never;
 
         assert.equal(whatIsHappening(free()), whatIsHappening(free()));
+
+    });
+
+});
+
+
+describe('what a bay says about its cables', () => {
+
+    it('calls a plug what is printed on it, not what OCPP calls it', () => {
+
+        // Measured on the screen: "cChaDeMo", "sType2Cable", "cGBT-DC". A
+        // display on the front of a charging station is read by the person
+        // holding the plug.
+        assert.equal(nameOfCable('cCCS2'),    'CCS');
+        assert.equal(nameOfCable('cChaDeMo'), 'CHAdeMO');
+        assert.equal(nameOfCable('sType2'),   'Type 2');
+        assert.equal(nameOfCable('cGBT-DC'),  'GB/T');
+        assert.equal(nameOfCable('cCCS1'),    'CCS 1');
+        assert.equal(nameOfCable('sCEE-7-7'), 'Schuko');
+
+    });
+
+    it('passes a plug it has never heard of through as it was written', () => {
+
+        // The configuration lets one be typed in on purpose, because a plug
+        // OCPP has not named is still a plug somebody can charge from - and a
+        // name somebody chose beats anything this table could make up.
+        assert.equal(nameOfCable('Kupplung Nord 3'), 'Kupplung Nord 3');
+        assert.equal(nameOfCable(''), '');
+
+    });
+
+    it('says what a cable can do only where it is not what the bay can do', () => {
+
+        // The card already carries "up to 150 kW". Saying it again on every
+        // chip says nothing and costs the width that decides how many fit on a
+        // row - which decides how much of the card is left for the code.
+        assert.equal(cableLimitWorthSaying(150, 150), false);
+        assert.equal(cableLimitWorthSaying(22,  22),  false);
+
+        // And a 22 kW socket on a 150 kW bay is the one thing somebody
+        // choosing between two cables has to know.
+        assert.equal(cableLimitWorthSaying(22,  150), true);
+        assert.equal(cableLimitWorthSaying(50,  150), true);
+
+    });
+
+    it('does not let a rounding difference count as a difference', () => {
+        assert.equal(cableLimitWorthSaying(22.0, 22.001), false);
+    });
+
+});
+
+
+describe('how much room the cables may take', () => {
+
+    it('lets a bay with one or two of them have all of it', () => {
+        assert.equal(howTightlyToListCables(1), 'roomy');
+        assert.equal(howTightlyToListCables(2), 'roomy');
+    });
+
+    it('takes room back as the list grows, because the code is what the card is for', () => {
+
+        // Measured at 1920x1080: eight cables listed at full size took four
+        // rows and left 166 px of code, against 414 px on the bay beside it.
+        assert.equal(howTightlyToListCables(3), 'tight');
+        assert.equal(howTightlyToListCables(5), 'tightest');
+        assert.equal(howTightlyToListCables(8), 'tightest');
+
+    });
+
+    it('never gives one more cable more room than one fewer', () => {
+
+        const roominess = { roomy: 3, tight: 2, tightest: 1 };
+
+        for (let count = 1; count < 16; count++)
+            assert.ok(roominess[howTightlyToListCables(count + 1)] <=
+                      roominess[howTightlyToListCables(count)],
+                      `${count + 1} cables were given more room than ${count}`);
 
     });
 

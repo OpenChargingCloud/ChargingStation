@@ -559,6 +559,30 @@ html, body.kiosk-body {
 
 }
 
+// A bay with several cables lists them all, and every row of chips comes off
+// the payment code: measured at 1920x1080, a bay with eight of them put its
+// cables on four rows and had 166 px of code left, against 414 px on the bay
+// beside it with two. The code is what the card is for, so the chips are what
+// gives way - not the code, and not a cable left unnamed.
+//
+// Which band a bay is in is decided in kiosk-rules.ts, where it can be asked
+// directly; here is only how much smaller each one is.
+.kiosk-connectors.tight .kiosk-connector {
+    padding:    0.35vmin 0.8vmin;
+    font-size:  max(9px, #{card(3.5)});
+}
+
+.kiosk-connectors.tightest .kiosk-connector {
+
+    padding:    0.25vmin 0.6vmin;
+    font-size:  max(8px, #{card(2.9)});
+
+    .kw {
+        margin-left: 0.35vmin;
+    }
+
+}
+
 // An outlet that is held says so and says for how long, and deliberately does
 // not say for whom: a display in a car park printing somebody's card number is
 // printing it for everybody walking past.

@@ -3,11 +3,14 @@ import qrcode from 'qrcode-generator';
 // What the page decides, as opposed to what it draws. Kept apart so it can be
 // asked directly - see kiosk-rules.test.ts.
 import { bundleIn,
+         cableLimitWorthSaying,
          columnsFor        as howManyColumns,
          dimTo,
          driftAt,
          hasMoreToSay,
+         howTightlyToListCables,
          messagesToShow    as whichMessagesToShow,
+         nameOfCable,
          qrCodeIsStillGood,
          whatIsHappening,
          type DisplayMessage } from './kiosk-rules';
@@ -854,9 +857,13 @@ function evseCard(EVSE: KioskEVSE) {
 
             ${power}
 
-            <div class="kiosk-connectors">
+            <div class="kiosk-connectors ${howTightlyToListCables(EVSE.connectors.length)}">
                 ${EVSE.connectors.map(connector => html`
-                    <span class="kiosk-connector">${connector.type} <span class="kw">${connector.maxPower_kW} kW</span></span>
+                    <span class="kiosk-connector">${nameOfCable(connector.type)}${
+                        cableLimitWorthSaying(connector.maxPower_kW, EVSE.maxPower_kW)
+                            ? html` <span class="kw">${connector.maxPower_kW} kW</span>`
+                            : ''
+                    }</span>
                 `)}
             </div>
 

@@ -301,3 +301,108 @@ export function dimTo(StationSaysDimTo:        number | null | undefined,
 
 /** The darkest the screen will go, whatever it is asked for. */
 export const darkestDim = 0.1;
+
+
+/**
+ * What a plug is called, to somebody holding one.
+ *
+ * OCPP 2.1 names them for machines - "cChaDeMo", "sType2Cable", "cGBT-DC" -
+ * and that is what the station is configured with and what it passes on. It is
+ * not what is printed on the plug in somebody's hand, and a display on the
+ * front of a charging station is read by people, not by back ends.
+ *
+ * Only the ones OCPP names itself are in here. The configuration deliberately
+ * lets a plug be typed in that OCPP has never heard of, and one of those is
+ * passed through exactly as written: a name somebody chose is a better guess
+ * than anything this table could make up.
+ *
+ * The names are the ones on the equipment, which are the same in every
+ * language the display speaks - so this is not part of the vocabulary. "Type
+ * 2" is stamped on the plug in Germany too.
+ */
+const cableNames = new Map<string, string>([
+
+    // Direct current
+    ['cCCS1',          'CCS 1'],
+    ['cCCS2',          'CCS'],
+    ['cChaDeMo',       'CHAdeMO'],
+    ['cChaoJi',        'ChaoJi'],
+    ['cUltraChaoJi',   'UltraChaoJi'],
+    ['cG105',          'CHAdeMO'],
+    ['cGBT-DC',        'GB/T'],
+    ['cMCS',           'MCS'],
+    ['cNACS',          'NACS'],
+    ['cTesla',         'Tesla'],
+    ['cType1',         'Type 1'],
+    ['cType2',         'Type 2'],
+
+    // Alternating current
+    ['sType2',         'Type 2'],
+    ['sType3',         'Type 3'],
+    ['sCEE-7-7',       'Schuko'],
+    ['sBS1361',        'BS 1363'],
+    ['s309-1P-16A',    'CEE 16 A'],
+    ['s309-1P-32A',    'CEE 32 A'],
+    ['s309-3P-16A',    'CEE 16 A, 3-phase'],
+    ['s309-3P-32A',    'CEE 32 A, 3-phase'],
+    ['Other1PhMax16A', 'Other, 1-phase'],
+    ['Other1PhOver16A','Other, 1-phase'],
+    ['Other3Ph',       'Other, 3-phase'],
+
+    // Neither
+    ['wInductive',     'Inductive'],
+    ['wResonant',      'Inductive'],
+    ['Pan',            'Pantograph']
+
+]);
+
+/**
+ * What to put on the chip for one cable.
+ *
+ * A type this table does not know is passed through as it stands, trimmed of
+ * nothing: the station was configured with it on purpose.
+ */
+export function nameOfCable(Type: string): string {
+    return cableNames.get(Type) ?? Type;
+}
+
+/**
+ * Whether a cable's own limit is worth saying next to it.
+ *
+ * The card already carries what the bay can do - "up to 150 kW" - and most
+ * cables on a bay can do exactly that. Repeating it on every chip says nothing
+ * and costs the width that decides how many chips fit on a row, which in turn
+ * decides how much of the card is left for the payment code.
+ *
+ * So it is said where it differs: a 22 kW socket on a 150 kW bay is the one
+ * thing somebody choosing between two cables needs to know.
+ */
+export function cableLimitWorthSaying(CableMax_kW: number,
+                                      BayMax_kW:   number): boolean {
+    return !(Math.abs(CableMax_kW - BayMax_kW) < 0.05);
+}
+
+
+/**
+ * How much room a bay's cables may take.
+ *
+ * Measured on a 1920x1080 screen: a bay with eight cables listed them on four
+ * rows, and every row came off the payment code - 166 px, against 414 px on
+ * the bay beside it with two. The code is what the card is for, and two codes
+ * of that different a size standing side by side is exactly what looks broken.
+ *
+ * A row of chips costs about 83 px of code at that size, so the list is held
+ * to two rows: the chips give way rather than the code. Nothing is dropped for
+ * it - every cable is still named.
+ */
+export function howTightlyToListCables(Count: number): 'roomy' | 'tight' | 'tightest' {
+
+    if (Count <= 2)
+        return 'roomy';
+
+    if (Count <= 4)
+        return 'tight';
+
+    return 'tightest';
+
+}
