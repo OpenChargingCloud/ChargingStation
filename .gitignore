@@ -8,3 +8,6 @@ ChargingStation/Frontend/dist/
 
 # The web login of a running station: a password hash, and nobody else's business
 web-login.json
+
+# What a test run leaves behind.
+TestResults/
