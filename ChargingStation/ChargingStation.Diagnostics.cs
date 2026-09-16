@@ -64,7 +64,59 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
-        #region ResolveAsync(Name, RecordTypes, CancellationToken = default)
+        #region (static) AsAQuestion(Text, out Name, out Says)
+
+        /// <summary>
+        /// What somebody typed, turned into something that can actually be
+        /// asked.
+        /// </summary>
+        /// <remarks>
+        /// An address is a perfectly reasonable thing to type into a box that
+        /// asks for a name, and it is nearly always a reverse lookup that was
+        /// meant - "who is 192.168.178.1". Asking for it as written would send
+        /// "192.168.178.1" out as a domain name and come back with nothing,
+        /// which looks like a broken resolver rather than a misunderstanding.
+        ///
+        /// So it is turned around here and said out loud: what came back names
+        /// the question that was actually asked, because a page that quietly
+        /// asked something else is worse than one that refused.
+        /// </remarks>
+        public static Boolean AsAQuestion(String                           Text,
+                                          out String                       Name,
+                                          out String?                      Says)
+        {
+
+            Name  = Text.Trim();
+            Says  = null;
+
+            if (!System.Net.IPAddress.TryParse(Name, out var address))
+                return false;
+
+            var bytes = address.GetAddressBytes();
+
+            Name = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+
+                       // Each nibble, lowest first, one label each (RFC 3596 section 2.5).
+                       // High nibble then low, so that reversing the whole
+                       // sequence puts the lowest nibble of the last byte
+                       // first - which is the order, and the one that is easy
+                       // to write backwards.
+                       ? String.Join(".", bytes.SelectMany(one => new[] { one >> 4, one & 0x0F }).
+                                                Reverse().
+                                                Select(nibble => nibble.ToString("x"))) + ".ip6.arpa"
+
+                       // Each octet, lowest first (RFC 1035 section 3.5).
+                       : String.Join(".", bytes.Reverse()) + ".in-addr.arpa";
+
+            Says = $"'{Text.Trim()}' is an address, so it was turned around and '{Name}' was asked for instead.";
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region ResolveAsync(Name, RecordTypes, Server = null, CancellationToken = default)
 
         /// <summary>
         /// Look a name up, and say what came back.
@@ -72,15 +124,27 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Name">The name to resolve.</param>
         /// <param name="RecordTypes">What to ask for; A and AAAA when nothing is said.</param>
         /// <param name="CancellationToken">A cancellation token.</param>
+        /// <param name="Server">
+        /// Which of the configured name servers to ask, by its place in the
+        /// list - or null for all of them, the way this station resolves
+        /// anything else.
+        /// </param>
         public async Task<JObject> ResolveAsync(String                                Name,
                                                 IEnumerable<DNSResourceRecordTypes>?  RecordTypes         = null,
+                                                Int32?                                Server              = null,
                                                 CancellationToken                     CancellationToken   = default)
         {
 
-            var name         = Name?.Trim() ?? "";
+            var typed        = Name?.Trim() ?? "";
+            var turnedAround = AsAQuestion(typed, out var name, out var saying);
+
             var recordTypes  = RecordTypes?.Distinct().ToArray() is { Length: > 0 } given
                                    ? given
-                                   : [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ];
+                                   // An address asked about by itself means
+                                   // "who is this", and that is a PTR.
+                                   : turnedAround
+                                         ? [ DNSResourceRecordTypes.PTR ]
+                                         : [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ];
 
             var asked        = String.Join(", ", recordTypes);
 
@@ -90,6 +154,27 @@ namespace cloud.charging.open.ChargingStation
                 return Failed(name, asked, "Name resolution is switched off on this charging station.");
             }
 
+            #region One server, or all of them
+
+            DNSServerConfig? only = null;
+
+            if (Server is Int32 which)
+            {
+
+                if (which < 0 || which >= configuredDNSServers.Count)
+                    return Failed(name, asked, $"This station has no name server number {which + 1}.");
+
+                only = configuredDNSServers[which];
+
+                if (only.IPAddress is null)
+                    return Failed(name, asked,
+                                  $"'{only}' is configured by name rather than by address, so it cannot be asked on its own " +
+                                   "without first resolving it - which is the thing being tested.");
+
+            }
+
+            #endregion
+
             if (!DNSServiceName.TryParse(name, out var serviceName, out var problem))
             {
                 Log.Warning($"DNS test: \"{name}\" is not a name that can be looked up: {problem}", "dns", "test");
@@ -97,7 +182,9 @@ namespace cloud.charging.open.ChargingStation
             }
 
             Log.Info(
-                $"DNS test: asking {configuredDNSServers.Count} server(s) for {asked} of '{serviceName}' ...",
+                only is null
+                    ? $"DNS test: asking {configuredDNSServers.Count} server(s) for {asked} of '{serviceName}' ..."
+                    : $"DNS test: asking {only} alone for {asked} of '{serviceName}' ...",
                 "dns", "test"
             );
 
@@ -106,10 +193,27 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
-                var answer   = await dnsClient.Query(
+                // A client of its own when one server is meant, and without a
+                // cache: an answer out of the cache says nothing about whether
+                // that server would have given it, which is the whole question
+                // being asked. Everything else is taken from the station's own
+                // client, so what is being tested is this station's settings
+                // and not a fresh set of defaults.
+                var asking   = only is null
+                                   ? dnsClient
+                                   : new DNSClient(
+                                         only.IPAddress!,
+                                         only.Port,
+                                         QueryTimeout:   only.QueryTimeout ?? dnsClient.QueryTimeout,
+                                         UseQueryCache:  false
+                                     );
+
+                var answer   = await asking.Query(
                                          serviceName,
                                          recordTypes,
-                                         CancellationToken: CancellationToken
+                                         RecursionDesired:   dnsClient.RecursionDesired,
+                                         ForceUpdate:        only is not null,
+                                         CancellationToken:  CancellationToken
                                      );
 
                 stopwatch.Stop();
@@ -128,6 +232,8 @@ namespace cloud.charging.open.ChargingStation
                 return new JObject(
 
                            new JProperty("name",          serviceName.ToString()),
+                           new JProperty("asked",         only?.ToString()),
+                           new JProperty("turnedAround",  saying),
                            new JProperty("recordTypes",   new JArray(recordTypes.Select(recordType => recordType.ToString()))),
                            new JProperty("ok",            answer.ResponseCode == DNSResponseCodes.NoError),
                            new JProperty("responseCode",  answer.ResponseCode.ToString()),

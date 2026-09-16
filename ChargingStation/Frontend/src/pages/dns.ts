@@ -1,6 +1,6 @@
 import { api, type DNSConfiguration, type DNSQueryResult, type DNSServer, type DNSUpdate } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render } from '../html';
+import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
@@ -120,6 +120,9 @@ export const dnsPage: Page = {
                                                   <option value="${transport}" ${transport === server.transport ? html`selected` : ''}>${transport}</option>
                                               `)}
                                           </select>
+                                          <button type="button" class="btn small" data-ask="${index}"
+                                                  title="Ask this server, and only this one"
+                                                  ${mayTest ? '' : html`disabled`}>Test</button>
                                           <button type="button" class="btn small danger" data-remove="${index}"
                                                   ${mayChange ? '' : html`disabled`}>Remove</button>
                                       </div>
@@ -192,84 +195,31 @@ export const dnsPage: Page = {
 
                     </section>
 
-                    <section class="card wide">
+                    <section class="card">
 
                         <h2><i class="fa-solid fa-vial"></i> Test</h2>
 
-                        <form id="query-form" class="query-form">
+                        <p class="hint">
+                            Ask for a name - or an address, which is turned around and asked as a reverse
+                            lookup. Every step is written to the log, so the Logs page of anybody watching
+                            shows it too.
+                        </p>
 
-                            <label>Name
-                                <input type="text" name="name" placeholder="example.org" required
-                                       value="${testName}" ${mayTest ? '' : html`disabled`} />
-                            </label>
+                        <div class="form-actions">
+                            <button type="button" class="btn primary" id="look-up" ${mayTest ? '' : html`disabled`}>
+                                Look something up
+                            </button>
+                        </div>
 
-                            <div class="record-types">
-                                <span class="k">Record types</span>
-                                <div class="chips" id="record-types">
-                                    ${configuration.limits.recordTypes.map(recordType => html`
-                                        <button type="button" class="chip tag-button ${testTypes.includes(recordType) ? 'on' : ''}"
-                                                data-type="${recordType}" aria-pressed="${testTypes.includes(recordType)}"
-                                                ${mayTest ? '' : html`disabled`}>${recordType}</button>
-                                    `)}
-                                </div>
-                            </div>
-
-                            <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayTest && !testing ? '' : html`disabled`}>
-                                    ${testing ? 'Asking ...' : 'Look it up'}
-                                </button>
-                                <span id="query-error" class="form-error" role="alert"></span>
-                            </div>
-
-                            <span class="hint">
-                                ${mayTest
-                                      ? html`Every step is written to the log, so the Logs page of anybody watching shows it too.`
-                                      : html`Running a query needs the CPO, the installer or the system administrator role.`}
-                            </span>
-
-                        </form>
-
-                        ${result === null ? '' : html`
-                            <div class="query-result ${result.ok ? 'ok' : 'bad'}">
-
-                                <div class="kv-list">
-                                    <div class="kv"><span class="k">Name</span><span class="v">${result.name}</span></div>
-                                    <div class="kv"><span class="k">Asked for</span><span class="v">${result.recordTypes.join(', ')}</span></div>
-                                    ${result.error
-                                          ? html`<div class="kv"><span class="k">Error</span><span class="v">${result.error}</span></div>`
-                                          : html`
-                                              <div class="kv"><span class="k">Response code</span><span class="v">${result.responseCode ?? '-'}</span></div>
-                                              <div class="kv"><span class="k">Answered by</span><span class="v">${result.server ?? '-'}</span></div>
-                                              <div class="kv"><span class="k">Took</span><span class="v">${result.runtime_ms ?? '-'} ms</span></div>
-                                              ${result.dnssec ? html`<div class="kv"><span class="k">DNSSEC</span><span class="v">${result.dnssec}</span></div>` : ''}
-                                          `}
-                                </div>
-
-                                ${result.answers.length === 0
-                                      ? html`<p class="muted small">No records came back.</p>`
-                                      : html`
-                                          <div class="table-scroll">
-                                              <table class="records">
-                                                  <thead>
-                                                      <tr><th>Name</th><th>Type</th><th>TTL</th><th>Value</th></tr>
-                                                  </thead>
-                                                  <tbody>
-                                                      ${result.answers.map(record => html`
-                                                          <tr>
-                                                              <td>${record.name}</td>
-                                                              <td>${record.type}</td>
-                                                              <td>${record.timeToLive}s</td>
-                                                              <td class="value">${record.value}</td>
-                                                          </tr>
-                                                      `)}
-                                                  </tbody>
-                                              </table>
-                                          </div>
-                                          ${result.more ? html`<p class="muted small">and ${result.more} more.</p>` : ''}
-                                      `}
-
-                            </div>
-                        `}
+                        <p class="hint">
+                            ${mayTest
+                                  ? html`
+                                        This asks the way the station asks for anything: the servers above, in
+                                        turn, until one answers. To find out what one particular server says,
+                                        use the button on its own row.
+                                    `
+                                  : html`Running a query needs the CPO, the installer or the system administrator role.`}
+                        </p>
 
                     </section>
 
@@ -367,36 +317,15 @@ export const dnsPage: Page = {
 
             });
 
-            const types = must<HTMLElement>(content, '#record-types');
+            must<HTMLButtonElement>(content, '#look-up').addEventListener('click', () => lookUp(null));
 
-            types.addEventListener('click', event => {
+            list.addEventListener('click', event => {
 
-                const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-type]');
+                const asking = (event.target as HTMLElement).closest<HTMLElement>('[data-ask]');
 
-                if (chip) {
+                if (asking && !(asking as HTMLButtonElement).disabled)
+                    lookUp(Number(asking.dataset.ask));
 
-                    const on   = chip.classList.toggle('on');
-                    const type = chip.dataset.type!;
-
-                    chip.setAttribute('aria-pressed', String(on));
-
-                    testTypes = on
-                                    ? [...testTypes, type]
-                                    : testTypes.filter(other => other !== type);
-
-                }
-
-            });
-
-            // Remembered as it is typed, so that the redraw below keeps it.
-            must<HTMLInputElement>(content, '#query-form input[name="name"]').
-                addEventListener('input', event => {
-                    testName = (event.target as HTMLInputElement).value;
-                });
-
-            must<HTMLFormElement>(content, '#query-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void runQuery(event.target as HTMLFormElement);
             });
 
         }
@@ -439,41 +368,262 @@ export const dnsPage: Page = {
          * quiet, never the patience the station was configured with.
          */
         function whatTheServersAreAllowed(): number[] {
-            return (current?.servers ?? []).map(server => server.queryTimeoutSeconds ??
-                                                          current?.settings.queryTimeoutSeconds ?? 0);
+            return (current?.servers ?? []).map((_, index) => whatOneServerIsAllowed(index));
+        }
+
+        /**
+         * The longest one server can honestly take, in seconds.
+         *
+         * Its timeout times the number of attempts, and the attempts are the
+         * part that is easy to forget: measured against a name server that
+         * does not answer at all, a query with a ten second timeout came back
+         * after twenty, because the station tries again. A deadline of ten
+         * would have given up on a station that was still doing what it was
+         * told.
+         */
+        function whatOneServerIsAllowed(index: number): number {
+
+            const timeout = current?.servers[index]?.queryTimeoutSeconds ??
+                            current?.settings.queryTimeoutSeconds ?? 0;
+
+            return timeout * ((current?.settings.maxRetries ?? 0) + 1);
+
         }
 
 
-        async function runQuery(form: HTMLFormElement): Promise<void> {
+        /**
+         * What came back, as it was shown on the page before this moved into a
+         * dialog.
+         *
+         * A function rather than a block inside the dialog, because it is the
+         * one part of this that is worth reading on its own: it is what
+         * somebody actually looks at, and the dialog around it is plumbing.
+         */
+        function resultView(result: DNSQueryResult): HTMLFragment {
 
-            const error = must<HTMLElement>(content, '#query-error');
+            return html`
+                <div class="query-result ${result.ok ? 'ok' : 'bad'}">
 
-            testName          = String(new FormData(form).get('name') ?? '').trim();
-            error.textContent = '';
+                    ${result.turnedAround ? html`<div class="notice">${result.turnedAround}</div>` : ''}
 
-            if (testName.length === 0) {
-                error.textContent = 'A name is needed.';
+                    <div class="kv-list">
+                        <div class="kv"><span class="k">Asked for</span><span class="v">${result.name}</span></div>
+                        <div class="kv"><span class="k">Record types</span><span class="v">${result.recordTypes.join(', ')}</span></div>
+                        ${result.asked
+                              ? html`<div class="kv"><span class="k">Asked of</span><span class="v">${result.asked}</span></div>`
+                              : ''}
+                        ${result.error
+                              ? html`<div class="kv"><span class="k">Error</span><span class="v">${result.error}</span></div>`
+                              : html`
+                                  <div class="kv"><span class="k">Response code</span><span class="v">${result.responseCode ?? '-'}</span></div>
+                                  <div class="kv"><span class="k">Answered by</span><span class="v">${result.server ?? '-'}</span></div>
+                                  <div class="kv"><span class="k">Took</span><span class="v">${result.runtime_ms ?? '-'} ms</span></div>
+                                  ${result.dnssec ? html`<div class="kv"><span class="k">DNSSEC</span><span class="v">${result.dnssec}</span></div>` : ''}
+                              `}
+                    </div>
+
+                    ${result.answers.length === 0
+                          ? html`<p class="muted small">No records came back.</p>`
+                          : html`
+                              <div class="table-scroll">
+                                  <table class="records">
+                                      <thead>
+                                          <tr><th>Name</th><th>Type</th><th>TTL</th><th>Value</th></tr>
+                                      </thead>
+                                      <tbody>
+                                          ${result.answers.map(record => html`
+                                              <tr>
+                                                  <td>${record.name}</td>
+                                                  <td>${record.type}</td>
+                                                  <td>${record.timeToLive}s</td>
+                                                  <td class="value">${record.value}</td>
+                                              </tr>
+                                          `)}
+                                      </tbody>
+                                  </table>
+                              </div>
+                              ${result.more ? html`<p class="muted small">and ${result.more} more.</p>` : ''}
+                          `}
+
+                </div>
+            `;
+
+        }
+
+        /**
+         * The lookup dialog, for all the servers at once or for one of them.
+         *
+         * A dialog rather than a card on the page, because a lookup is a
+         * question somebody asks several times in a row with small changes -
+         * another type, another name, the next server - and each answer is a
+         * table. On the page that pushed the settings out of sight every time;
+         * here the settings stay where they were and the answers replace each
+         * other in one place.
+         *
+         * @param server  the place in the list of the one server to ask, or
+         *                null to ask the way the station asks for anything.
+         */
+        function lookUp(server: number | null): void {
+
+            if (current === null)
                 return;
-            }
 
-            testing = true;
-            draw();
+            const configuration = current;
+            const asking        = server === null ? null : servers[server];
 
-            try
-            {
-                result = await api.dns.query(testName, testTypes, whatTheServersAreAllowed());
-            }
-            catch (problem)
-            {
-                result = null;
-                testing = false;
-                draw();
-                must<HTMLElement>(content, '#query-error').textContent = errorMessage(problem);
+            if (server !== null && asking === undefined)
                 return;
+
+            const dialog = document.createElement('dialog');
+
+            dialog.className = 'test-dialog';
+
+            document.body.appendChild(dialog);
+
+            /** Shut it and take it away - see the connections page for why both. */
+            const dismiss = (): void => { dialog.close(); dialog.remove(); };
+
+            let asked: DNSQueryResult | null = null;
+            let busy = false;
+
+            function paint(): void {
+
+                render(dialog, html`
+
+                    <h2><i class="fa-solid fa-vial"></i> Look something up</h2>
+
+                    <p class="hint">
+                        ${asking === null
+                              ? html`
+                                    Asked the way this station asks for anything: the configured servers, in
+                                    turn, until one answers.
+                                `
+                              : html`
+                                    Asked of <code>${asking.address.includes(':')
+                                                          ? `[${asking.address}]:${asking.port}`
+                                                          : `${asking.address}:${asking.port}`}</code> over
+                                    ${asking.transport} and of nothing else, and without the cache - an
+                                    answer somebody else already fetched says nothing about this server.
+                                    One that does not answer at all takes
+                                    ${whatOneServerIsAllowed(server!)} seconds to say so.
+                                `}
+                    </p>
+
+                    <form id="query-form" class="form-stack">
+
+                        <label>Name or address
+                            <input type="text" name="name" placeholder="example.org" value="${testName}"
+                                   ${busy ? html`disabled` : ''} />
+                            <span class="hint">
+                                An address is turned around and asked as a reverse lookup, which is what
+                                somebody typing one into this box means.
+                            </span>
+                        </label>
+
+                        <div class="record-types">
+                            <span class="k">Record types</span>
+                            <div class="chips" id="record-types">
+                                ${configuration.limits.recordTypes.map((recordType: string) => html`
+                                    <button type="button" class="chip tag-button ${testTypes.includes(recordType) ? 'on' : ''}"
+                                            data-type="${recordType}" aria-pressed="${testTypes.includes(recordType)}"
+                                            ${busy ? html`disabled` : ''}>${recordType}</button>
+                                `)}
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn primary" ${busy ? html`disabled` : ''}>
+                                ${busy ? 'Asking ...' : 'Ask'}
+                            </button>
+                            <button type="button" class="btn" id="query-close">Close</button>
+                            <span id="query-error" class="form-error" role="alert"></span>
+                        </div>
+
+                    </form>
+
+                    ${asked === null ? '' : resultView(asked)}
+
+                `);
+
+                must<HTMLElement>(dialog, '#record-types').addEventListener('click', event => {
+
+                    const chip = (event.target as HTMLElement).closest<HTMLElement>('[data-type]');
+
+                    if (chip && !(chip as HTMLButtonElement).disabled) {
+
+                        const on   = chip.classList.toggle('on');
+                        const type = chip.dataset.type!;
+
+                        chip.setAttribute('aria-pressed', String(on));
+
+                        testTypes = on
+                                        ? [...testTypes, type]
+                                        : testTypes.filter(other => other !== type);
+
+                    }
+
+                });
+
+                must<HTMLInputElement>(dialog, 'input[name="name"]').
+                    addEventListener('input', event => {
+                        testName = (event.target as HTMLInputElement).value;
+                    });
+
+                must<HTMLButtonElement>(dialog, '#query-close').addEventListener('click', dismiss);
+
+                must<HTMLFormElement>(dialog, '#query-form').addEventListener('submit', event => {
+                    event.preventDefault();
+                    void ask();
+                });
+
             }
 
-            testing = false;
-            draw();
+            async function ask(): Promise<void> {
+
+                testName = must<HTMLInputElement>(dialog, 'input[name="name"]').value.trim();
+
+                if (testName.length === 0) {
+                    must<HTMLElement>(dialog, '#query-error').textContent = 'A name or an address is needed.';
+                    return;
+                }
+
+                busy = true;
+                paint();
+
+                try
+                {
+                    // One server means one server's patience, not every
+                    // server's added up: waiting two minutes for a question
+                    // that was only ever put to one of them is a page that
+                    // looks broken.
+                    asked = await api.dns.query(testName,
+                                                testTypes,
+                                                server === null
+                                                    ? whatTheServersAreAllowed()
+                                                    : [ whatOneServerIsAllowed(server) ],
+                                                server ?? undefined);
+                }
+                catch (problem)
+                {
+                    asked = null;
+                    busy  = false;
+                    paint();
+                    must<HTMLElement>(dialog, '#query-error').textContent = errorMessage(problem);
+                    return;
+                }
+
+                busy = false;
+                paint();
+
+            }
+
+            dialog.addEventListener('close',  dismiss);
+            dialog.addEventListener('cancel', dismiss);
+
+            paint();
+            dialog.showModal();
+
+            must<HTMLInputElement>(dialog, 'input[name="name"]').focus();
 
         }
 

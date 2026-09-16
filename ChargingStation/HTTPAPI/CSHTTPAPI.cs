@@ -478,7 +478,10 @@ namespace cloud.charging.open.ChargingStation
             return JSONResponse(
                        Request,
                        HTTPStatusCode.OK,
-                       await Station.ResolveAsync(name, recordTypes, Request.CancellationToken)
+                       await Station.ResolveAsync(name,
+                                                  recordTypes,
+                                                  json.Value<Int32?>("server"),
+                                                  Request.CancellationToken)
                    );
 
         }

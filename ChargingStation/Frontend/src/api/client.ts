@@ -146,6 +146,10 @@ export interface DNSRecord {
 /** What a test query brought back. */
 export interface DNSQueryResult {
     name:           string;
+    /** Which single name server was asked, or null when all of them were. */
+    asked?:         string | null;
+    /** Set when an address was typed and a reverse name was asked for instead. */
+    turnedAround?:  string | null;
     recordTypes:    string[];
     ok:             boolean;
     error?:         string;
@@ -807,8 +811,13 @@ export const api = {
          *                  station tries them in turn, so their sum is the
          *                  longest this can honestly take.
          */
-        query: (name: string, recordTypes: string[], timeouts: number[]) =>
-                   request<DNSQueryResult>('POST', '/configuration/dns/query', { name, recordTypes },
+        /**
+         * @param server  which configured name server to ask, by its place in
+         *                the list - or undefined to resolve the way the station
+         *                resolves anything else, trying them in turn.
+         */
+        query: (name: string, recordTypes: string[], timeouts: number[], server?: number) =>
+                   request<DNSQueryResult>('POST', '/configuration/dns/query', { name, recordTypes, server },
                                            afterAsking(timeouts))
     },
 
