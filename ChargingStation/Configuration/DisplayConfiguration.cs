@@ -77,6 +77,19 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public const Double  DefaultDimTo   = 0.3;
 
+        /// <summary>
+        /// The same number for a reader, written the way this file writes
+        /// English rather than the way the machine's region does.
+        /// </summary>
+        /// <remarks>
+        /// Interpolating a Double picks up the current culture, so a station
+        /// running in Germany answered "must be between 0,1 and 1" to an API
+        /// whose every other word is English. What a caller parses should not
+        /// depend on where the station stands.
+        /// </remarks>
+        private static String Darkest
+            => DarkestDimTo.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
         #endregion
 
         #region Properties
@@ -172,7 +185,7 @@ namespace cloud.charging.open.ChargingStation
 
                 if (token.Type != JTokenType.Float && token.Type != JTokenType.Integer)
                 {
-                    Error = $"'{SectionName}.dimTo' must be a number between {DarkestDimTo} and 1.";
+                    Error = $"'{SectionName}.dimTo' must be a number between {Darkest} and 1.";
                     return false;
                 }
 
@@ -180,7 +193,7 @@ namespace cloud.charging.open.ChargingStation
 
                 if (value < DarkestDimTo || value > 1)
                 {
-                    Error = $"'{SectionName}.dimTo' must be between {DarkestDimTo} and 1 - " +
+                    Error = $"'{SectionName}.dimTo' must be between {Darkest} and 1 - " +
                             "a display that goes dark is one nobody can tell from a broken one.";
                     return false;
                 }

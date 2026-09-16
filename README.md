@@ -497,6 +497,19 @@ the same panel the picture is kept walking across to save.
 
     "display": { "dimFrom": "22:00", "dimUntil": "06:00", "dimTo": 0.3 }
 
+There is a page for it - **Configuration - Display** - at the same permission as
+taking an outlet out of general use and as putting a line on the screen: all
+three are statements about how this station presents itself to the people at it,
+and none of them touches what the equipment is or what it may deliver. Which
+hours are quiet is a fact about the site, and whoever runs the site is who knows
+it, so it is the operator's and not the installer's.
+
+It is saved as a whole and takes effect at the display's next poll, two seconds
+later, with nothing restarted and nothing told: the answer the display reads is
+worked out from the configuration whenever it asks. The page says whether it is
+one of those hours at this moment, so that somebody setting them can see what
+they have just done without walking round to the front of the station.
+
 Which hours are quiet is a fact about the site and not about charging stations -
 a motorway service area has none, a courtyard between flats has them from ten -
 so the station is told rather than guessing, and a station nobody has told does

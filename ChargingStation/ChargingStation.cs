@@ -129,7 +129,6 @@ namespace cloud.charging.open.ChargingStation
         private readonly  HTTPServer?                          kioskServer;
 
         private readonly  WebPaymentsConfiguration?            webPayments;
-        private readonly  DisplayConfiguration?                displayConfig;
 
         /// <summary>
         /// When this station last managed to check its clock, what it found,
@@ -212,6 +211,17 @@ namespace cloud.charging.open.ChargingStation
         /// smart charging arrives it is the number it starts from.
         /// </remarks>
         public Decimal?               UplinkPowerLimit_kW    { get; private set; }
+
+        /// <summary>
+        /// The quiet hours the screen on the front of this station keeps.
+        /// </summary>
+        /// <remarks>
+        /// Never null, so that nothing has to ask twice whether this station has
+        /// a display section before asking what it says: a station nobody has
+        /// told simply has no quiet hours, which is the honest default - a
+        /// screen that went dark on its own would be read as a fault.
+        /// </remarks>
+        public DisplayConfiguration   Display                { get; private set; }
 
         /// <summary>
         /// The calibration certificates this station runs under.
@@ -573,14 +583,14 @@ namespace cloud.charging.open.ChargingStation
                     "kiosk", "config"
                 );
 
-            this.webPayments    = configuration?.WebPayments;
-            this.displayConfig  = configuration?.Display;
+            this.webPayments  = configuration?.WebPayments;
+            this.Display      = configuration?.Display ?? new DisplayConfiguration();
 
             // this.Log, not Log: inside this constructor the bare name is the
             // parameter of the same name, which is null unless somebody handed
             // one in - which is why every other line here says this.Log too.
-            if (displayConfig?.DimsAtNight == true)
-                this.Log.Info($"The display is {displayConfig}.", "kiosk", "config");
+            if (Display.DimsAtNight)
+                this.Log.Info($"The display is {Display}.", "kiosk", "config");
 
             #endregion
 

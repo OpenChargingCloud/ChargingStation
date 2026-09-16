@@ -274,6 +274,27 @@ export interface PowerConfiguration {
     file:                 string;
 }
 
+/**
+ * When the screen on the front of the station is dim, and how dim.
+ *
+ * Both ends of the window or neither: one end is not a window. Times are
+ * written the way a person writes them - "22:00" - in the station's own local
+ * time, and a window that crosses midnight is the ordinary case rather than a
+ * special one.
+ */
+export interface DisplayConfiguration {
+    /** When the quiet hours begin, or null when this station keeps none. */
+    dimFrom:    string | null;
+    /** When they end. Earlier than dimFrom means they cross midnight. */
+    dimUntil:   string | null;
+    /** How bright the screen is while nothing is happening, or null for the default. */
+    dimTo:      number | null;
+    /** Whether it is one of them at this moment, as the station reckons it. */
+    quietNow:   boolean;
+    limits:     { darkestDimTo: number; defaultDimTo: number };
+    file:       string;
+}
+
 /** What a PUT to the power configuration carries; null takes the limit away. */
 export interface PowerUpdate {
     uplinkPowerLimit_kW:  number | null;
@@ -453,6 +474,13 @@ export const api = {
         save:  (update: NTSUpdate)   => request<NTSConfiguration>('PUT', '/configuration/nts', update),
         /** One key exchange and one authenticated NTP request, with every step in the log. */
         sync:  ()                    => request<NTSConfiguration>('POST', '/configuration/nts/sync', {})
+    },
+
+    display: {
+        get:   ()                              => request<DisplayConfiguration>('GET', '/configuration/display'),
+        // The whole section at once, because its fields are not independent -
+        // and an empty object is how dimming is turned off.
+        save:  (update: Partial<DisplayConfiguration>) => request<DisplayConfiguration>('PUT', '/configuration/display', update)
     },
 
     power: {

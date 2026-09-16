@@ -511,6 +511,91 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region DisplayConfigurationJSON() / TryUpdateDisplayConfiguration(JSON, out Error)
+
+        /// <summary>
+        /// The quiet hours the display keeps, as the web interface reads them.
+        /// </summary>
+        public JObject DisplayConfigurationJSON()
+
+            => new (
+
+                   new JProperty("dimFrom",   Display.DimFrom?.ToString("HH\\:mm")),
+                   new JProperty("dimUntil",  Display.DimUntil?.ToString("HH\\:mm")),
+                   new JProperty("dimTo",     Display.DimTo),
+
+                   // Whether it is one of them right now, so that somebody
+                   // setting the hours can see what they have just done without
+                   // walking round to the front of the station.
+                   new JProperty("quietNow",  Display.IsAQuietHour(TimeProvider.GetUtcNow())),
+
+                   new JProperty("limits",    new JObject(
+                                                  new JProperty("darkestDimTo",  DisplayConfiguration.DarkestDimTo),
+                                                  new JProperty("defaultDimTo",  DisplayConfiguration.DefaultDimTo)
+                                              )),
+
+                   new JProperty("file",      ConfigFile.Path)
+
+               );
+
+        /// <summary>
+        /// Change the quiet hours the display keeps.
+        /// </summary>
+        /// <remarks>
+        /// The whole section at once rather than a field at a time, because its
+        /// fields are not independent: one end of a window is not a window, and
+        /// a level without hours is a number with nothing to apply it to. An
+        /// empty object is therefore how dimming is turned off - a file with no
+        /// opinion, and a display at full brightness around the clock.
+        ///
+        /// It takes effect at the display's next poll, which is two seconds
+        /// away. Nothing has to be restarted and nothing has to be told: the
+        /// answer the display reads is worked out from this whenever it asks.
+        /// </remarks>
+        public Boolean TryUpdateDisplayConfiguration(JObject                           JSON,
+                                                     [NotNullWhen(false)] out String?  Error)
+        {
+
+            if (!DisplayConfiguration.TryParse(JSON, out var wanted, out Error))
+                return false;
+
+            reconfigureLock.Wait();
+
+            try
+            {
+
+                if (wanted == Display)
+                    return true;
+
+                if (!ConfigFile.TryReplaceSection(
+                         DisplayConfiguration.SectionName,
+                         wanted.ToJSON(),
+                         out Error))
+                {
+                    return false;
+                }
+
+                Display = wanted;
+
+                Log.Notice(
+                    wanted.DimsAtNight
+                        ? $"The display is now {wanted}."
+                        : "The display is now at full brightness around the clock.",
+                    "kiosk", "config"
+                );
+
+                return true;
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
         #region TryUpdatePowerConfiguration(JSON, out Error)
 
         /// <summary>

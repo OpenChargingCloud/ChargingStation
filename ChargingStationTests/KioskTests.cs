@@ -471,6 +471,175 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region The quiet hours
+
+        /// <summary>
+        /// One local moment, whatever zone this test is being run in.
+        /// </summary>
+        private static DateTimeOffset LocallyAt(Int32 Hour, Int32 Minute)
+        {
+
+            var when = new DateTime(2026, 3, 1, Hour, Minute, 0, DateTimeKind.Unspecified);
+
+            return new DateTimeOffset(when, TimeZoneInfo.Local.GetUtcOffset(when));
+
+        }
+
+        /// <summary>
+        /// Ten at night until six is one window, not two.
+        /// </summary>
+        /// <remarks>
+        /// The ordinary case and the one an interval written the obvious way
+        /// gets wrong: "after ten and before six" is true of no moment at all.
+        /// </remarks>
+        [Test]
+        public void QuietHoursThatCrossMidnightAreOneWindow()
+        {
+
+            var night = new DisplayConfiguration(new TimeOnly(22, 0), new TimeOnly(6, 0), 0.3);
+
+            Assert.Multiple(() => {
+
+                Assert.That(night.IsAQuietHour(LocallyAt(23, 30)), Is.True,  "half past eleven at night is not a quiet hour");
+                Assert.That(night.IsAQuietHour(LocallyAt( 3,  0)), Is.True,  "three in the morning is not a quiet hour");
+                Assert.That(night.IsAQuietHour(LocallyAt(22,  0)), Is.True,  "the hours do not start when they say they do");
+
+                Assert.That(night.IsAQuietHour(LocallyAt( 6,  0)), Is.False, "the hours do not end when they say they do");
+                Assert.That(night.IsAQuietHour(LocallyAt(12,  0)), Is.False, "midday is a quiet hour");
+                Assert.That(night.IsAQuietHour(LocallyAt(21, 59)), Is.False, "the hours start a minute early");
+
+            });
+
+        }
+
+        /// <summary>
+        /// And a window inside one day is still a window.
+        /// </summary>
+        [Test]
+        public void QuietHoursInsideOneDayAreTheSameWindow()
+        {
+
+            var siesta = new DisplayConfiguration(new TimeOnly(13, 0), new TimeOnly(15, 0), 0.3);
+
+            Assert.Multiple(() => {
+                Assert.That(siesta.IsAQuietHour(LocallyAt(14, 0)), Is.True);
+                Assert.That(siesta.IsAQuietHour(LocallyAt( 3, 0)), Is.False);
+                Assert.That(siesta.IsAQuietHour(LocallyAt(23, 0)), Is.False);
+            });
+
+        }
+
+        /// <summary>
+        /// A station nobody has told keeps its screen up.
+        /// </summary>
+        /// <remarks>
+        /// Which hours are quiet is a fact about the site. A screen that went
+        /// dark on its own would be read as a fault, so not being told is not
+        /// an invitation to guess - and neither is being told only half of it.
+        /// </remarks>
+        [Test]
+        public void AStationNobodyHasToldDoesNotDim()
+        {
+
+            Assert.Multiple(() => {
+
+                Assert.That(new DisplayConfiguration().IsAQuietHour(LocallyAt(3, 0)), Is.False);
+
+                Assert.That(new DisplayConfiguration(new TimeOnly(22, 0), null, 0.3).IsAQuietHour(LocallyAt(23, 0)),
+                            Is.False,
+                            "half a window dimmed the screen");
+
+                // "From ten until ten" is far more likely to be a mistake than
+                // a request for a screen that is dim for ever.
+                Assert.That(new DisplayConfiguration(new TimeOnly(22, 0), new TimeOnly(22, 0), 0.3).IsAQuietHour(LocallyAt(3, 0)),
+                            Is.False,
+                            "a window with no width dimmed the screen for ever");
+
+            });
+
+            // And the display is told so.
+            Assert.That(WhatTheDisplayShows()["dim"]?.Type, Is.EqualTo(JTokenType.Null),
+                        "a station with no quiet hours asked its display to dim.");
+
+        }
+
+        /// <summary>
+        /// The hours can be changed while the station stands there.
+        /// </summary>
+        /// <remarks>
+        /// It takes effect at the display's next poll, two seconds away: the
+        /// answer is worked out from the configuration whenever it is asked
+        /// for, so there is nothing to restart and nothing to tell.
+        /// </remarks>
+        [Test]
+        public async Task TheHoursCanBeChangedWithoutRestartingAnything()
+        {
+
+            using var signedIn = await SignedIn();
+
+            // A window around whatever moment this test is running at.
+            var now   = DateTime.Now;
+            var from  = now.AddMinutes(-30).ToString("HH\\:mm");
+            var until = now.AddMinutes( 30).ToString("HH\\:mm");
+
+            var response = await signedIn.PutAsync(
+                                     "/api/v1/configuration/display",
+                                     JSONBody(
+                                         new JProperty("dimFrom",   from),
+                                         new JProperty("dimUntil",  until),
+                                         new JProperty("dimTo",     0.2)
+                                     )
+                                 );
+
+            Assert.That(response.IsSuccessStatusCode, Is.True,
+                        $"Setting the display's hours answered {(Int32) response.StatusCode}.");
+
+            Assert.That(WhatTheDisplayShows().Value<Double?>("dim"), Is.EqualTo(0.2),
+                        "The display was not told about hours that had just been set.");
+
+            // And taking them away again is an empty section.
+            var off = await signedIn.PutAsync("/api/v1/configuration/display", JSONBody());
+
+            Assert.That(off.IsSuccessStatusCode, Is.True);
+
+            Assert.That(WhatTheDisplayShows()["dim"]?.Type, Is.EqualTo(JTokenType.Null),
+                        "The display was still being asked to dim after the hours were taken away.");
+
+        }
+
+        /// <summary>
+        /// Nobody may darken the screen from outside, and nobody may do it
+        /// without signing in.
+        /// </summary>
+        [Test]
+        public async Task ChangingTheHoursNeedsASignIn()
+        {
+
+            using var anonymous = Anonymous();
+
+            var refused = await anonymous.PutAsync(
+                                    "/api/v1/configuration/display",
+                                    JSONBody(new JProperty("dimFrom",  "22:00"),
+                                             new JProperty("dimUntil", "06:00"))
+                                );
+
+            Assert.That(refused.IsSuccessStatusCode, Is.False, "Anybody could dim the display.");
+
+            using var atTheDisplay = AtTheDisplay();
+
+            var onItsOwnPort = await atTheDisplay.PutAsync(
+                                         "/api/v1/configuration/display",
+                                         JSONBody(new JProperty("dimFrom",  "22:00"),
+                                                  new JProperty("dimUntil", "06:00"))
+                                     );
+
+            Assert.That(onItsOwnPort.IsSuccessStatusCode, Is.False,
+                        "The display's own server would change the station's configuration.");
+
+        }
+
+        #endregion
+
         #region The other end of the QR code
 
         /// <summary>

@@ -171,8 +171,8 @@ namespace cloud.charging.open.ChargingStation
                        // dark the screen goes while nothing is happening. Only
                        // that: the display wakes for anybody who comes near it,
                        // and only the display knows that somebody has.
-                       new JProperty("dim",          displayConfig?.IsAQuietHour(now) == true
-                                                         ? displayConfig.HowDim
+                       new JProperty("dim",          Display.IsAQuietHour(now)
+                                                         ? Display.HowDim
                                                          : null)
 
                    );

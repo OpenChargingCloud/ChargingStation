@@ -14,6 +14,7 @@ import { configurationPage } from './pages/configuration';
 import { dnsPage }           from './pages/dns';
 import { calibrationPage }   from './pages/calibration';
 import { evsesPage }         from './pages/evses';
+import { displayPage }       from './pages/display';
 import { powerPage }         from './pages/power';
 import { rfidPage }          from './pages/rfid';
 import { ntsPage }           from './pages/nts';
@@ -40,6 +41,7 @@ const router = new Router({
         { path: '/configuration/dns',   page: dnsPage,       guard: auth.requireSignIn },
         { path: '/configuration/nts',   page: ntsPage,       guard: auth.requireSignIn },
         { path: '/configuration/power', page: powerPage,     guard: auth.requireSignIn },
+        { path: '/configuration/display', page: displayPage, guard: auth.requireSignIn },
         { path: '/configuration/evses', page: evsesPage,     guard: auth.requireSignIn },
         { path: '/configuration/rfid',  page: rfidPage,      guard: auth.requireSignIn },
         { path: '/configuration/calibration', page: calibrationPage, guard: auth.requireSignIn },

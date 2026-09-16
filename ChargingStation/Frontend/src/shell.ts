@@ -31,6 +31,7 @@ export const menu: MenuEntry[] = [
             { path: '/configuration/dns',         label: 'DNS client',      icon: 'fa-magnifying-glass-location' },
             { path: '/configuration/nts',         label: 'NTS client',      icon: 'fa-clock'                     },
             { path: '/configuration/power',       label: 'Grid connection', icon: 'fa-bolt'                      },
+            { path: '/configuration/display',     label: 'Display',         icon: 'fa-desktop'                   },
             { path: '/configuration/evses',       label: 'EVSEs',           icon: 'fa-plug'                      },
             { path: '/configuration/rfid',        label: 'RFID',            icon: 'fa-id-card'                   },
             { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-certificate'               }

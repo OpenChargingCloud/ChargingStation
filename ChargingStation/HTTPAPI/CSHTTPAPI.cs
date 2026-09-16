@@ -208,6 +208,9 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/power",      GetPowerConfiguration,        HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/power",      PutPowerConfiguration,        HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/configuration/display",    GetDisplayConfiguration,      HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/display",    PutDisplayConfiguration,      HTTPMethod.PUT);
+
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
 
@@ -535,6 +538,54 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
         #region (private) GetEVSEConfiguration(Request) / PutEVSEConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/display: the quiet hours the screen keeps.
+        /// </summary>
+        private Task<HTTPResponse> GetDisplayConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/display with {"dimFrom", "dimUntil", "dimTo"}:
+        /// when the screen on the front is dim, and how dim.
+        /// </summary>
+        /// <remarks>
+        /// The operator's, at the same permission as taking an outlet out of
+        /// general use and as putting a line on the display: all three are
+        /// statements about how this station presents itself to the people at
+        /// it, and none of them touches what the equipment is or what it may
+        /// deliver. Which hours are quiet is a fact about the site, and whoever
+        /// runs the site is who knows it.
+        ///
+        /// The whole section at once - one end of a window is not a window -
+        /// and an empty object is how dimming is turned off.
+        /// </remarks>
+        private Task<HTTPResponse> PutDisplayConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateDisplayConfiguration(json, out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON())
+                   );
+
+        }
 
         /// <summary>
         /// GET /api/v1/configuration/evses: the EVSEs of this charging station.
