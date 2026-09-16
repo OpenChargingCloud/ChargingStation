@@ -408,6 +408,8 @@ export interface StationConnection {
     description:         string;
     url:                 string;
     connectionType:      string;
+    /** Which OCPP is spoken here, and so which of this station's two nodes dials. */
+    ocppVersion:         string;
     automaticReconnect:  boolean;
     /** Whether the URL makes a TLS connection, which decides what the rest can mean. */
     secure:              boolean;
@@ -423,6 +425,7 @@ export interface ConnectionToSave {
     description:         string;
     url:                 string;
     connectionType:      string;
+    ocppVersion:         string;
     automaticReconnect:  boolean;
     authenticationId:    string | null;
     certificateId:       string | null;
@@ -450,6 +453,7 @@ export interface StationConnections {
     connections:           StationConnection[];
     certificates:          ConnectionCertificate[];
     connectionTypes:       string[];
+    ocppVersions:          string[];
     maxDescriptionLength:  number;
     minSharedSecretLength: number;
     /** Always false, and said out loud: a secret is written here and never read back. */

@@ -907,16 +907,12 @@ namespace cloud.charging.open.ChargingStation
             // having to reload to find out how it went.
             V2G = await V2GLink.TryStart(V2GOptions, Log);
 
-            //var ws01          = await cs01.ConnectOCPPWebSocketClient(
-            //                              RemoteURL:                   URL.Parse("wss://c.electriqua.com/abesp7/test01"),
-            //                              RemoteCertificateValidator:  (sender, certificate, chain, client, policyErrors) => {
-            //                                                               return TLSValidationResult.Success();
-            //                                                           },
-            //                              DNSClient:                   dnsClient
-            //                          );
-            //var ws01response  = ws01.HTTPStatusCode;
-
-            //await cs02.Start();
+            // After the web interface for the same reason as the V2G link
+            // above: somebody watching the Logs page sees each back end come up
+            // or fail while it happens, rather than reloading afterwards to
+            // find out how it went. Nothing in here throws - see
+            // DialConfiguredConnections.
+            await DialConfiguredConnections();
 
         }
 
@@ -968,6 +964,10 @@ namespace cloud.charging.open.ChargingStation
                 await V2G.DisposeAsync();
                 V2G = null;
             }
+
+            // Before the servers, so that a close this station asked for is
+            // recognised as one and does not start a reconnect on the way out.
+            await HangUp();
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;

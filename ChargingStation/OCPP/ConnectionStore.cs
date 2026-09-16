@@ -568,12 +568,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         String?                          AuthenticationId,
                                         String?                          CertificateId,
                                         [NotNullWhen(true)]  out String? Id,
-                                        [NotNullWhen(false)] out String? Error)
+                                        [NotNullWhen(false)] out String? Error,
+                                        String?                          OCPPVersion   = null)
         {
 
             Id = null;
 
-            if (!ConnectionEntry.Validate(Description, URL, ConnectionType, out var url, out var type, out Error))
+            if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
+                                          out var url, out var type, out var version, out Error))
                 return false;
 
             lock (updateLock)
@@ -589,6 +591,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 type,
                                 TimeProvider.GetUtcNow()
                             ) {
+                                OCPPVersion         = version,
                                 AutomaticReconnect  = AutomaticReconnect ?? false,
                                 AuthenticationId    = authenticationId,
                                 CertificateId       = certificateId
@@ -621,10 +624,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            Boolean?                         AutomaticReconnect,
                                            String?                          AuthenticationId,
                                            String?                          CertificateId,
-                                           [NotNullWhen(false)] out String? Error)
+                                           [NotNullWhen(false)] out String? Error,
+                                           String?                          OCPPVersion   = null)
         {
 
-            if (!ConnectionEntry.Validate(Description, URL, ConnectionType, out var url, out var type, out Error))
+            if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
+                                          out var url, out var type, out var version, out Error))
                 return false;
 
             lock (updateLock)
@@ -642,6 +647,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.Description         = Description!.Trim();
                 entry.URL                 = url;
                 entry.ConnectionType      = type;
+                entry.OCPPVersion         = version;
                 entry.AutomaticReconnect  = AutomaticReconnect ?? false;
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
@@ -833,6 +839,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                    Select(entry => entry.ToJSON()))),
 
                            new JProperty("connectionTypes",        new JArray("CSMS", "CSMSBackup", "LocalController")),
+                           new JProperty("ocppVersions",           new JArray("OCPP2.1", "OCPP1.6")),
 
                            new JProperty("maxDescriptionLength",   AuthenticationEntry.MaxDescriptionLength),
                            new JProperty("minSharedSecretLength",  AuthenticationEntry.MinSharedSecretLength),

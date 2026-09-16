@@ -59,6 +59,32 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
 
     /// <summary>
+    /// Which OCPP this station speaks on a connection.
+    /// </summary>
+    /// <remarks>
+    /// Written down rather than worked out, because there is nothing to work
+    /// it out from. This station is two nodes - an OCPP 1.6 charge point and
+    /// an OCPP 2.1 charging station - and which of them dials is not something
+    /// a URL says. The version is negotiated in the WebSocket sub-protocol
+    /// during the handshake, and by then the node has already been chosen.
+    /// </remarks>
+    public enum OCPPVersion
+    {
+
+        /// <summary>
+        /// OCPP 1.6, still what most of the installed base speaks.
+        /// </summary>
+        OCPP1_6,
+
+        /// <summary>
+        /// OCPP 2.1.
+        /// </summary>
+        OCPP2_1
+
+    }
+
+
+    /// <summary>
     /// One place this charging station dials, and what it proves itself with
     /// when it gets there.
     /// </summary>
@@ -128,6 +154,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// What is at the other end.
         /// </summary>
         public ConnectionType  ConnectionType       { get; internal set; }
+
+        /// <summary>
+        /// Which OCPP this station speaks here, and so which of its two nodes
+        /// does the dialling.
+        /// </summary>
+        public OCPPVersion     OCPPVersion          { get; internal set; }
 
         /// <summary>
         /// Whether this station dials again by itself after the connection
@@ -222,6 +254,46 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region (static) TryParseVersion(Text, out Version)
+
+        /// <summary>
+        /// Which OCPP, written the way the API writes it.
+        /// </summary>
+        public static Boolean TryParseVersion(String? Text, out OCPPVersion Version)
+        {
+
+            switch (Text?.Trim().ToLowerInvariant().Replace(".", "").Replace("_", ""))
+            {
+
+                case "ocpp16":
+                case "16":
+                    Version = OCPPVersion.OCPP1_6;
+                    return true;
+
+                case "ocpp21":
+                case "21":
+                    Version = OCPPVersion.OCPP2_1;
+                    return true;
+
+                default:
+                    Version = OCPPVersion.OCPP2_1;
+                    return false;
+
+            }
+
+        }
+
+        /// <summary>
+        /// How a version is written in the API and in the file.
+        /// </summary>
+        public static String AsText(OCPPVersion Version)
+
+            => Version == OCPPVersion.OCPP1_6
+                   ? "OCPP1.6"
+                   : "OCPP2.1";
+
+        #endregion
+
         #region (static) TryParseType(Text, out Type)
 
         /// <summary>
@@ -272,14 +344,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public static Boolean Validate(String?                          Description,
                                        String?                          URLText,
                                        String?                          TypeText,
+                                       String?                          VersionText,
                                        out URL                          URL,
                                        out ConnectionType               Type,
+                                       out OCPPVersion                  Version,
                                        [NotNullWhen(false)] out String? Error)
         {
 
-            URL    = default;
-            Type   = ConnectionType.CSMS;
-            Error  = null;
+            URL      = default;
+            Type     = ConnectionType.CSMS;
+            Version  = OCPPVersion.OCPP2_1;
+            Error    = null;
 
             var description = (Description ?? "").Trim();
             var urlText     = (URLText     ?? "").Trim();
@@ -347,6 +422,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
             }
 
+            // Left out, it is the newer one. A station configured by somebody
+            // who did not think about it should not quietly be speaking the
+            // older protocol.
+            if (!String.IsNullOrWhiteSpace(VersionText) && !TryParseVersion(VersionText, out Version))
+            {
+                Error = $"'{VersionText}' is not an OCPP version this station speaks. It speaks OCPP1.6 and OCPP2.1.";
+                return false;
+            }
+
             URL   = url;
             Type  = type;
 
@@ -380,8 +464,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!Validate(JSON.Value<String>("description"),
                           JSON.Value<String>("url"),
                           JSON.Value<String>("connectionType"),
+                          JSON.Value<String>("ocppVersion"),
                           out var url,
                           out var type,
+                          out var version,
                           out Error))
             {
                 return false;
@@ -394,6 +480,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         type,
                         AuthenticationEntry.Written(JSON.Value<String>("createdAt"))
                     ) {
+                        OCPPVersion         = version,
                         AutomaticReconnect  = JSON.Value<Boolean?>("automaticReconnect") ?? false,
                         AuthenticationId    = Named(JSON.Value<String>("authenticationId")),
                         CertificateId       = Named(JSON.Value<String>("certificateId"))
@@ -424,6 +511,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                            new JProperty("description",         Description),
                            new JProperty("url",                 URL.ToString()),
                            new JProperty("connectionType",      ConnectionType.ToString()),
+                           new JProperty("ocppVersion",         AsText(OCPPVersion)),
                            new JProperty("automaticReconnect",  AutomaticReconnect),
                            new JProperty("secure",              IsSecure),
                            new JProperty("createdAt",           CreatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"))
@@ -445,7 +533,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         public override String ToString()
 
-            => $"{Description} ({ConnectionType}, {URL})";
+            => $"{Description} ({ConnectionType} over {AsText(OCPPVersion)}, {URL})";
 
         #endregion
 

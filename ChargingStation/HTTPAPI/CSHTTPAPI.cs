@@ -1268,7 +1268,8 @@ namespace cloud.charging.open.ChargingStation
                                                        json.Value<String>("authenticationId"),
                                                        json.Value<String>("certificateId"),
                                                        out var id,
-                                                       out var error))
+                                                       out var error,
+                                                       json.Value<String>("ocppVersion")))
             {
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
             }
@@ -1302,7 +1303,8 @@ namespace cloud.charging.open.ChargingStation
                                                           json.Value<Boolean?>("automaticReconnect"),
                                                           json.Value<String>("authenticationId"),
                                                           json.Value<String>("certificateId"),
-                                                          out var error))
+                                                          out var error,
+                                                          json.Value<String>("ocppVersion")))
             {
                 return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
             }

@@ -152,16 +152,38 @@ export const connectionsPage: Page = {
                                 </option>
                             `)}
                         </select>
+                        <span class="hint">
+                            The spare is dialled only when the one it stands in for could not be reached -
+                            two management systems at once is two of them believing they run this station.
+                        </span>
                     </label>
 
-                    <label class="checkbox">
-                        <input type="checkbox" name="automaticReconnect"
-                               ${(entry?.automaticReconnect ?? false) ? html`checked` : ''}
-                               ${mayManage ? '' : html`disabled`} />
-                        Dial again by itself after it drops
+                    <label>Which OCPP
+                        <select name="ocppVersion" ${mayManage ? '' : html`disabled`}>
+                            ${state.ocppVersions.map(one => html`
+                                <option value="${one}" ${one === (entry?.ocppVersion ?? 'OCPP2.1') ? html`selected` : ''}>
+                                    ${one}
+                                </option>
+                            `)}
+                        </select>
+                        <span class="hint">
+                            This station is two nodes and a URL does not say which one should dial, so it
+                            is said here.
+                        </span>
                     </label>
 
                 </div>
+
+                <label class="checkbox">
+                    <input type="checkbox" name="automaticReconnect"
+                           ${(entry?.automaticReconnect ?? false) ? html`checked` : ''}
+                           ${mayManage ? '' : html`disabled`} />
+                    Dial again by itself after it drops
+                    <span class="hint">
+                        Off unless there is a reason. A station that does not come back is noticed; one
+                        that dials in a loop against a back end refusing it is noticed by the back end.
+                    </span>
+                </label>
 
                 <label>How it proves itself
                     <select name="proves" ${mayManage ? '' : html`disabled`}>
@@ -212,6 +234,7 @@ export const connectionsPage: Page = {
                     <div class="key-head">
                         <strong>${entry.description}</strong>
                         <span class="chip">${entry.connectionType}</span>
+                        <span class="chip">${entry.ocppVersion}</span>
                         ${entry.secure
                               ? html`<span class="chip on">TLS</span>`
                               : html`<span class="chip warn">no TLS</span>`}
@@ -316,6 +339,7 @@ export const connectionsPage: Page = {
                 description:         field(form, 'description'),
                 url:                 field(form, 'url'),
                 connectionType:      field(form, 'connectionType'),
+                ocppVersion:         field(form, 'ocppVersion'),
                 automaticReconnect:  form.querySelector<HTMLInputElement>('[name="automaticReconnect"]')?.checked ?? false,
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       proves.startsWith('cert:') ? proves.slice(5) : null
