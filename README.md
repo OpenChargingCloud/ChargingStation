@@ -865,6 +865,28 @@ can carry is a fact about the equipment, so that is what is left standing. Who
 was last charging there stays too - a name does not read as a measurement, and
 the heading over it already says how much the screen knows.
 
+**The code has the white border a code needs.** Every round above measured how
+large it is drawn; none of them asked whether it can be read. A QR code needs
+four modules of white all round it - the quiet zone - and this one had none of
+its own: the encoder was told `margin: 0`, so the dark modules ran to the edge
+of the code's own box, and the only white around them was a CSS padding that
+knows nothing about how large a module is. Measured on a 1920x1080 screen:
+**1.83 modules**, with the dark card immediately outside that. Too little white
+is what makes a code read on one telephone and not the next, and whoever put the
+station up never finds out.
+
+The library's own default is exactly the four modules the standard asks for; it
+was being overridden. Now the quiet zone lives inside the code, where it is
+counted in modules and comes out right at every size: 4.00 modules at 1024x600,
+at 1920x1080 and at 3840x2160, with the code itself 160, 298 and 582 px across.
+The CSS padding is gone with it - it was drawing white that is now already
+there, and taking width from the code to do it.
+
+While there, the drawing itself was checked rather than assumed: the path the
+page renders was compared against the same library encoding the same URL outside
+the browser. Same module count, same box, same 11809 characters, same
+fingerprint. The encoding was never the problem.
+
 **A card with no code has the same hole in it, and the reading fills it.** An
 outlet that is charging or held has nothing to scan, which used to leave its
 words at the top and two thirds of nothing under them. The power reading now

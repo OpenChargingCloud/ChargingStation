@@ -1206,7 +1206,19 @@ function qrSVG(URL: string) {
     // raw(), because createSvgTag returns markup rather than text. What went
     // into it is a URL this station generated from its own template and its
     // own secret - nothing a visitor typed reaches this function.
-    const svg = raw(qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }));
+    //
+    // The margin is the quiet zone, in the same units as the cell: four
+    // modules of white all round, which is what the standard asks for and what
+    // this library does when nobody tells it otherwise. It used to be told
+    // otherwise - margin 0 - which left the dark modules flush with the edge
+    // of the code's own box, and the only white around them was a CSS padding
+    // that knows nothing about how large a module is. Measured on a 1920x1080
+    // screen: 1.83 modules, with the dark card immediately outside that. A
+    // code with too little white around it is one that reads on one telephone
+    // and not the next, and whoever put the station up never finds out.
+    const cellSize = 4;
+
+    const svg = raw(qr.createSvgTag({ cellSize, margin: cellSize * 4, scalable: true }));
 
     // One code per URL, and the URLs change every half minute or so. Kept
     // small rather than cleared on a timer: an entry costs a few hundred bytes

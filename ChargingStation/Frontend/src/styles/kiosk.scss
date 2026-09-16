@@ -609,7 +609,10 @@ html, body.kiosk-body {
         margin:         0 auto;
         box-sizing:     border-box;
         background:     #ffffff;
-        padding:        max(#{card(2.5)}, 4px);
+        // No padding of its own: the white round the code is the quiet zone
+        // inside it, which is measured in modules and stays right at every
+        // size of screen. A padding here would only take width from the code
+        // to draw white that is already there.
         border-radius:  1vmin;
         display:        block;
     }
