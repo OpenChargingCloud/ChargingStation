@@ -306,6 +306,76 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region EveryAlgorithmGoesTheWholeWayRound(Algorithm)
+
+        /// <summary>
+        /// A key of every kind, a request, a certificate back, and a station
+        /// holding it up - not just the elliptic curve ones.
+        /// </summary>
+        /// <remarks>
+        /// The whole round trip, because until now only half of it was
+        /// measured. Every algorithm was shown to make a signing request that
+        /// verifies, but the answer only ever came back for an elliptic curve
+        /// key - not by choice, but because Hermod's signer chose the signature
+        /// from the subject's key instead of the issuer's, and this test's
+        /// certificate authority is a P-256 one. Asking it for an Ed448
+        /// certificate ended in a cast failing deep inside Bouncy Castle.
+        ///
+        /// So a station could be given an Ed448 or an ML-DSA key and a request
+        /// to hand out, and then had nowhere to take the answer. That is the
+        /// half this measures, and it is the half somebody notices.
+        ///
+        /// The authority stays P-256 on purpose. It is the mismatch that is
+        /// being tested, and it is also what a real fleet looks like: whoever
+        /// issues certificates does not change their root because one station
+        /// asked for a newer kind of key.
+        ///
+        /// Whether the station can then hold the certificate up is a second
+        /// question with a different answer, and it is asked separately rather
+        /// than pinned: it is about what the runtime has a key object for
+        /// today. .NET gained ML-DSA in 10 and has nothing for Ed448 yet, and
+        /// that is a sentence with a date in it - so what is asserted is that
+        /// the station either holds the certificate up or says why it cannot,
+        /// never which of the two it is.
+        /// </remarks>
+        [Test]
+        [TestCaseSource(nameof(EveryAlgorithm))]
+        public void EveryAlgorithmGoesTheWholeWayRound(String Algorithm)
+        {
+
+            Assert.That(store.TryCreateKey("cs001.example.org", Algorithm, out var id, out _, out var error),
+                        Is.True, error);
+
+            Assert.That(store.TryAddCertificate(ACertificateFor(id!), out var takenIn, out _, out var problem),
+                        Is.True, $"A {Algorithm} certificate could not be taken in: {problem}");
+
+            var entry = store.Entries.Single(entry => entry.Id == id);
+
+            Assert.Multiple(() => {
+
+                Assert.That(takenIn,            Is.EqualTo(id),
+                            $"The {Algorithm} certificate was filed under another key.");
+
+                Assert.That(entry.Certificate,  Is.Not.Null,
+                            $"The {Algorithm} certificate was accepted and then not kept.");
+
+                Assert.That(entry.Certificate!.Subject, Does.Contain("cs001.example.org"),
+                            $"The {Algorithm} certificate is about somebody else.");
+
+                if (entry.CanBeHeldUp)
+                    Assert.That(store.InUse?.Id, Is.EqualTo(id),
+                                $"The station can hold up the {Algorithm} certificate and is not doing it.");
+
+                else
+                    Assert.That(entry.CannotBeHeldUp, Is.Not.Null.And.Not.Empty,
+                                $"The {Algorithm} certificate is not being held up and nobody is told why.");
+
+            });
+
+        }
+
+        #endregion
+
         #region ACertificateForSomebodyElsesKeyIsRefused()
 
         /// <summary>
