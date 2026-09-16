@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage } from '../ui';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
  * The EVSEs of this charging station: the places a vehicle can be plugged in.
@@ -461,17 +461,15 @@ export const evsesPage: Page = {
 
         async function save(): Promise<void> {
 
-            const note   = must<HTMLElement>(content, '#form-note');
-            const error  = must<HTMLElement>(content, '#form-error');
-            const button = must<HTMLButtonElement>(content, '#save');
+            const note = must<HTMLElement>(content, '#form-note');
 
-            note.textContent   = '';
-            error.textContent  = '';
-            button.disabled    = true;
+            note.textContent = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             try
             {
-                configuration = await api.evses.save(draft);
+                configuration = await whileSaving(content, note, () => api.evses.save(draft));
                 draft         = clone(configuration.evses);
                 dirty         = false;
 
@@ -481,8 +479,7 @@ export const evsesPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
-                button.disabled   = false;
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

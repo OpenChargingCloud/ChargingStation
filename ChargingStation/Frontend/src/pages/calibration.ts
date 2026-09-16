@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage } from '../ui';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
  * The calibration certificates this charging station runs under.
@@ -264,21 +264,20 @@ export const calibrationPage: Page = {
 
         async function save(): Promise<void> {
 
-            const note   = must<HTMLElement>(content, '#form-note');
-            const error  = must<HTMLElement>(content, '#form-error');
-            const button = must<HTMLButtonElement>(content, '#save');
+            const note = must<HTMLElement>(content, '#form-note');
 
-            note.textContent   = '';
-            error.textContent  = '';
-            button.disabled    = true;
+            note.textContent = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             try
             {
-                current = await api.calibration.save(draft.map(certificate => ({
-                              id:           certificate.id,
-                              description:  certificate.description,
-                              pem:          certificate.pem
-                          })));
+                current = await whileSaving(content, note, () =>
+                              api.calibration.save(draft.map(certificate => ({
+                                  id:           certificate.id,
+                                  description:  certificate.description,
+                                  pem:          certificate.pem
+                              }))));
 
                 draft = current.certificates.map(certificate => ({ ...certificate }));
                 dirty = false;
@@ -289,8 +288,7 @@ export const calibrationPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
-                button.disabled   = false;
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

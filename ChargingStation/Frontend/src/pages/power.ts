@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage } from '../ui';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
  * What this charging station may draw from the grid.
@@ -162,12 +162,10 @@ export const powerPage: Page = {
 
             const form   = must<HTMLFormElement>(content, '#power-form');
             const note   = must<HTMLElement>(content, '#form-note');
-            const error  = must<HTMLElement>(content, '#form-error');
-            const button = must<HTMLButtonElement>(form, 'button[type="submit"]');
 
-            note.textContent   = '';
-            error.textContent  = '';
-            button.disabled    = true;
+            note.textContent  = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             // An empty field is how the limit is taken away, which is a
             // different thing from a limit of nothing - so it travels as null
@@ -176,7 +174,8 @@ export const powerPage: Page = {
 
             try
             {
-                current = await api.power.save({ uplinkPowerLimit_kW: typed === '' ? null : Number(typed) });
+                current = await whileSaving(content, note, () =>
+                              api.power.save({ uplinkPowerLimit_kW: typed === '' ? null : Number(typed) }));
 
                 draw();
 
@@ -184,8 +183,7 @@ export const powerPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
-                button.disabled   = false;
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

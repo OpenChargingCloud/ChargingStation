@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage } from '../ui';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
  * The card readers this charging station has, and where they sit.
@@ -328,22 +328,21 @@ export const rfidPage: Page = {
 
         async function save(): Promise<void> {
 
-            const note   = must<HTMLElement>(content, '#form-note');
-            const error  = must<HTMLElement>(content, '#form-error');
-            const button = must<HTMLButtonElement>(content, '#save');
+            const note = must<HTMLElement>(content, '#form-note');
 
-            note.textContent   = '';
-            error.textContent  = '';
-            button.disabled    = true;
+            note.textContent = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             try
             {
-                configuration = await api.rfid.save(draft.map(reader => ({
-                                    id:       reader.id,
-                                    kind:     reader.kind,
-                                    evse:     reader.evse,
-                                    enabled:  reader.enabled
-                                })));
+                configuration = await whileSaving(content, note, () =>
+                                    api.rfid.save(draft.map(reader => ({
+                                        id:       reader.id,
+                                        kind:     reader.kind,
+                                        evse:     reader.evse,
+                                        enabled:  reader.enabled
+                                    }))));
 
                 draft = configuration.readers.map(reader => ({ ...reader }));
                 dirty = false;
@@ -354,8 +353,7 @@ export const rfidPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
-                button.disabled   = false;
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

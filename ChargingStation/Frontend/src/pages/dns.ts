@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, formatValue, humanizeKey } from '../ui';
+import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 
 /**
  * How this charging station resolves names.
@@ -398,18 +398,18 @@ export const dnsPage: Page = {
 
         async function save(update: DNSUpdate): Promise<void> {
 
-            const note  = must<HTMLElement>(content, '#form-note');
-            const error = must<HTMLElement>(content, '#form-error');
+            const note = must<HTMLElement>(content, '#form-note');
 
-            note.textContent  = '';
-            error.textContent = '';
+            note.textContent = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             try
             {
                 // The answer is the whole configuration as it now stands, so
                 // the page shows what the station took rather than what the
                 // form sent.
-                current = await api.dns.save(update);
+                current = await whileSaving(content, note, () => api.dns.save(update));
                 servers = current.servers.map(server => ({ ...server }));
 
                 draw();
@@ -418,7 +418,7 @@ export const dnsPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

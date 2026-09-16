@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, formatValue, humanizeKey } from '../ui';
+import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 
 /**
  * What the NTS client allows itself when the station has not been told.
@@ -315,21 +315,21 @@ export const ntsPage: Page = {
 
         async function save(update: NTSUpdate): Promise<void> {
 
-            const note  = must<HTMLElement>(content, '#form-note');
-            const error = must<HTMLElement>(content, '#form-error');
+            const note = must<HTMLElement>(content, '#form-note');
 
-            note.textContent  = '';
-            error.textContent = '';
+            note.textContent = '';
+
+            must<HTMLElement>(content, '#form-error').textContent = '';
 
             try
             {
-                current = await api.nts.save(update);
+                current = await whileSaving(content, note, () => api.nts.save(update));
                 draw();
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }

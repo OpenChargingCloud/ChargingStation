@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage } from '../ui';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
  * The screen on the front of the station, at night.
@@ -179,9 +179,8 @@ export const displayPage: Page = {
             note.textContent   = '';
             error.textContent  = '';
 
-            for (const button of form.querySelectorAll('button'))
-                button.disabled = true;
-
+            // Read before the page is held still: a disabled field is left out
+            // of a FormData, so the order of these two matters.
             const typed  = new FormData(form);
             const text   = (name: string) => typed.get(name)?.toString().trim() ?? '';
             const level  = text('dimTo');
@@ -198,7 +197,7 @@ export const displayPage: Page = {
 
             try
             {
-                current = await api.display.save(update);
+                current = await whileSaving(content, note, () => api.display.save(update));
 
                 draw();
 
@@ -206,10 +205,7 @@ export const displayPage: Page = {
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
-
-                for (const button of form.querySelectorAll('button'))
-                    button.disabled = false;
+                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
