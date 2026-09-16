@@ -1,4 +1,4 @@
-import { api, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
@@ -45,6 +45,11 @@ export const connectionsPage: Page = {
         });
 
         const mayManage = auth.can('changeNetworkSettings');
+
+        // Its own permission: a test makes this station open a connection to a
+        // host and show it a credential, which is more than reading a page and
+        // less than changing what the station does.
+        const mayTest   = auth.can('runDiagnostics');
 
         let cancelled = false;
         let store: StationConnections | null = null;
@@ -175,13 +180,14 @@ export const connectionsPage: Page = {
                 </div>
 
                 <label class="checkbox">
-                    <input type="checkbox" name="automaticReconnect"
-                           ${(entry?.automaticReconnect ?? false) ? html`checked` : ''}
+                    <input type="checkbox" name="autoConnect"
+                           ${(entry?.autoConnect ?? false) ? html`checked` : ''}
                            ${mayManage ? '' : html`disabled`} />
-                    Dial again by itself after it drops
+                    Connect by itself, and again after a drop
                     <span class="hint">
-                        Off unless there is a reason. A station that does not come back is noticed; one
-                        that dials in a loop against a back end refusing it is noticed by the back end.
+                        This is what decides whether the connection is used at all. Off, it stays written
+                        down and nothing happens - an address kept ready for the day somebody needs it,
+                        which can still be tried by hand with the button below.
                     </span>
                 </label>
 
@@ -238,7 +244,9 @@ export const connectionsPage: Page = {
                         ${entry.secure
                               ? html`<span class="chip on">TLS</span>`
                               : html`<span class="chip warn">no TLS</span>`}
-                        ${entry.automaticReconnect ? html`<span class="chip">reconnects</span>` : ''}
+                        ${entry.autoConnect
+                              ? html`<span class="chip on">connects by itself</span>`
+                              : html`<span class="chip">configured only</span>`}
                     </div>
 
                     <dl class="kv">
@@ -273,6 +281,10 @@ export const connectionsPage: Page = {
                                 <button type="button" class="btn small" data-remove="${entry.id}"
                                         ${mayManage ? '' : html`disabled`}>
                                     Remove
+                                </button>
+                                <button type="button" class="btn small" data-test="${entry.id}"
+                                        ${mayTest ? '' : html`disabled`}>
+                                    <i class="fa-solid fa-plug-circle-check"></i> Test it
                                 </button>
                                 <span class="form-notice" data-note="${entry.id}"  role="status"></span>
                                 <span class="form-error"  data-error="${entry.id}" role="alert"></span>
@@ -313,10 +325,20 @@ export const connectionsPage: Page = {
 
             content.addEventListener('click', event => {
 
-                const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-remove]');
+                const target = event.target as Element | null;
 
-                if (button && !button.disabled)
-                    void remove(button.dataset.remove ?? '');
+                const removing = target?.closest<HTMLButtonElement>('[data-remove]');
+
+                if (removing && !removing.disabled)
+                {
+                    void remove(removing.dataset.remove ?? '');
+                    return;
+                }
+
+                const testing = target?.closest<HTMLButtonElement>('[data-test]');
+
+                if (testing && !testing.disabled)
+                    void test(testing.dataset.test ?? '');
 
             });
 
@@ -340,7 +362,7 @@ export const connectionsPage: Page = {
                 url:                 field(form, 'url'),
                 connectionType:      field(form, 'connectionType'),
                 ocppVersion:         field(form, 'ocppVersion'),
-                automaticReconnect:  form.querySelector<HTMLInputElement>('[name="automaticReconnect"]')?.checked ?? false,
+                autoConnect:  form.querySelector<HTMLInputElement>('[name="autoConnect"]')?.checked ?? false,
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       proves.startsWith('cert:') ? proves.slice(5) : null
             };
@@ -427,6 +449,104 @@ export const connectionsPage: Page = {
             {
                 error.textContent = errorMessage(problem);
             }
+
+        }
+
+        /**
+         * Test one connection, in a dialog that stays put until it is closed.
+         *
+         * The dialog is opened before the request rather than after it comes
+         * back, because the whole thing takes some seconds and a button that
+         * does nothing visible for that long is a button somebody presses
+         * again. What is shown while waiting says what is being tried, so the
+         * wait is legible rather than merely long.
+         */
+        async function test(id: string): Promise<void> {
+
+            if (id === '')
+                return;
+
+            const entry = store?.connections.find(one => one.id === id);
+
+            if (entry === undefined)
+                return;
+
+            const dialog = document.createElement('dialog');
+
+            dialog.className = 'test-dialog';
+
+            render(dialog, html`
+                <h2>Testing ${entry.description}</h2>
+                <p class="hint"><code>${entry.url}</code></p>
+                <div class="test-steps" id="test-steps">
+                    <div class="loading">Connecting, and staying connected for two seconds ...</div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn" id="test-close" disabled>Close</button>
+                </div>
+            `);
+
+            document.body.appendChild(dialog);
+            dialog.showModal();
+
+            /**
+             * Shut it and take it away.
+             *
+             * Both halves explicitly, rather than removing it when the dialog
+             * reports that it closed. Measured: the browser this station's
+             * pages were tried in does not fire `close` at all - not on
+             * `dialog.close()` and not on Escape - so a dialog cleaned up that
+             * way stays in the page, closed and invisible, one more of them
+             * after every test. Calling this twice is harmless, which is what
+             * lets it be wired to everything that might end the dialog.
+             */
+            const dismiss = (): void => {
+                dialog.close();
+                dialog.remove();
+            };
+
+            // Whichever of these the browser actually delivers.
+            dialog.addEventListener('close',  dismiss);
+            dialog.addEventListener('cancel', dismiss);
+
+            const close = must<HTMLButtonElement>(dialog, '#test-close');
+
+            close.addEventListener('click', dismiss);
+
+            let result: ConnectionTest;
+
+            try
+            {
+                result = await api.connections.test(id);
+            }
+            catch (problem)
+            {
+                render(must<HTMLElement>(dialog, '#test-steps'), html`
+                    <div class="error-box">The test could not be run: ${errorMessage(problem)}</div>
+                `);
+                close.disabled = false;
+                close.focus();
+                return;
+            }
+
+            render(must<HTMLElement>(dialog, '#test-steps'), html`
+                <div class="${result.ok ? 'notice' : 'error-box'}">
+                    ${result.ok
+                          ? html`The connection can be made. ${result.runtime_ms} ms altogether.`
+                          : html`The connection could not be made. ${result.runtime_ms} ms altogether.`}
+                </div>
+                <ol class="test-log">
+                    ${result.steps.map(step => html`
+                        <li class="level-${step.level}">
+                            <span class="at">+${step.at_ms} ms</span>
+                            <span class="text">${step.text}</span>
+                        </li>
+                    `)}
+                </ol>
+            `);
+
+            close.disabled = false;
+            close.focus();
 
         }
 

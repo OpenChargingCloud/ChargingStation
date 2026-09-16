@@ -17,6 +17,8 @@
 
 #region Usings
 
+using Newtonsoft.Json.Linq;
+
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
@@ -119,7 +121,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                              false, null, null, out var id, out var error),
+                                                              true, null, null, out var id, out var error),
                         Is.True, error);
 
             Assert.That(async () => await station.Start(), Throws.Nothing,
@@ -132,6 +134,49 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(station.DialledConnections[id!], Does.Contain("did not become a WebSocket"),
                             "Nothing was recorded about the back end that did not answer.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region OneThatWasNotToldToConnectIsLeftAlone()
+
+        /// <summary>
+        /// Written down and not connected, which is the whole of what the
+        /// switch is for.
+        /// </summary>
+        /// <remarks>
+        /// The two states a configured connection can be in, and the switch is
+        /// the only thing that tells them apart: an address kept ready and an
+        /// address in use. The one that is kept ready is not touched at all -
+        /// not tried once, not recorded as having failed, nothing - because a
+        /// station that quietly connects somewhere nobody meant it to is
+        /// noticed by whatever is at the other end, later and by somebody
+        /// else.
+        /// </remarks>
+        [Test]
+        public async Task OneThatWasNotToldToConnectIsLeftAlone()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+                                                              false, null, null, out var kept, out var error),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("In use", NowhereInParticular(), "CSMS",
+                                                             true, null, null, out var used, out error),
+                        Is.True, error);
+
+            await station.Start();
+
+            Assert.Multiple(() => {
+
+                Assert.That(station.DialledConnections.ContainsKey(kept!), Is.False,
+                            "A connection that was not told to connect was tried anyway.");
+
+                Assert.That(station.DialledConnections[used!], Does.Contain("did not become a WebSocket"),
+                            "The one that was told to connect was not tried.");
 
             });
 
@@ -174,15 +219,15 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 "Answers",
                                 $"ws://127.0.0.1:{listening.IPPort}/cs001",
                                 "CSMS",
-                                false, null, null, out var answering, out var error),
+                                true, null, null, out var answering, out var error),
                             Is.True, error);
 
                 Assert.That(station.Connections.TryAddConnection("Called a spare", NowhereInParticular(), "CSMSBackup",
-                                                                 false, null, null, out var spare, out error),
+                                                                 true, null, null, out var spare, out error),
                             Is.True, error);
 
                 Assert.That(station.Connections.TryAddConnection("A local controller", NowhereInParticular(), "LocalController",
-                                                                 false, null, null, out var controller, out error),
+                                                                 true, null, null, out var controller, out error),
                             Is.True, error);
 
                 await station.Start();
@@ -236,7 +281,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                            false, login, null, out var id, out error),
+                                                            true, login, null, out var id, out error),
                         Is.True, error);
 
             // The secret taken back out from underneath, the way a hand-edited
@@ -279,7 +324,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             station.Connections.KnownCertificateIds = () => station.ClientCertificates.Entries.Select(entry => entry.Id);
 
             Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                            false, null, key, out var id, out error),
+                                                            true, null, key, out var id, out error),
                         Is.True, error);
 
             await station.Start();
@@ -309,7 +354,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                              false, null, null, out var id, out var error,
+                                                              true, null, null, out var id, out var error,
                                                               OCPPVersion: Version),
                         Is.True, error);
 
@@ -342,6 +387,182 @@ namespace cloud.charging.open.ChargingStation.Tests
                         "A version this station does not speak was written down.");
 
             Assert.That(refused, Does.Contain("OCPP1.6").And.Contain("OCPP2.1"));
+
+        }
+
+        #endregion
+
+        #region ATestSaysWhatHappenedAndLeavesNothingBehind()
+
+        /// <summary>
+        /// The button beside a connection: one attempt, everything that
+        /// happened written down, and nothing still connected afterwards.
+        /// </summary>
+        /// <remarks>
+        /// The last part is the one worth measuring. A test that left its
+        /// client behind in the OCPP node would be a test that changed the
+        /// station, and pressing the button twice would leave two - which is
+        /// exactly the sort of thing nobody notices until a back end starts
+        /// complaining about duplicate stations.
+        /// </remarks>
+        [Test]
+        public async Task ATestSaysWhatHappenedAndLeavesNothingBehind()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+                                                              false, null, null, out var id, out var error),
+                        Is.True, error);
+
+            await station.Start();
+
+            var result = await station.TestConnection(id);
+
+            Assert.Multiple(() => {
+
+                Assert.That(result.Value<Boolean>("ok"), Is.False,
+                            "A connection to nowhere was reported as working.");
+
+                Assert.That(result["steps"]?.Count(), Is.GreaterThan(2),
+                            "A test that says almost nothing is a test nobody can act on.");
+
+                Assert.That(result["steps"]!.Values<JObject>().Any(step => step!.Value<String>("level") == "error"),
+                            Is.True,
+                            "A test that did not get through said nothing was wrong.");
+
+                Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                            "The test left a WebSocket client behind in one of the OCPP nodes.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ATestThatGetsThroughStaysConnectedAndThenLetsGo()
+
+        /// <summary>
+        /// Something that answers: the test connects, holds on briefly, and
+        /// closes again.
+        /// </summary>
+        /// <remarks>
+        /// The holding is the part that costs time and the part that is worth
+        /// having - a back end that greets its stations needs a moment to do
+        /// it, and a test that hung up at the handshake would never see the
+        /// greeting. So the elapsed time is asserted: a test that came back
+        /// instantly did not wait, whatever else it did.
+        /// </remarks>
+        [Test]
+        public async Task ATestThatGetsThroughStaysConnectedAndThenLetsGo()
+        {
+
+            var listening = new WebSocketServer(
+                                HTTPPort:   IPPort.Parse(TestStations.FreePort()),
+                                AutoStart:  true
+                            );
+
+            try
+            {
+
+                Assert.That(station!.Connections.TryAddConnection(
+                                "Answers",
+                                $"ws://127.0.0.1:{listening.IPPort}/cs001",
+                                "CSMS",
+                                false, null, null, out var id, out var error),
+                            Is.True, error);
+
+                await station.Start();
+
+                var result = await station.TestConnection(id);
+
+                Assert.Multiple(() => {
+
+                    Assert.That(result.Value<Boolean>("ok"), Is.True,
+                                $"A connection that answers was reported as failing: {result["steps"]}");
+
+                    Assert.That(result.Value<Int64>("runtime_ms"),
+                                Is.GreaterThanOrEqualTo((Int64) ChargingStation.TestHoldsFor.TotalMilliseconds),
+                                "The test did not stay connected at all.");
+
+                    Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                                "The test left a WebSocket client behind in one of the OCPP nodes.");
+
+                });
+
+            }
+            finally
+            {
+                await listening.Shutdown();
+            }
+
+        }
+
+        #endregion
+
+        #region ATestOfSomethingThatIsNotThereSaysSo()
+
+        /// <summary>
+        /// An identification nothing is filed under.
+        /// </summary>
+        [Test]
+        public async Task ATestOfSomethingThatIsNotThereSaysSo()
+        {
+
+            await station!.Start();
+
+            var result = await station.TestConnection("no-such-connection");
+
+            Assert.Multiple(() => {
+                Assert.That(result.Value<Boolean>("ok"), Is.False);
+                Assert.That(result["steps"]?.First?.Value<String>("text"), Does.Contain("no connection here"));
+            });
+
+        }
+
+        #endregion
+
+        #region ATestDoesNotRunWhatCannotWork()
+
+        /// <summary>
+        /// Credentials with no secret stop the test before a socket is opened,
+        /// the same as they stop a real connection.
+        /// </summary>
+        /// <remarks>
+        /// One place decides what a connection proves itself with, so the test
+        /// and the real thing cannot come to disagree - a test that proved
+        /// itself differently from the connection it is testing would be a
+        /// test of something else.
+        /// </remarks>
+        [Test]
+        public async Task ATestDoesNotRunWhatCannotWork()
+        {
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS login", "basic", "cs001", "a-password",
+                                                                  out var login, out var error),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+                                                            false, login, null, out var id, out error),
+                        Is.True, error);
+
+            var file = Path.Combine(station.Connections.Path, ConnectionStore.AuthenticationsFileName);
+
+            File.WriteAllText(file, File.ReadAllText(file).Replace("\"password\": \"a-password\"", "\"password\": \"\""));
+
+            station.Connections.Reload();
+
+            await station.Start();
+
+            var result = await station.TestConnection(id);
+
+            Assert.Multiple(() => {
+
+                Assert.That(result.Value<Boolean>("ok"), Is.False);
+
+                Assert.That(result["steps"]!.Values<JObject>().Any(step => (step!.Value<String>("text") ?? "").Contains("no secret set")),
+                            Is.True,
+                            "The test did not say why it would not even try.");
+
+            });
 
         }
 

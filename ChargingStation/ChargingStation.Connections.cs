@@ -17,11 +17,18 @@
 
 #region Usings
 
+using System.Diagnostics;
 using System.Security.Cryptography.X509Certificates;
+
+using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+
+using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
+using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.ChargingStation.OCPP;
 
@@ -51,6 +58,17 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private readonly Dictionary<String, String> dialled = [];
 
+        /// <summary>
+        /// How long a connection test stays connected before closing again.
+        /// </summary>
+        /// <remarks>
+        /// Long enough for a back end that greets its stations to get a word
+        /// in, short enough that somebody pressing the button is still looking
+        /// at the screen when it finishes. It is a test of whether the
+        /// connection can be made, not a conversation.
+        /// </remarks>
+        public static readonly TimeSpan TestHoldsFor = TimeSpan.FromSeconds(2);
+
         #endregion
 
         #region Properties
@@ -73,6 +91,20 @@ namespace cloud.charging.open.ChargingStation
             }
         }
 
+        /// <summary>
+        /// How many WebSocket clients the two OCPP nodes are holding.
+        /// </summary>
+        /// <remarks>
+        /// One connection made by this station is one client here. It is the
+        /// only way from outside to see that a connection test left nothing
+        /// behind, which is the thing about a test that would otherwise go
+        /// unnoticed until a back end complained about duplicate stations.
+        /// </remarks>
+        public Int32 OCPPWebSocketClientCount
+
+            => cs01.OCPPWebSocketClients.Count() +
+               cs02.OCPPWebSocketClients.Count();
+
         #endregion
 
 
@@ -92,32 +124,144 @@ namespace cloud.charging.open.ChargingStation
         /// its web interface - not least because the web interface is where
         /// somebody fixes the address that was wrong.
         ///
-        /// Every connection is dialled on its own, in the order it was written
-        /// down, and none of them is affected by how another went. What is at
-        /// the other end is a label and nothing reads it here: whether a spare
-        /// waits for its main one to fail, whether a local controller is
-        /// preferred over a back end, and everything else of that shape is a
-        /// decision nobody has made yet, and guessing at it now would make it
-        /// harder to make properly later.
+        /// Only the ones set to connect by themselves. The rest stay written
+        /// down and are not touched - an address kept ready for the day
+        /// somebody needs it, which can still be tried by hand from the page.
+        ///
+        /// Each on its own, in the order it was written down, and none of them
+        /// affected by how another went. What is at the other end is a label
+        /// and nothing reads it here: whether a spare waits for its main one to
+        /// fail is a decision nobody has made yet, and a guess at it now would
+        /// have to be unpicked before the real answer could go in.
         /// </remarks>
         private async Task DialConfiguredConnections(CancellationToken CancellationToken = default)
         {
 
-            var connections = Connections.Connections;
-
-            if (connections.Count == 0)
-            {
-                Log.Info("No connections are configured; this station dials nowhere.", "ocpp", "connections");
-                return;
-            }
+            var connections  = Connections.Connections;
+            var byItself     = connections.Where(one => one.AutoConnect).ToArray();
 
             lock (dialled)
                 dialled.Clear();
 
-            foreach (var connection in connections.OrderBy(one => one.CreatedAt))
+            if (byItself.Length == 0)
+            {
+                Log.Info(connections.Count == 0
+                             ? "No connections are configured; this station connects nowhere."
+                             : $"None of the {connections.Count} configured connection(s) is set to connect by itself.",
+                         "ocpp", "connections");
+                return;
+            }
+
+            foreach (var connection in byItself.OrderBy(one => one.CreatedAt))
                 await Dial(connection, CancellationToken);
 
         }
+
+        #endregion
+
+        #region (private) WhatItProvesItselfWith(Connection, out Basic, out TOTP, out Certificates, out Says, out Error)
+
+        /// <summary>
+        /// The credentials or the certificate a connection names, looked up
+        /// and turned into what an HTTP client takes.
+        /// </summary>
+        /// <remarks>
+        /// One place, because connecting and testing a connection have to
+        /// agree about what it would use - a test that proves itself
+        /// differently from the real thing is a test of something else.
+        ///
+        /// <paramref name="Says"/> is for whoever is reading: a sentence
+        /// naming what will be shown, without any part of the secret in it.
+        /// </remarks>
+        private Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
+                                               out IHTTPAuthentication?    Basic,
+                                               out TOTPConfig?             TOTP,
+                                               out X509Certificate2[]?     Certificates,
+                                               out String                  Says,
+                                               out String?                 Error)
+        {
+
+            Basic         = null;
+            TOTP          = null;
+            Certificates  = null;
+            Says          = "nothing - it identifies itself to whoever is at the other end not at all";
+            Error         = null;
+
+            if (Connection.AuthenticationId is not null)
+            {
+
+                var credentials = Connections.Authentications.
+                                      FirstOrDefault(entry => entry.Id == Connection.AuthenticationId);
+
+                if (credentials is null)
+                {
+                    Error = "it names credentials that are not configured here";
+                    return false;
+                }
+
+                Basic  = credentials.ToBasicAuthentication();
+                TOTP   = credentials.ToTOTPConfig();
+
+                if (Basic is null && TOTP is null)
+                {
+                    Error = $"it uses '{credentials.Description}', which has no secret set";
+                    return false;
+                }
+
+                Says = TOTP is not null
+                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
+                             $"{(credentials.TLSChannelBinding ? "bound to the TLS session" : "unbound")}"
+                           : $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')";
+
+            }
+
+            if (Connection.CertificateId is not null)
+            {
+
+                var key = ClientCertificates.Entries.
+                              FirstOrDefault(entry => entry.Id == Connection.CertificateId);
+
+                if (key?.Certificate is null)
+                {
+                    Error = "it names a client certificate this station does not have";
+                    return false;
+                }
+
+                // A certificate whose private key this runtime could not
+                // attach cannot be shown in a handshake. Said here rather than
+                // left to a TLS error that names neither the certificate nor
+                // the reason.
+                if (!key.CanBeHeldUp)
+                {
+                    Error = $"it would show a certificate this runtime cannot present ({key.CannotBeHeldUp})";
+                    return false;
+                }
+
+                Certificates  = [ key.Certificate ];
+                Says          = $"a TLS client certificate, '{key.Subject}' ({key.Algorithm})";
+
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) SubProtocolsOf(Version)
+
+        /// <summary>
+        /// What this station offers in the WebSocket handshake.
+        /// </summary>
+        /// <remarks>
+        /// 2.1 offers 2.0.1 as well, which is what the OCPP node does and what
+        /// most back ends of that generation actually answer with.
+        /// </remarks>
+        private static String[] SubProtocolsOf(OCPP.OCPPVersion Version)
+
+            => Version == OCPP.OCPPVersion.OCPP1_6
+                   ? [ OCPPv1_6.Version.WebSocketSubProtocolId ]
+                   : [ OCPPv2_1.Version.WebSocketSubProtocolId, "ocpp2.0.1" ];
 
         #endregion
 
@@ -136,62 +280,11 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
-                #region What it proves itself with
-
-                IHTTPAuthentication?  basic        = null;
-                TOTPConfig?           totp         = null;
-                X509Certificate2[]?   certificates = null;
-
-                if (Connection.AuthenticationId is not null)
+                if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var certificates, out _, out var wrong))
                 {
-
-                    var credentials = Connections.Authentications.
-                                          FirstOrDefault(entry => entry.Id == Connection.AuthenticationId);
-
-                    if (credentials is null)
-                    {
-                        Fail(Connection, $"Not dialled: {where} names credentials that are not configured here.");
-                        return;
-                    }
-
-                    basic  = credentials.ToBasicAuthentication();
-                    totp   = credentials.ToTOTPConfig();
-
-                    if (basic is null && totp is null)
-                    {
-                        Fail(Connection, $"Not dialled: {where} uses '{credentials.Description}', which has no secret set.");
-                        return;
-                    }
-
+                    Fail(Connection, $"Not dialled: {where} {wrong}.");
+                    return;
                 }
-
-                if (Connection.CertificateId is not null)
-                {
-
-                    var key = ClientCertificates.Entries.
-                                  FirstOrDefault(entry => entry.Id == Connection.CertificateId);
-
-                    if (key?.Certificate is null)
-                    {
-                        Fail(Connection, $"Not dialled: {where} names a client certificate this station does not have.");
-                        return;
-                    }
-
-                    // A certificate whose private key this runtime could not
-                    // attach cannot be shown in a handshake. Said here rather
-                    // than left to a TLS error that names neither the
-                    // certificate nor the reason.
-                    if (!key.CanBeHeldUp)
-                    {
-                        Fail(Connection, $"Not dialled: {where} would show a certificate this runtime cannot present ({key.CannotBeHeldUp}).");
-                        return;
-                    }
-
-                    certificates = [ key.Certificate ];
-
-                }
-
-                #endregion
 
                 Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
                          $"{Connection.ConnectionType}.", "ocpp", "connections");
@@ -236,7 +329,7 @@ namespace cloud.charging.open.ChargingStation
 
                 KeepComingBack(Connection);
 
-                Note(Connection, $"Connected{(Connection.AutomaticReconnect ? ", and will dial again by itself if it drops" : "")}.");
+                Note(Connection, "Connected, and will come back by itself if it drops.");
 
             }
             catch (Exception e)
@@ -264,9 +357,9 @@ namespace cloud.charging.open.ChargingStation
         /// connection that exists, so the moment after it exists is soon
         /// enough.
         ///
-        /// Off means null, which is what the WebSocket client reads as "do not
-        /// come back". Setting it to a policy with no attempts would be a
-        /// station that reconnects zero times and still counts them.
+        /// Everything that reaches here was set to connect by itself, so it
+        /// gets a policy. The ones that were not never got as far as being
+        /// connected.
         /// </remarks>
         private void KeepComingBack(ConnectionEntry Connection)
         {
@@ -284,9 +377,7 @@ namespace cloud.charging.open.ChargingStation
                 return;
             }
 
-            client.ReconnectPolicy = Connection.AutomaticReconnect
-                                         ? new WebSocketClientReconnectPolicy()
-                                         : null;
+            client.ReconnectPolicy = new WebSocketClientReconnectPolicy();
 
         }
 
@@ -314,6 +405,259 @@ namespace cloud.charging.open.ChargingStation
             // and the thing that is wrong is normally somewhere else and
             // normally fixable from the page this message is visible on.
             Log.Warning(What, "ocpp", "connections");
+
+        }
+
+        #endregion
+
+        #region TestConnection(Id, CancellationToken = default)
+
+        /// <summary>
+        /// Make this one connection, once, write down everything that happened,
+        /// and close it again.
+        /// </summary>
+        /// <remarks>
+        /// For the button beside a connection on the page, and for the reason
+        /// that button exists: a connection that is only written down is never
+        /// tried, so the first time anybody finds out whether the address, the
+        /// certificate and the password are right is the day it is switched on
+        /// - which is normally the day it has to work.
+        ///
+        /// It is its own client and not one of the OCPP nodes'. A test that
+        /// left a client behind in the node would be a test that changed the
+        /// station, and running it twice would leave two. What it measures is
+        /// everything up to and including the WebSocket handshake - the name,
+        /// the route, the TLS, the credentials, the sub-protocol - which is
+        /// where connections actually fail.
+        ///
+        /// It closes politely rather than dropping the socket: a back end that
+        /// is told the connection is going away logs a test, and one that is
+        /// left hanging logs a fault.
+        /// </remarks>
+        public async Task<JObject> TestConnection(String?            Id,
+                                                  CancellationToken  CancellationToken   = default)
+        {
+
+            var clock  = Stopwatch.StartNew();
+            var steps  = new JArray();
+
+            void Step(String Level, String Text)
+                => steps.Add(new JObject(
+                       new JProperty("at_ms",  clock.ElapsedMilliseconds),
+                       new JProperty("level",  Level),
+                       new JProperty("text",   Text)
+                   ));
+
+            JObject Done(ConnectionEntry? Connection, Boolean OK)
+            {
+
+                clock.Stop();
+
+                return new JObject(
+                           new JProperty("id",           Connection?.Id          ?? Id ?? ""),
+                           new JProperty("description",  Connection?.Description ?? ""),
+                           new JProperty("url",          Connection?.URL.ToString() ?? ""),
+                           new JProperty("ok",           OK),
+                           new JProperty("runtime_ms",   clock.ElapsedMilliseconds),
+                           new JProperty("steps",        steps)
+                       );
+
+            }
+
+            var connection = Connections.Connections.FirstOrDefault(one => one.Id == Id);
+
+            if (connection is null)
+            {
+                Step("error", "There is no connection here under that identification.");
+                return Done(null, false);
+            }
+
+            Log.Info($"Testing the connection to '{connection.Description}' ({connection.URL}) ...", "ocpp", "connections", "test");
+
+            #region What is going to be tried
+
+            Step("info", $"{ConnectionEntry.AsText(connection.OCPPVersion)} to {connection.URL}, " +
+                         $"written down as {connection.ConnectionType}.");
+
+            Step(connection.IsSecure ? "info" : "warning",
+                 connection.IsSecure
+                     ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
+                     : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
+
+            if (!WhatItProvesItselfWith(connection, out var basic, out var totp, out var certificates, out var proves, out var wrong))
+            {
+                Step("error", $"Not tried: {wrong}.");
+                Log.Warning($"The connection test for '{connection.Description}' was not run: {wrong}.", "ocpp", "connections", "test");
+                return Done(connection, false);
+            }
+
+            Step("info", $"It will prove itself with {proves}.");
+
+            if (!connection.AutoConnect)
+                Step("info", "This connection is written down only and is not connected when the station starts. " +
+                             "This test does not change that.");
+
+            #endregion
+
+            #region Does the name resolve
+
+            var host = connection.URL.Host.ToString();
+
+            if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _))
+            {
+                try
+                {
+
+                    var lookedUp  = await dnsClient.Query(
+                                              DNSServiceName.Parse(host),
+                                              [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
+                                              CancellationToken: CancellationToken
+                                          );
+
+                    var addresses = lookedUp.Answers.Take(8).Select(record => record.RText ?? record.ToString()).ToArray();
+
+                    Step(addresses.Length > 0 ? "info" : "warning",
+                         addresses.Length > 0
+                             ? $"'{host}' resolves to {String.Join(", ", addresses)}."
+                             : $"'{host}' resolved to nothing ({lookedUp.ResponseCode}). The connection below will not get far.");
+
+                }
+                catch (Exception e)
+                {
+                    // Not fatal to the test: the socket layer has its own
+                    // resolver and may well succeed where this lookup did not.
+                    Step("warning", $"'{host}' could not be looked up here: {e.Message}. Trying to connect anyway.");
+                }
+            }
+
+            #endregion
+
+            WebSocketClient? client = null;
+
+            try
+            {
+
+                #region Open it
+
+                client = new WebSocketClient(
+                             connection.URL,
+                             HTTPAuthentication:     basic,
+                             SecWebSocketProtocols:  SubProtocolsOf(connection.OCPPVersion),
+                             ClientCertificates:     certificates,
+                             TOTPConfig:             totp,
+                             DisableWebSocketPings:  true,
+                             DisableLogging:         true
+                         );
+
+                client.OnTextMessageReceived   += (timestamp, sender, conn, frame, tracking, message, token) => {
+                    Step("info", $"Received: {(message.Length > 400 ? message[..400] + " ..." : message)}");
+                    return Task.CompletedTask;
+                };
+
+                client.OnBinaryMessageReceived += (timestamp, sender, conn, frame, tracking, message, token) => {
+                    Step("info", $"Received {message.Length} byte(s) of binary.");
+                    return Task.CompletedTask;
+                };
+
+                client.OnCloseMessageReceived  += (timestamp, sender, conn, frame, tracking, status, reason, token) => {
+                    Step("info", $"The other end closed the connection: {status}{(reason is not null ? $" ({reason})" : "")}.");
+                    return Task.CompletedTask;
+                };
+
+                Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection.OCPPVersion))} ...");
+
+                var (_, response) = await client.Connect(
+                                              MaxNumberOfRetries:  0,
+                                              CancellationToken:   CancellationToken
+                                          );
+
+                #endregion
+
+                #region What came back
+
+                if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
+                {
+
+                    Step("error", $"It did not become a WebSocket connection: {response.HTTPStatusCode}.");
+
+                    // A synthesised answer has no headers at all - that is what
+                    // the client returns when it never had a stream to read.
+                    // Saying which of the two it was would be a guess.
+                    Step("info", response.Any()
+                                     ? $"What came back: {String.Join("; ", response.Take(8).Select(header => $"{header.Key}: {header.Value}"))}"
+                                     : "Nothing came back at all: no answer, no headers. Either nothing is listening there, " +
+                                       "or something in between dropped it - this station cannot tell the two apart.");
+
+                    Log.Warning($"The connection test for '{connection.Description}' did not get through: {response.HTTPStatusCode}.",
+                                "ocpp", "connections", "test");
+
+                    return Done(connection, false);
+
+                }
+
+                // Read out of the headers rather than off a typed property:
+                // on a response this is a single header that may simply not be
+                // there, which is what a server that ignores sub-protocols
+                // sends - and is worth saying, because an OCPP back end that
+                // does that is a back end that has not agreed to speak OCPP.
+                var agreedOn = response.FirstOrDefault(header => header.Key.Equals("Sec-WebSocket-Protocol",
+                                                                                   StringComparison.OrdinalIgnoreCase)).
+                                        Value?.ToString();
+
+                Step("notice", agreedOn is not null && agreedOn.Length > 0
+                                   ? $"Connected. The handshake was accepted for {agreedOn}."
+                                   : "Connected, but the handshake named no sub-protocol. Whatever is there took the " +
+                                     "connection without agreeing to speak OCPP.");
+
+                #endregion
+
+                #region Hold it briefly, then let go
+
+                Step("info", $"Staying connected for {TestHoldsFor.TotalSeconds:0.#} second(s), to see whether anything is said.");
+
+                await Task.Delay(TestHoldsFor, CancellationToken);
+
+                Step("info", "Closing.");
+
+                await client.Close(
+                          WebSocketFrame.ClosingStatusCode.NormalClosure,
+                          "Connection test finished",
+                          CancellationToken: CancellationToken
+                      );
+
+                Step("notice", "Closed. The connection can be made.");
+
+                #endregion
+
+                Log.Notice($"The connection test for '{connection.Description}' got through.", "ocpp", "connections", "test");
+
+                return Done(connection, true);
+
+            }
+            catch (Exception e)
+            {
+
+                Step("error", $"{e.GetType().Name}: {e.Message}");
+
+                Log.Warning($"The connection test for '{connection.Description}' failed: {e.Message}", "ocpp", "connections", "test");
+
+                return Done(connection, false);
+
+            }
+            finally
+            {
+                // Whatever happened, nothing of this test is left connected.
+                if (client is not null)
+                {
+                    try
+                    {
+                        client.ReconnectPolicy = null;
+                        await client.Close();
+                    }
+                    catch
+                    { }
+                }
+            }
 
         }
 

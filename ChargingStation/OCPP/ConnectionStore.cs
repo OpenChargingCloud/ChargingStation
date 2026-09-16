@@ -564,7 +564,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
-                                        Boolean?                         AutomaticReconnect,
+                                        Boolean?                         AutoConnect,
                                         String?                          AuthenticationId,
                                         String?                          CertificateId,
                                         [NotNullWhen(true)]  out String? Id,
@@ -592,7 +592,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 TimeProvider.GetUtcNow()
                             ) {
                                 OCPPVersion         = version,
-                                AutomaticReconnect  = AutomaticReconnect ?? false,
+                                AutoConnect  = AutoConnect ?? false,
                                 AuthenticationId    = authenticationId,
                                 CertificateId       = certificateId
                             };
@@ -621,7 +621,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          Description,
                                            String?                          URL,
                                            String?                          ConnectionType,
-                                           Boolean?                         AutomaticReconnect,
+                                           Boolean?                         AutoConnect,
                                            String?                          AuthenticationId,
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
@@ -648,7 +648,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.URL                 = url;
                 entry.ConnectionType      = type;
                 entry.OCPPVersion         = version;
-                entry.AutomaticReconnect  = AutomaticReconnect ?? false;
+                entry.AutoConnect  = AutoConnect ?? false;
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
 

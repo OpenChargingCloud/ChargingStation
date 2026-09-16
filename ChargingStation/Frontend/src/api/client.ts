@@ -410,7 +410,7 @@ export interface StationConnection {
     connectionType:      string;
     /** Which OCPP is spoken here, and so which of this station's two nodes dials. */
     ocppVersion:         string;
-    automaticReconnect:  boolean;
+    autoConnect:  boolean;
     /** Whether the URL makes a TLS connection, which decides what the rest can mean. */
     secure:              boolean;
     createdAt:           string;
@@ -426,9 +426,27 @@ export interface ConnectionToSave {
     url:                 string;
     connectionType:      string;
     ocppVersion:         string;
-    automaticReconnect:  boolean;
+    autoConnect:  boolean;
     authenticationId:    string | null;
     certificateId:       string | null;
+}
+
+/** One line of what happened while a connection was being tested. */
+export interface ConnectionTestStep {
+    /** Milliseconds since the test started. */
+    at_ms:  number;
+    level:  'info' | 'notice' | 'warning' | 'error';
+    text:   string;
+}
+
+/** What came of testing one connection. */
+export interface ConnectionTest {
+    id:           string;
+    description:  string;
+    url:          string;
+    ok:           boolean;
+    runtime_ms:   number;
+    steps:        ConnectionTestStep[];
 }
 
 /** A client certificate, as far as a connection is concerned. */
@@ -877,7 +895,18 @@ export const api = {
                      request<StationConnections>('POST', '/configuration/connections/update', entry),
 
         remove:  (id: string) =>
-                     request<StationConnections>('POST', '/configuration/connections/remove', { id })
+                     request<StationConnections>('POST', '/configuration/connections/remove', { id }),
+
+        /**
+         * Make this one connection, once, and say everything that happened.
+         *
+         * Slower than the other reads on purpose: the station stays connected
+         * for about two seconds to see whether anything is said, so the
+         * deadline has to cover the connection plus that.
+         */
+        test:    (id: string) =>
+                     request<ConnectionTest>('POST', '/configuration/connections/test', { id },
+                                             afterAsking([ 2 ]))
 
     },
 

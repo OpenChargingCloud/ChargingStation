@@ -164,16 +164,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public OCPPVersion     OCPPVersion          { get; internal set; }
 
         /// <summary>
-        /// Whether this station dials again by itself after the connection
-        /// drops.
+        /// Whether this station connects here by itself - at start, and again
+        /// after the connection drops.
         /// </summary>
         /// <remarks>
-        /// Off by default, which is the quieter of the two wrong answers: a
-        /// station that does not come back is noticed, and a station that
-        /// reconnects in a loop against a back end that keeps refusing it is
-        /// noticed by the back end.
+        /// This is what decides whether a connection is used at all. Off, it
+        /// stays written down and nothing happens: an address kept ready for a
+        /// day somebody needs it, which can still be tried by hand from the
+        /// page. On, the station connects when it starts and keeps coming
+        /// back.
+        ///
+        /// Off by default, which is the quieter of the two wrong answers. A
+        /// station that was never told to connect is noticed by whoever
+        /// configured it; a station that connects somewhere nobody meant it to
+        /// is noticed by whatever is at the other end, later.
         /// </remarks>
-        public Boolean         AutomaticReconnect   { get; internal set; }
+        public Boolean         AutoConnect          { get; internal set; }
 
         /// <summary>
         /// The credentials this connection proves itself with, by their
@@ -483,7 +489,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         AuthenticationEntry.Written(JSON.Value<String>("createdAt"))
                     ) {
                         OCPPVersion         = version,
-                        AutomaticReconnect  = JSON.Value<Boolean?>("automaticReconnect") ?? false,
+                        AutoConnect  = JSON.Value<Boolean?>("autoConnect") ?? false,
                         AuthenticationId    = Named(JSON.Value<String>("authenticationId")),
                         CertificateId       = Named(JSON.Value<String>("certificateId"))
                     };
@@ -514,7 +520,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                            new JProperty("url",                 URL.ToString()),
                            new JProperty("connectionType",      ConnectionType.ToString()),
                            new JProperty("ocppVersion",         AsText(OCPPVersion)),
-                           new JProperty("automaticReconnect",  AutomaticReconnect),
+                           new JProperty("autoConnect",  AutoConnect),
                            new JProperty("secure",              IsSecure),
                            new JProperty("createdAt",           CreatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"))
                        );

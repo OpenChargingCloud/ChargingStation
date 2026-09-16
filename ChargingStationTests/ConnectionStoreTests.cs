@@ -382,7 +382,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(entry.ConnectionType.ToString(), Is.EqualTo(Type));
-                Assert.That(entry.AutomaticReconnect,        Is.True, "Automatic reconnect was not remembered.");
+                Assert.That(entry.AutoConnect,        Is.True, "Automatic reconnect was not remembered.");
                 Assert.That(entry.IsSecure,                  Is.True);
             });
 
@@ -602,7 +602,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(again.Connections.Count,      Is.EqualTo(2));
 
                 Assert.That(back.ConnectionType,          Is.EqualTo(ConnectionType.LocalController));
-                Assert.That(back.AutomaticReconnect,      Is.True);
+                Assert.That(back.AutoConnect,      Is.True);
                 Assert.That(back.AuthenticationId,        Is.EqualTo(login),
                             "The connection lost track of which credentials it uses.");
 

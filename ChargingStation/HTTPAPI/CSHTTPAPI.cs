@@ -226,6 +226,7 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/connections",            PostConnection,            HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/update",     PostUpdateConnection,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/remove",     PostRemoveConnection,      HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/test",       PostTestConnection,        HTTPMethod.POST);
 
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        GetClientCertificates,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
@@ -1264,7 +1265,7 @@ namespace cloud.charging.open.ChargingStation
             if (!Station.Connections.TryAddConnection(json.Value<String>("description"),
                                                        json.Value<String>("url"),
                                                        json.Value<String>("connectionType"),
-                                                       json.Value<Boolean?>("automaticReconnect"),
+                                                       json.Value<Boolean?>("autoConnect"),
                                                        json.Value<String>("authenticationId"),
                                                        json.Value<String>("certificateId"),
                                                        out var id,
@@ -1300,7 +1301,7 @@ namespace cloud.charging.open.ChargingStation
                                                           json.Value<String>("description"),
                                                           json.Value<String>("url"),
                                                           json.Value<String>("connectionType"),
-                                                          json.Value<Boolean?>("automaticReconnect"),
+                                                          json.Value<Boolean?>("autoConnect"),
                                                           json.Value<String>("authenticationId"),
                                                           json.Value<String>("certificateId"),
                                                           out var error,
@@ -1336,6 +1337,51 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostTestConnection(Request)
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/test with {"id"}: make this
+        /// one connection, once, and say everything that happened.
+        /// </summary>
+        /// <remarks>
+        /// At the diagnostics permission and not at the one that reads the
+        /// configuration, for the same reason the name server and time server
+        /// tests are: this makes the station open a connection to a host and
+        /// show it a credential. That is more than it sounds like to hand to
+        /// everybody who may look at a page, and it is less than changing what
+        /// the station is configured to do - which is why it is not the
+        /// network-settings permission either.
+        ///
+        /// It holds the request open for as long as the test takes, which is
+        /// the connection plus about two seconds. The page's own deadline for
+        /// a write is comfortably longer.
+        /// </remarks>
+        private async Task<HTTPResponse> PostTestConnection(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var session, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            var id = json.Value<String>("id")?.Trim();
+
+            if (String.IsNullOrEmpty(id))
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "An 'id' of a connection to test is required.");
+
+            Log.Info($"'{session.UserId}' asked this station to test a connection.", "ocpp", "connections", "test", "web");
+
+            return JSONResponse(
+                       Request,
+                       HTTPStatusCode.OK,
+                       await Station.TestConnection(id, Request.CancellationToken)
                    );
 
         }
