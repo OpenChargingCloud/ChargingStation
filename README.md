@@ -489,6 +489,52 @@ screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
 `Remote` needs a back end to ask over OCPP; the display can draw both, and
 nothing here can cause either yet.
 
+### Quiet hours
+
+A display in a car park runs at full brightness through the night at nobody:
+electricity spent, light thrown where a neighbour may not want it, and wear on
+the same panel the picture is kept walking across to save.
+
+    "display": { "dimFrom": "22:00", "dimUntil": "06:00", "dimTo": 0.3 }
+
+Which hours are quiet is a fact about the site and not about charging stations -
+a motorway service area has none, a courtyard between flats has them from ten -
+so the station is told rather than guessing, and a station nobody has told does
+not dim: a screen that went dark on its own would be read as a fault. Both ends
+or neither; a window that crosses midnight is the ordinary case and not a
+special one; and the level is bounded below at a tenth, because a dark display
+is one nobody can tell from a broken one and the person it turns away is the one
+arriving at two in the morning.
+
+**The station says whether these are quiet hours. The display says whether
+anybody is there.** That split is the whole design. The answer the display gets
+carries one number - how dark to go while nothing is happening, or null outside
+the window - and the display keeps the other half of the question, because only
+it can see a hand on the glass.
+
+It wakes, at once and completely, for anything at all: a touch, a key, a card
+held up, a plug going in, a hold placed or let go, a line a back end asked to be
+read out. And it stays awake for two minutes afterwards, because somebody who
+has just started a charge is still standing there reading what the screen says
+about it.
+
+What it deliberately does not wake for is a number moving. The payment code
+turns over every half minute on its own and the power reading moves every second
+a car is charging - a screen that woke for either would be at full brightness
+all night with a car parked at it, which is the one case where nobody is looking
+at all. Measured: dimmed to a quarter, a touch brought it to full in no time at
+all, a card at an outlet brought it up again with nobody touching anything, and
+with that car charging at 22 kW and the figure moving every second it was back
+down to a quarter two minutes later.
+
+Going down takes two seconds and coming up takes none, which is the one place
+the earlier trap has a proper answer: `--dim` is *registered* with `@property`
+as a number, so the custom property itself is what transitions and the
+brightness filter follows it. An unregistered one cannot be animated at all -
+and, as the walk above found out the hard way, a transition declared on
+something that depends on one does not merely fail to glide, it stops the change
+from applying.
+
 ### Nothing stands still, and nothing stays old
 
 A charging station's display shows the same thing for months: the operator's

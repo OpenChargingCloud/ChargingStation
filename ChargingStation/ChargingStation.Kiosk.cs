@@ -165,7 +165,15 @@ namespace cloud.charging.open.ChargingStation
                        // that outlet below.
                        new JProperty("messages",     DisplayMessagesJSON(StationMessageState(), null, now)),
 
-                       new JProperty("webPayments",  WebPaymentsEnabled)
+                       new JProperty("webPayments",  WebPaymentsEnabled),
+
+                       // Whether these are the station's quiet hours, and how
+                       // dark the screen goes while nothing is happening. Only
+                       // that: the display wakes for anybody who comes near it,
+                       // and only the display knows that somebody has.
+                       new JProperty("dim",          displayConfig?.IsAQuietHour(now) == true
+                                                         ? displayConfig.HowDim
+                                                         : null)
 
                    );
 

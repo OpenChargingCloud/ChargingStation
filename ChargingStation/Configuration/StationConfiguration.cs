@@ -54,6 +54,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="RFID">The card readers it has, and where they sit.</param>
     /// <param name="Operator">Whose station this is, and whose cards it recognises.</param>
     /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
+    /// <param name="Display">The quiet hours the screen on the front keeps.</param>
     public sealed record StationConfiguration(DNSConfiguration?                        DNS           = null,
                                               NTSConfiguration?                        NTS           = null,
                                               PowerConfiguration?                      Power         = null,
@@ -61,7 +62,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
                                               IReadOnlyList<RFIDReaderConfig>?         RFID          = null,
                                               OperatorConfiguration?                   Operator      = null,
-                                              WebPaymentsConfiguration?                WebPayments   = null)
+                                              WebPaymentsConfiguration?                WebPayments   = null,
+                                              DisplayConfiguration?                    Display       = null)
     {
 
         #region Data
@@ -153,6 +155,26 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 }
 
                 if (!NTSConfiguration.TryParse(ntsJSON, out nts, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            #region Display
+
+            DisplayConfiguration? display = null;
+
+            if (JSON[DisplayConfiguration.SectionName] is JToken displayToken && displayToken.Type != JTokenType.Null)
+            {
+
+                if (displayToken is not JObject displayJSON)
+                {
+                    Error = $"'{DisplayConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!DisplayConfiguration.TryParse(displayJSON, out display, out Error))
                     return false;
 
             }
@@ -279,7 +301,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments);
+            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments, display);
             return true;
 
         }
@@ -304,6 +326,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             if (Power is not null)
                 json.Add(PowerConfiguration.SectionName,  Power.ToJSON());
+
+            if (Display is not null)
+                json.Add(DisplayConfiguration.SectionName, Display.ToJSON());
 
             if (EVSEs is not null)
                 json.Add(EVSEsSectionName,                new JArray(EVSEs.OrderBy(evse => evse.Id).

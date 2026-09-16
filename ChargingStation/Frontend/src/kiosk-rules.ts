@@ -226,3 +226,78 @@ export function bundleIn(HTML: string): string | null {
     return match ? match[1] : null;
 
 }
+
+
+/**
+ * What an outlet is doing, for the purpose of noticing that it changed.
+ *
+ * Deliberately not everything the card shows. A station dims at night and has
+ * to wake for anybody who comes near it, and the only thing it can see of
+ * somebody coming near is what changes as a result: a card held up, a plug in a
+ * socket, a hold placed or let go, something a back end asked to be read out.
+ *
+ * What is left out matters as much. The payment code turns over every half
+ * minute on its own, and the power reading moves every second a car is
+ * charging - a screen that woke for either would be a screen at full brightness
+ * all night with a car parked at it, which is the one case where nobody is
+ * looking at all.
+ */
+export function whatIsHappening(State: {
+                                    evses:     { id:           number;
+                                                 status:       string;
+                                                 closing?:     boolean;
+                                                 session?:     { method: string } | null;
+                                                 reservation?: unknown | null;
+                                                 messages?:    DisplayMessage[] }[];
+                                    messages?: DisplayMessage[];
+                                }): string {
+
+    return [
+               (State.messages ?? []).map(message => message.id).join(','),
+               ...State.evses.map(evse => [
+                                      evse.id,
+                                      evse.status,
+                                      evse.closing === true ? 'closing' : '',
+                                      evse.session ? evse.session.method : '',
+                                      evse.reservation ? 'held' : '',
+                                      (evse.messages ?? []).map(message => message.id).join(',')
+                                  ].join(':'))
+           ].join('|');
+
+}
+
+
+/**
+ * How bright the screen should be at this moment.
+ *
+ * The station says whether these are its quiet hours and how dark it wants the
+ * screen then; the display says whether anybody is there. Null is full
+ * brightness, and full brightness is what anything at all produces: a hand on
+ * the glass, a card, a plug, a hold - and then a few minutes more, because
+ * somebody who has just started a charge is still standing in front of it
+ * reading what it says.
+ *
+ * @param StationSaysDimTo  what the station asked for, or null outside its quiet hours.
+ * @param SinceSomethingHappened  how long ago anything last did, in milliseconds.
+ * @param StaysAwakeFor  how long anything keeps it awake for.
+ */
+export function dimTo(StationSaysDimTo:        number | null | undefined,
+                      SinceSomethingHappened:  number,
+                      StaysAwakeFor:           number): number | null {
+
+    if (StationSaysDimTo === null || StationSaysDimTo === undefined)
+        return null;
+
+    if (!(SinceSomethingHappened >= StaysAwakeFor))
+        return null;
+
+    // Never off, whatever the station was configured with: a dark display is
+    // one nobody can tell from a broken one, and the person it would turn away
+    // is the one arriving at two in the morning.
+    return Math.min(1, Math.max(darkestDim, StationSaysDimTo));
+
+}
+
+
+/** The darkest the screen will go, whatever it is asked for. */
+export const darkestDim = 0.1;

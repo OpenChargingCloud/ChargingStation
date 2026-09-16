@@ -129,6 +129,7 @@ namespace cloud.charging.open.ChargingStation
         private readonly  HTTPServer?                          kioskServer;
 
         private readonly  WebPaymentsConfiguration?            webPayments;
+        private readonly  DisplayConfiguration?                displayConfig;
 
         /// <summary>
         /// When this station last managed to check its clock, what it found,
@@ -572,7 +573,14 @@ namespace cloud.charging.open.ChargingStation
                     "kiosk", "config"
                 );
 
-            this.webPayments = configuration?.WebPayments;
+            this.webPayments    = configuration?.WebPayments;
+            this.displayConfig  = configuration?.Display;
+
+            // this.Log, not Log: inside this constructor the bare name is the
+            // parameter of the same name, which is null unless somebody handed
+            // one in - which is why every other line here says this.Log too.
+            if (displayConfig?.DimsAtNight == true)
+                this.Log.Info($"The display is {displayConfig}.", "kiosk", "config");
 
             #endregion
 

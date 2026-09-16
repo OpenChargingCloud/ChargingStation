@@ -105,12 +105,31 @@ $touch-target-big:  48px;
     box-sizing: border-box;
 }
 
+// The brightness in the quiet hours, as a number the page sets.
+//
+// Registered rather than left as a plain custom property, and that is the whole
+// point of writing it out: an unregistered one cannot be animated, and a
+// transition declared on something that depends on one does not merely fail to
+// glide - it does not apply at all. Registered, the property itself is what
+// transitions, and the filter follows it down.
+@property --dim {
+    syntax:         "<number>";
+    inherits:       false;
+    initial-value:  1;
+}
+
 html, body.kiosk-body {
     height:      100%;
     margin:      0;
     background:  $kiosk-bg;
     color:       $kiosk-text;
     font-family: $kiosk-font;
+
+    // Dark at night, and back up the instant anybody touches it - which is why
+    // how long it takes is set from the page rather than written here. Going
+    // down is a slow fade nobody watches; coming up is now.
+    filter:      brightness(var(--dim, 1));
+    transition:  --dim var(--dim-takes, 2000ms) linear;
 
     // A display is touched by strangers and nobody wants a text selection or a
     // magnifying glass on it.

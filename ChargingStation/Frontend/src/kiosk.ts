@@ -4,10 +4,12 @@ import qrcode from 'qrcode-generator';
 // asked directly - see kiosk-rules.test.ts.
 import { bundleIn,
          columnsFor        as howManyColumns,
+         dimTo,
          driftAt,
          hasMoreToSay,
          messagesToShow    as whichMessagesToShow,
          qrCodeIsStillGood,
+         whatIsHappening,
          type DisplayMessage } from './kiosk-rules';
 
 import { config } from './config';
@@ -285,6 +287,12 @@ interface KioskState {
     messages:     DisplayMessage[];
     rfid:         Reader | null;
     webPayments:  boolean;
+    /**
+     * How dark the station would like the screen while nothing is happening,
+     * or null outside its quiet hours. Whether anything is happening is this
+     * page's to know - see dimTo.
+     */
+    dim:          number | null;
 }
 
 
@@ -322,6 +330,20 @@ const driftTakes  = 3_000;
  */
 const checkForANewPageEvery   = 5 * 60 * 1000;
 const checkForANewPageWithin  = 10_000;
+
+/**
+ * How long anything at all keeps the screen at full brightness.
+ *
+ * Somebody who has just held a card up is still standing in front of the
+ * station reading what it says about their charge, and a screen that dimmed
+ * while they were reading would be a screen that had understood nothing. Two
+ * minutes is longer than anybody stands there and short enough that an empty
+ * car park is dark again before the next car arrives.
+ */
+const stayAwakeFor = 2 * 60 * 1000;
+
+/** How long going dark takes. Coming back up is immediate. */
+const dimTakes = 2_000;
 
 /**
  * How long the station is given to answer before the request is given up on.
@@ -1403,3 +1425,64 @@ async function stillTheServedPage(): Promise<void> {
 }
 
 setInterval(() => void stillTheServedPage(), checkForANewPageEvery);
+
+
+// The screen in the quiet hours.
+//
+// Two things decide it, and they are kept apart on purpose: the station knows
+// which hours are quiet at this site, and only the display knows whether
+// anybody is standing at it. It applies the brightness rather than being told
+// one, because the second half of that question is asked here.
+
+let happeningWas       = '';
+let somethingHappened  = Date.now();
+
+/**
+ * Note that something did, and bring the screen back up at once.
+ *
+ * Immediately: whoever put their hand on the glass is looking at it now. Going
+ * dark again is the slow half - see the transition in the stylesheet.
+ */
+function somethingIsHappening(): void {
+
+    somethingHappened = Date.now();
+
+    applyDim(0);
+
+}
+
+/** Put the brightness on the page, without redrawing any of it. */
+function applyDim(TakesMilliseconds: number): void {
+
+    const level = dimTo(state?.dim, Date.now() - somethingHappened, stayAwakeFor);
+
+    document.body.style.setProperty('--dim-takes', `${TakesMilliseconds}ms`);
+    document.body.style.setProperty('--dim', String(level ?? 1));
+
+}
+
+// Anything a hand does. Pointer events cover a finger on glass, a mouse and a
+// pen alike; a key covers the panel that has a keyboard wired to it.
+for (const event of ['pointerdown', 'keydown'] as const)
+    window.addEventListener(event, somethingIsHappening, { passive: true });
+
+// And anything the outlets do. Asked once a second rather than on every poll,
+// because going dark is a thing that happens on a clock and waking is a thing
+// that happens at once.
+setInterval(() => {
+
+    if (state !== null) {
+
+        const happening = whatIsHappening(state);
+
+        if (happening !== happeningWas) {
+            happeningWas = happening;
+            somethingIsHappening();
+            return;
+        }
+
+    }
+
+    applyDim(dimTakes);
+
+}, 1000);

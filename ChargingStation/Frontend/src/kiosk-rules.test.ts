@@ -17,11 +17,14 @@ import { describe, it }     from 'node:test';
 import { atMostMessages,
          bundleIn,
          columnsFor,
+         darkestDim,
+         dimTo,
          driftAt,
          driftSteps,
          hasMoreToSay,
          messagesToShow,
          qrCodeIsStillGood,
+         whatIsHappening,
          type DisplayMessage } from './kiosk-rules.ts';
 
 
@@ -275,6 +278,121 @@ describe('whether the station has a newer display than this one', () => {
         assert.equal(bundleIn('<html><body>Please sign in to the guest network.</body></html>'), null);
         assert.equal(bundleIn('<html><head><script src="/assets/main.170dd60a5b2f61b938b6.js"></script></head></html>'), null);
         assert.equal(bundleIn(''), null);
+
+    });
+
+});
+
+
+describe('how bright the screen is', () => {
+
+    const awake  = 2 * 60 * 1000;
+    const ageing = awake + 1;
+
+    it('is full brightness outside the quiet hours, whoever is there', () => {
+
+        assert.equal(dimTo(null,      ageing, awake), null);
+        assert.equal(dimTo(undefined, ageing, awake), null);
+
+    });
+
+    it('goes down in the quiet hours once nothing has happened for a while', () => {
+
+        assert.equal(dimTo(0.3, ageing, awake), 0.3);
+
+    });
+
+    it('is full brightness while anything is still recent', () => {
+
+        // Somebody who has just held a card up is standing in front of it
+        // reading what it says about their charge.
+        assert.equal(dimTo(0.3, 0,         awake), null);
+        assert.equal(dimTo(0.3, awake - 1, awake), null);
+
+    });
+
+    it('never goes dark, whatever it is asked for', () => {
+
+        // A dark display is one nobody can tell from a broken one, and the
+        // person it turns away is the one arriving at two in the morning.
+        assert.equal(dimTo(0,     ageing, awake), darkestDim);
+        assert.equal(dimTo(-5,    ageing, awake), darkestDim);
+        assert.equal(dimTo(0.001, ageing, awake), darkestDim);
+
+    });
+
+    it('never asks for more than full brightness', () => {
+
+        assert.equal(dimTo(4, ageing, awake), 1);
+
+    });
+
+});
+
+
+describe('what counts as something happening', () => {
+
+    const evse = (over: Record<string, unknown> = {}) =>
+        ({ id: 1, status: 'available', messages: [], ...over }) as never;
+
+    const state = (evses: unknown[], messages: DisplayMessage[] = []) =>
+        ({ evses, messages }) as never;
+
+    it('notices an outlet going from free to charging', () => {
+
+        assert.notEqual(whatIsHappening(state([evse()])),
+                        whatIsHappening(state([evse({ status: 'occupied', session: { method: 'RFID' } })])));
+
+    });
+
+    it('notices a hold being placed and let go', () => {
+
+        assert.notEqual(whatIsHappening(state([evse()])),
+                        whatIsHappening(state([evse({ status: 'reserved', reservation: { until: 'later' } })])));
+
+    });
+
+    it('notices an outlet on its way out of service', () => {
+
+        assert.notEqual(whatIsHappening(state([evse({ status: 'occupied', session: { method: 'RFID' } })])),
+                        whatIsHappening(state([evse({ status: 'occupied', session: { method: 'RFID' }, closing: true })])));
+
+    });
+
+    it('notices a back end asking for something to be read out', () => {
+
+        const notice: DisplayMessage = { id: 'n1', priority: 'NormalCycle', text: 'The barrier closes at ten.' };
+
+        assert.notEqual(whatIsHappening(state([evse()])),
+                        whatIsHappening(state([evse()], [notice])));
+
+        assert.notEqual(whatIsHappening(state([evse()])),
+                        whatIsHappening(state([evse({ messages: [notice] })])));
+
+    });
+
+    it('does not notice a car charging through the night', () => {
+
+        // The power reading moves every second and the payment code turns over
+        // every half minute. A screen that woke for either would be at full
+        // brightness all night with a car parked at it, which is the one case
+        // where nobody is looking at all.
+        const charging = (kW: number, code: string) =>
+            state([evse({ status:          'occupied',
+                          session:         { method: 'RFID' },
+                          currentPower_kW: kW,
+                          qrCode:          { url: code, expiresAt: 'whenever' } })]);
+
+        assert.equal(whatIsHappening(charging(11.2, 'one')),
+                     whatIsHappening(charging(43.9, 'two')));
+
+    });
+
+    it('does not notice the clock', () => {
+
+        const free = () => ({ evses: [evse()], messages: [], timestamp: String(Math.random()) }) as never;
+
+        assert.equal(whatIsHappening(free()), whatIsHappening(free()));
 
     });
 
