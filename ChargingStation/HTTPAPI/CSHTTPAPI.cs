@@ -1346,8 +1346,14 @@ namespace cloud.charging.open.ChargingStation
         #region (private) PostTestConnection(Request)
 
         /// <summary>
-        /// POST /api/v1/configuration/connections/test with {"id"}: make this
-        /// one connection, once, and say everything that happened.
+        /// POST /api/v1/configuration/connections/test with the fields of a
+        /// connection: make it once, and say everything that happened.
+        ///
+        /// The fields rather than an identification, because the page offers
+        /// this beside a connection being written down for the first time as
+        /// well as beside one that already exists - and in both cases what
+        /// somebody means by "test it" is what is on the screen. Nothing is
+        /// stored either way.
         /// </summary>
         /// <remarks>
         /// At the diagnostics permission and not at the one that reads the
@@ -1371,17 +1377,19 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return errorResponse;
 
-            var id = json.Value<String>("id")?.Trim();
-
-            if (String.IsNullOrEmpty(id))
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "An 'id' of a connection to test is required.");
-
             Log.Info($"'{session.UserId}' asked this station to test a connection.", "ocpp", "connections", "test", "web");
 
             return JSONResponse(
                        Request,
                        HTTPStatusCode.OK,
-                       await Station.TestConnection(id, Request.CancellationToken)
+                       await Station.TestConnection(json.Value<String>("description"),
+                                                    json.Value<String>("url"),
+                                                    json.Value<String>("connectionType"),
+                                                    json.Value<String>("ocppVersion"),
+                                                    json.Value<Boolean?>("autoConnect") ?? false,
+                                                    json.Value<String>("authenticationId"),
+                                                    json.Value<String>("certificateId"),
+                                                    Request.CancellationToken)
                    );
 
         }

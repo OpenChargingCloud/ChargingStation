@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Diagnostics;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
@@ -433,9 +434,30 @@ namespace cloud.charging.open.ChargingStation
         /// It closes politely rather than dropping the socket: a back end that
         /// is told the connection is going away logs a test, and one that is
         /// left hanging logs a fault.
+        ///
+        /// <b>It tests what it is handed, not what is stored.</b> The fields
+        /// arrive from the form somebody is looking at, which is the only
+        /// answer that is never surprising: the button beside a connection
+        /// being written down for the first time has nothing stored to test,
+        /// and the button beside one being edited would otherwise test the
+        /// version on disk while somebody watches the version on screen. What
+        /// is stored is not touched either way - a test writes nothing.
         /// </remarks>
-        public async Task<JObject> TestConnection(String?            Id,
-                                                  CancellationToken  CancellationToken   = default)
+        /// <param name="Description">What it is; only for the log and the answer.</param>
+        /// <param name="URL">Where it goes.</param>
+        /// <param name="ConnectionType">What is at the other end; a label.</param>
+        /// <param name="OCPPVersion">Which OCPP, and so which sub-protocols are offered.</param>
+        /// <param name="AutoConnect">Whether this is one the station would connect to by itself, which the answer mentions but does not act on.</param>
+        /// <param name="AuthenticationId">The credentials to prove itself with, by identification.</param>
+        /// <param name="CertificateId">The client certificate to prove itself with, by identification.</param>
+        public async Task<JObject> TestConnection(String?            Description,
+                                                  String?            URL,
+                                                  String?            ConnectionType,
+                                                  String?            OCPPVersion           = null,
+                                                  Boolean            AutoConnect           = false,
+                                                  String?            AuthenticationId      = null,
+                                                  String?            CertificateId         = null,
+                                                  CancellationToken  CancellationToken     = default)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -454,9 +476,8 @@ namespace cloud.charging.open.ChargingStation
                 clock.Stop();
 
                 return new JObject(
-                           new JProperty("id",           Connection?.Id          ?? Id ?? ""),
-                           new JProperty("description",  Connection?.Description ?? ""),
-                           new JProperty("url",          Connection?.URL.ToString() ?? ""),
+                           new JProperty("description",  Connection?.Description ?? (Description ?? "").Trim()),
+                           new JProperty("url",          Connection?.URL.ToString() ?? (URL ?? "").Trim()),
                            new JProperty("ok",           OK),
                            new JProperty("runtime_ms",   clock.ElapsedMilliseconds),
                            new JProperty("steps",        steps)
@@ -464,13 +485,34 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            var connection = Connections.Connections.FirstOrDefault(one => one.Id == Id);
+            #region Is it even a connection
 
-            if (connection is null)
+            // The same rules as writing one down, and the same sentences: a
+            // test of a half-filled form should say what is missing rather
+            // than fail at a socket with something less useful.
+            if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
+                                          out var url, out var type, out var version, out var notYet))
             {
-                Step("error", "There is no connection here under that identification.");
+                Step("error", notYet);
                 return Done(null, false);
             }
+
+            // A throwaway, so that everything below reads one shape whether it
+            // came from the store or from a form. Nothing writes it anywhere.
+            var connection = new ConnectionEntry(
+                                 "",
+                                 Description!.Trim(),
+                                 url,
+                                 type,
+                                 TimeProvider.GetUtcNow()
+                             ) {
+                                 OCPPVersion       = version,
+                                 AutoConnect       = AutoConnect,
+                                 AuthenticationId  = ConnectionEntry.Named(AuthenticationId),
+                                 CertificateId     = ConnectionEntry.Named(CertificateId)
+                             };
+
+            #endregion
 
             Log.Info($"Testing the connection to '{connection.Description}' ({connection.URL}) ...", "ocpp", "connections", "test");
 
@@ -494,8 +536,8 @@ namespace cloud.charging.open.ChargingStation
             Step("info", $"It will prove itself with {proves}.");
 
             if (!connection.AutoConnect)
-                Step("info", "This connection is written down only and is not connected when the station starts. " +
-                             "This test does not change that.");
+                Step("info", "This is not one the station connects to by itself. A test that gets through does not " +
+                             "change that - it only says that it could.");
 
             #endregion
 
@@ -528,6 +570,56 @@ namespace cloud.charging.open.ChargingStation
                     // resolver and may well succeed where this lookup did not.
                     Step("warning", $"'{host}' could not be looked up here: {e.Message}. Trying to connect anyway.");
                 }
+            }
+
+            #endregion
+
+            #region Can the socket even be opened
+
+            // Asked separately, and it is the difference between the two
+            // answers somebody actually needs: "nothing is there" and "something
+            // is there and it said no". The WebSocket client cannot tell them
+            // apart - when its connection is refused it has no stream to read
+            // and answers itself with a 400 that carries a Date, a
+            // Content-Type and a Content-Length, indistinguishable from a real
+            // one. Measured, against a port nothing was listening on. So the
+            // reachable-or-not question is settled here, before anything can
+            // invent an answer to it.
+            var port = connection.URL.Port?.ToUInt16() ?? (connection.IsSecure ? (UInt16) 443 : (UInt16) 80);
+
+            try
+            {
+
+                using var probe = new TcpClient();
+
+                await probe.ConnectAsync(host.Trim('[', ']'), port, CancellationToken);
+
+                Step("info", $"A TCP connection to {host}:{port} was accepted.");
+
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+
+                // The name of the socket error and never the operating
+                // system's own words for it: those are translated, and a
+                // German station and an English one would say different things
+                // about the same fault.
+                var why = e is SocketException socket
+                              ? socket.SocketErrorCode.ToString()
+                              : e.GetType().Name;
+
+                Step("error", $"Nothing accepted a TCP connection on {host}:{port} ({why}). " +
+                              "There is nothing to speak WebSocket to, so the rest was not tried.");
+
+                Log.Warning($"The connection test for '{connection.Description}' found nothing at {host}:{port}: {why}.",
+                            "ocpp", "connections", "test");
+
+                return Done(connection, false);
+
             }
 
             #endregion
@@ -580,13 +672,16 @@ namespace cloud.charging.open.ChargingStation
 
                     Step("error", $"It did not become a WebSocket connection: {response.HTTPStatusCode}.");
 
-                    // A synthesised answer has no headers at all - that is what
-                    // the client returns when it never had a stream to read.
-                    // Saying which of the two it was would be a guess.
-                    Step("info", response.Any()
-                                     ? $"What came back: {String.Join("; ", response.Take(8).Select(header => $"{header.Key}: {header.Value}"))}"
-                                     : "Nothing came back at all: no answer, no headers. Either nothing is listening there, " +
-                                       "or something in between dropped it - this station cannot tell the two apart.");
+                    // The socket was accepted a moment ago, so whatever is
+                    // there either refused the upgrade or dropped the
+                    // connection before answering. The headers below are worth
+                    // reading only in the first case, and the client writes
+                    // the same shape in both - so they are offered as what the
+                    // client has rather than as what the far end said.
+                    Step("info", $"What the client has of the answer: " +
+                                 String.Join("; ", response.Take(8).Select(header => $"{header.Key}: {header.Value}")) +
+                                 ". The socket was accepted, so something is there - it either would not upgrade, " +
+                                 "or went away before saying anything.");
 
                     Log.Warning($"The connection test for '{connection.Description}' did not get through: {response.HTTPStatusCode}.",
                                 "ocpp", "connections", "test");

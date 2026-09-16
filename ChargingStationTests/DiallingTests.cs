@@ -392,6 +392,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region (private) TestOf(Description)
+
+        /// <summary>
+        /// Test a connection that is written down here, by handing its fields
+        /// over the way the page does.
+        /// </summary>
+        /// <remarks>
+        /// The station tests what it is given rather than what it has stored,
+        /// because the button exists beside a connection being written down
+        /// for the first time as well. So even a stored one is tested by
+        /// reading it out and handing it over - which is exactly what the page
+        /// does with the form.
+        /// </remarks>
+        private Task<JObject> TestOf(String Description)
+        {
+
+            var entry = station!.Connections.Connections.Single(one => one.Description == Description);
+
+            return station.TestConnection(entry.Description,
+                                          entry.URL.ToString(),
+                                          entry.ConnectionType.ToString(),
+                                          ConnectionEntry.AsText(entry.OCPPVersion),
+                                          entry.AutoConnect,
+                                          entry.AuthenticationId,
+                                          entry.CertificateId);
+
+        }
+
+        #endregion
+
         #region ATestSaysWhatHappenedAndLeavesNothingBehind()
 
         /// <summary>
@@ -410,12 +440,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
-                                                              false, null, null, out var id, out var error),
+                                                              false, null, null, out _, out var error),
                         Is.True, error);
 
             await station.Start();
 
-            var result = await station.TestConnection(id);
+            var result = await TestOf("Kept ready");
 
             Assert.Multiple(() => {
 
@@ -425,9 +455,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(result["steps"]?.Count(), Is.GreaterThan(2),
                             "A test that says almost nothing is a test nobody can act on.");
 
-                Assert.That(result["steps"]!.Values<JObject>().Any(step => step!.Value<String>("level") == "error"),
+                Assert.That(result["steps"]!.Values<JObject>().Any(step => (step!.Value<String>("text") ?? "").Contains("Nothing accepted a TCP connection")),
                             Is.True,
-                            "A test that did not get through said nothing was wrong.");
+                            "A test against a port nothing is listening on did not say so plainly.");
 
                 Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
                             "The test left a WebSocket client behind in one of the OCPP nodes.");
@@ -467,12 +497,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 "Answers",
                                 $"ws://127.0.0.1:{listening.IPPort}/cs001",
                                 "CSMS",
-                                false, null, null, out var id, out var error),
+                                false, null, null, out _, out var error),
                             Is.True, error);
 
                 await station.Start();
 
-                var result = await station.TestConnection(id);
+                var result = await TestOf("Answers");
 
                 Assert.Multiple(() => {
 
@@ -498,22 +528,28 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ATestOfSomethingThatIsNotThereSaysSo()
+        #region AHalfFilledFormIsRefusedInTheSameWordsAsWritingItDown()
 
         /// <summary>
-        /// An identification nothing is filed under.
+        /// The button beside a form somebody is still typing into.
         /// </summary>
+        /// <remarks>
+        /// One place decides what a connection has to have, so pressing Test
+        /// with the URL still empty gets the sentence that writing it down
+        /// would have given, rather than a socket failing with something less
+        /// useful.
+        /// </remarks>
         [Test]
-        public async Task ATestOfSomethingThatIsNotThereSaysSo()
+        public async Task AHalfFilledFormIsRefusedInTheSameWordsAsWritingItDown()
         {
 
             await station!.Start();
 
-            var result = await station.TestConnection("no-such-connection");
+            var result = await station.TestConnection("Half filled in", "", "CSMS");
 
             Assert.Multiple(() => {
                 Assert.That(result.Value<Boolean>("ok"), Is.False);
-                Assert.That(result["steps"]?.First?.Value<String>("text"), Does.Contain("no connection here"));
+                Assert.That(result["steps"]?.First?.Value<String>("text"), Does.Contain("somewhere to go"));
             });
 
         }
@@ -541,7 +577,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                            false, login, null, out var id, out error),
+                                                            false, login, null, out _, out error),
                         Is.True, error);
 
             var file = Path.Combine(station.Connections.Path, ConnectionStore.AuthenticationsFileName);
@@ -552,7 +588,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await station.Start();
 
-            var result = await station.TestConnection(id);
+            var result = await TestOf("CSMS");
 
             Assert.Multiple(() => {
 
@@ -561,6 +597,54 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(result["steps"]!.Values<JObject>().Any(step => (step!.Value<String>("text") ?? "").Contains("no secret set")),
                             Is.True,
                             "The test did not say why it would not even try.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region SomethingNeverWrittenDownCanBeTested()
+
+        /// <summary>
+        /// The button in the form where a connection is being written down for
+        /// the first time.
+        /// </summary>
+        /// <remarks>
+        /// Which is the case the button is most worth having for: a connection
+        /// that has never been saved has never been tried, and finding out
+        /// that the address is wrong belongs before pressing save rather than
+        /// on the day it has to work.
+        ///
+        /// Nothing is stored by testing, and this checks that too - a test
+        /// that quietly wrote down what it tested would turn a look into a
+        /// commitment.
+        /// </remarks>
+        [Test]
+        public async Task SomethingNeverWrittenDownCanBeTested()
+        {
+
+            await station!.Start();
+
+            var result = await station.TestConnection("Not saved anywhere",
+                                                      NowhereInParticular(),
+                                                      "CSMS",
+                                                      "OCPP1.6");
+
+            Assert.Multiple(() => {
+
+                Assert.That(result.Value<Boolean>("ok"), Is.False,
+                            "A connection to nowhere was reported as working.");
+
+                Assert.That(result["steps"]!.Values<JObject>().Any(step => (step!.Value<String>("text") ?? "").Contains("OCPP1.6")),
+                            Is.True,
+                            "The version handed in was not the one the test worked from.");
+
+                Assert.That(station.Connections.Connections, Is.Empty,
+                            "Testing a connection wrote it down.");
+
+                Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                            "The test left a WebSocket client behind in one of the OCPP nodes.");
 
             });
 

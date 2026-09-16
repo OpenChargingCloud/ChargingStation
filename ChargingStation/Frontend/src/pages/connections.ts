@@ -93,9 +93,17 @@ export const connectionsPage: Page = {
                             <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
                                 Write it down
                             </button>
+                            <button type="button" class="btn small" data-test="add"
+                                    ${mayTest ? '' : html`disabled`}>
+                                <i class="fa-solid fa-plug-circle-check"></i> Test it
+                            </button>
                             <span id="add-note"  class="form-notice" role="status"></span>
                             <span id="add-error" class="form-error"  role="alert"></span>
                         </div>
+                        <span class="hint">
+                            Testing does not write anything down: it makes the connection once, says what
+                            happened, and lets go. Worth doing before saving rather than after.
+                        </span>
                     </form>
 
                 </section>
@@ -338,7 +346,7 @@ export const connectionsPage: Page = {
                 const testing = target?.closest<HTMLButtonElement>('[data-test]');
 
                 if (testing && !testing.disabled)
-                    void test(testing.dataset.test ?? '');
+                    void test(testing.closest('form'));
 
             });
 
@@ -461,23 +469,24 @@ export const connectionsPage: Page = {
          * again. What is shown while waiting says what is being tried, so the
          * wait is legible rather than merely long.
          */
-        async function test(id: string): Promise<void> {
+        async function test(form: HTMLFormElement | null): Promise<void> {
 
-            if (id === '')
+            if (form === null)
                 return;
 
-            const entry = store?.connections.find(one => one.id === id);
-
-            if (entry === undefined)
-                return;
+            // What is on the screen, not what is on disk. Beside the add form
+            // there is nothing on disk yet, and beside an entry being edited
+            // the two are frequently different - and the one somebody is
+            // looking at is the one they mean.
+            const entry  = readFrom(form);
 
             const dialog = document.createElement('dialog');
 
             dialog.className = 'test-dialog';
 
             render(dialog, html`
-                <h2>Testing ${entry.description}</h2>
-                <p class="hint"><code>${entry.url}</code></p>
+                <h2>Testing ${entry.description || 'this connection'}</h2>
+                <p class="hint"><code>${entry.url || 'no URL given'}</code></p>
                 <div class="test-steps" id="test-steps">
                     <div class="loading">Connecting, and staying connected for two seconds ...</div>
                 </div>
@@ -517,7 +526,7 @@ export const connectionsPage: Page = {
 
             try
             {
-                result = await api.connections.test(id);
+                result = await api.connections.test(entry);
             }
             catch (problem)
             {

@@ -441,7 +441,6 @@ export interface ConnectionTestStep {
 
 /** What came of testing one connection. */
 export interface ConnectionTest {
-    id:           string;
     description:  string;
     url:          string;
     ok:           boolean;
@@ -898,14 +897,19 @@ export const api = {
                      request<StationConnections>('POST', '/configuration/connections/remove', { id }),
 
         /**
-         * Make this one connection, once, and say everything that happened.
+         * Make this connection once, and say everything that happened.
          *
-         * Slower than the other reads on purpose: the station stays connected
+         * Takes the fields rather than an identification, because the page
+         * offers this beside a connection being written down for the first
+         * time as well as beside one that exists - and both times what
+         * somebody means is "test what is on the screen". Nothing is stored.
+         *
+         * Slower than the other writes on purpose: the station stays connected
          * for about two seconds to see whether anything is said, so the
          * deadline has to cover the connection plus that.
          */
-        test:    (id: string) =>
-                     request<ConnectionTest>('POST', '/configuration/connections/test', { id },
+        test:    (entry: ConnectionToSave) =>
+                     request<ConnectionTest>('POST', '/configuration/connections/test', entry,
                                              afterAsking([ 2 ]))
 
     },
