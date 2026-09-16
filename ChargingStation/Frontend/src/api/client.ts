@@ -363,6 +363,64 @@ export interface RFIDConfiguration {
     file:        string;
 }
 
+/** One kind of key this station will make for itself. */
+export interface KeyAlgorithm {
+    /** How it is written in the API, e.g. "ed448". */
+    id:       string;
+    /** How it is written on a page, e.g. "Ed448". */
+    name:     string;
+    /** What somebody choosing it should know. */
+    remark:   string;
+}
+
+/** One key of this station, its signing request, and its certificate if it has one. */
+export interface StationKey {
+    id:            string;
+    algorithm:     string;
+    createdAt:     string;
+    subject:       string;
+    /** Whether this is the one the station would hold up when it dials. */
+    inUse:         boolean;
+    /**
+     * Whether this station can load the certificate together with its key at
+     * all. False is about the platform and not about the certificate: .NET has
+     * no key object for an Ed448 or an ML-DSA key today.
+     */
+    canBeHeldUp:   boolean;
+    cannotBeHeldUp?: string;
+    /** The request waiting to be collected, while there is no certificate yet. */
+    csr?:          string;
+    certificate?: {
+        subject:           string;
+        issuer:            string;
+        serialNumber:      string;
+        notBefore:         string;
+        notAfter:          string;
+        thumbprintSHA256:  string;
+        /** How many were sent along between it and a root. */
+        intermediates:     number;
+        /** Negative once it has run out. */
+        daysLeft:          number;
+        expired:           boolean;
+        notYetValid:       boolean;
+    };
+    warnings?:     string[];
+}
+
+/** The keys and certificates this station dials a back end with. */
+export interface StationCertificates {
+    directory:             string;
+    /** What the station thinks the time is, so a page does not guess which clock the days are counted by. */
+    now:                   string;
+    inUseId:               string | null;
+    entries:               StationKey[];
+    algorithms:            KeyAlgorithm[];
+    defaultAlgorithm:      string;
+    maxSubjectLength:      number;
+    /** Always false, and said out loud: a key that arrived from elsewhere is one somebody else has a copy of. */
+    canImportPrivateKeys:  boolean;
+}
+
 /** What a certificate looks like on the way in: the rest is read out of the PEM. */
 export interface CalibrationCertificateUpdate {
     id:            string;
@@ -684,6 +742,33 @@ export const api = {
          * off - and the station works that out by comparing.
          */
         save:  (readers: RFIDReader[])   => request<RFIDConfiguration>('PUT', '/configuration/rfid', { readers })
+    },
+
+    certificates: {
+
+        get:     ()  => request<StationCertificates>('GET', '/configuration/certificates'),
+
+        /**
+         * A new key and the signing request to be handed to whoever issues
+         * certificates for this station.
+         *
+         * Slower than the other writes by a wide margin - an RSA 4096 or an
+         * SLH-DSA key takes seconds to generate, and the deadline for a write
+         * covers it.
+         */
+        create:  (subject: string, algorithm: string) =>
+                     request<{ id: string; csr: string; certificates: StationCertificates }>(
+                         'POST', '/configuration/certificates', { subject, algorithm }),
+
+        /** The certificate that came back, and whatever intermediates came with it. */
+        add:     (pem: string) =>
+                     request<{ id: string; warnings: string[]; certificates: StationCertificates }>(
+                         'POST', '/configuration/certificates/import', { pem }),
+
+        /** The identification travels in the body, as it does everywhere else in this API. */
+        remove:  (id: string) =>
+                     request<StationCertificates>('POST', '/configuration/certificates/remove', { id })
+
     },
 
     calibration: {

@@ -789,7 +789,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                            new JProperty("entries",     new JArray(
                                entries.Values.OrderByDescending(entry => entry.CreatedAt).
-                                              Select(entry => entry.ToJSON(now, entry.Id == inUse?.Id))
+                                              Select(entry => {
+
+                                                  var json = entry.ToJSON(now, entry.Id == inUse?.Id);
+
+                                                  // A request still waiting to be collected is the
+                                                  // one thing somebody opens this page for, and it
+                                                  // is not a secret - it is meant to be handed to
+                                                  // somebody else. So it travels with the entry
+                                                  // rather than behind a second round trip.
+                                                  if (entry.Certificate is null &&
+                                                      TryReadCSR(entry.Id, out var csr, out _))
+                                                  {
+                                                      json.Add("csr", csr);
+                                                  }
+
+                                                  return json;
+
+                                              })
                            )),
 
                            new JProperty("algorithms",  new JArray(

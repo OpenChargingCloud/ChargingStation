@@ -1028,6 +1028,10 @@ textarea.mono {
         letter-spacing:  0.02em;
     }
 
+    // The one that is actually in use, which is the first thing somebody
+    // looks for in a list of certificates.
+    &.on    { color: $color-accent; border-color: $color-accent; background: rgba($color-accent, 0.08); }
+
     &.warn  { color: #92400e;      border-color: #fde68a; background: $color-warn-bg;  }
     &.bad   { color: $color-error; border-color: #fecaca; background: $color-error-bg; }
 
@@ -1230,4 +1234,28 @@ textarea.mono {
         grid-template-columns: 1fr;
     }
 
+}
+
+
+// One key in the list of certificates: what it is called, and the chips that
+// say what state it is in.
+.key-head {
+
+    display:      flex;
+    align-items:  center;
+    flex-wrap:    wrap;
+    gap:          0.5rem;
+    margin-bottom: 0.6rem;
+
+    strong {
+        font-size:      0.95rem;
+        word-break:     break-word;
+    }
+
+}
+
+// The certificate this station is dialling with, marked where somebody is
+// looking for it rather than only in a chip.
+.card.in-use {
+    border-color: $color-accent;
 }

@@ -217,6 +217,11 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", GetCalibrationConfiguration, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/calibration", PutCalibrationConfiguration, HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/configuration/certificates",        GetClientCertificates,   HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/certificates/import", PostClientCertificate,   HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/certificates/remove", PostRemoveClientKey,     HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       GetRFIDConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       PutRFIDConfiguration,         HTTPMethod.PUT);
 
@@ -1058,6 +1063,140 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.CalibrationConfigurationJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetClientCertificates(Request) / PostClientKey(Request) / PostClientCertificate(Request) / PostRemoveClientKey(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/certificates: the keys and certificates
+        /// this station holds up when it dials a back end.
+        /// </summary>
+        /// <remarks>
+        /// Reading them needs no more than reading anything else here: a
+        /// certificate is a signature over a public key, a signing request is
+        /// meant to be handed to somebody, and the private keys are the one
+        /// thing that never appears in this answer at all.
+        /// </remarks>
+        private Task<HTTPResponse> GetClientCertificates(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.ClientCertificates.ToJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/certificates with {"subject", "algorithm"}:
+        /// a new key, and the signing request to be handed to a certificate
+        /// authority.
+        /// </summary>
+        /// <remarks>
+        /// At the same permission as the name servers and the time server, and
+        /// for the same reason: this is a statement about how the station
+        /// reaches the outside world. It is not about what the equipment is or
+        /// may deliver, and it is not about calibration - a certificate here
+        /// says who this station is to a back end, and nothing about what it
+        /// measures.
+        /// </remarks>
+        private Task<HTTPResponse> PostClientKey(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.ClientCertificates.TryCreateKey(json.Value<String>("subject")   ?? "",
+                                                         json.Value<String>("algorithm"),
+                                                         out var id,
+                                                         out var csr,
+                                                         out var error))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("id",           id),
+                                        new JProperty("csr",          csr),
+                                        new JProperty("certificates", Station.ClientCertificates.ToJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/certificates/import with {"pem"}: the
+        /// certificate a certificate authority sent back, and whatever
+        /// intermediates came with it.
+        /// </summary>
+        /// <remarks>
+        /// What could not be used is refused here, while somebody is looking at
+        /// the screen, rather than at the next handshake. What may legitimately
+        /// look wrong from inside a station - a chain it cannot verify - comes
+        /// back as a warning beside a certificate that was taken in.
+        /// </remarks>
+        private Task<HTTPResponse> PostClientCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.ClientCertificates.TryAddCertificate(json.Value<String>("pem") ?? "",
+                                                              out var id,
+                                                              out var warnings,
+                                                              out var error))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK,
+                                    new JObject(
+                                        new JProperty("id",           id),
+                                        new JProperty("warnings",     new JArray(warnings)),
+                                        new JProperty("certificates", Station.ClientCertificates.ToJSON())
+                                    ))
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/certificates/remove with {"id"}: take a
+        /// key and everything belonging to it away, for good.
+        /// </summary>
+        /// <remarks>
+        /// A POST rather than a DELETE because every other identification in
+        /// this API travels in the body rather than in the path, and one route
+        /// shaped differently from the rest is a route somebody gets wrong.
+        /// </remarks>
+        private Task<HTTPResponse> PostRemoveClientKey(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.ClientCertificates.TryRemove(json.Value<String>("id") ?? "", out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.ClientCertificates.ToJSON())
                    );
 
         }

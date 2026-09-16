@@ -39,6 +39,7 @@ using cloud.charging.open.ChargingStation.Kiosk;
 using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.Logging;
+using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.ChargingStation.Web;
 
 #endregion
@@ -193,6 +194,18 @@ namespace cloud.charging.open.ChargingStation
         /// starts: its name resolution, its time source, its EVSEs.
         /// </summary>
         public StationConfigFile      ConfigFile             { get; }
+
+        /// <summary>
+        /// The keys and certificates this station holds up when it dials a
+        /// back end.
+        /// </summary>
+        /// <remarks>
+        /// Beside the configuration file rather than beside the process,
+        /// because that is where everything else this station was given lives -
+        /// and because a station that is moved by copying its directory should
+        /// take its identity with it or not at all, never half of it.
+        /// </remarks>
+        public ClientCertificateStore ClientCertificates     { get; }
 
         /// <summary>
         /// The EVSEs this station has, right now.
@@ -490,6 +503,19 @@ namespace cloud.charging.open.ChargingStation
             #region What the configuration file says
 
             this.ConfigFile = ConfigFile ?? new StationConfigFile(StationConfigFile.DefaultFileName);
+
+            this.ClientCertificates = new ClientCertificateStore(
+                                          System.IO.Path.Combine(
+                                              System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
+                                              ClientCertificateStore.DefaultDirectoryName
+                                          ),
+                                          TimeProvider
+                                      );
+
+            // "this.Log", because the bare name here is the constructor's own
+            // parameter, which is null at this point - the same trap that once
+            // stopped this station from starting at all.
+            this.ClientCertificates.OnNotice += (level, message) => this.Log.Log(level, message, "ocpp", "certificates");
 
             StationConfiguration? configuration = null;
 
