@@ -489,6 +489,55 @@ screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
 `Remote` needs a back end to ask over OCPP; the display can draw both, and
 nothing here can cause either yet.
 
+### Nothing stands still, and nothing stays old
+
+A charging station's display shows the same thing for months: the operator's
+name in the same corner, the same letter over the same outlet, the word for
+"free" in the same place. A panel left like that keeps it - as a ghost on an
+LCD, permanently on an OLED - and no amount of software brings it back
+afterwards. So the whole picture walks a small ring: eight places around the
+middle, a step every three quarters of a minute, about thirteen pixels on a
+1080p panel and the same fraction of any other. Six minutes for a full circuit,
+every place visited as often as the others, and never a step of nothing.
+
+It is done by moving padding from one side of the display to the other, not by
+shifting the whole thing, and that is the part worth knowing. The sum of the two
+sides never changes, so **no card changes size** - which matters because a card
+crossing 380 px of height stops drawing its payment code, and a display whose
+cards breathed by thirteen pixels every minute would make codes come and go.
+Measured over a hundred seconds: two steps, the padding moving 21.6 px to
+8.64 px and 27 px to 39.96 px, and the box the cards live in exactly
+1866x1037 at every one of fifty-nine samples. It also keeps this from becoming
+the containing block of the card dialog, which is fixed to the screen and should
+stay fixed to the screen.
+
+There is deliberately no animation on that step, and the reason is a trap worth
+recording: a property whose value varies only through an *unregistered* custom
+property is one Chrome will not animate - and with a transition declared on it,
+it does not apply the change at all. Measured: the step arrived, the custom
+property read back as -1, and the padding sat at 2vmin four seconds later;
+removing the transition moved it the same instant. A jump of thirteen pixels
+once a minute is invisible from where this is read; a glide would need
+`@property` to register the custom property as a number, which is a dependency
+for the day somebody can see it jump.
+
+**And the display notices when the station has a newer one.** Nothing ever
+reloads a panel: one that came up in March is running March's page in December,
+whatever has been installed since, and the only thing that would notice is the
+panel itself - which nobody looks at until something is wrong with it. So every
+five minutes it asks for the page it would be given now and compares the bundle
+that page names with the one it is running. The name carries a hash of its
+contents, so it differs exactly when the display has been built again.
+
+Three things keep that from becoming a screen that restarts itself for ever. It
+only reloads towards a page that looks like this station's display, never
+towards a captive portal or a proxy's apology. It writes down what it reloaded
+for and will not do it twice - a note that survives the reload, because
+surviving the reload is its whole job. And where no note can be kept, it does
+not reload at all. Measured by serving it a page naming a bundle it was not
+running: one reload, and then three more checks against the same answer with no
+second reload.
+
 ### What is held down by a test
 
 Everything above was found by driving a real display and measuring it, which

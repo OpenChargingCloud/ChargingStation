@@ -15,7 +15,10 @@ import { strict as assert } from 'node:assert';
 import { describe, it }     from 'node:test';
 
 import { atMostMessages,
+         bundleIn,
          columnsFor,
+         driftAt,
+         driftSteps,
          hasMoreToSay,
          messagesToShow,
          qrCodeIsStillGood,
@@ -189,6 +192,89 @@ describe('whether a payment code is still worth showing', () => {
 
         assert.equal(qrCodeIsStillGood('not a date', said, 0), false);
         assert.equal(qrCodeIsStillGood(expires, 'not a date', 0), false);
+
+    });
+
+});
+
+
+describe('the walk that keeps the picture off the same pixels', () => {
+
+    it('comes back to where it started, and not before', () => {
+
+        assert.deepEqual(driftAt(0), driftAt(driftSteps));
+        assert.notDeepEqual(driftAt(0), driftAt(1));
+
+    });
+
+    it('stands in every place of the ring, equally often', () => {
+
+        const visits = new Map<string, number>();
+
+        for (let step = 0; step < driftSteps * 5; step++) {
+            const where = driftAt(step);
+            const key   = `${where.x},${where.y}`;
+            visits.set(key, (visits.get(key) ?? 0) + 1);
+        }
+
+        assert.equal(visits.size, driftSteps, 'the walk does not visit every place');
+        assert.deepEqual([...new Set(visits.values())], [5], 'some places are stood on more than others');
+
+    });
+
+    it('never stands still in the middle', () => {
+
+        // A step of nothing is a step that lets a bright edge stay where it is.
+        for (let step = 0; step < driftSteps; step++)
+            assert.notDeepEqual(driftAt(step), { x: 0, y: 0 });
+
+    });
+
+    it('stays within one step of the middle, in both directions', () => {
+
+        // The page turns a step into a fraction of the screen and takes it out
+        // of the padding on the other side. More than one step would take the
+        // padding negative and push the picture off its own screen.
+        for (let step = -20; step < 20; step++) {
+            const where = driftAt(step);
+            assert.ok(Math.abs(where.x) <= 1 && Math.abs(where.y) <= 1,
+                      `step ${step} went to ${where.x},${where.y}`);
+        }
+
+    });
+
+});
+
+
+describe('whether the station has a newer display than this one', () => {
+
+    const served = (bundle: string) =>
+        `<!doctype html><html><head><meta charset="utf-8"/>` +
+        `<script defer="defer" src="${bundle}"></script>` +
+        `<link href="/assets/kiosk.2a63d8d65b1c2a864c21.css" rel="stylesheet"></head><body></body></html>`;
+
+    it('finds the bundle a served page would run', () => {
+
+        assert.equal(bundleIn(served('/assets/kiosk.92aaf883c78eaaf943af.js')),
+                     '/assets/kiosk.92aaf883c78eaaf943af.js');
+
+    });
+
+    it('tells two builds apart', () => {
+
+        assert.notEqual(bundleIn(served('/assets/kiosk.92aaf883c78eaaf943af.js')),
+                        bundleIn(served('/assets/kiosk.0000000000000000cafe.js')));
+
+    });
+
+    it('says nothing about a page that is not this display', () => {
+
+        // A captive portal, a proxy's apology, a login page somebody put in
+        // front of the station. Reloading towards one of those is a display
+        // that turns itself off.
+        assert.equal(bundleIn('<html><body>Please sign in to the guest network.</body></html>'), null);
+        assert.equal(bundleIn('<html><head><script src="/assets/main.170dd60a5b2f61b938b6.js"></script></head></html>'), null);
+        assert.equal(bundleIn(''), null);
 
     });
 

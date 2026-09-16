@@ -122,8 +122,39 @@ html, body.kiosk-body {
 
     display:         flex;
     flex-direction:  column;
-    padding:         2vmin 2.5vmin;
     gap:             2vmin;
+
+    // The picture walks a small ring so that nothing on it stands on the same
+    // pixels for months - see driftAt. It is done by moving padding from one
+    // side to the other rather than by shifting the whole thing, for two
+    // reasons: the sum of the two sides never changes, so no card changes size
+    // and no card crosses the height at which it stops drawing its payment
+    // code; and nothing here becomes the containing block of the card dialog,
+    // which is fixed to the screen and should stay fixed to the screen.
+    //
+    // The step arrives as a bare number, one of -1, 0 and 1. How far that is
+    // belongs here, where it can be a fraction of the screen and so the same
+    // walk on a small panel as on a large one.
+    --drift-step:    1.2vmin;
+    --drift-x:       0;
+    --drift-y:       0;
+
+    padding:         calc(2vmin   + var(--drift-y) * var(--drift-step))
+                     calc(2.5vmin - var(--drift-x) * var(--drift-step))
+                     calc(2vmin   - var(--drift-y) * var(--drift-step))
+                     calc(2.5vmin + var(--drift-x) * var(--drift-step));
+
+    // No transition on that padding, and the reason is worth writing down: a
+    // property whose value varies only through an unregistered custom property
+    // is one Chrome will not animate - and with a transition declared on it, it
+    // does not apply the change at all. Measured: the step arrived, the custom
+    // property read back as -1, and the padding sat at 2vmin four seconds
+    // later; taking the transition out moved it the same instant.
+    //
+    // A step every three quarters of a minute, thirteen pixels on a 1080p
+    // panel, is invisible from where this is read anyway. A glide would need
+    // @property to register the custom property as a number, which is a
+    // dependency to take on the day somebody can see it jump.
 
     // Exactly the screen, and never more. A display has no scroll bar and
     // nobody in front of it to use one: anything below the fold is not "further

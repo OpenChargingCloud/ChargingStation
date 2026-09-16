@@ -2,7 +2,9 @@ import qrcode from 'qrcode-generator';
 
 // What the page decides, as opposed to what it draws. Kept apart so it can be
 // asked directly - see kiosk-rules.test.ts.
-import { columnsFor        as howManyColumns,
+import { bundleIn,
+         columnsFor        as howManyColumns,
+         driftAt,
          hasMoreToSay,
          messagesToShow    as whichMessagesToShow,
          qrCodeIsStillGood,
@@ -299,6 +301,27 @@ const cycleEvery = 7000;
 
 /** How long a failed poll is tolerated before the screen says so. */
 const staleAfter = 15000;
+
+/**
+ * How often the picture moves a step, and how long a step takes.
+ *
+ * Slow on purpose. A step every three quarters of a minute walks the whole ring
+ * in six, which is often enough that nothing stands still for long and rare
+ * enough that a person in front of the station never catches it moving - and
+ * the step itself is a glide rather than a jump.
+ */
+const driftEvery  = 45_000;
+const driftTakes  = 3_000;
+
+/**
+ * How often the display asks whether it is still the page the station serves.
+ *
+ * Rarely: a display is built when somebody builds it, not on a schedule. Every
+ * five minutes means a panel is at most five minutes behind a new one, at the
+ * cost of one request for one small file.
+ */
+const checkForANewPageEvery   = 5 * 60 * 1000;
+const checkForANewPageWithin  = 10_000;
 
 /**
  * How long the station is given to answer before the request is given up on.
@@ -1287,3 +1310,96 @@ setInterval(() => {
         poll();
 
 }, cycleEvery);
+
+
+// The picture walks its ring, a step at a time. Written straight onto the
+// element like the clock and the columns: nothing about where the picture sits
+// is worth a redraw, and a redraw would take the keyboard away from whoever is
+// typing a card number.
+let driftStep = 0;
+
+setInterval(() => {
+
+    const where = driftAt(driftStep++);
+
+    root.style.setProperty('--drift-x', String(where.x));
+    root.style.setProperty('--drift-y', String(where.y));
+
+}, driftEvery);
+
+
+/**
+ * Whether this is still the page the station would serve.
+ *
+ * Nothing ever reloads a display. A panel that came up in March is running
+ * March's page in December, whatever has been installed on the station since -
+ * and the one place that would notice is the panel itself, which nobody looks
+ * at until something is wrong with it.
+ *
+ * So it asks, every few minutes, for the page it would be given now, and
+ * compares the bundle that page names with the one it is running. The name
+ * carries a hash of its contents, so it differs exactly when the display has
+ * been built again.
+ *
+ * Three things keep this from being a display that restarts itself in a loop.
+ * It only ever reloads towards a page that looks like this station's display,
+ * never towards a captive portal or a proxy's apology. It writes down what it
+ * reloaded for and will not do it twice, which survives the reload because the
+ * note does. And where that note cannot be kept - a browser with its storage
+ * turned off - it does not reload at all, because once is safe and twice a
+ * minute for ever is a screen nobody can use.
+ */
+const reloadedFor = 'kiosk-reloaded-for';
+
+async function stillTheServedPage(): Promise<void> {
+
+    if (dialogFor !== null)
+        return;
+
+    const running = bundleIn(document.head.innerHTML);
+
+    if (running === null)
+        return;
+
+    const giveUp = new AbortController();
+    const timer  = setTimeout(() => giveUp.abort(), checkForANewPageWithin);
+
+    try
+    {
+        const response = await fetch(location.pathname, {
+                                   cache:   'no-store',
+                                   headers: { 'Accept': 'text/html' },
+                                   signal:  giveUp.signal
+                               });
+
+        if (!response.ok)
+            return;
+
+        const served = bundleIn(await response.text());
+
+        if (served === null || served === running)
+            return;
+
+        // Kept across the reload on purpose: it is the reload itself this has
+        // to remember having done.
+        if (sessionStorage.getItem(reloadedFor) === served)
+            return;
+
+        sessionStorage.setItem(reloadedFor, served);
+
+        location.reload();
+
+    }
+    catch
+    {
+        // Unreachable, slow, not HTML, or a browser that keeps no notes. All of
+        // them mean the same thing here: leave the display alone.
+    }
+    finally
+    {
+        clearTimeout(timer);
+    }
+
+}
+
+setInterval(() => void stillTheServedPage(), checkForANewPageEvery);

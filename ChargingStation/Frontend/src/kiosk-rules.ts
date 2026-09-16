@@ -162,3 +162,67 @@ export function qrCodeIsStillGood(ExpiresAt:         string,
     return Number.isFinite(hadLeft) && hadLeft > AgeOfWhatIsShown;
 
 }
+
+
+/**
+ * Where the picture sits at this step of its slow walk.
+ *
+ * A charging station's display shows the same thing for months: the operator's
+ * name in the same corner, the same letter over the same outlet, the word for
+ * "free" in the same place. A panel left like that keeps it - as a ghost on an
+ * LCD, permanently on an OLED - and nothing about the software will bring it
+ * back afterwards.
+ *
+ * So the whole picture walks a small ring, a step at a time, slowly enough that
+ * nobody watching sees it move and far enough that no edge stands still. The
+ * ring is eight places around the middle, each visited as often as the others.
+ *
+ * The step is a whole number of units, not a length: the page turns it into a
+ * fraction of the screen, so the walk is the same size on every panel. And it
+ * is applied by moving padding from one side of the display to the other, never
+ * by resizing anything - what is on screen is nudged, and every card stays
+ * exactly as large as it was, which is what keeps a card from crossing one of
+ * the sizes at which it stops drawing its payment code.
+ */
+export function driftAt(Step: number): { x: number; y: number } {
+
+    const ring = [
+                     { x:  0, y: -1 },
+                     { x:  1, y: -1 },
+                     { x:  1, y:  0 },
+                     { x:  1, y:  1 },
+                     { x:  0, y:  1 },
+                     { x: -1, y:  1 },
+                     { x: -1, y:  0 },
+                     { x: -1, y: -1 }
+                 ];
+
+    return ring[((Step % ring.length) + ring.length) % ring.length];
+
+}
+
+
+/** How many steps there are before the walk comes round again. */
+export const driftSteps = 8;
+
+
+/**
+ * Which bundle a served page would run.
+ *
+ * The name carries a hash of what is in it, so it is a different name whenever
+ * the display is built again - which makes it the one thing a page can compare
+ * itself against to find out that the station has a newer display than the one
+ * on the screen. A panel that came up in March would otherwise still be running
+ * March's page in December, because nothing ever reloads it.
+ *
+ * Null when the page does not look like this station's display at all: a
+ * captive portal, a proxy's error page, anything that is not what was asked
+ * for. Reloading towards one of those would be a display that turns itself off.
+ */
+export function bundleIn(HTML: string): string | null {
+
+    const match = HTML.match(/src="([^"]*\/assets\/kiosk\.[0-9a-f]+\.js)"/);
+
+    return match ? match[1] : null;
+
+}
