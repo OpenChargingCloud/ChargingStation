@@ -23,6 +23,7 @@ using System.Diagnostics.CodeAnalysis;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 #endregion
 
@@ -364,6 +365,258 @@ namespace cloud.charging.open.ChargingStation
         /// thing, with meter readings and certificates hanging off it, and it
         /// is not something a button does by surprise.
         /// </remarks>
+        #region TestTimeServerAsync(Host = null, CancellationToken = default)
+
+        /// <summary>
+        /// Ask one time server everything there is to ask, and write down each
+        /// answer as it comes.
+        /// </summary>
+        /// <remarks>
+        /// "Sync now" says whether the whole thing worked. This says where it
+        /// got to: the name resolved to these addresses, the TCP connection
+        /// took this long, the TLS handshake that long, the key exchange
+        /// agreed on this algorithm and handed over that many cookies and
+        /// named these NTP servers, and the authenticated NTP request went to
+        /// this endpoint and came back that far off. A server that fails does
+        /// so at one of those, and which one is the whole of what somebody
+        /// needs.
+        ///
+        /// <b>The whole chain against the one host.</b> A key exchange may name
+        /// NTP servers other than itself, and each of those gets a button -
+        /// but the button runs its own key exchange with that host rather than
+        /// borrowing one. It has to: the keys that protect an NTS request come
+        /// out of the TLS exporter of the exchange that issued the cookies, so
+        /// cookies from one host cannot protect a request to another. What a
+        /// per-server button therefore answers is "can this station get the
+        /// time from this host", which is the question worth asking about a
+        /// name in a list - and a host that names no key exchange of its own
+        /// says so at that step rather than being quietly skipped.
+        ///
+        /// The clock of this station is not stepped by any of it, the same as
+        /// "Sync now".
+        /// </remarks>
+        /// <param name="Host">Which time server; the configured one when nothing is said.</param>
+        public async Task<JObject> TestTimeServerAsync(String?            Host                = null,
+                                                       CancellationToken  CancellationToken   = default)
+        {
+
+            var clock  = Stopwatch.StartNew();
+            var steps  = new JArray();
+
+            void Step(String Level, String Text)
+                => steps.Add(new JObject(
+                       new JProperty("at_ms",  clock.ElapsedMilliseconds),
+                       new JProperty("level",  Level),
+                       new JProperty("text",   Text)
+                   ));
+
+            JObject Done(String Where, Boolean OK)
+            {
+                clock.Stop();
+                return new JObject(
+                           new JProperty("host",        Where),
+                           new JProperty("ok",          OK),
+                           new JProperty("runtime_ms",  clock.ElapsedMilliseconds),
+                           new JProperty("steps",       steps)
+                       );
+            }
+
+            #region Which server, and with which settings
+
+            if (!NTSEnabled)
+            {
+                Step("error", "Time synchronisation is switched off on this charging station, so nothing was asked.");
+                return Done(Host ?? "", false);
+            }
+
+            var configured  = ntsClient;
+            var wanted      = Host?.Trim();
+            var host        = configured.Hostname;
+
+            if (!String.IsNullOrEmpty(wanted) &&
+                !String.Equals(wanted.TrimEnd('.'), host.ToString().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (System.Net.IPAddress.TryParse(wanted.Trim('[', ']'), out _))
+                {
+                    // Which is what a key exchange usually hands back, so this
+                    // is the common case rather than an edge one.
+                    Step("error",
+                         $"'{wanted}' is an address rather than a name, and an NTS key exchange cannot be made to one: " +
+                          "the TLS certificate it has to check is issued for a name. This station can therefore not ask " +
+                          "this server on its own - what reaches it is the exchange with " +
+                         $"{configured.Hostname}, which is what 'Sync now' does.");
+                    return Done(wanted, false);
+                }
+
+                if (!DomainName.TryParse(wanted.TrimEnd('.'), out var other, out _))
+                {
+                    Step("error", $"'{wanted}' is neither a name nor an address that can be asked.");
+                    return Done(wanted, false);
+                }
+
+                host = other;
+
+            }
+
+            var where = $"{host}";
+
+            Step("info", $"Asking {host}: key exchange on port {configured.NTSKE_Port}, " +
+                         $"time on port {configured.NTP_Port}, {configured.Timeout?.TotalSeconds ?? 0:0.#} second(s) allowed.");
+
+            Log.Info($"NTS test: asking {host} ...", "nts", "test");
+
+            #endregion
+
+            #region Does the name resolve
+
+            if (!System.Net.IPAddress.TryParse(host.ToString().TrimEnd('.'), out _))
+            {
+                try
+                {
+
+                    var lookedUp  = await dnsClient.Query(
+                                              DNSServiceName.Parse(host.ToString()),
+                                              [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
+                                              CancellationToken: CancellationToken
+                                          );
+
+                    // The address and not the whole record. A resource
+                    // record writes itself out with its class, its time to
+                    // live and the moment it expires, which in a line that is
+                    // about "does this name resolve" is four facts nobody
+                    // asked for and one they did.
+                    var addresses = lookedUp.Answers.Take(8).
+                                        Select(record => (record.RText ?? record.ToString()).Split(',')[0].Trim()).
+                                        ToArray();
+
+                    Step(addresses.Length > 0 ? "info" : "warning",
+                         addresses.Length > 0
+                             ? $"'{host}' resolves to {String.Join(", ", addresses)}."
+                             : $"'{host}' resolved to nothing ({lookedUp.ResponseCode}).");
+
+                }
+                catch (Exception e)
+                {
+                    Step("warning", $"'{host}' could not be looked up here: {e.Message}. Asking anyway.");
+                }
+            }
+
+            #endregion
+
+            var asking = new NTSClient(
+                             host,
+                             NTSKE_Port:    configured.NTSKE_Port,
+                             NTP_Port:      configured.NTP_Port,
+                             Timeout:       configured.Timeout,
+                             DNSClient:     dnsClient,
+                             TimeProvider:  TimeProvider
+                         );
+
+            try
+            {
+
+                #region The key exchange
+
+                Step("info", "Key exchange over TLS ...");
+
+                var keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
+
+                if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
+                {
+
+                    if (timing.ConnectedIPAddress is not null)
+                        Step("info", $"Connected to {timing.ConnectedIPAddress}" +
+                                     (timing.ResolvedIPAddresses.Any()
+                                          ? $", of {timing.ResolvedIPAddresses.Count()} address(es) that were offered"
+                                          : "") + ".");
+
+                    Step("info", "Where the time went: " +
+                                 String.Join(", ", new[] {
+                                     timing.DNSLookupDuration      is TimeSpan dns  ? $"name {dns.TotalMilliseconds:0} ms"      : null,
+                                     timing.TCPConnectDuration     is TimeSpan tcp  ? $"TCP {tcp.TotalMilliseconds:0} ms"       : null,
+                                     timing.TLSHandshakeDuration   is TimeSpan tls  ? $"TLS {tls.TotalMilliseconds:0} ms"       : null,
+                                     timing.NTSKEProtocolDuration  is TimeSpan ke   ? $"key exchange {ke.TotalMilliseconds:0} ms" : null
+                                 }.Where(one => one is not null)) + ".");
+
+                }
+
+                if (!keyExchange.Success || keyExchange.Response is null)
+                {
+                    Step("error", $"The key exchange failed ({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}");
+                    Log.Warning($"NTS test: the key exchange with {host} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
+                    return Done(where, false);
+                }
+
+                var response = keyExchange.Response;
+
+                foreach (var warning in response.WarningMessages)
+                    Step("warning", $"The key exchange warned: {warning}");
+
+                Step("notice", $"The key exchange succeeded: {response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s).");
+
+                Step("info", response.NTPv4ServerNames.Any()
+                                 ? $"It named these NTP servers: {String.Join(", ", response.NTPv4ServerNames)}."
+                                 : "It named no NTP server of its own, so the time is asked of this host.");
+
+                #endregion
+
+                #region The authenticated time request
+
+                Step("info", "Authenticated NTP request ...");
+
+                var query = await asking.QueryTime(NTSKEResponse:      response,
+                                                   CancellationToken:  CancellationToken);
+
+                if (!query.Success || query.Response is null)
+                {
+                    Step("error", $"The NTP request to {query.RemoteDescription} failed " +
+                                  $"({query.ErrorCategory}): {query.ErrorMessage}");
+                    Log.Warning($"NTS test: the NTP request to {host} failed: {query.ErrorMessage}", "nts", "ntp", "test");
+                    return Done(where, false);
+                }
+
+                Step("info", $"Answered by {query.RemoteDescription}" +
+                             (query.Attempts > 1 ? $", after {query.Attempts} attempts" : "") +
+                             $"; {query.RemainingCookiesAfterQuery} cookie(s) left" +
+                             (query.NewCookieReceived ? ", and a fresh one came back" : "") + ".");
+
+                if (query.StopwatchRoundTripTime is TimeSpan roundTrip)
+                    Step("info", String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                               "Round trip {0:0.0} ms.", roundTrip.TotalMilliseconds));
+
+                var offset = query.Response.ClockOffset;
+
+                // Invariant, so that a decimal point stays a point: these
+                // sentences are English, and a station in a German locale
+                // otherwise wrote "+148,0 ms" in the middle of one.
+                Step("notice", offset.HasValue
+                                   ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                                   "This station's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
+                                                   offset.Value.TotalMilliseconds, host)
+                                   : $"{host} answered, but said nothing this station could take an offset from.");
+
+                #endregion
+
+                Step("info", "The clock was not stepped: that is a different thing, with meter readings and " +
+                             "certificates hanging off it, and not something a test does by surprise.");
+
+                Log.Notice($"NTS test: {host} answered in {clock.ElapsedMilliseconds} ms.", "nts", "test");
+
+                return Done(where, true);
+
+            }
+            catch (Exception e)
+            {
+                Step("error", $"{e.GetType().Name}: {e.Message}");
+                Log.Warning($"NTS test: asking {host} failed: {e.Message}", "nts", "test");
+                return Done(where, false);
+            }
+
+        }
+
+        #endregion
+
         public async Task<JObject> SyncTimeAsync(CancellationToken CancellationToken = default)
         {
 

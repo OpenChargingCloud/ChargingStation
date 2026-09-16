@@ -225,6 +225,19 @@ input, textarea, select {
 
 }
 
+// One NTP server named by a key exchange, with the button that asks it. They
+// sit on one line each rather than in a comma-separated list, because each of
+// them is now something to press rather than something to read.
+.named-server {
+
+    display:       inline-flex;
+    align-items:   center;
+    gap:           0.4rem;
+    margin:        0.1rem 0.5rem 0.1rem 0;
+    white-space:   nowrap;
+
+}
+
 // The dialog a connection test happens in.
 //
 // A dialog rather than a panel on the page: a test takes seconds and says a

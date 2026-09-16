@@ -165,6 +165,21 @@ export interface DNSQueryResult {
 }
 
 
+/** One line of what happened while a time server was being asked. */
+export interface TimeServerTestStep {
+    at_ms:  number;
+    level:  'info' | 'notice' | 'warning' | 'error';
+    text:   string;
+}
+
+/** What came of asking one time server everything. */
+export interface TimeServerTest {
+    host:        string;
+    ok:          boolean;
+    runtime_ms:  number;
+    steps:       TimeServerTestStep[];
+}
+
 /** What may be changed about the time client while the station runs. */
 export interface NTSUpdate {
     enabled?:         boolean;
@@ -831,6 +846,17 @@ export const api = {
          *
          * @param timeoutSeconds  what the station allows each of the two steps.
          */
+        /**
+         * Ask one time server everything: the name, the key exchange, the
+         * authenticated NTP request, each one written down as it happens.
+         *
+         * @param host  which server, or undefined for the configured one. The
+         *              key exchange may name others, and each of those can be
+         *              asked in its own right.
+         */
+        test:  (timeoutSeconds: number, host?: string) => request<TimeServerTest>(
+                                               'POST', '/configuration/nts/test', { host },
+                                               afterAsking([timeoutSeconds, timeoutSeconds])),
         sync:  (timeoutSeconds: number) => request<NTSConfiguration>(
                                                'POST', '/configuration/nts/sync', {},
                                                afterAsking([timeoutSeconds, timeoutSeconds])
