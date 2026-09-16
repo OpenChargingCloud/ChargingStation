@@ -32,10 +32,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// What is at the other end of a connection.
     /// </summary>
     /// <remarks>
-    /// Not merely a label. A station treats the three differently: it speaks
-    /// to one charging station management system at a time and falls back to
-    /// the spare only when the first is unreachable, while a local controller
-    /// sits in the same cabinet and is a different conversation entirely.
+    /// A label, and deliberately no more than one. Nothing in this station
+    /// reads it to decide anything: every connection is dialled on its own
+    /// merits. Whether a spare should wait for its main one to fail is a real
+    /// question with a real answer, and it is not answered here - a guess at
+    /// it now is something that would have to be unpicked when somebody
+    /// decides properly.
     /// </remarks>
     public enum ConnectionType
     {

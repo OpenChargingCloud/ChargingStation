@@ -139,68 +139,27 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region TheSpareIsDialledOnlyWhenTheMainOneWasNot()
+        #region EveryConnectionIsDialledWhateverItIsCalled()
 
         /// <summary>
-        /// A spare management system is a spare, not a second one.
+        /// Three connections, three kinds, and all three are tried - including
+        /// the two that come after one which answered.
         /// </summary>
         /// <remarks>
-        /// Two live connections to two management systems is two of them
-        /// believing they are in charge of the same station, which is how a
-        /// station ends up being told to start and to stop at the same moment.
+        /// This is a guard rather than a feature. What a connection is called
+        /// is a label, and nothing in this station reads it to decide anything:
+        /// a spare does not wait for its main one to fail, a local controller
+        /// does not take precedence, and one connection succeeding changes
+        /// nothing for the next. Those are real questions with real answers and
+        /// none of them has been answered yet - so what this test protects is
+        /// the absence, which is the kind of thing that grows back.
         ///
-        /// Measured in the direction that can be measured without a back end:
-        /// the main one fails, so the spare is tried. The other direction - the
-        /// main one answers and the spare is left alone - is the sentence that
-        /// gets recorded for it, which is asserted in the test below.
+        /// A plain WebSocket server stands in for the one that answers. It
+        /// speaks no OCPP and does not need to: what is measured is which
+        /// connections were attempted.
         /// </remarks>
         [Test]
-        public async Task TheSpareIsDialledOnlyWhenTheMainOneWasNot()
-        {
-
-            Assert.That(station!.Connections.TryAddConnection("CSMS, main", NowhereInParticular(), "CSMS",
-                                                              false, null, null, out var main, out var error),
-                        Is.True, error);
-
-            Assert.That(station.Connections.TryAddConnection("CSMS, spare", NowhereInParticular(), "CSMSBackup",
-                                                             false, null, null, out var spare, out error),
-                        Is.True, error);
-
-            await station.Start();
-
-            Assert.Multiple(() => {
-
-                Assert.That(station.DialledConnections[main!],  Does.Contain("did not become a WebSocket"));
-
-                Assert.That(station.DialledConnections[spare!], Does.Contain("did not become a WebSocket"),
-                            "The spare was not tried although the main one failed.");
-
-            });
-
-        }
-
-        #endregion
-
-        #region TheSpareIsLeftAloneWhenTheMainOneAnswers()
-
-        /// <summary>
-        /// The other direction, with something at the other end that actually
-        /// answers.
-        /// </summary>
-        /// <remarks>
-        /// The half that matters and the half that cannot be measured by
-        /// failing at everything: a spare that is dialled anyway is not a
-        /// spare, and the fault it causes - two management systems each
-        /// believing they run this station - shows up as contradictory orders
-        /// weeks later rather than as an error here.
-        ///
-        /// A plain WebSocket server stands in for the management system. It
-        /// speaks no OCPP and does not need to: what is being measured is
-        /// whether the handshake got through, which is the whole of what this
-        /// station decides on.
-        /// </remarks>
-        [Test]
-        public async Task TheSpareIsLeftAloneWhenTheMainOneAnswers()
+        public async Task EveryConnectionIsDialledWhateverItIsCalled()
         {
 
             var listening = new WebSocketServer(
@@ -212,25 +171,32 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "CSMS, main",
+                                "Answers",
                                 $"ws://127.0.0.1:{listening.IPPort}/cs001",
                                 "CSMS",
-                                false, null, null, out var main, out var error),
+                                false, null, null, out var answering, out var error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("CSMS, spare", NowhereInParticular(), "CSMSBackup",
+                Assert.That(station.Connections.TryAddConnection("Called a spare", NowhereInParticular(), "CSMSBackup",
                                                                  false, null, null, out var spare, out error),
+                            Is.True, error);
+
+                Assert.That(station.Connections.TryAddConnection("A local controller", NowhereInParticular(), "LocalController",
+                                                                 false, null, null, out var controller, out error),
                             Is.True, error);
 
                 await station.Start();
 
                 Assert.Multiple(() => {
 
-                    Assert.That(station.DialledConnections[main!],  Does.Contain("Connected"),
-                                "The management system answered and the station did not notice.");
+                    Assert.That(station.DialledConnections[answering!],  Does.Contain("Connected"),
+                                "The one that answered was not recorded as connected.");
 
-                    Assert.That(station.DialledConnections[spare!], Does.Contain("Not dialled"),
-                                "The spare was dialled although the management system answered.");
+                    Assert.That(station.DialledConnections[spare!],      Does.Contain("did not become a WebSocket"),
+                                "A connection was skipped because of what it is called.");
+
+                    Assert.That(station.DialledConnections[controller!], Does.Contain("did not become a WebSocket"),
+                                "A connection was skipped because another one answered.");
 
                 });
 
@@ -244,33 +210,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ASpareWithNoMainOneIsDialledAnyway()
-
-        /// <summary>
-        /// A station configured with nothing but a spare dials it.
-        /// </summary>
-        /// <remarks>
-        /// The alternative is a station that sits there dialling nothing
-        /// because the thing it was waiting to fail does not exist. Recorded
-        /// with a sentence that says why, because it is more likely a
-        /// configuration mistake than an intention.
-        /// </remarks>
-        [Test]
-        public async Task ASpareWithNoMainOneIsDialledAnyway()
-        {
-
-            Assert.That(station!.Connections.TryAddConnection("Only a spare", NowhereInParticular(), "CSMSBackup",
-                                                              false, null, null, out var spare, out var error),
-                        Is.True, error);
-
-            await station.Start();
-
-            Assert.That(station.DialledConnections[spare!], Does.Contain("did not become a WebSocket"),
-                        "A spare with nothing to stand in for was never tried.");
-
-        }
-
-        #endregion
 
         #region CredentialsWithoutASecretStopTheCallBeforeItIsMade()
 

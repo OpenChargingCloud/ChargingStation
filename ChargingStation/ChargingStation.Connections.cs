@@ -92,10 +92,13 @@ namespace cloud.charging.open.ChargingStation
         /// its web interface - not least because the web interface is where
         /// somebody fixes the address that was wrong.
         ///
-        /// The spare management system is dialled only when the main one could
-        /// not be reached. That is what makes it a spare rather than a second
-        /// one: two live connections to two management systems means two
-        /// places that each believe they are in charge of the same station.
+        /// Every connection is dialled on its own, in the order it was written
+        /// down, and none of them is affected by how another went. What is at
+        /// the other end is a label and nothing reads it here: whether a spare
+        /// waits for its main one to fail, whether a local controller is
+        /// preferred over a back end, and everything else of that shape is a
+        /// decision nobody has made yet, and guessing at it now would make it
+        /// harder to make properly later.
         /// </remarks>
         private async Task DialConfiguredConnections(CancellationToken CancellationToken = default)
         {
@@ -111,41 +114,8 @@ namespace cloud.charging.open.ChargingStation
             lock (dialled)
                 dialled.Clear();
 
-            var mainSystemIsUp = false;
-            var anyMainSystem  = false;
-
-            // The spares last, and the order matters rather than being tidy:
-            // whether a spare is dialled at all depends on how the others went.
-            foreach (var connection in connections.OrderBy(one => one.ConnectionType == OCPP.ConnectionType.CSMSBackup ? 1 : 0).
-                                                   ThenBy  (one => one.CreatedAt))
-            {
-
-                if (connection.ConnectionType == OCPP.ConnectionType.CSMS)
-                    anyMainSystem = true;
-
-                if (connection.ConnectionType == OCPP.ConnectionType.CSMSBackup)
-                {
-
-                    if (!anyMainSystem)
-                        Note(connection, "Dialling the spare management system: none is configured as the main one.");
-
-                    else if (mainSystemIsUp)
-                    {
-                        Note(connection, "Not dialled: the management system it stands in for answered.");
-                        continue;
-                    }
-
-                    else
-                        Note(connection, "The management system did not answer, so the spare is being dialled.");
-
-                }
-
-                var reached = await Dial(connection, CancellationToken);
-
-                if (connection.ConnectionType == OCPP.ConnectionType.CSMS && reached)
-                    mainSystemIsUp = true;
-
-            }
+            foreach (var connection in connections.OrderBy(one => one.CreatedAt))
+                await Dial(connection, CancellationToken);
 
         }
 
@@ -157,8 +127,8 @@ namespace cloud.charging.open.ChargingStation
         /// One connection: what it proves itself with, and whether it got
         /// through.
         /// </summary>
-        private async Task<Boolean> Dial(ConnectionEntry    Connection,
-                                         CancellationToken  CancellationToken)
+        private async Task Dial(ConnectionEntry    Connection,
+                                CancellationToken  CancellationToken)
         {
 
             var where = $"'{Connection.Description}' ({Connection.URL})";
@@ -181,7 +151,7 @@ namespace cloud.charging.open.ChargingStation
                     if (credentials is null)
                     {
                         Fail(Connection, $"Not dialled: {where} names credentials that are not configured here.");
-                        return false;
+                        return;
                     }
 
                     basic  = credentials.ToBasicAuthentication();
@@ -190,7 +160,7 @@ namespace cloud.charging.open.ChargingStation
                     if (basic is null && totp is null)
                     {
                         Fail(Connection, $"Not dialled: {where} uses '{credentials.Description}', which has no secret set.");
-                        return false;
+                        return;
                     }
 
                 }
@@ -204,7 +174,7 @@ namespace cloud.charging.open.ChargingStation
                     if (key?.Certificate is null)
                     {
                         Fail(Connection, $"Not dialled: {where} names a client certificate this station does not have.");
-                        return false;
+                        return;
                     }
 
                     // A certificate whose private key this runtime could not
@@ -214,7 +184,7 @@ namespace cloud.charging.open.ChargingStation
                     if (!key.CanBeHeldUp)
                     {
                         Fail(Connection, $"Not dialled: {where} would show a certificate this runtime cannot present ({key.CannotBeHeldUp}).");
-                        return false;
+                        return;
                     }
 
                     certificates = [ key.Certificate ];
@@ -261,14 +231,12 @@ namespace cloud.charging.open.ChargingStation
                 {
                     Fail(Connection, $"{where} did not become a WebSocket connection: {response.HTTPStatusCode}. " +
                                       "Nothing answering and an answer that will not upgrade look the same here.");
-                    return false;
+                    return;
                 }
 
                 KeepComingBack(Connection);
 
                 Note(Connection, $"Connected{(Connection.AutomaticReconnect ? ", and will dial again by itself if it drops" : "")}.");
-
-                return true;
 
             }
             catch (Exception e)
@@ -278,7 +246,6 @@ namespace cloud.charging.open.ChargingStation
                 // connection that cannot be made must not take the station
                 // down with it.
                 Fail(Connection, $"{where} could not be reached: {e.Message}");
-                return false;
             }
 
         }
@@ -333,10 +300,7 @@ namespace cloud.charging.open.ChargingStation
             lock (dialled)
                 dialled[Connection.Id] = What;
 
-            Log.Info(What.StartsWith("Connected", StringComparison.Ordinal)
-                         ? $"'{Connection.Description}': {What}"
-                         : What,
-                     "ocpp", "connections");
+            Log.Info($"'{Connection.Description}': {What}", "ocpp", "connections");
 
         }
 

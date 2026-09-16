@@ -153,8 +153,8 @@ export const connectionsPage: Page = {
                             `)}
                         </select>
                         <span class="hint">
-                            The spare is dialled only when the one it stands in for could not be reached -
-                            two management systems at once is two of them believing they run this station.
+                            What it is, for whoever reads this page. Every connection is dialled on its own;
+                            nothing here waits for anything else.
                         </span>
                     </label>
 
