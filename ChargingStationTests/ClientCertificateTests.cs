@@ -47,10 +47,14 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// together with its key - which depends on the runtime and the year. .NET
     /// has no key object at all for an Ed448 or an ML-DSA key today.
     ///
-    /// So the certificates that actually get issued in here are elliptic curve
-    /// ones. That is not a preference: this library's own certificate authority
-    /// can only sign a request whose subject key is an elliptic curve one, and
-    /// pretending otherwise would be testing a fiction.
+    /// The certificate authority in here stays a P-256 one throughout, and
+    /// issues to subjects of every kind. That is deliberate and it is what a
+    /// real fleet looks like - whoever issues certificates does not change
+    /// their root because one station asked for a newer kind of key. It used
+    /// to be the only thing that worked: the signature was chosen from the
+    /// subject's key rather than the issuer's, so an authority could only
+    /// issue to its own family. That is fixed in Hermod, and
+    /// EveryAlgorithmGoesTheWholeWayRound is what says so.
     /// </remarks>
     [TestFixture]
     public class ClientCertificateTests
