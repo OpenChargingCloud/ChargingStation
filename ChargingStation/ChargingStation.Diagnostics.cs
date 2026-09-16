@@ -381,21 +381,29 @@ namespace cloud.charging.open.ChargingStation
         /// so at one of those, and which one is the whole of what somebody
         /// needs.
         ///
-        /// <b>The whole chain against the one host.</b> A key exchange may name
-        /// NTP servers other than itself, and each of those gets a button -
-        /// but the button runs its own key exchange with that host rather than
-        /// borrowing one. It has to: the keys that protect an NTS request come
-        /// out of the TLS exporter of the exchange that issued the cookies, so
-        /// cookies from one host cannot protect a request to another. What a
-        /// per-server button therefore answers is "can this station get the
-        /// time from this host", which is the question worth asking about a
-        /// name in a list - and a host that names no key exchange of its own
-        /// says so at that step rather than being quietly skipped.
+        /// <b>Two kinds of "which server".</b> A name that is not the
+        /// configured one is treated as a time server in its own right: its own
+        /// key exchange, its own time request. An address is treated as one of
+        /// the servers the configured exchange named - the key exchange happens
+        /// where it must, with the host that has a certificate, and the
+        /// authenticated request is then directed at that address with the
+        /// cookies that exchange issued. Which is what RFC 8915 section 4.1.7
+        /// describes: the negotiated server is the one "that will accept the
+        /// supplied cookies".
+        ///
+        /// An address cannot have a key exchange of its own - the TLS
+        /// certificate has to be checked against a name - and a key exchange
+        /// very commonly names addresses, so this is the ordinary case rather
+        /// than the awkward one.
         ///
         /// The clock of this station is not stepped by any of it, the same as
         /// "Sync now".
         /// </remarks>
-        /// <param name="Host">Which time server; the configured one when nothing is said.</param>
+        /// <param name="Host">
+        /// Which time server: a name to ask in its own right, an address to ask
+        /// among the ones the configured exchange named, or nothing for the
+        /// configured server itself.
+        /// </param>
         public async Task<JObject> TestTimeServerAsync(String?            Host                = null,
                                                        CancellationToken  CancellationToken   = default)
         {
@@ -433,36 +441,41 @@ namespace cloud.charging.open.ChargingStation
             var wanted      = Host?.Trim();
             var host        = configured.Hostname;
 
+            /// Set when the time request is to go somewhere other than the host
+            /// the key exchange happens with.
+            String? directedAt = null;
+
             if (!String.IsNullOrEmpty(wanted) &&
                 !String.Equals(wanted.TrimEnd('.'), host.ToString().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
             {
 
                 if (System.Net.IPAddress.TryParse(wanted.Trim('[', ']'), out _))
-                {
-                    // Which is what a key exchange usually hands back, so this
-                    // is the common case rather than an edge one.
-                    Step("error",
-                         $"'{wanted}' is an address rather than a name, and an NTS key exchange cannot be made to one: " +
-                          "the TLS certificate it has to check is issued for a name. This station can therefore not ask " +
-                          "this server on its own - what reaches it is the exchange with " +
-                         $"{configured.Hostname}, which is what 'Sync now' does.");
-                    return Done(wanted, false);
-                }
+                    // An address cannot have a key exchange of its own: the TLS
+                    // certificate is issued for a name. So the exchange stays
+                    // with the configured host, and the time request is
+                    // directed at this address with the cookies that exchange
+                    // issued - which is what a negotiated server is for.
+                    directedAt = wanted.Trim('[', ']');
 
-                if (!DomainName.TryParse(wanted.TrimEnd('.'), out var other, out _))
+                else if (!DomainName.TryParse(wanted.TrimEnd('.'), out var other, out _))
                 {
                     Step("error", $"'{wanted}' is neither a name nor an address that can be asked.");
                     return Done(wanted, false);
                 }
 
-                host = other;
+                else
+                    host = other;
 
             }
 
-            var where = $"{host}";
+            var where = directedAt ?? $"{host}";
 
-            Step("info", $"Asking {host}: key exchange on port {configured.NTSKE_Port}, " +
-                         $"time on port {configured.NTP_Port}, {configured.Timeout?.TotalSeconds ?? 0:0.#} second(s) allowed.");
+            Step("info", directedAt is null
+                             ? $"Asking {host}: key exchange on port {configured.NTSKE_Port}, " +
+                               $"time on port {configured.NTP_Port}, {configured.Timeout?.TotalSeconds ?? 0:0.#} second(s) allowed."
+                             : $"Asking {directedAt} for the time, with cookies from a key exchange with {host} - " +
+                                "an address cannot have a key exchange of its own, because the TLS certificate is " +
+                                "issued for a name.");
 
             Log.Info($"NTS test: asking {host} ...", "nts", "test");
 
@@ -559,6 +572,17 @@ namespace cloud.charging.open.ChargingStation
                                  ? $"It named these NTP servers: {String.Join(", ", response.NTPv4ServerNames)}."
                                  : "It named no NTP server of its own, so the time is asked of this host.");
 
+                if (directedAt is not null &&
+                    !response.NTPv4ServerNames.Any(named => String.Equals(named.Trim('[', ']').TrimEnd('.'),
+                                                                          directedAt,
+                                                                          StringComparison.OrdinalIgnoreCase)))
+                {
+                    Step("error", $"This exchange did not name {directedAt}, so the cookies it issued were not said to be " +
+                                   "accepted there. Nothing was sent: a cookie spent on a server holding different master " +
+                                   "keys is wasted, and the refusal it earns is reported against the wrong machine.");
+                    return Done(where, false);
+                }
+
                 #endregion
 
                 #region The authenticated time request
@@ -566,6 +590,7 @@ namespace cloud.charging.open.ChargingStation
                 Step("info", "Authenticated NTP request ...");
 
                 var query = await asking.QueryTime(NTSKEResponse:      response,
+                                                   NTPServer:          directedAt,
                                                    CancellationToken:  CancellationToken);
 
                 if (!query.Success || query.Response is null)
@@ -679,7 +704,15 @@ namespace cloud.charging.open.ChargingStation
 
                 Log.Info($"NTS: authenticated NTP request to {client.Hostname}:{client.NTP_Port} ...", "nts", "ntp", "test");
 
-                var query = await client.QueryTime(CancellationToken: CancellationToken);
+                // The exchange goes with the request, and not only the cookies
+                // it issued. Without it the client has no idea which server was
+                // negotiated or on which port, and falls back to the host the
+                // exchange happened on at port 123 - measured against
+                // nts.netnod.se, which names a separate address on port 4123,
+                // that was a ten second timeout every time while the detailed
+                // test beside it got an answer in 53 ms.
+                var query = await client.QueryTime(NTSKEResponse:      response,
+                                                   CancellationToken:  CancellationToken);
 
                 stopwatch.Stop();
 

@@ -70,46 +70,45 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region AnAddressNamedByAKeyExchangeCannotBeAskedOnItsOwn(Named)
+        #region AnAddressIsTakenAsOneOfTheNamedServers()
 
         /// <summary>
-        /// A key exchange that names an address rather than a host name.
+        /// An address is a server to be asked, not something to refuse.
         /// </summary>
         /// <remarks>
-        /// Which is the ordinary case rather than an odd one: measured against
-        /// nts.netnod.se, the exchange named "2a01:3f7:2:44::9" and nothing
-        /// else. The page offers a button per named server, so this is the
-        /// button most people will press first, and what it must not do is
-        /// fail with something that sounds like a bug in the station.
+        /// A key exchange very commonly names addresses rather than host names
+        /// - nts.netnod.se names "2a01:3f7:2:44::9" and nothing else - so this
+        /// is the button most people press first. It cannot have a key exchange
+        /// of its own, because the TLS certificate is issued for a name; the
+        /// exchange therefore stays with the configured host and the time
+        /// request is directed at the address with the cookies that exchange
+        /// issued.
         ///
-        /// An NTS key exchange is a TLS connection whose certificate has to be
-        /// checked against a name, so an address cannot be given one of its
-        /// own. The sentence says that, and says what does reach that server
-        /// instead.
+        /// What is asserted here is only that the address is accepted as a
+        /// target and said to be one, because everything past that point needs
+        /// a real key exchange over the network. Where the request actually
+        /// goes is Norn's decision and is measured there, against a response
+        /// built by hand.
         /// </remarks>
         [Test]
-        [TestCase("2a01:3f7:2:44::9")]
-        [TestCase("192.53.103.108")]
-        public async Task AnAddressNamedByAKeyExchangeCannotBeAskedOnItsOwn(String Named)
+        public async Task AnAddressIsTakenAsOneOfTheNamedServers()
         {
 
-            var result = await station!.TestTimeServerAsync(Named);
+            Assert.That(station!.TryUpdateNTSConfiguration(new JObject(new JProperty("enabled", false)),
+                                                           out var error),
+                        Is.True, error);
 
-            var steps  = result["steps"]!.Values<JObject>().ToArray();
+            // Switched off, so nothing leaves the station - but the sentence
+            // about what would have been asked is not reached either, which is
+            // the point of the second half below.
+            var offResult = await station.TestTimeServerAsync("2a01:3f7:2:44::9");
 
-            Assert.Multiple(() => {
+            Assert.That(offResult.Value<Boolean>("ok"), Is.False);
 
-                Assert.That(result.Value<Boolean>("ok"), Is.False);
-
-                Assert.That(steps.Any(step => (step!.Value<String>("text") ?? "").Contains("issued for a name")),
-                            Is.True,
-                            "The refusal does not say why an address cannot have a key exchange of its own.");
-
-                Assert.That(steps.Any(step => (step!.Value<String>("text") ?? "").Contains("Sync now")),
-                            Is.True,
-                            "The refusal does not say what does reach that server instead.");
-
-            });
+            Assert.That(offResult["steps"]!.Values<JObject>().
+                            Any(step => (step!.Value<String>("text") ?? "").Contains("neither a name nor an address")),
+                        Is.False,
+                        "An address was turned away as if it were not one.");
 
         }
 
