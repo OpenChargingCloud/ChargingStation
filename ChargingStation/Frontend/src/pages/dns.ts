@@ -4,6 +4,7 @@ import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
+import { typedSinceDrawn, unsaved } from '../unsaved';
 
 /**
  * How this charging station resolves names.
@@ -32,7 +33,12 @@ export const dnsPage: Page = {
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
+        // Reload throws a draft away just as thoroughly as "Discard changes"
+        // does, and from the opposite corner of the screen, so it asks first.
+        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
+            if (unsaved.mayBeLost())
+                void load();
+        });
 
         const mayChange  = auth.can('changeNetworkSettings');
         const mayTest    = auth.can('runDiagnostics');
@@ -496,9 +502,17 @@ export const dnsPage: Page = {
 
         }
 
+        // The settings are a form and answer for themselves; the name servers
+        // are a list, which is redrawn as it is edited and therefore always
+        // looks untouched - so it is compared with what the station last said.
+        const release = unsaved.heldBy(
+                            () => typedSinceDrawn(content.querySelector('#dns-form')) ||
+                                  JSON.stringify(servers) !== JSON.stringify(current?.servers ?? [])
+                        );
+
         void load();
 
-        return () => { cancelled = true; };
+        return () => { cancelled = true; release(); };
 
     }
 

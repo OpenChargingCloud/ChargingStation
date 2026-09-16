@@ -4,6 +4,7 @@ import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
+import { typedSinceDrawn, unsaved } from '../unsaved';
 
 /**
  * What the NTS client allows itself when the station has not been told.
@@ -46,7 +47,12 @@ export const ntsPage: Page = {
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
+        // Reload throws a draft away just as thoroughly as "Discard changes"
+        // does, and from the opposite corner of the screen, so it asks first.
+        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
+            if (unsaved.mayBeLost())
+                void load();
+        });
 
         const mayChange = auth.can('changeNetworkSettings');
         const mayTest   = auth.can('runDiagnostics');
@@ -384,9 +390,11 @@ export const ntsPage: Page = {
 
         }
 
+        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#nts-form')));
+
         void load();
 
-        return () => { cancelled = true; };
+        return () => { cancelled = true; release(); };
 
     }
 
