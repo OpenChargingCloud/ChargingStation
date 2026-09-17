@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -90,14 +90,24 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         /// <remarks>
-        /// It starts at the real now rather than at a date somebody picked,
-        /// and that is not a detail: the OCPP node inside this station still
-        /// reads the system clock of its own (Timestamp.Now), so a fixture that
-        /// moved the whole station to last March would find its reservations
-        /// already expired and its sign-in already over - and would be testing
-        /// that disagreement rather than the display. Starting here and
-        /// stepping forward on purpose keeps the two within seconds of each
-        /// other, which is all these tests need.
+        /// It still starts at the real now rather than at a date somebody
+        /// picked, but the reason has changed and the old one should not be
+        /// left standing here. It used to be that the OCPP node inside this
+        /// station kept a clock of its own - the global Timestamp.Now - so a
+        /// fixture that moved the station to last March found its reservations
+        /// already expired and measured that disagreement rather than the
+        /// display. The node is on the station's clock now.
+        ///
+        /// What is left is not the node. Measured: with this fixture moved a
+        /// year forward, 18 of these 19 pass. Moved a year back, two answer
+        /// 401 - because the sign-in cookie is then stamped with an Expires in
+        /// the past, and the HttpClient these tests sign in with measures that
+        /// against the real system clock and drops the cookie before it is
+        /// ever sent. A test's own HTTP client cannot be time-travelled from
+        /// in here.
+        ///
+        /// So the real now stays, for a reason that now lives in the test
+        /// rather than in the station.
         /// </remarks>
         private readonly MovableClock clock = new (DateTimeOffset.UtcNow);
 

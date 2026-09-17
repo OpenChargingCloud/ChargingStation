@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -1522,7 +1522,8 @@ namespace cloud.charging.open.ChargingStation
                                       FirmwareVersion:           null,
                                       Iccid:                     null,
                                       IMSI:                      null,
-                                      UplinkEnergyMeter:         null
+                                      UplinkEnergyMeter:         null,
+                                      Clock:                     TimeProvider
                                   );
 
             var chargingStation = new OCPPv2_1.CS.TestChargingStationNode(
@@ -1572,7 +1573,13 @@ namespace cloud.charging.open.ChargingStation
                                       MaintenanceEvery:               null,
 
                                       CustomData:                     null,
-                                      DNSClient:                      dnsClient
+                                      DNSClient:                      dnsClient,
+
+                                      // The whole point of the clock the station was handed: its
+                                      // OCPP side has to agree with it about when "now" is, or a
+                                      // fixture that moves the station finds its own reservations
+                                      // already expired and measures that disagreement instead.
+                                      Clock:                          TimeProvider
                                   );
 
             ConfigureWebPayments(chargingStation);
