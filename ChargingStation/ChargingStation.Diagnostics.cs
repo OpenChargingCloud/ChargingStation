@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -654,47 +654,81 @@ namespace cloud.charging.open.ChargingStation
             var client     = ntsClient;
             var stopwatch  = Stopwatch.StartNew();
 
-            Log.Info($"NTS: key exchange with {client.Hostname}:{client.NTSKE_Port} ...", "nts", "ntske", "test");
-
             try
             {
 
-                #region NTS-KE
+                #region NTS-KE, but only when there is nothing left to spend
 
-                var keyExchange = await client.GetNTSKERecords(CancellationToken: CancellationToken);
+                // The key exchange is the expensive half - a TCP connection, a
+                // TLS handshake and a certificate to check, which was 205 ms of
+                // a 230 ms exchange with ptbtime1.ptb.de - and the eight
+                // cookies it hands over are what make the cheap half
+                // repeatable. One exchange per sync would pay that handshake
+                // every time and throw seven cookies away unspent, which is
+                // the waste the pool exists to avoid.
+                //
+                // It also keeps the two halves of a credential together. The
+                // server recovers the keys of the issuing exchange out of the
+                // cookie and checks the request against those, so the cookie
+                // spent and the key the request is sealed with have to come
+                // from the same exchange. Running a new one while the pool
+                // still holds cookies is how the two come to be mixed - and
+                // the answer to that is a Kiss-o-Death NTSN, which is
+                // indistinguishable from a replay.
+                var response  = client.AvailableCookieCount > 0
+                                    ? client.LastNTSKEResponse
+                                    : null;
 
-                if (!keyExchange.Success || keyExchange.Response is null)
+                var reused    = response is not null;
+
+                if (response is null)
                 {
 
-                    Log.Error(
-                        $"NTS: the key exchange with {client.Hostname} failed after {stopwatch.ElapsedMilliseconds} ms " +
-                        $"({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}",
+                    Log.Info($"NTS: key exchange with {client.Hostname}:{client.NTSKE_Port} ...", "nts", "ntske", "test");
+
+                    var keyExchange = await client.GetNTSKERecords(CancellationToken: CancellationToken);
+
+                    if (!keyExchange.Success || keyExchange.Response is null)
+                    {
+
+                        Log.Error(
+                            $"NTS: the key exchange with {client.Hostname} failed after {stopwatch.ElapsedMilliseconds} ms " +
+                            $"({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}",
+                            "nts", "ntske", "test"
+                        );
+
+                        return Remember(Failed($"The key exchange failed: {keyExchange.ErrorMessage}",
+                                               new JProperty("step",           "ntske"),
+                                               new JProperty("errorCategory",  keyExchange.ErrorCategory.ToString())));
+
+                    }
+
+                    response = keyExchange.Response;
+
+                    foreach (var warning in response.WarningMessages)
+                        Log.Warning($"NTS: the key exchange with {client.Hostname} warned: {warning}", "nts", "ntske", "test");
+
+                    Log.Info(
+                        $"NTS: the key exchange with {client.Hostname} succeeded in {stopwatch.ElapsedMilliseconds} ms - " +
+                        $"{response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s)" +
+                        (response.NTPv4ServerNames.Any()
+                             ? $", NTP server(s): {String.Join(", ", response.NTPv4ServerNames)}"
+                             : "") + ".",
                         "nts", "ntske", "test"
                     );
 
-                    return Remember(Failed($"The key exchange failed: {keyExchange.ErrorMessage}",
-                                           new JProperty("step",           "ntske"),
-                                           new JProperty("errorCategory",  keyExchange.ErrorCategory.ToString())));
+                    // The cookies are what the NTP request below spends, so they
+                    // go into the pool before it is sent and not after.
+                    client.SeedCookies(response);
 
                 }
 
-                var response = keyExchange.Response;
-
-                foreach (var warning in response.WarningMessages)
-                    Log.Warning($"NTS: the key exchange with {client.Hostname} warned: {warning}", "nts", "ntske", "test");
-
-                Log.Info(
-                    $"NTS: the key exchange with {client.Hostname} succeeded in {stopwatch.ElapsedMilliseconds} ms - " +
-                    $"{response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s)" +
-                    (response.NTPv4ServerNames.Any()
-                         ? $", NTP server(s): {String.Join(", ", response.NTPv4ServerNames)}"
-                         : "") + ".",
-                    "nts", "ntske", "test"
-                );
-
-                // The cookies are what the NTP request below spends, so they go
-                // into the pool before it is sent and not after.
-                client.SeedCookies(response);
+                else
+                    Log.Info(
+                        $"NTS: the key exchange with {client.Hostname} is still good for " +
+                        $"{client.AvailableCookieCount} more request(s), so none was run.",
+                        "nts", "ntske", "test"
+                    );
 
                 #endregion
 
@@ -729,6 +763,7 @@ namespace cloud.charging.open.ChargingStation
                                            new JProperty("step",           "ntp"),
                                            new JProperty("errorCategory",  query.ErrorCategory.ToString()),
                                            new JProperty("ntske",          new JObject(
+                                               new JProperty("reused",         reused),
                                                new JProperty("runtime_ms",     afterKeyExchange),
                                                new JProperty("aeadAlgorithm",  response.AEADAlgorithm.ToString()),
                                                new JProperty("cookies",        response.Cookies.Count())
@@ -737,6 +772,12 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 #endregion
+
+                // A query that finds the pool empty runs a key exchange of its
+                // own (RFC 8915 section 5.7), so what is reported below has to
+                // be the exchange the request was actually sealed under and
+                // not the one this method picked up.
+                response      = client.LastNTSKEResponse ?? response;
 
                 var roundTrip = query.StopwatchRoundTripTime;
 
@@ -768,6 +809,7 @@ namespace cloud.charging.open.ChargingStation
                            new JProperty("runtime_ms",     stopwatch.ElapsedMilliseconds),
 
                            new JProperty("ntske",          new JObject(
+                               new JProperty("reused",             reused),
                                new JProperty("runtime_ms",         afterKeyExchange),
                                new JProperty("aeadAlgorithm",      response.AEADAlgorithm.ToString()),
                                new JProperty("cookies",            response.Cookies.Count()),
