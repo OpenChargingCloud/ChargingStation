@@ -23,6 +23,7 @@ using System.Net.Sockets;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.Web;
@@ -75,6 +76,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 File.WriteAllText(configFile, Configuration.ToString());
 
             return new ChargingStation(
+                       DNSClient:        Resolver(),
                        HTTPPort:         HTTPPort  ?? IPPort.Parse(FreePort()),
                        KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
                        NoKiosk:          !WithDisplay,
@@ -86,6 +88,48 @@ namespace cloud.charging.open.ChargingStation.Tests
                    );
 
         }
+
+        #endregion
+
+        #region (private) Resolver()
+
+        /// <summary>
+        /// A name resolver with its servers written down, rather than one that
+        /// goes looking for them.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The parameterless <c>DNSClient</c> enumerates every network
+        /// interface on the machine - twice, once for the IPv4 servers and once
+        /// for the IPv6 ones - and a station builds one in its constructor. A
+        /// station per test therefore asks the operating system for its adapter
+        /// table some four hundred times in a full run.
+        /// </para>
+        /// <para>
+        /// That call is not reliably quick. It was caught hanging inside
+        /// <c>SetUp</c> on a machine carrying three virtual switches, and the
+        /// consequences go well beyond a slow test: NUnit waits for a test that
+        /// will not finish, so the test host outlives the run still holding the
+        /// assemblies it loaded, the next build cannot copy over them and fails
+        /// with MSB3027, and a run started with <c>--no-build</c> after that
+        /// quietly tests the previous build. Test counts of 174, 194 and 109
+        /// were all the same suite, truncated in different places.
+        /// </para>
+        /// <para>
+        /// Two fixed servers instead, which is what these tests wanted anyway:
+        /// they read what this client is configured as and never ask it to
+        /// resolve anything, and "whatever this machine happened to have" is
+        /// not something to assert against. The addresses are documentation
+        /// ones from RFC 5737 and RFC 3849, so a query that escapes by mistake
+        /// has nowhere to arrive.
+        /// </para>
+        /// </remarks>
+        private static DNSClient Resolver()
+
+            => new ([
+                   new DNSServerConfig(IPv4Address.Parse("192.0.2.53"),  IPPort.DNS),
+                   new DNSServerConfig(IPv6Address.Parse("2001:db8::53"), IPPort.DNS)
+               ]);
 
         #endregion
 
