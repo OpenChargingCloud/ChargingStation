@@ -1252,11 +1252,23 @@ namespace cloud.charging.open.ChargingStation
                           );
                 }
 
-                await ExtAPI.AddUserToUserGroup(
-                          user,
-                          User2UserGroupEdgeLabel.IsAdmin,
-                          group
-                      );
+                var joined = await ExtAPI.AddUserToUserGroup(
+                                       user,
+                                       User2UserGroupEdgeLabel.IsAdmin,
+                                       group
+                                   );
+
+                // Looked at for the same reason as the group above: this
+                // answers with a result too, and a membership it declined to
+                // write leaves the one account able to do nothing at all -
+                // with a password about to be printed that opens nothing.
+                // A different result type from AddUserGroup's, and so a
+                // different question: IsSuccess rather than Result.
+                if (!joined.IsSuccess)
+                    throw new InvalidOperationException(
+                              $"The account '{DefaultAdminUser}' could not be put in the {UserRole.SystemAdmin.Name} group: " +
+                              $"{joined.ErrorDescription?.FirstText()} It would be able to do nothing at all."
+                          );
 
             }
 
