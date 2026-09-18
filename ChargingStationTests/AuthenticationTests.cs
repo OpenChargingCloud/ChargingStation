@@ -18,12 +18,16 @@
 #region Usings
 
 using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
 
 using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
 #endregion
+
+using cloud.charging.open.ChargingStation.Web;
 
 namespace cloud.charging.open.ChargingStation.Tests
 {
@@ -76,6 +80,60 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region EveryRoleHasItsGroup()
+
+        /// <summary>
+        /// One user group per role, made at every start - because a role is
+        /// that group, and nothing else.
+        /// </summary>
+        /// <remarks>
+        /// This is the failure that does not announce itself. AddUserGroup
+        /// answers with a result rather than throwing, and the HTTPExt API's
+        /// own floor for a group identification is four characters - so "cpo",
+        /// which is three, was refused and simply did not exist. What that
+        /// leaves is a role nobody can ever hold: the pages that ask for it
+        /// refuse everybody, correct password and all, and there is nothing
+        /// anywhere that says why.
+        /// </remarks>
+        [Test]
+        public void EveryRoleHasItsGroup()
+        {
+
+            Assert.Multiple(() => {
+
+                foreach (var role in UserRole.All)
+                    Assert.That(Station.ExtAPI.TryGetUserGroup(role.GroupId, out _), Is.True,
+                                $"The '{role.Name}' role has no user group, so nobody can ever hold it.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheAPIHasNoSignInOfItsOwn()
+
+        /// <summary>
+        /// Signing in happens at the HTTPExt API and nowhere else, because that
+        /// is the only place a password can be checked. A second door onto the
+        /// same credentials is a second door to get wrong, so there must not be
+        /// one here.
+        /// </summary>
+        [Test]
+        public async Task TheAPIHasNoSignInOfItsOwn()
+        {
+
+            using var http = Anonymous();
+
+            var response = await http.PostAsync("/api/v1/auth/login", SignInBody(ChargingStation.DefaultAdminUser, Password));
+
+            Assert.That(response.IsSuccessStatusCode, Is.False,
+                        "The JSON API answered a sign-in, which is the HTTPExt API's business alone.");
+
+        }
+
+        #endregion
+
         #region AWrongPasswordIsRefused()
 
         [Test]
@@ -84,15 +142,18 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http = Anonymous();
 
-            var response = await http.PostAsync(
-                                     "/api/v1/auth/login",
-                                     JSONBody(
-                                         new JProperty("username", Station.Sessions.Username),
-                                         new JProperty("password", "not the password")
-                                     )
-                                 );
+            var response = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, "not the password"));
 
-            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+            Assert.Multiple(() => {
+
+                Assert.That(response.IsSuccessStatusCode, Is.False);
+
+                // And the refusal really is a refusal: no cookie was set, so a
+                // browser that ignored the status would still get nowhere.
+                Assert.That(response.Headers.Contains("Set-Cookie"), Is.False,
+                            "A refused sign-in handed out a cookie anyway.");
+
+            });
 
         }
 
@@ -106,15 +167,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http = Anonymous();
 
-            var response = await http.PostAsync(
-                                     "/api/v1/auth/login",
-                                     JSONBody(
-                                         new JProperty("username", "somebody-else"),
-                                         new JProperty("password", Password)
-                                     )
-                                 );
+            var response = await http.PostAsync(SignInPath, SignInBody("somebody-else", Password));
 
-            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized));
+            Assert.That(response.IsSuccessStatusCode, Is.False);
 
         }
 
@@ -127,25 +182,62 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// on the console and kept nowhere but in its hash, opens the web
         /// interface.
         /// </summary>
+        /// <remarks>
+        /// Two requests, as the web interface makes them: the HTTPExt API
+        /// checks the password and sets the cookie, and this station's own API
+        /// is then asked who that is - because only it knows what its roles
+        /// mean.
+        /// </remarks>
         [Test]
         public async Task TheGeneratedPasswordSignsIn()
         {
 
             using var http = Anonymous();
 
-            var response = await http.PostAsync(
-                                     "/api/v1/auth/login",
-                                     JSONBody(
-                                         new JProperty("username", Station.Sessions.Username),
-                                         new JProperty("password", Password)
-                                     )
-                                 );
+            var response = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
 
-            var me = JObject.Parse(await response.Content.ReadAsStringAsync());
+            Assert.That(response.IsSuccessStatusCode, Is.True,
+                        $"Signing in failed with {(Int32) response.StatusCode}.");
+
+            var me = await GetJSON(http, "/api/v1/auth/me");
+
+            Assert.That(me.Value<String>("username"), Is.EqualTo(ChargingStation.DefaultAdminUser));
+
+        }
+
+        #endregion
+
+        #region BasicAuthOpensTheAPIWithoutACookie()
+
+        /// <summary>
+        /// The same account through the other door. Hermod offers cookies,
+        /// HTTP Basic auth and API keys, and which one was used must not change
+        /// what somebody may do: the permissions hang off the account and its
+        /// groups, not off the way it arrived.
+        /// </summary>
+        /// <remarks>
+        /// This is the shape that a membership compared by reference rather
+        /// than by identification got wrong - the same account came out as
+        /// systemadmin through Basic auth and as nobody through a cookie - so
+        /// the roles are asserted and not only the status.
+        /// </remarks>
+        [Test]
+        public async Task BasicAuthOpensTheAPIWithoutACookie()
+        {
+
+            using var http = Anonymous();
+
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue(
+                    "Basic",
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ChargingStation.DefaultAdminUser}:{Password}"))
+                );
+
+            var me = await GetJSON(http, "/api/v1/auth/me");
 
             Assert.Multiple(() => {
-                Assert.That(response.IsSuccessStatusCode,   Is.True);
-                Assert.That(me.Value<String>("username"),   Is.EqualTo(Station.Sessions.Username));
+                Assert.That(me.Value<String>("username"),               Is.EqualTo(ChargingStation.DefaultAdminUser));
+                Assert.That(me["roles"]?.Values<String>().ToArray(),    Is.EquivalentTo(new[] { "systemadmin" }));
             });
 
         }
@@ -200,8 +292,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             var logout = await http.PostAsync("/api/v1/auth/logout", null);
 
             Assert.Multiple(() => {
-                Assert.That(logout.StatusCode, Is.EqualTo(HttpStatusCode.NoContent));
-                Assert.That(Station.Sessions.Count, Is.EqualTo(0));
+                Assert.That(logout.StatusCode,             Is.EqualTo(HttpStatusCode.NoContent));
+                Assert.That(Station.ExtAPI.Sessions.Count(), Is.EqualTo(0));
             });
 
             Assert.That((await http.GetAsync("/api/v1/auth/me")).StatusCode,
@@ -325,6 +417,36 @@ namespace cloud.charging.open.ChargingStation.Tests
                             $"The display answered {guarded}, which nobody has to sign in to reach.");
 
             }
+
+        }
+
+        #endregion
+
+        #region TheDisplayHasNoSignIn()
+
+        /// <summary>
+        /// And the accounts are not on that port either. The HTTPExt API is
+        /// registered within the web interface's server alone; a display that
+        /// handed out session cookies would be a sign-in on a screen in a car
+        /// park, whatever it then refused to serve.
+        /// </summary>
+        [Test]
+        public async Task TheDisplayHasNoSignIn()
+        {
+
+            using var display = AtTheDisplay();
+
+            var response = await display.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
+
+            Assert.Multiple(() => {
+
+                Assert.That(response.IsSuccessStatusCode, Is.False,
+                            "The display signed somebody in.");
+
+                Assert.That(response.Headers.Contains("Set-Cookie"), Is.False,
+                            "The display handed out a session cookie.");
+
+            });
 
         }
 

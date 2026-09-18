@@ -38,8 +38,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// it in memory.
     ///
     /// Nothing in here is secret, so it is an ordinary file that anybody who
-    /// can read the directory may read. The one secret this station has, the
-    /// web login, stays in its own file with its own permissions.
+    /// can read the directory may read. The passwords of its accounts stay
+    /// where the HTTPExt API keeps them, and the keys it dials with stay in
+    /// files of their own.
     /// </remarks>
     public sealed class StationConfigFile
     {

@@ -90,9 +90,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region TheConfigurationNeverCarriesThePassword()
 
         /// <summary>
-        /// The web login appears in the configuration with its username and the
-        /// path of its file, and never with anything about its password -
-        /// neither the password nor its hash.
+        /// The accounts appear in the configuration as a directory, a route to
+        /// sign in at and two counts, and never with anything about a password
+        /// - neither the password nor its hash.
         /// </summary>
         [Test]
         public async Task TheConfigurationNeverCarriesThePassword()

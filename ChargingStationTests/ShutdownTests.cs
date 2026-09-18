@@ -294,15 +294,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                        };
 
             var response = await http.PostAsync(
-                                     "/api/v1/auth/login",
-                                     new StringContent(
-                                         new JObject(
-                                             new JProperty("username", Station.Sessions.Username),
-                                             new JProperty("password", Station.GeneratedPassword)
-                                         ).ToString(),
-                                         System.Text.Encoding.UTF8,
-                                         "application/json"
-                                     )
+                                     $"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
+                                     new FormUrlEncodedContent([
+                                         new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                         new KeyValuePair<String, String>("password",  Station.GeneratedPassword ?? "")
+                                     ])
                                  );
 
             Assert.That(response.IsSuccessStatusCode, Is.True, "Signing in failed.");

@@ -33,7 +33,7 @@ registerHooks({
     querySelector: () => null
 };
 
-const { ApiError, NoAnswer, actWithin, afterAsking, answerWithin, request } =
+const { ApiError, NoAnswer, actWithin, afterAsking, answerWithin, api, request } =
     await import('./client.ts');
 
 
@@ -241,6 +241,84 @@ describe('how long the page is willing to wait', () => {
 
         assert.ok(afterAsking([10, 10, 10]) > afterAsking([10, 10]));
         assert.equal(afterAsking([10, 10, 10]) - afterAsking([10, 10]), 10_000);
+
+    });
+
+});
+
+
+describe('signing in', () => {
+
+    // The sign-in is the one call that does not go to this station's own API.
+    // Hermod's HTTPExt API is the only place that can check a password, so the
+    // frontend posts there and asks "me" afterwards for what that account may
+    // do - and a test is the only thing that notices if it ever posts the
+    // password to the wrong place.
+
+    it('posts the password to the HTTPExt API and nowhere else', async () => {
+
+        fetchThat(() => Promise.resolve(
+            new Response(JSON.stringify({ username: 'root', roles: [], permissions: [] }),
+                         { status: 200, headers: { 'Content-Type': 'application/json' } })
+        ));
+
+        await api.auth.login('root', 'hunter2');
+
+        const signIn = asked[0];
+
+        assert.ok(signIn.url.endsWith('/ext/login'),
+                  `the password went to ${signIn.url}`);
+
+        assert.equal(signIn.init.method, 'POST');
+        assert.equal((signIn.init.headers as Record<string, string>)['Content-Type'],
+                     'application/x-www-form-urlencoded');
+
+        // "login", not "username": the field is named by the HTTPExt API.
+        assert.equal(signIn.init.body, 'login=root&password=hunter2');
+
+        // The password is never repeated to the second request.
+        assert.ok(!asked.slice(1).some(call => String(call.init.body ?? '').includes('hunter2')),
+                  'the password was sent more than once');
+
+    });
+
+    it('answers with what the account may do, not with what the sign-in said', async () => {
+
+        let call = 0;
+
+        fetchThat(() => {
+            call++;
+            return Promise.resolve(
+                call === 1
+                    // What the HTTPExt API answers: its own shape, no roles.
+                    ? new Response(JSON.stringify({ '@context': '', description: 'signed in' }),
+                                   { status: 201, headers: { 'Content-Type': 'application/json' } })
+                    : new Response(JSON.stringify({ username: 'root', roles: ['cpo'], permissions: ['changeAvailability'] }),
+                                   { status: 200, headers: { 'Content-Type': 'application/json' } })
+            );
+        });
+
+        const me = await api.auth.login('root', 'hunter2');
+
+        assert.deepEqual(me.roles, ['cpo']);
+        assert.ok(asked[1].url.endsWith('/auth/me'));
+
+    });
+
+    it('says what the HTTPExt API said when it refuses', async () => {
+
+        fetchThat(() => Promise.resolve(
+            new Response(JSON.stringify({ '@context': '', description: 'You do not have access to any organization!' }),
+                         { status: 401, headers: { 'Content-Type': 'application/json' } })
+        ));
+
+        // Its refusals carry "description" where ours carry "error"; somebody
+        // who just typed a password has to be told which it was.
+        await assert.rejects(
+            () => api.auth.login('root', 'hunter2'),
+            (problem: unknown) => problem instanceof ApiError &&
+                                  problem.message === 'You do not have access to any organization!'
+        );
 
     });
 

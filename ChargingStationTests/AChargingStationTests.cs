@@ -76,7 +76,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         protected String           KioskURL     { get; private set; } = default!;
 
         /// <summary>
-        /// The directory holding its web login and its configuration, removed
+        /// The directory holding its accounts and its configuration, removed
         /// again in TearDown.
         /// </summary>
         protected String           Directory    { get; private set; } = default!;
@@ -119,16 +119,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Station    = TestStations.New(Directory, Configuration, Clock: Clock);
 
-            // Null would mean the login came from a file, and there was no file.
-            Password   = Station.GeneratedPassword
-                             ?? throw new InvalidOperationException("The station did not make up a password for its first start!");
-
             BaseURL    = Station.WebInterfaceURL.ToString();
 
             KioskURL   = Station.KioskURL?.ToString()
                              ?? throw new InvalidOperationException("The station was built with a display and has no URL for it!");
 
             await Station.Start();
+
+            // After Start(), and not before: the account is made where the
+            // accounts are read, which is asynchronous and therefore not the
+            // constructor's work. Null would mean there were accounts already,
+            // and this directory was made for this test a moment ago.
+            Password   = Station.GeneratedPassword
+                             ?? throw new InvalidOperationException("The station did not make up a password for its first start!");
 
         }
 
@@ -175,18 +178,18 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A browser that has signed in with the password this station made up,
         /// carrying the session cookie from here on.
         /// </summary>
+        /// <remarks>
+        /// At the HTTPExt API and not at this station's own API: the password
+        /// is checked where the accounts are, which is the one place that can
+        /// check it. The cookie it sets has Path "/", so everything the tests
+        /// ask of "/api" afterwards travels with it.
+        /// </remarks>
         protected async Task<HttpClient> SignedIn()
         {
 
             var http      = Anonymous();
 
-            var response  = await http.PostAsync(
-                                      "/api/v1/auth/login",
-                                      JSONBody(
-                                          new JProperty("username", Station.Sessions.Username),
-                                          new JProperty("password", Password)
-                                      )
-                                  );
+            var response  = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
 
             Assert.That(response.IsSuccessStatusCode, Is.True,
                         $"Signing in failed with {(Int32) response.StatusCode}, and every assertion below it would say so instead.");
@@ -194,6 +197,29 @@ namespace cloud.charging.open.ChargingStation.Tests
             return http;
 
         }
+
+        #endregion
+
+        #region (protected static) SignInPath / SignInBody(Login, Password)
+
+        /// <summary>
+        /// Where a sign-in is posted: the HTTPExt API's own route.
+        /// </summary>
+        protected static String SignInPath
+
+            => $"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login";
+
+        /// <summary>
+        /// A sign-in, as the web interface sends one: form-urlencoded, and the
+        /// field is called "login" rather than "username".
+        /// </summary>
+        protected static FormUrlEncodedContent SignInBody(String  Login,
+                                                          String  Password)
+
+            => new ([
+                   new KeyValuePair<String, String>("login",     Login),
+                   new KeyValuePair<String, String>("password",  Password)
+               ]);
 
         #endregion
 

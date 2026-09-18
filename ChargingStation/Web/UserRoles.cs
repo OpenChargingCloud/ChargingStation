@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -20,6 +20,8 @@
 using System.Diagnostics.CodeAnalysis;
 
 #endregion
+
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 namespace cloud.charging.open.ChargingStation.Web
 {
@@ -138,18 +140,39 @@ namespace cloud.charging.open.ChargingStation.Web
     /// A role somebody signs in as: a name, and the permissions it carries.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A closed set, unlike the connector types elsewhere in this project, and
     /// deliberately so: a connector type this station has never heard of is
     /// still a socket somebody can plug a car into, but a role it has never
-    /// heard of is a role it cannot enforce. So an unrecognised name is refused
-    /// when the login file is read, rather than quietly granting nothing - or,
+    /// heard of is a role it cannot enforce. So a group whose name is not one
+    /// of these grants nothing, rather than quietly granting something - or,
     /// far worse, being taken for a known one because it looks similar.
+    /// </para>
+    /// <para>
+    /// Each role is a user group in the HTTPExt API, under the same name, and
+    /// membership of that group is what carries the permissions below. The
+    /// permissions stay here because they are this station's own vocabulary:
+    /// the HTTPExt API knows users, groups and organizations, and has no
+    /// opinion about what "may redescribe the hardware" means. So it answers
+    /// who somebody is and this answers what that lets them do.
+    /// </para>
     /// </remarks>
-    /// <param name="Name">How the role is written in the login file.</param>
+    /// <param name="Name">The role, and the name of the user group that carries it.</param>
     /// <param name="Permissions">What it grants.</param>
     public sealed record UserRole(String       Name,
                                   Permissions  Permissions)
     {
+
+        #region Properties
+
+        /// <summary>
+        /// The user group in the HTTPExt API whose members hold this role.
+        /// </summary>
+        public UserGroup_Id  GroupId
+            => UserGroup_Id.Parse(Name);
+
+        #endregion
+
 
         #region Data
 
@@ -226,7 +249,7 @@ namespace cloud.charging.open.ChargingStation.Web
         #region (static) TryParse(Text, out Role, out Error)
 
         /// <summary>
-        /// A role by the name the login file writes it under, in any case.
+        /// A role by the name its user group is written under, in any case.
         /// </summary>
         public static Boolean TryParse(String?                            Text,
                                        [NotNullWhen(true)]  out UserRole?  Role,

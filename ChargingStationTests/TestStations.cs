@@ -54,7 +54,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// was only built is also one that will not quietly go and ask a time
         /// server in the middle of a test run.
         /// </remarks>
-        /// <param name="Directory">Where its web login and its configuration go; created when it does not exist.</param>
+        /// <param name="Directory">Where its accounts and its configuration go; created when it does not exist.</param>
         /// <param name="Configuration">What its configuration file says, or null for a station nobody has configured.</param>
         /// <param name="WithDisplay">Whether it also listens for the display, as a station does unless told otherwise.</param>
         /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
@@ -80,7 +80,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                        HTTPPort:         HTTPPort  ?? IPPort.Parse(FreePort()),
                        KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
                        NoKiosk:          !WithDisplay,
-                       LoginFile:        new WebLoginFile    (Path.Combine(Directory, "web-login.json")),
+                       AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
                        ConfigFile:       new StationConfigFile(configFile),
                        LogToConsole:     false,
                        BridgeDebugLog:   false,
@@ -194,7 +194,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A directory of its own for one test, so that no two of them read
-        /// each other's web login or configuration.
+        /// each other's accounts or configuration.
         /// </summary>
         public static String TemporaryDirectory(String Purpose)
 

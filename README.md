@@ -27,20 +27,22 @@ From the repository that has this one as a submodule
 dotnet run --project ChargingStationCLI
 ```
 
-At the first start there is no web login, so the station makes one up for the
-user `root`, writes its hash to `web-login.json` and prints the password once:
+At the first start there are no accounts, so the station makes one up - `root`,
+under `accounts/` beside the solution - and prints its password once:
 
 ```
-  ┌─ First start: there was no web login, so one was made up for you ─────────
+  ┌─ First start: there were no accounts, so one was made up for you ─────────
   │  user      root
   │  password  QBDD77Lc7HseB-xORuuw8RpX
   │  It is shown here once and kept only as a hash. Write it down.
   └───────────────────────────────────────────────────────────────────────────
 ```
 
-Then open http://127.0.0.1:2348/ and sign in.
+Then open http://127.0.0.1:2348/ and sign in. The accounts, their passwords,
+their sessions and their API keys are Hermod's HTTPExt API, mounted under
+`/ext` - the same one the CSMS signs in against.
 
-`--help` lists the rest: `--port`, `--any`, `--web-login <file>`,
+`--help` lists the rest: `--port`, `--any`, `--accounts <dir>`,
 `--frontend <dir>`, `--config <file>`, `--verbose`, `--quiet`, `--no-trace`,
 and the `--v2g` family below.
 
@@ -248,11 +250,15 @@ servers with it because the form had nothing to say about them.
 
 ### Who may change what
 
-Every login carries roles, in `web-login.json`:
+Every account carries roles, and a role is a user group of that name in the
+HTTPExt API - so putting somebody in the `cpo` group is what makes them one.
+Membership is asked on every request rather than remembered at sign-in: a role
+taken away takes effect on the next request, not at the next sign-in.
 
-```json
-{ "username": "root", "roles": ["cpo"], "password": "$pbkdf2-sha256$..." }
-```
+The permissions below stay on this side. The HTTPExt API knows users, groups
+and organizations, and has no opinion about what "may change what the station
+is made of" means; it answers who somebody is, and the station answers what
+that lets them do.
 
 | role | may |
 |---|---|

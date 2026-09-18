@@ -54,7 +54,6 @@ export interface Me {
     username:     string;
     roles:        string[];
     permissions:  Permission[];
-    session:      { createdAt: string; expiresAt: string };
 }
 
 /** How the station is doing right now. */
@@ -745,6 +744,71 @@ export function onUnauthorized(handler: () => void): void {
  * Exported so that the tests can drive it at a deadline short enough to be a
  * test; everything the pages do goes through `api` below.
  */
+/**
+ * Sign in at the HTTPExt API and answer with who is now signed in.
+ *
+ * Two requests rather than one, and that is not a detour. The HTTPExt API is
+ * the only place that can check a password - the store it reads is private to
+ * it - but it answers in its own shape and knows nothing of this station's
+ * roles. So it sets the session cookie, and "me" is asked afterwards for the
+ * roles and permissions this frontend actually works from.
+ *
+ * Form-urlencoded because that is what its sign-in route accepts, and the
+ * field is called "login" rather than "username".
+ */
+async function signIn(username: string, password: string): Promise<Me> {
+
+    const giveUp = new AbortController();
+    const timer  = setTimeout(() => giveUp.abort(), actWithin);
+
+    let response: Response;
+
+    try
+    {
+        response = await fetch(config.extBase + '/login', {
+                             method:       'POST',
+                             headers:      {
+                                               'Content-Type':  'application/x-www-form-urlencoded',
+                                               'Accept':        'application/json'
+                                           },
+                             credentials:  'same-origin',
+                             signal:       giveUp.signal,
+                             body:         new URLSearchParams({ login: username, password }).toString()
+                         });
+    }
+    catch (problem)
+    {
+        throw nothingCameBack(problem, 'POST', actWithin, giveUp.signal.aborted);
+    }
+    finally
+    {
+        clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+
+        // Its refusals carry a "description"; ours carry an "error". Both are
+        // shown to somebody who just typed a password, so both are read.
+        let message = `${response.status} ${response.statusText}`;
+
+        try {
+            const json = JSON.parse(await response.text());
+            if (typeof json === 'object' && json !== null) {
+                if      ('description' in json && typeof json.description === 'string')  message = json.description;
+                else if ('error'       in json && typeof json.error       === 'string')  message = json.error;
+            }
+        }
+        catch { /* the status line says enough */ }
+
+        throw new ApiError(response.status, message, null);
+
+    }
+
+    return request<Me>('GET', '/auth/me');
+
+}
+
+
 export async function request<T>(method:  string,
                                  path:    string,
                                  body?:   unknown,
@@ -869,7 +933,7 @@ export const api = {
 
     auth: {
         me:      ()                                    => request<Me>  ('GET',  '/auth/me'),
-        login:   (username: string, password: string)  => request<Me>  ('POST', '/auth/login', { username, password }),
+        login:   signIn,
         logout:  ()                                    => request<void>('POST', '/auth/logout')
     },
 

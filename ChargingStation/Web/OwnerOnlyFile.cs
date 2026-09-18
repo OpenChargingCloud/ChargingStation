@@ -22,9 +22,10 @@ namespace cloud.charging.open.ChargingStation.Web
     /// Writing a file that only its owner may read.
     /// </summary>
     /// <remarks>
-    /// The web login file holds the hash of the password that opens this
-    /// charging station's web interface, which is worth a dictionary attack to
-    /// whoever gets hold of it.
+    /// What goes through here is what this station cannot let anybody else
+    /// read: the private keys it dials its back ends with, and the credentials
+    /// that go alongside them. The accounts are not among them - the HTTPExt
+    /// API keeps those, and their permissions with them.
     ///
     /// <b>The mode goes on at creation and not afterwards.</b> Creating a file
     /// readable and restricting it once the content is in leaves a window, and
