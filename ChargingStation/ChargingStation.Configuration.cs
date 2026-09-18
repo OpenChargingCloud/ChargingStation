@@ -32,6 +32,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
+using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.RFID;
 
 #endregion
@@ -464,6 +465,147 @@ namespace cloud.charging.open.ChargingStation
 
             if (changed.Count > 0)
                 Log.Notice($"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
+
+        }
+
+        #endregion
+
+        #endregion
+
+
+        #region V2G
+
+        #region V2GConfigurationJSON()
+
+        /// <summary>
+        /// What this station offers a vehicle on the wire below the charging
+        /// cable: what it was told to offer, and what actually came up.
+        /// </summary>
+        /// <remarks>
+        /// Both, because they are not the same thing and the difference is the
+        /// whole point of the page. A station told to answer SDP on a machine
+        /// with no IPv6 link-local address comes up with SDP not running, and
+        /// a page that only showed the setting would say everything is fine.
+        /// </remarks>
+        public JObject V2GConfigurationJSON()
+
+            => new (
+
+                   new JProperty("enabled",         V2GOptions.Enabled),
+                   new JProperty("sdp",             V2GOptions.SDP),
+                   new JProperty("interface",       V2GOptions.InterfaceName),
+                   new JProperty("port",            V2GOptions.V2GPort),
+                   new JProperty("evseId",          V2GOptions.EVSEId),
+                   new JProperty("slac",            V2GOptions.SlacTransport.ToString().ToLowerInvariant()),
+
+                   // Not settable from here on purpose: a certificate is a file
+                   // and a password. The page still has to know whether there
+                   // is one, because that - and nothing on this page - decides
+                   // whether the endpoint speaks TLS and what SDP advertises.
+                   new JProperty("certificate",     V2GOptions.ServerCertificate is not null),
+
+                   new JProperty("slacTransports",  new JArray(Enum.GetNames<SlacTransportKind>().
+                                                                   Select(name => name.ToLowerInvariant()))),
+
+                   new JProperty("running",         started),
+                   new JProperty("link",            V2G?.ToJSON()),
+
+                   new JProperty("file",            ConfigFile.Path)
+
+               );
+
+        #endregion
+
+        #region UpdateV2GConfiguration(JSON, CancellationToken = default)
+
+        /// <summary>
+        /// Change what this station offers below the cable, and put it into
+        /// effect at once.
+        /// </summary>
+        /// <remarks>
+        /// Not a TryUpdate like the sections above it, because this one cannot
+        /// be done without awaiting: putting it into effect means taking down
+        /// a raw socket, a multicast membership and a TCP listener and opening
+        /// them again, and pretending that is synchronous would only move the
+        /// waiting somewhere less honest.
+        ///
+        /// The link is always torn down and rebuilt rather than adjusted. Every
+        /// setting here - the interface, the port, the EVSE identification SDP
+        /// hands out - is read while the sockets are being opened, so there is
+        /// no such thing as changing one of them on a running link.
+        /// </remarks>
+        public async Task<(Boolean Success, String? Error)> UpdateV2GConfiguration(JObject            JSON,
+                                                                                   CancellationToken  CancellationToken   = default)
+        {
+
+            if (!V2GConfiguration.TryParse(JSON, out var configuration, out var error))
+                return (false, error);
+
+            await reconfigureLock.WaitAsync(CancellationToken);
+
+            try
+            {
+
+                if (!ConfigFile.TryMergeSection(V2GConfiguration.SectionName, configuration.ToJSON(), out error))
+                    return (false, error);
+
+                V2GOptions = configuration.Apply(V2GOptions);
+
+                await RestartV2GLink(CancellationToken);
+
+                Log.Notice($"V2G configuration changed: {configuration}.", "15118", "config");
+
+                return (true, null);
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) RestartV2GLink(CancellationToken)
+
+        /// <summary>
+        /// Take the wire below the cable down and bring it up again as it is
+        /// now configured.
+        /// </summary>
+        /// <remarks>
+        /// Does nothing at all before Start(), so that a station reconfigured
+        /// between construction and start does not open sockets early - the
+        /// settings are simply what Start() will then read.
+        ///
+        /// A vehicle in the middle of a SLAC match or an open V2G session goes
+        /// down with the link. That is the honest outcome of changing which
+        /// interface a station listens on, and the log says so rather than the
+        /// page pretending the change was free.
+        /// </remarks>
+        private async Task RestartV2GLink(CancellationToken CancellationToken)
+        {
+
+            if (!started)
+                return;
+
+            if (V2G is not null)
+            {
+
+                var sessions = V2G.ActiveSLACSessions;
+
+                if (sessions > 0)
+                    Log.Warning(
+                        $"The V2G link is being restarted with {sessions} SLAC session(s) open; they end here.",
+                        "15118", "config"
+                    );
+
+                await V2G.DisposeAsync();
+                V2G = null;
+
+            }
+
+            V2G = await V2GLink.TryStart(V2GOptions, Log, CancellationToken);
 
         }
 

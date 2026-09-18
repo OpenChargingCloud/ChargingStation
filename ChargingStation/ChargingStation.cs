@@ -360,7 +360,13 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// What was asked for on that wire.
         /// </summary>
-        public V2GOptions             V2GOptions             { get; }
+        /// <remarks>
+        /// Settable because the V2G configuration page changes it while the
+        /// station runs; every change goes through
+        /// <see cref="UpdateV2GConfiguration"/>, which holds the same lock as
+        /// the other sections and restarts the link.
+        /// </remarks>
+        public V2GOptions             V2GOptions             { get; private set; }
 
         /// <summary>
         /// The URL to open in a browser.
@@ -603,6 +609,13 @@ namespace cloud.charging.open.ChargingStation
                 ApplyNTSConfiguration(configuration.NTS);
 
             this.ntsSettings = configuration?.NTS;
+
+            // Same rule for the wire below the cable: the command line asked
+            // for something, and the file has the last word on it. Nothing is
+            // started here - Start() does that, much later - so this only
+            // decides what will be started.
+            if (configuration?.V2G is not null)
+                this.V2GOptions = configuration.V2G.Apply(this.V2GOptions);
 
             #endregion
 

@@ -40,6 +40,13 @@ export const beingSaved = 'Saving ...';
  *
  * Controls that were already switched off stay off afterwards: a role that may
  * look but not change must not be handed a live form by a save that failed.
+ *
+ * Read every field BEFORE calling this, never inside Doing. The form is
+ * switched off before Doing runs, and FormData leaves a disabled control out
+ * of the form entirely - so field() in there returns the empty string, which
+ * this station reads as "do not change it". Measured on the V2G page: it
+ * answered 200, said "Saved.", redrew itself with the old values and left the
+ * file untouched. Nothing about that looks like a bug from the outside.
  */
 export async function whileSaving<T>(Page:    HTMLElement,
                                      Saying:  HTMLElement | null,
@@ -207,6 +214,9 @@ const acronyms = new Map<string, string>([
     ['ttl',   'TTL'],
     ['aead',  'AEAD'],
     ['ocpp',  'OCPP'],
+    ['v2g',   'V2G'],
+    ['sdp',   'SDP'],
+    ['slac',  'SLAC'],
     ['evse',  'EVSE'],
     ['evses', 'EVSEs'],
     ['kw',    'kW'],

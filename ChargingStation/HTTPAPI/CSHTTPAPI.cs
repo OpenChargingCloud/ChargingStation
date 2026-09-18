@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -205,6 +205,9 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/nts",        PutNTSConfiguration,   HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/configuration/nts/sync",   PostNTSSync,           HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/nts/test",   PostNTSTest,           HTTPMethod.POST);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/v2g",        GetV2GConfiguration,   HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/v2g",        PutV2GConfiguration,   HTTPMethod.PUT);
 
             AddHandler(HTTPPath.Root + "v1/configuration/power",      GetPowerConfiguration,        HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/power",      PutPowerConfiguration,        HTTPMethod.PUT);
@@ -1029,6 +1032,59 @@ namespace cloud.charging.open.ChargingStation
             if (Change.HasFlag(RFIDChange.Placement))     permissions |= Permissions.ChangeHardware;
 
             return permissions;
+
+        }
+
+        #endregion
+
+        #region (private) GetV2GConfiguration(Request) / PutV2GConfiguration(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/v2g: what this station offers a vehicle
+        /// below the charging cable, and what of it actually came up.
+        /// </summary>
+        private Task<HTTPResponse> GetV2GConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.V2GConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/v2g: change it, and put it into effect.
+        /// </summary>
+        /// <remarks>
+        /// The only configuration handler here that awaits, because this one
+        /// takes a raw socket, a multicast membership and a TCP listener down
+        /// and opens them again. Answering before that has happened would tell
+        /// the page the change was made when it had only been written down.
+        ///
+        /// It is also logged before it is done rather than after: a change of
+        /// interface can take the link down and fail to bring it up, and the
+        /// log should say who asked for that rather than only that it happened.
+        /// </remarks>
+        private async Task<HTTPResponse> PutV2GConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out var session, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            Log.Info($"'{session.UserId}' is changing what this station offers below the charging cable.", "15118", "config", "web");
+
+            var (success, error) = await Station.UpdateV2GConfiguration(json, Request.CancellationToken);
+
+            if (!success)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, error ?? "The V2G configuration could not be changed.");
+
+            return JSONResponse(Request, HTTPStatusCode.OK, Station.V2GConfigurationJSON());
 
         }
 

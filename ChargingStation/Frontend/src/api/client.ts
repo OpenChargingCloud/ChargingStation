@@ -282,6 +282,62 @@ export interface EVSEConfiguration {
 }
 
 
+/**
+ * What came up on the wire below the charging cable.
+ *
+ * Null while the station has not been started; and every field here may
+ * disagree with what was asked for, which is the reason it is sent at all.
+ */
+export interface V2GLinkStatus {
+    /** The interface actually chosen, which need not be the one named. */
+    interface:      string | null;
+    linkLocal:      string | null;
+    v2gEndpoint:    string | null;
+    v2gTLS:         boolean;
+    /** Whether SDP is really answering, not whether it was asked to. */
+    sdp:            boolean;
+    slac:           boolean;
+    slacTransport:  string | null;
+    slacSessions:   number;
+    evseId:         string;
+}
+
+/** What this station offers a vehicle below the charging cable. */
+export interface V2GConfiguration {
+    enabled:         boolean;
+    /** Whether the SECC Discovery Protocol answers vehicles. */
+    sdp:             boolean;
+    /** The powerline interface, or null to let the station pick one. */
+    interface:       string | null;
+    /** 0 lets the system pick a port, which is what SDP then advertises. */
+    port:            number;
+    evseId:          string;
+    slac:            string;
+    /**
+     * Whether a V2G server certificate was passed on the command line. Not
+     * settable from the page - a certificate is a file and a password - but it
+     * is what decides whether the endpoint speaks TLS.
+     */
+    certificate:     boolean;
+    /** The transports this station knows, for the picker. */
+    slacTransports:  string[];
+    /** Whether the station has been started; nothing comes up before that. */
+    running:         boolean;
+    link:            V2GLinkStatus | null;
+    file:            string;
+}
+
+/** What a PUT to the V2G configuration may carry; everything is optional. */
+export interface V2GUpdate {
+    enabled?:    boolean;
+    sdp?:        boolean;
+    interface?:  string | null;
+    port?:       number;
+    evseId?:     string;
+    slac?:       string;
+}
+
+
 /** What this station may draw from the grid, and what it could deliver. */
 export interface PowerConfiguration {
     /** The most the whole station may draw; null when nobody has said. */
@@ -868,6 +924,16 @@ export const api = {
         // The whole section at once, because its fields are not independent -
         // and an empty object is how dimming is turned off.
         save:  (update: Partial<DisplayConfiguration>) => request<DisplayConfiguration>('PUT', '/configuration/display', update)
+    },
+
+    v2g: {
+        get:   ()                    => request<V2GConfiguration>('GET', '/configuration/v2g'),
+        /**
+         * Takes the link down and brings it up again, so it answers later than
+         * the other configuration calls do - and a vehicle in the middle of a
+         * SLAC match goes down with it.
+         */
+        save:  (update: V2GUpdate)   => request<V2GConfiguration>('PUT', '/configuration/v2g', update, 30_000)
     },
 
     power: {

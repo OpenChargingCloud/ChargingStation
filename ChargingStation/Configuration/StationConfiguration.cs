@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -55,6 +55,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Operator">Whose station this is, and whose cards it recognises.</param>
     /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
     /// <param name="Display">The quiet hours the screen on the front keeps.</param>
+    /// <param name="V2G">What this station offers a vehicle on the wire below the charging cable.</param>
     public sealed record StationConfiguration(DNSConfiguration?                        DNS           = null,
                                               NTSConfiguration?                        NTS           = null,
                                               PowerConfiguration?                      Power         = null,
@@ -63,7 +64,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               IReadOnlyList<RFIDReaderConfig>?         RFID          = null,
                                               OperatorConfiguration?                   Operator      = null,
                                               WebPaymentsConfiguration?                WebPayments   = null,
-                                              DisplayConfiguration?                    Display       = null)
+                                              DisplayConfiguration?                    Display       = null,
+                                              V2GConfiguration?                        V2G           = null)
     {
 
         #region Data
@@ -92,7 +94,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public Boolean IsEmpty
             => DNS is null && NTS is null && Power is null && EVSEs is null &&
-               Calibration is null && RFID is null && Operator is null && WebPayments is null;
+               Calibration is null && RFID is null && Operator is null && WebPayments is null &&
+               Display is null && V2G is null;
 
         #endregion
 
@@ -301,7 +304,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments, display);
+            #region V2G
+
+            V2GConfiguration? v2g = null;
+
+            if (JSON[V2GConfiguration.SectionName] is JToken v2gToken && v2gToken.Type != JTokenType.Null)
+            {
+
+                if (v2gToken is not JObject v2gJSON)
+                {
+                    Error = $"'{V2GConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!V2GConfiguration.TryParse(v2gJSON, out v2g, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments, display, v2g);
             return true;
 
         }
@@ -346,6 +369,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (WebPayments is not null)
                 json.Add(WebPaymentsConfiguration.SectionName,  WebPayments.ToJSON());
 
+            if (V2G is not null)
+                json.Add(V2GConfiguration.SectionName,          V2G.ToJSON());
+
             return json;
 
         }
@@ -367,7 +393,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              Calibration is not null ? $"{Calibration.Count} certificate(s)"    : null,
                              RFID        is not null ? $"{RFID.Count} RFID reader(s)"           : null,
                              Operator    is not null ? Operator.ToString()                      : null,
-                             WebPayments is not null ? WebPayments.ToString()                   : null
+                             WebPayments is not null ? WebPayments.ToString()                   : null,
+                             V2G         is not null ? V2G.ToString()                           : null
                          }.Where(section => section is not null));
 
         #endregion

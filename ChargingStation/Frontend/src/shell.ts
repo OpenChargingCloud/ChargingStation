@@ -30,6 +30,7 @@ export const menu: MenuEntry[] = [
         children:  [
             { path: '/configuration/dns',         label: 'DNS client',      icon: 'fa-magnifying-glass-location' },
             { path: '/configuration/nts',         label: 'NTS client',      icon: 'fa-clock'                     },
+            { path: '/configuration/v2g',         label: 'V2G',             icon: 'fa-car-side'                  },
             { path: '/configuration/power',       label: 'Grid connection', icon: 'fa-bolt'                      },
             { path: '/configuration/display',     label: 'Display',         icon: 'fa-desktop'                   },
             { path: '/configuration/evses',       label: 'EVSEs',           icon: 'fa-plug'                      },
