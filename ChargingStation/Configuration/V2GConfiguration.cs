@@ -49,12 +49,14 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="InterfaceName">The powerline interface, or null to let the station pick one.</param>
     /// <param name="V2GPort">The TCP port of the V2G endpoint; 0 lets the system pick one, which is what SDP then advertises.</param>
     /// <param name="SDP">Whether the SECC Discovery Protocol answers vehicles looking for that endpoint.</param>
+    /// <param name="Loopback">Whether SDP also answers a vehicle running on this same machine - for a bench, and off in the field.</param>
     /// <param name="SlacTransport">Which medium the SLAC listener listens on.</param>
     /// <param name="EVSEId">The EVSE identification SLAC hands to a vehicle.</param>
     public sealed record V2GConfiguration(Boolean?            Enabled         = null,
                                           String?             InterfaceName   = null,
                                           UInt16?             V2GPort         = null,
                                           Boolean?            SDP             = null,
+                                          Boolean?            Loopback        = null,
                                           SlacTransportKind?  SlacTransport   = null,
                                           String?             EVSEId          = null)
     {
@@ -97,6 +99,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",    SectionName, out var enabled,       out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "sdp",        SectionName, out var sdp,           out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "loopback",   SectionName, out var loopback,      out Error) ||
                 !ConfigurationReader.TryReadString (JSON, "interface",  SectionName, MaxInterfaceNameLength, out var interfaceName, out Error) ||
                 !TryReadV2GPort                    (JSON, "port",       SectionName, out var port,          out Error) ||
                 !TryReadSlacTransport              (JSON, "slac",       SectionName, out var transport,     out Error) ||
@@ -110,6 +113,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                 interfaceName,
                                 port,
                                 sdp,
+                                loopback,
                                 transport,
                                 evseId
                             );
@@ -250,6 +254,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (InterfaceName is not null)  json.Add("interface",  InterfaceName);
             if (V2GPort.HasValue)           json.Add("port",       V2GPort.Value);
             if (SDP.HasValue)               json.Add("sdp",        SDP.Value);
+            if (Loopback.HasValue)          json.Add("loopback",   Loopback.Value);
             if (SlacTransport.HasValue)     json.Add("slac",       SlacTransport.Value.ToString().ToLowerInvariant());
             if (EVSEId is not null)         json.Add("evseId",     EVSEId);
 
@@ -271,7 +276,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                    Enabled        = Enabled        ?? Options.Enabled,
                    InterfaceName  = InterfaceName  ?? Options.InterfaceName,
                    V2GPort        = V2GPort        ?? Options.V2GPort,
-                   SDP            = SDP            ?? Options.SDP,
+                   SDP                = SDP       ?? Options.SDP,
+                   MulticastLoopback  = Loopback  ?? Options.MulticastLoopback,
                    SlacTransport  = SlacTransport  ?? Options.SlacTransport,
                    EVSEId         = EVSEId         ?? Options.EVSEId
                };
@@ -293,6 +299,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                                              : $"on port {V2GPort.Value}"      : null,
                              SDP.HasValue              ? SDP.Value ? "SDP answering"
                                                                    : "SDP silent"              : null,
+                             Loopback      == true     ? "SDP hearing this machine too"       : null,
                              SlacTransport.HasValue    ? $"SLAC over {SlacTransport.Value}"    : null,
                              EVSEId        is not null ? $"as \"{EVSEId}\""                    : null
                          }.Where(part => part is not null));

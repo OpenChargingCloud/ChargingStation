@@ -125,7 +125,10 @@ export const v2gPage: Page = {
                                             </div>
                                             <div class="kv">
                                                 <span class="k">SDP</span>
-                                                <span class="v">${link.sdp ? 'answering' : 'not running'}</span>
+                                                <span class="v">
+                                                    ${link.sdp ? 'answering' : 'not running'}
+                                                    ${link.sdpLoopback ? html`, this machine included` : ''}
+                                                </span>
                                             </div>
                                             <div class="kv">
                                                 <span class="k">SLAC</span>
@@ -179,6 +182,18 @@ export const v2gPage: Page = {
                                 <span class="hint">
                                     How a vehicle finds the V2G endpoint. Switched off, the endpoint is still
                                     there and nothing tells a vehicle where it is.
+                                </span>
+                            </label>
+
+                            <label class="checkbox">
+                                <input type="checkbox" name="loopback" ${c.loopback ? html`checked` : ''}
+                                       ${mayChange ? '' : html`disabled`} />
+                                Also answer a vehicle on this same machine
+                                <span class="hint">
+                                    For a bench where the vehicle is another process here. Off in the field: a
+                                    station has no business answering a simulator somebody left running on its
+                                    own controller. Set it on the vehicle as well - which of the two sockets
+                                    decides depends on the platform.
                                 </span>
                             </label>
 
@@ -298,6 +313,7 @@ export const v2gPage: Page = {
             const update = {
                               enabled:    checked(form, 'enabled'),
                               sdp:        checked(form, 'sdp'),
+                              loopback:   checked(form, 'loopback'),
                               // An empty interface is "let the station pick",
                               // which travels as null: an absent field means
                               // "do not change this", and those are different

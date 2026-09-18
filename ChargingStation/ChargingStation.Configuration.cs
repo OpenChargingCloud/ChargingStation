@@ -493,6 +493,7 @@ namespace cloud.charging.open.ChargingStation
 
                    new JProperty("enabled",         V2GOptions.Enabled),
                    new JProperty("sdp",             V2GOptions.SDP),
+                   new JProperty("loopback",        V2GOptions.MulticastLoopback),
                    new JProperty("interface",       V2GOptions.InterfaceName),
                    new JProperty("port",            V2GOptions.V2GPort),
                    new JProperty("evseId",          V2GOptions.EVSEId),

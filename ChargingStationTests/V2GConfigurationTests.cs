@@ -202,6 +202,42 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region HearingThisMachineIsOffUntilTheFileAsks()
+
+        /// <summary>
+        /// A station answers a vehicle on its own controller only when told to.
+        /// </summary>
+        /// <remarks>
+        /// The default is the one that matters. A station in the field that
+        /// answered SDP requests from its own machine would answer whatever
+        /// simulator or test tool somebody left running on it, and would do so
+        /// without anybody having asked for a bench.
+        /// </remarks>
+        [Test]
+        public void HearingThisMachineIsOffUntilTheFileAsks()
+        {
+
+            var plain = new V2GOptions { Enabled = true, SDP = true };
+
+            Assert.Multiple(() => {
+
+                Assert.That(plain.MulticastLoopback,                       Is.False,
+                            "A station heard its own machine without being asked.");
+
+                Assert.That(Parse("{ }").Apply(plain).MulticastLoopback,   Is.False,
+                            "A file with no opinion turned it on.");
+
+                Assert.That(Parse("""{ "loopback": true }""").Apply(plain).MulticastLoopback,  Is.True);
+                Assert.That(Parse("""{ "loopback": false }""").Apply(plain with { MulticastLoopback = true }).MulticastLoopback,
+                            Is.False,
+                            "The file could not switch it off again.");
+
+            });
+
+        }
+
+        #endregion
+
         #region WhatTheFileDoesNotSayIsLeftAlone()
 
         /// <summary>
@@ -215,19 +251,21 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var asked = new V2GOptions {
                             Enabled        = true,
-                            InterfaceName  = "eth0",
-                            V2GPort        = 15118,
-                            SDP            = true,
-                            SlacTransport  = SlacTransportKind.AfPacket,
-                            EVSEId         = "DE*GEF*E0001*1"
+                            InterfaceName      = "eth0",
+                            V2GPort            = 15118,
+                            SDP                = true,
+                            MulticastLoopback  = true,
+                            SlacTransport      = SlacTransportKind.AfPacket,
+                            EVSEId             = "DE*GEF*E0001*1"
                         };
 
             // A section that mentions one thing changes that one thing.
             var after = Parse("""{ "sdp": false }""").Apply(asked);
 
             Assert.Multiple(() => {
-                Assert.That(after.SDP,            Is.False,                            "The one field the file mentioned did not change.");
-                Assert.That(after.Enabled,        Is.True,                             "'enabled' was not mentioned and changed anyway.");
+                Assert.That(after.SDP,                Is.False,                        "The one field the file mentioned did not change.");
+                Assert.That(after.Enabled,            Is.True,                         "'enabled' was not mentioned and changed anyway.");
+                Assert.That(after.MulticastLoopback,  Is.True,                         "'loopback' was not mentioned and changed anyway.");
                 Assert.That(after.InterfaceName,  Is.EqualTo("eth0"));
                 Assert.That(after.V2GPort,        Is.EqualTo((UInt16) 15118));
                 Assert.That(after.SlacTransport,  Is.EqualTo(SlacTransportKind.AfPacket));
@@ -347,6 +385,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                               InterfaceName:  "eth1",
                               V2GPort:        0,
                               SDP:            false,
+                              Loopback:       true,
                               SlacTransport:  SlacTransportKind.AfPacket,
                               EVSEId:         "DE*GEF*E0002*7"
                           );

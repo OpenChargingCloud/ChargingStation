@@ -73,6 +73,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                    new JProperty("v2g", new JObject(
                        new JProperty("enabled",    false),
                        new JProperty("sdp",        true),
+                       new JProperty("loopback",   true),
                        new JProperty("interface",  "eth-from-the-file"),
                        new JProperty("port",       15118),
                        new JProperty("evseId",     "DE*GEF*E0007*3"),
@@ -101,6 +102,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(v2g.Value<Boolean>("enabled"),    Is.False);
                 Assert.That(v2g.Value<Boolean>("sdp"),        Is.True);
+                Assert.That(v2g.Value<Boolean>("loopback"),   Is.True);
                 Assert.That(v2g.Value<String> ("interface"),  Is.EqualTo("eth-from-the-file"));
                 Assert.That(v2g.Value<Int32>  ("port"),       Is.EqualTo(15118));
                 Assert.That(v2g.Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0007*3"));
@@ -184,6 +186,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                Resource,
                                JSONBody(
                                    new JProperty("sdp",        false),
+                                   new JProperty("loopback",   false),
                                    new JProperty("interface",  "eth-from-the-page"),
                                    new JProperty("port",       0),
                                    new JProperty("evseId",     "DE*GEF*E0009*1"),
@@ -207,6 +210,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(answered.Value<Int32>  ("port"),       Is.EqualTo(0));
 
                 Assert.That(asked.Value<Boolean>("sdp"),        Is.False);
+                Assert.That(asked.Value<Boolean>("loopback"),   Is.False);
                 Assert.That(asked.Value<String> ("interface"),  Is.EqualTo("eth-from-the-page"));
                 Assert.That(asked.Value<Int32>  ("port"),       Is.EqualTo(0));
                 Assert.That(asked.Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0009*1"));

@@ -296,6 +296,8 @@ export interface V2GLinkStatus {
     v2gTLS:         boolean;
     /** Whether SDP is really answering, not whether it was asked to. */
     sdp:            boolean;
+    /** Whether it is really also answering vehicles on this machine. */
+    sdpLoopback:    boolean;
     slac:           boolean;
     slacTransport:  string | null;
     slacSessions:   number;
@@ -307,6 +309,8 @@ export interface V2GConfiguration {
     enabled:         boolean;
     /** Whether the SECC Discovery Protocol answers vehicles. */
     sdp:             boolean;
+    /** Whether it also answers a vehicle running on this same machine. */
+    loopback:        boolean;
     /** The powerline interface, or null to let the station pick one. */
     interface:       string | null;
     /** 0 lets the system pick a port, which is what SDP then advertises. */
@@ -331,6 +335,7 @@ export interface V2GConfiguration {
 export interface V2GUpdate {
     enabled?:    boolean;
     sdp?:        boolean;
+    loopback?:   boolean;
     interface?:  string | null;
     port?:       number;
     evseId?:     string;

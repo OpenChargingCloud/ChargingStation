@@ -123,6 +123,22 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         public Boolean            SDP                { get; init; } = true;
 
         /// <summary>
+        /// Whether SDP also answers vehicles running on this same machine.
+        /// </summary>
+        /// <remarks>
+        /// Off, and off is what a station in the field wants: a charging
+        /// station has no business answering a simulator somebody left running
+        /// on its own controller. On for a bench where the vehicle is another
+        /// process here.
+        ///
+        /// Whose socket this switch belongs to is a thing the platforms
+        /// disagree about - POSIX says the sender's, Windows the receiver's -
+        /// so a bench sets it on the vehicle as well. The measurement is in
+        /// the remark on SECC_SDPServerOptions.MulticastLoopback.
+        /// </remarks>
+        public Boolean            MulticastLoopback  { get; init; }
+
+        /// <summary>
         /// Which medium the SLAC listener listens on.
         /// </summary>
         public SlacTransportKind  SlacTransport      { get; init; } = SlacTransportKind.Auto;

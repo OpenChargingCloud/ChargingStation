@@ -413,7 +413,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                     // into a handshake that cannot finish.
                                     OfferedSecurity  = UsesTLS
                                                            ? SDP_Security.TLS
-                                                           : SDP_Security.NoTLS
+                                                           : SDP_Security.NoTLS,
+                                    MulticastLoopback  = Options.MulticastLoopback
                                 }
                             );
 
@@ -604,6 +605,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                    new JProperty("v2gEndpoint",    V2GEndpoint?.ToString()),
                    new JProperty("v2gTLS",         UsesTLS),
                    new JProperty("sdp",            SDPRunning),
+                   new JProperty("sdpLoopback",    SDPRunning && Options.MulticastLoopback),
                    new JProperty("slac",           SLACRunning),
                    new JProperty("slacTransport",  slacTransport is null ? null : Describe(slacTransport)),
                    new JProperty("slacSessions",   ActiveSLACSessions),
