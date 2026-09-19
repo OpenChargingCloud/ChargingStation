@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_NetworkInterfaces\WWCP_ISO15118_NetworkInterfaces.csproj" />
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_SDP\WWCP_ISO15118_SDP.csproj" />
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_SLAC\WWCP_ISO15118_SLAC.csproj" />
+    <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_T1S\WWCP_ISO15118_T1S.csproj" />
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_Session\WWCP_ISO15118_Session.csproj" />
     <ProjectReference Include="..\..\WWCP_ISO15118\WWCP_ISO15118_V2GTP\WWCP_ISO15118_V2GTP.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv1.6\WWCP_OCPPv1.6.csproj" />

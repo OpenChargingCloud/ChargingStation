@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -19,6 +19,9 @@
 
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
+
+using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
+using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 
 #endregion
 
@@ -59,6 +62,44 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         UDP
 
     }
+
+    #endregion
+
+    #region T1SOptions
+
+    /// <summary>
+    /// The 10BASE-T1S bus of a Megawatt Charging System coupler, as this
+    /// station coordinates it: where the emulated medium is, what the
+    /// station calls itself on it, and where the thermal limits are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// MCS has no powerline and no SLAC. Its link is IEEE 802.3cg 10BASE-T1S -
+    /// a multidrop twisted pair with the station as PLCA coordinator - and the
+    /// nodes on it are not only the vehicle: a temperature sensor in each pin
+    /// of the coupler is a node too, asked every cycle whether the pin is
+    /// getting hot. This station coordinates that bus and watches those
+    /// sensors; a pin past its limit is an overload, and the station says so.
+    /// </para>
+    /// <para>
+    /// The medium is a real adapter through AF_PACKET where there is one,
+    /// or the emulation over UDP multicast for a bench without one - which
+    /// is every bench today, and which has to be asked for, as the simulated
+    /// SLAC medium has to be. Nothing above the medium knows which it got.
+    /// </para>
+    /// </remarks>
+    /// <param name="Transport">Which medium: the adapter where there is one (Auto), the adapter by name (AfPacket), or the emulated one (UDP), which is never chosen by itself.</param>
+    /// <param name="InterfaceName">The adapter, for AF_PACKET - the V2G interface when null; the interface to join the group on, for UDP - the operating system's pick when null.</param>
+    /// <param name="Group">The multicast group and port that are the emulated bus; the library's default when null.</param>
+    /// <param name="Name">What the station calls itself as coordinator.</param>
+    /// <param name="Thermal">Where the thermal lines are drawn; the bench defaults when null.</param>
+    /// <param name="CycleGap">The pause between cycles, which is how often every sensor is asked; the library's default when null.</param>
+    public sealed record T1SOptions(T1STransportKind             Transport      = T1STransportKind.Auto,
+                                    String?                      InterfaceName  = null,
+                                    IPEndPoint?                  Group          = null,
+                                    String                       Name           = "EVSE",
+                                    CableThermalMonitorOptions?  Thermal        = null,
+                                    TimeSpan?                    CycleGap       = null);
 
     #endregion
 
@@ -117,6 +158,29 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         public X509Certificate2?  ServerCertificate  { get; init; }
 
         /// <summary>
+        /// The Sub-CAs between that certificate and the V2G root, which the
+        /// endpoint sends along with it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Without these a vehicle gets the leaf and nothing else, and cannot
+        /// build a chain to any root it was given - so a station with a
+        /// perfectly good certificate from a perfectly good authority is
+        /// refused by every vehicle that checks, and accepted only by the ones
+        /// that do not. The refusal reads as "a certificate chain to a trusted
+        /// root could not be built", which sounds like the vehicle's trust
+        /// store is wrong and is not.
+        /// </para>
+        /// <para>
+        /// The root itself does not belong here. A chain that carries its own
+        /// root invites the other side to trust it because it is there, and
+        /// the whole point of a trust store is that the root arrived by
+        /// another route.
+        /// </para>
+        /// </remarks>
+        public X509Certificate2Collection?  ServerCertificateChain  { get; init; }
+
+        /// <summary>
         /// Whether the SECC Discovery Protocol answers vehicles looking for
         /// that endpoint.
         /// </summary>
@@ -161,6 +225,12 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// NUL to the 17 bytes HomePlug wants.
         /// </summary>
         public String             EVSEId             { get; init; } = DefaultEVSEId;
+
+        /// <summary>
+        /// The 10BASE-T1S bus of an MCS coupler, when this station is one.
+        /// Null - no bus - for a CCS station, which has SLAC instead.
+        /// </summary>
+        public T1SOptions?        T1S                { get; init; }
 
         #endregion
 

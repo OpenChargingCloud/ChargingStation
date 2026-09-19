@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of ChargingStation <https://github.com/OpenChargingCloud/ChargingStation>
  *
@@ -32,6 +32,10 @@ using cloud.charging.open.protocols.ISO15118.SDP.Server;
 using cloud.charging.open.protocols.ISO15118.SLAC.StateMachine;
 using cloud.charging.open.protocols.ISO15118.SLAC.Transport;
 using cloud.charging.open.protocols.ISO15118.SLAC.Transport.Linux;
+using cloud.charging.open.protocols.ISO15118.T1S;
+using cloud.charging.open.protocols.ISO15118.T1S.PLCA;
+using cloud.charging.open.protocols.ISO15118.T1S.Transport;
+using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.Transport;
 using cloud.charging.open.protocols.ISO15118.V2GTP;
 using cloud.charging.open.protocols.ISO15118.Framing;
@@ -94,6 +98,9 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         private          ISlacTransport?          slacTransport;
         private          EvseSlacListener?        slacListener;
+        private          IT1STransport?           t1sTransport;
+        private          PlcaCoordinator?         coordinator;
+        private          CableThermalMonitor?     thermal;
         private          SECC_SDPServer?          sdpServer;
         private          TcpV2GListener?          v2gListener;
         private          Task?                    acceptLoop;
@@ -141,6 +148,36 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         public Int32                 ActiveSLACSessions
             => slacListener?.ActiveSessions.Count ?? 0;
 
+        /// <summary>
+        /// Whether this station is coordinating a 10BASE-T1S bus.
+        /// </summary>
+        public Boolean               T1SRunning
+            => coordinator is not null;
+
+        /// <summary>
+        /// The bus, as node 0 sees it: who is on it and how they behave. Null
+        /// for a station without one.
+        /// </summary>
+        public PlcaCoordinator?      Coordinator
+            => coordinator;
+
+        /// <summary>
+        /// What the station makes of the temperature sensors on that bus.
+        /// Null for a station without one.
+        /// </summary>
+        public CableThermalMonitor?  Thermal
+            => thermal;
+
+        #endregion
+
+        #region Events
+
+        /// <summary>
+        /// A temperature sensor in the coupler changed state: warm, overloaded,
+        /// gone - or back. The one thing on the bus a station has to act on.
+        /// </summary>
+        public event EventHandler<ThermalStateChange>?  ThermalStateChanged;
+
         #endregion
 
         #region Constructor(s)
@@ -181,6 +218,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
             await link.StartV2GEndpoint  (CancellationToken);
             await link.StartSDPServer    (CancellationToken);
             await link.StartSLACListener (CancellationToken);
+            await link.StartT1SBus       (CancellationToken);
 
             return link;
 
@@ -261,11 +299,16 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 var tls = Options.ServerCertificate is null
                               ? null
                               : new TlsOptions {
-                                    ServerCertificate    = Options.ServerCertificate,
+                                    ServerCertificate       = Options.ServerCertificate,
+
+                                    // Sent with the leaf, so that a vehicle can
+                                    // build the chain at all - see
+                                    // V2GOptions.ServerCertificateChain.
+                                    ServerCertificateChain  = Options.ServerCertificateChain,
                                     // TLS 1.3 alone: ISO 15118-20 asks for it,
                                     // and a station standing on a public street
                                     // has no legacy client to be kind to.
-                                    EnabledSslProtocols  = SslProtocols.Tls13
+                                    EnabledSslProtocols     = SslProtocols.Tls13
                                 };
 
                 v2gListener  = new TcpV2GListener(
@@ -278,10 +321,21 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 log.Notice(
                     $"The V2G endpoint is listening on {V2GEndpoint} " +
                     (UsesTLS
-                         ? $"with TLS 1.3, certificate '{Options.ServerCertificate!.Subject}'."
+                         ? $"with TLS 1.3, certificate '{Options.ServerCertificate!.Subject}' " +
+                           $"(+{Options.ServerCertificateChain?.Count ?? 0} intermediate(s))."
                          : "without TLS."),
                     "15118", "v2g", "tls"
                 );
+
+                // Said out loud, because the failure it causes names the wrong
+                // side: a vehicle that cannot build a chain reports its own
+                // trust store as the problem.
+                if (UsesTLS && (Options.ServerCertificateChain?.Count ?? 0) == 0)
+                    log.Warning(
+                        "The V2G endpoint sends its certificate with no intermediates. A vehicle that checks the chain " +
+                        "will refuse it unless the issuing Sub-CAs are already in its trust store.",
+                        "15118", "v2g", "tls"
+                    );
 
                 if (!UsesTLS)
                     log.Warning(
@@ -522,6 +576,168 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
+        #region (private) StartT1SBus       (CancellationToken)
+
+        /// <summary>
+        /// The 10BASE-T1S bus of an MCS coupler, with this station as its
+        /// coordinator, and the thermal watch over the sensors on it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Only where the options ask for one: a CCS station has a powerline
+        /// and SLAC, an MCS station has this instead, and a station that
+        /// coordinated a bus nobody told it about would be polling an empty
+        /// multicast group every fifth of a second for no reason anybody
+        /// could see.
+        /// </para>
+        /// <para>
+        /// Everything the bus reports goes to the log at the level it
+        /// deserves - a node joining at notice, a reading at debug, a pin
+        /// past its limit at critical - and a state change is also raised as
+        /// an event, because "the coupler is overloaded" is the one thing here
+        /// the station has to do something about rather than merely write
+        /// down.
+        /// </para>
+        /// </remarks>
+        private async Task StartT1SBus(CancellationToken CancellationToken)
+        {
+
+            if (Options.T1S is not { } t1s)
+                return;
+
+            try
+            {
+
+                // The same decision the vehicle makes, from the same fields:
+                // the adapter is the V2G interface unless another is named,
+                // the emulated medium is never chosen by itself, and a station
+                // asked for an adapter it has not got says so and coordinates
+                // nothing rather than something else.
+                var medium = T1STransports.Open(
+                                 new T1STransportOptions(
+                                     Kind:           t1s.Transport,
+                                     InterfaceName:  t1s.InterfaceName ??
+                                                         (t1s.Transport is T1STransportKind.AfPacket or T1STransportKind.Auto
+                                                              ? Interface?.Name
+                                                              : null),
+                                     Group:          t1s.Group,
+                                     LocalMac:       t1s.Transport == T1STransportKind.UDP && Interface is not null
+                                                         ? MACAddress.From(Interface.MACAddress)
+                                                         : null
+                                 )
+                             );
+
+                if (medium.IsFailed)
+                {
+                    log.Error($"T1S: not coordinating a bus: {medium.Error}", "15118", "t1s");
+                    return;
+                }
+
+                if (medium.Transport is not { } transport)
+                {
+                    log.Notice($"T1S: {medium.Reason}", "15118", "t1s");
+                    return;
+                }
+
+                var monitor   = new CableThermalMonitor(t1s.Thermal);
+
+                var node0     = new PlcaCoordinator(
+                                    transport,
+                                    new PlcaCoordinatorOptions(
+                                        Name:      t1s.Name,
+                                        CycleGap:  t1s.CycleGap
+                                    )
+                                );
+
+                #region What the bus says, and at what level
+
+                node0.Log             += (_, line)   => log.Debug(line, "15118", "t1s");
+
+                node0.NodeJoined      += (_, node)   => log.Notice($"T1S: {node} joined the bus.", "15118", "t1s");
+                node0.NodeLeft        += (_, node)   => log.Notice($"T1S: {node} left the bus.", "15118", "t1s");
+                node0.NodeLost        += (_, node)   => {
+                                                             log.Warning($"T1S: {node} stopped answering and was given up for lost.", "15118", "t1s");
+                                                             if (monitor.Lost(node, node.LastSeen) is { } change)
+                                                                 OnThermalStateChanged(change);
+                                                         };
+
+                node0.ReadingReceived += (_, pair)   => {
+                                                             log.Debug($"T1S: {pair.Node.Name} reads {pair.Reading.AsDouble:F1} °C" +
+                                                                       (pair.Reading.Flags == SensorFlags.None ? "" : $" ({pair.Reading.Flags})") + ".",
+                                                                       "15118", "t1s", "thermal");
+                                                             if (monitor.Observe(pair.Node, pair.Reading, pair.Node.LastReadingAt ?? DateTimeOffset.UtcNow) is { } change)
+                                                                 OnThermalStateChanged(change);
+                                                         };
+
+                node0.OutOfTurnFrame  += (_, frame)  => log.Warning($"T1S: {frame.Source} sent a {frame.Message.Type} out of turn - a node with a fault, or one that is not ours.",
+                                                                    "15118", "t1s");
+
+                #endregion
+
+                t1sTransport  = transport;
+                thermal       = monitor;
+                coordinator   = node0;
+
+                await transport.StartAsync(CancellationToken);
+                await node0.    StartAsync(CancellationToken);
+
+                log.Notice($"T1S: coordinating a 10BASE-T1S bus on {transport.Description} as {transport.LocalMac}; " +
+                           $"thermal limits {monitor.Options.Warning_C:F0} °C warning, {monitor.Options.Overload_C:F0} °C overload.",
+                           "15118", "t1s");
+
+            }
+            catch (Exception e)
+            {
+                t1sTransport  = null;
+                thermal       = null;
+                coordinator   = null;
+                log.Exception(e, "The 10BASE-T1S bus could not be started", "15118", "t1s");
+            }
+
+        }
+
+        #endregion
+
+        #region (private) OnThermalStateChanged(Change)
+
+        /// <summary>
+        /// A pin changed state. Said at the level it deserves, and raised.
+        /// </summary>
+        private void OnThermalStateChanged(ThermalStateChange Change)
+        {
+
+            var reading = Change.Temperature_C is { } celsius ? $" at {celsius:F1} °C" : "";
+
+            switch (Change.To)
+            {
+
+                case ThermalState.Overload:
+                    log.Critical($"T1S: OVERLOAD - {Change.Node.Name} is overloaded{reading}. " +
+                                  "The coupler is being asked for more than it can carry.",
+                                 "15118", "t1s", "thermal");
+                    break;
+
+                case ThermalState.Lost:
+                    log.Critical($"T1S: {Change.Node.Name} has gone quiet - a pin nobody is watching is a pin that cannot say it is melting.",
+                                 "15118", "t1s", "thermal");
+                    break;
+
+                case ThermalState.Warning:
+                    log.Warning($"T1S: {Change.Node.Name} is warm{reading}.", "15118", "t1s", "thermal");
+                    break;
+
+                default:
+                    log.Notice($"T1S: {Change.Node.Name} is back to normal{reading}.", "15118", "t1s", "thermal");
+                    break;
+
+            }
+
+            ThermalStateChanged?.Invoke(this, Change);
+
+        }
+
+        #endregion
+
         #region (private) OpenSlacTransport ()
 
         /// <summary>
@@ -609,8 +825,48 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                    new JProperty("slac",           SLACRunning),
                    new JProperty("slacTransport",  slacTransport is null ? null : Describe(slacTransport)),
                    new JProperty("slacSessions",   ActiveSLACSessions),
-                   new JProperty("evseId",         Options.EVSEId)
+                   new JProperty("evseId",         Options.EVSEId),
+                   new JProperty("t1s",            T1SJSON())
                );
+
+        /// <summary>
+        /// The bus, for the Configuration page: who is on it, what the pins
+        /// read, and what the station makes of them. Null without a bus.
+        /// </summary>
+        public JObject? T1SJSON()
+        {
+
+            if (coordinator is null || thermal is null || t1sTransport is null)
+                return null;
+
+            return new JObject(
+                       new JProperty("medium",       t1sTransport.Description),
+                       new JProperty("mac",          t1sTransport.LocalMac.ToString()),
+                       new JProperty("cycle",        coordinator.Cycle),
+                       new JProperty("outOfTurn",    coordinator.OutOfTurn),
+                       new JProperty("collisions",   coordinator.Collisions),
+                       new JProperty("thermal",      new JObject(
+                           new JProperty("state",        thermal.Overall.ToString().ToLowerInvariant()),
+                           new JProperty("alarm",        thermal.InAlarm),
+                           new JProperty("warningC",     thermal.Options.Warning_C),
+                           new JProperty("overloadC",    thermal.Options.Overload_C)
+                       )),
+                       new JProperty("nodes",        new JArray(coordinator.Nodes.Select(node => new JObject(
+                           new JProperty("id",           node.NodeId),
+                           new JProperty("name",         node.Name),
+                           new JProperty("role",         node.Role.ToString()),
+                           new JProperty("mac",          node.Mac.ToString()),
+                           new JProperty("weight",       node.Weight),
+                           new JProperty("lastSeen",     node.LastSeen.ToString("o")),
+                           new JProperty("missed",       node.MissedCycles),
+                           new JProperty("frames",       node.FramesReceived),
+                           new JProperty("yields",       node.Yields),
+                           new JProperty("temperatureC", node.LastReading?.Kind == SensorKind.Temperature ? node.LastReading.AsDouble : null),
+                           new JProperty("thermal",      thermal.States.TryGetValue(node.NodeId, out var state) ? state.ToString().ToLowerInvariant() : null)
+                       ))))
+                   );
+
+        }
 
         #endregion
 
@@ -675,6 +931,15 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         {
 
             await shutdown.CancelAsync();
+
+            // The bus first: a coordinator that stops beaconing is what its
+            // nodes expect of a station going down, and they find out by
+            // themselves.
+            if (coordinator is not null)
+                await coordinator.DisposeAsync();
+
+            if (t1sTransport is not null)
+                await t1sTransport.DisposeAsync();
 
             if (slacListener is not null)
                 await slacListener.DisposeAsync();
