@@ -56,7 +56,9 @@ and the `--v2g` family below.
 `cloud.charging.open.ChargingStation.HTTPRoot.<dir>.<file>`.
 
 * `dotnet build -p:SkipFrontendBuild=true` - backend only, reusing the
-  existing `dist/`.
+  existing `dist/`. Where there is none to reuse, the station is built without
+  a web interface: a warning rather than an error, and a station that answers
+  on its JSON API, serves a browser nothing, and says so at every start.
 * Directory names below `dist/` must not contain a dot: the server maps the
   URL path `assets/main.1234.js` onto the resource name
   `<prefix>assets.main.1234.js`, and a dot in a directory name would make that
