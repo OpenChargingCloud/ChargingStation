@@ -155,6 +155,28 @@ Three things, in the order a vehicle meets them:
 3. The **V2G endpoint** is what that answer points at: a TCP listener, with
    TLS 1.3 where `--v2g-cert` gave it a certificate.
 
+And, below a **megawatt** coupler, a fourth thing instead of SLAC: a 10BASE-T1S
+bus that this station coordinates. MCS has no powerline and nothing to sound;
+its link is a multidrop twisted pair with up to eight nodes on it, and the nodes
+are not only the vehicle - a temperature sensor in each pin of the coupler is a
+node too, asked every cycle whether the pin is getting hot. The `v2g` section of
+the configuration file carries it, beside everything else below the cable:
+
+| | |
+|---|---|
+| `t1sTransport` | `none`, `auto`, `afpacket` or `udp`. `none` is how a bus is taken away, and `auto` takes a real adapter where there is one and nothing anywhere else |
+| `t1sBus` | the multicast group and port of the emulated medium. Naming one and no transport means `udp`, because a group is a thing only that medium has |
+| `t1sInterface` | the adapter, for AF_PACKET - the V2G interface when this says nothing; the interface to join the group on, for UDP |
+| `t1sName` | what this station calls itself as the coordinator |
+| `t1sCycleMs` | the pause between cycles, which is how often every node is asked |
+| `t1sWarningC`, `t1sOverloadC` | where the thermal lines are drawn. Given together, never alone: they make sense only against each other |
+
+The **V2G** page shows the bus while it runs - who joined, what each pin reads,
+and what this station makes of it - and a pin past its limit is a critical line
+in the log and a `ThermalStateChanged` event on the link. The emulation and what
+in it is the standard is in
+[`WWCP_ISO15118_T1S`](https://github.com/OpenChargingCloud/WWCP_ISO15118).
+
 They are wired to each other and not merely started next to each other: the
 listener is bound first, and the port the operating system gave it is what SDP
 advertises. Likewise, a station without a certificate advertises `NoTLS`

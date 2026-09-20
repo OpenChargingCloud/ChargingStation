@@ -77,7 +77,17 @@ namespace cloud.charging.open.ChargingStation.Tests
                        new JProperty("interface",  "eth-from-the-file"),
                        new JProperty("port",       15118),
                        new JProperty("evseId",     "DE*GEF*E0007*3"),
-                       new JProperty("slac",       "none")
+                       new JProperty("slac",       "none"),
+
+                       // A bus named but never opened: the link is switched off
+                       // above, so nothing here binds a socket or joins a
+                       // group - which is what makes this fixture runnable.
+                       new JProperty("t1sTransport",  "udp"),
+                       new JProperty("t1sBus",        "239.151.18.5:2360"),
+                       new JProperty("t1sName",       "Coupler-from-the-file"),
+                       new JProperty("t1sCycleMs",    300),
+                       new JProperty("t1sWarningC",   65),
+                       new JProperty("t1sOverloadC",  95)
                    ))
 
                );
@@ -169,6 +179,128 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(v2g.Value<String>("file"),  Does.EndWith("configuration.json"));
 
             });
+
+        }
+
+        #endregion
+
+        #region TheStationReadsTheBusOutOfItsFile()
+
+        /// <summary>
+        /// The coupler's bus comes out of the same section as everything else
+        /// below the cable, which is what lets somebody see it on the page
+        /// rather than only in whatever started the station.
+        /// </summary>
+        [Test]
+        public async Task TheStationReadsTheBusOutOfItsFile()
+        {
+
+            using var http = await SignedIn();
+
+            var v2g = await GetJSON(http, Resource);
+
+            Assert.Multiple(() => {
+
+                Assert.That(v2g.Value<String>("t1sTransport"),  Is.EqualTo("udp"));
+                Assert.That(v2g.Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
+                Assert.That(v2g.Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-file"));
+                Assert.That(v2g.Value<Double>("t1sCycleMs"),    Is.EqualTo(300));
+                Assert.That(v2g.Value<Double>("t1sWarningC"),   Is.EqualTo(65));
+                Assert.That(v2g.Value<Double>("t1sOverloadC"),  Is.EqualTo(95));
+
+                // The picker on the page, and the placeholder beside the group.
+                Assert.That(v2g["t1sTransports"]?.Values<String>(),
+                            Is.EquivalentTo(new[] { "none", "auto", "afpacket", "udp" }));
+                Assert.That(v2g.Value<String>("t1sDefaultBus"), Does.Contain(":"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ChangingTheBusFromThePageChangesWhatTheStationSays()
+
+        [Test]
+        public async Task ChangingTheBusFromThePageChangesWhatTheStationSays()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(
+                               Resource,
+                               JSONBody(
+                                   new JProperty("t1sTransport",  "afpacket"),
+                                   new JProperty("t1sInterface",  "t1s0"),
+                                   new JProperty("t1sName",       "Coupler-from-the-page"),
+                                   new JProperty("t1sCycleMs",    750),
+                                   new JProperty("t1sWarningC",   60),
+                                   new JProperty("t1sOverloadC",  80)
+                               )
+                           );
+
+            Assert.That(response.IsSuccessStatusCode, Is.True,
+                        $"The bus settings were refused with {(Int32) response.StatusCode}.");
+
+            var asked = await GetJSON(http, Resource);
+
+            Assert.Multiple(() => {
+                Assert.That(asked.Value<String>("t1sTransport"),  Is.EqualTo("afpacket"));
+                Assert.That(asked.Value<String>("t1sInterface"),  Is.EqualTo("t1s0"));
+                Assert.That(asked.Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-page"));
+                Assert.That(asked.Value<Double>("t1sCycleMs"),    Is.EqualTo(750));
+                Assert.That(asked.Value<Double>("t1sWarningC"),   Is.EqualTo(60));
+                Assert.That(asked.Value<Double>("t1sOverloadC"),  Is.EqualTo(80));
+                // What the file said and the page did not mention is kept.
+                Assert.That(asked.Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
+            });
+
+        }
+
+        #endregion
+
+        #region ABusCanBeTakenAwayFromThePage()
+
+        [Test]
+        public async Task ABusCanBeTakenAwayFromThePage()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(Resource, JSONBody(new JProperty("t1sTransport", "none")));
+
+            Assert.That(response.IsSuccessStatusCode, Is.True,
+                        $"Taking the bus away was refused with {(Int32) response.StatusCode}.");
+
+            var asked = await GetJSON(http, Resource);
+
+            Assert.Multiple(() => {
+                Assert.That(asked.Value<String>("t1sTransport"), Is.EqualTo("none"));
+                Assert.That(asked.Value<String>("t1sBus"),       Is.Null, "there is no bus to have a group");
+                Assert.That(asked.Value<String>("t1sName"),      Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region ABusThatIsNotAGroupIsRefusedByTheAPI()
+
+        [Test]
+        public async Task ABusThatIsNotAGroupIsRefusedByTheAPI()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(Resource, JSONBody(new JProperty("t1sBus", "127.0.0.1:2360")));
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest),
+                        "A bus that is not a multicast group was accepted.");
+
+            var error = JObject.Parse(await response.Content.ReadAsStringAsync());
+
+            Assert.That(error.ToString(), Does.Contain("t1sBus"),
+                        "The refusal did not name the field.");
 
         }
 

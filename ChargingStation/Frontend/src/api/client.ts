@@ -301,6 +301,47 @@ export interface V2GLinkStatus {
     slacTransport:  string | null;
     slacSessions:   number;
     evseId:         string;
+    /** The 10BASE-T1S bus of a megawatt coupler, where this station coordinates one. */
+    t1s:            T1SBusStatus | null;
+}
+
+/** One node on the coupler's bus: the vehicle, or a sensor in a pin. */
+export interface T1SNodeStatus {
+    id:             number;
+    name:           string;
+    /** Vehicle, TemperatureSensor, and whatever else joins. */
+    role:           string;
+    mac:            string;
+    /** Transmit opportunities per cycle: the vehicle asks for more than a sensor. */
+    weight:         number;
+    lastSeen:       string;
+    /** Cycles in a row this node did not answer; five and it is given up for lost. */
+    missed:         number;
+    frames:         number;
+    yields:         number;
+    /** What the pin reads, where the node is a temperature sensor. */
+    temperatureC:   number | null;
+    /** normal, warning, overload or lost - the station's opinion of it. */
+    thermal:        string | null;
+}
+
+/** The bus below a megawatt coupler, as the station coordinating it sees it. */
+export interface T1SBusStatus {
+    /** What the medium is: "UDP multicast 239.151.18.1:2354" or "AF_PACKET on eth1". */
+    medium:         string;
+    mac:            string;
+    cycle:          number;
+    /** Frames that arrived outside their sender's turn: a fault, or a node that is not ours. */
+    outOfTurn:      number;
+    /** Nodes that asked to join in the same opportunity. */
+    collisions:     number;
+    thermal: {
+        state:      string;
+        alarm:      boolean;
+        warningC:   number;
+        overloadC:  number;
+    };
+    nodes:          T1SNodeStatus[];
 }
 
 /** What this station offers a vehicle below the charging cable. */
@@ -316,6 +357,17 @@ export interface V2GConfiguration {
     port:            number;
     evseId:          string;
     slac:            string;
+    /** Which medium the coupler's bus is on: none, auto, afpacket or udp. */
+    t1sTransport:    string;
+    /** The group and port of the emulated medium, or null for the library's default. */
+    t1sBus:          string | null;
+    t1sInterface:    string | null;
+    t1sName:         string | null;
+    t1sCycleMs:      number;
+    t1sWarningC:     number;
+    t1sOverloadC:    number;
+    /** The group the emulation uses when none is named, for the placeholder. */
+    t1sDefaultBus:   string;
     /**
      * Whether a V2G server certificate was passed on the command line. Not
      * settable from the page - a certificate is a file and a password - but it
@@ -324,6 +376,8 @@ export interface V2GConfiguration {
     certificate:     boolean;
     /** The transports this station knows, for the picker. */
     slacTransports:  string[];
+    /** The same, for the bus below a megawatt coupler. */
+    t1sTransports:   string[];
     /** Whether the station has been started; nothing comes up before that. */
     running:         boolean;
     link:            V2GLinkStatus | null;
@@ -339,6 +393,13 @@ export interface V2GUpdate {
     port?:       number;
     evseId?:     string;
     slac?:       string;
+    t1sTransport?:   string;
+    t1sBus?:         string | null;
+    t1sInterface?:   string | null;
+    t1sName?:        string | null;
+    t1sCycleMs?:     number;
+    t1sWarningC?:    number;
+    t1sOverloadC?:   number;
 }
 
 

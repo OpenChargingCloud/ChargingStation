@@ -29,6 +29,9 @@ using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
+using cloud.charging.open.protocols.ISO15118.T1S;
+using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
+using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
@@ -507,6 +510,21 @@ namespace cloud.charging.open.ChargingStation
 
                    new JProperty("slacTransports",  new JArray(Enum.GetNames<SlacTransportKind>().
                                                                    Select(name => name.ToLowerInvariant()))),
+
+                   // The bus below a megawatt coupler, as it is configured.
+                   // What is actually on it - who joined, what the pins read -
+                   // is in "link" below, for the same reason the rest of this
+                   // object carries both: a bus that was asked for and did not
+                   // come up is the thing worth seeing.
+                   new JProperty("t1sTransport",    (V2GOptions.T1S?.Transport ?? T1STransportKind.None).Write()),
+                   new JProperty("t1sBus",          V2GOptions.T1S?.Group?.ToString()),
+                   new JProperty("t1sInterface",    V2GOptions.T1S?.InterfaceName),
+                   new JProperty("t1sName",         V2GOptions.T1S?.Name),
+                   new JProperty("t1sCycleMs",      Math.Round((V2GOptions.T1S?.CycleGap ?? T1SConstants.DefaultCycleGap).TotalMilliseconds)),
+                   new JProperty("t1sWarningC",     (V2GOptions.T1S?.Thermal ?? CableThermalMonitorOptions.Default).Warning_C),
+                   new JProperty("t1sOverloadC",    (V2GOptions.T1S?.Thermal ?? CableThermalMonitorOptions.Default).Overload_C),
+                   new JProperty("t1sDefaultBus",   T1SConstants.DefaultMulticastEndpoint.ToString()),
+                   new JProperty("t1sTransports",   new JArray(T1STransportKinds.Words)),
 
                    new JProperty("running",         started),
                    new JProperty("link",            V2G?.ToJSON()),

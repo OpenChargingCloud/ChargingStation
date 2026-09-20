@@ -1,4 +1,4 @@
-import { api, type V2GConfiguration } from '../api/client';
+import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
@@ -158,6 +158,8 @@ export const v2gPage: Page = {
 
                     </section>
 
+                    ${link?.t1s ? coupler(link.t1s) : ''}
+
                     <section class="card">
 
                         <h2><i class="fa-solid fa-sliders"></i> Settings</h2>
@@ -238,6 +240,46 @@ export const v2gPage: Page = {
                                     anywhere else - never the simulated medium, because a station quietly
                                     matching vehicles over UDP would be lying about what it is.
                                 </span>
+                            </label>
+
+                            <label>The coupler's bus - 10BASE-T1S, below a megawatt cable
+                                <select name="t1sTransport" ${mayChange ? '' : html`disabled`}>
+                                    ${c.t1sTransports.map(kind => html`
+                                        <option value="${kind}" ${kind === c.t1sTransport ? html`selected` : ''}>${describeT1S(kind)}</option>
+                                    `)}
+                                </select>
+                            </label>
+
+                            <label>Bus group and port
+                                <input type="text" name="t1sBus" value="${c.t1sBus ?? ''}"
+                                       placeholder="${c.t1sDefaultBus} - the emulated medium's group"
+                                       ${mayChange ? '' : html`disabled`} />
+                            </label>
+
+                            <label>Bus interface
+                                <input type="text" name="t1sInterface" value="${c.t1sInterface ?? ''}"
+                                       placeholder="leave empty: the V2G interface for an adapter, the system's pick for udp"
+                                       ${mayChange ? '' : html`disabled`} />
+                            </label>
+
+                            <label>What this station calls itself on the bus
+                                <input type="text" name="t1sName" value="${c.t1sName ?? ''}"
+                                       placeholder="EVSE" ${mayChange ? '' : html`disabled`} />
+                            </label>
+
+                            <label>A cycle every ... milliseconds - how often every node is asked
+                                <input type="number" name="t1sCycleMs" value="${c.t1sCycleMs}" min="50" max="10000" step="10"
+                                       ${mayChange ? '' : html`disabled`} />
+                            </label>
+
+                            <label>A pin is warm at ... °C
+                                <input type="number" name="t1sWarningC" value="${c.t1sWarningC}" min="-50" max="300" step="1"
+                                       ${mayChange ? '' : html`disabled`} />
+                            </label>
+
+                            <label>... and overloaded at ... °C
+                                <input type="number" name="t1sOverloadC" value="${c.t1sOverloadC}" min="-50" max="300" step="1"
+                                       ${mayChange ? '' : html`disabled`} />
                             </label>
 
                             <div class="form-actions">
@@ -321,7 +363,20 @@ export const v2gPage: Page = {
                               interface:  field(form, 'interface') === '' ? null : field(form, 'interface'),
                               port:       field(form, 'port')      === '' ? 0    : Number(field(form, 'port')),
                               evseId:     field(form, 'evseId'),
-                              slac:       field(form, 'slac')
+                              slac:       field(form, 'slac'),
+
+                              // The bus. An emptied group or interface is "the
+                              // default", which travels as null; the numbers
+                              // are always sent, because the form always has
+                              // them and a station that read half a pair of
+                              // thermal limits would refuse the whole save.
+                              t1sTransport:  field(form, 't1sTransport'),
+                              t1sBus:        field(form, 't1sBus')       === '' ? null : field(form, 't1sBus'),
+                              t1sInterface:  field(form, 't1sInterface') === '' ? null : field(form, 't1sInterface'),
+                              t1sName:       field(form, 't1sName')      === '' ? null : field(form, 't1sName'),
+                              t1sCycleMs:    Number(field(form, 't1sCycleMs')),
+                              t1sWarningC:   Number(field(form, 't1sWarningC')),
+                              t1sOverloadC:  Number(field(form, 't1sOverloadC'))
                           };
 
             try
@@ -375,6 +430,146 @@ export const v2gPage: Page = {
 /** Whether a checkbox of this form is ticked. */
 function checked(form: HTMLFormElement, name: string): boolean {
     return form.querySelector<HTMLInputElement>(`[name="${name}"]`)?.checked ?? false;
+}
+
+
+/**
+ * A thermal state as a word that fits into a sentence.
+ *
+ * The station spells them for a machine - normal, warning, overload, lost -
+ * and "the coupler is overload" is not a sentence anybody wrote.
+ */
+function describeThermal(state: string): string {
+    switch (state) {
+        case 'normal':    return 'normal';
+        case 'warning':   return 'warm';
+        case 'overload':  return 'overloaded';
+        case 'lost':      return 'not answering';
+        default:          return state;
+    }
+}
+
+
+/** A T1S transport, written the way it would be said out loud. */
+function describeT1S(kind: string): string {
+    switch (kind) {
+        case 'none':      return 'None - no bus below the cable';
+        case 'auto':      return 'Auto - a real 10BASE-T1S adapter where there is one';
+        case 'afpacket':  return 'AF_PACKET - a real adapter, by interface name (Linux)';
+        case 'udp':       return 'UDP - the emulated medium, for a bench';
+        default:          return kind;
+    }
+}
+
+
+/**
+ * The coupler: who is on its bus, what its pins read, and what this station
+ * makes of that.
+ *
+ * The temperature is the point of the card and everything else is context, so
+ * a pin that is too hot says so in words as well as in a number - a reader
+ * who has to compare two figures to see that something is wrong is a reader
+ * who will not see it.
+ */
+function coupler(bus: T1SBusStatus) {
+
+    const pins     = bus.nodes.filter(node => node.temperatureC !== null);
+    const hottest  = pins.reduce<number | null>((most, pin) => most === null || pin.temperatureC! > most ? pin.temperatureC! : most, null);
+
+    return html`
+        <section class="card">
+
+            <h2><i class="fa-solid fa-plug-circle-bolt"></i> The coupler</h2>
+
+            <p class="${bus.thermal.alarm ? 'form-error' : 'muted small'}">
+                ${bus.thermal.alarm
+                      ? html`The coupler is <strong>${describeThermal(bus.thermal.state)}</strong>. A pin is at or above
+                             ${bus.thermal.overloadC} °C, or a sensor has stopped answering - which counts
+                             the same way, because a sensor that has gone quiet is not one that has cooled.`
+                      : bus.thermal.state === 'warning'
+                            ? html`A pin of this coupler is <strong>warm</strong>: at or above
+                                   ${bus.thermal.warningC} °C${hottest === null ? '' : html`, the hottest
+                                   ${hottest.toFixed(1)} °C`}. Nothing is being stopped yet - that happens at
+                                   ${bus.thermal.overloadC} °C - but it is on its way there if the current stays.`
+                            : html`Every node on the bus is asked once a cycle, the vehicle more often than that.
+                                   A pin is called warm at ${bus.thermal.warningC} °C and overloaded at
+                                   ${bus.thermal.overloadC} °C${hottest === null ? '' : html`; the hottest
+                                   right now is ${hottest.toFixed(1)} °C`}.`}
+            </p>
+
+            <div class="kv-list">
+                <div class="kv">
+                    <span class="k">Medium</span>
+                    <span class="v"><code>${bus.medium}</code></span>
+                </div>
+                <div class="kv">
+                    <span class="k">This station</span>
+                    <span class="v"><code>${bus.mac}</code>, node 0</span>
+                </div>
+                <div class="kv">
+                    <span class="k">Cycles</span>
+                    <span class="v">${bus.cycle}</span>
+                </div>
+                <div class="kv">
+                    <span class="k">Out of turn</span>
+                    <span class="v">${bus.outOfTurn} frame(s), ${bus.collisions} collision(s)</span>
+                </div>
+            </div>
+
+            ${bus.nodes.length === 0
+                  ? html`<p class="muted small">
+                            Nobody has joined the bus yet. A sensor in a pin joins when it is powered;
+                            the vehicle joins when it starts a session.
+                         </p>`
+                  : html`
+                      <div class="table-scroll">
+                      <table class="records">
+                          <thead>
+                              <tr>
+                                  <th>Node</th>
+                                  <th>Role</th>
+                                  <th class="right">Weight</th>
+                                  <th class="right">Temperature</th>
+                                  <th>State</th>
+                                  <th class="right">Frames</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              ${bus.nodes.map(node => html`
+                                  <tr>
+                                      <td>${node.id} <span class="muted">${node.name}</span></td>
+                                      <td>${node.role}</td>
+                                      <td class="right">${node.weight}</td>
+                                      <td class="right">
+                                          ${node.temperatureC === null
+                                                ? html`<span class="muted">-</span>`
+                                                : html`${node.temperatureC.toFixed(1)} °C`}
+                                      </td>
+                                      <td>
+                                          ${node.thermal === null
+                                                ? html`<span class="muted">not a sensor</span>`
+                                                : node.thermal === 'normal'
+                                                      ? html`normal`
+                                                      : html`<strong>${describeThermal(node.thermal)}</strong>`}
+                                          ${node.missed > 0 ? html` <span class="muted">(${node.missed} missed)</span>` : ''}
+                                      </td>
+                                      <td class="right">${node.frames}</td>
+                                  </tr>
+                              `)}
+                          </tbody>
+                      </table>
+                      </div>
+                    `}
+
+            <p class="hint">
+                Every reading is in the <a href="/logs">log</a> under the tags <code>15118</code>,
+                <code>t1s</code> and <code>thermal</code>, and a pin past its limit is written there
+                as a critical line. This page shows what the last cycle said; reload it for the next.
+            </p>
+
+        </section>
+    `;
+
 }
 
 
