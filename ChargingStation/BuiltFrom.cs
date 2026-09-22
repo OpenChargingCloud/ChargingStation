@@ -95,13 +95,33 @@ namespace cloud.charging.open.ChargingStation
         /// ISO 15118 repository alone holds dozens - and they all carry the
         /// same commit, so the repository is the unit worth reporting.
         /// </summary>
+        /// <remarks>
+        /// Grouped by the commit as well as the name, which looks redundant
+        /// and is a guard rather than a refinement. A repository is named
+        /// after the directory it was cloned into, so two repositories cloned
+        /// into directories of the same name cannot be told apart here: on the
+        /// name alone they collapse into one line, whichever sorted first
+        /// wins, and the other one's commit is dropped without a word.
+        ///
+        /// No two repositories of this tree collide today. It was found in a
+        /// sibling project, where the command line tool's repository and its
+        /// library's are both checked out as "ModbusTLSEnergyMeter" - and what
+        /// was being lost there was the tool's own commit, the one a bug
+        /// report is most likely to be about.
+        ///
+        /// Two repositories cannot share a commit, so adding it separates them
+        /// while the case this grouping exists for - many assemblies out of one
+        /// repository, all carrying one commit - still collapses exactly as
+        /// before.
+        /// </remarks>
         public static IEnumerable<LoadedAssembly> Repositories
 
             => Assemblies.
                    Where  (assembly => assembly.IsStamped).
-                   GroupBy(assembly => assembly.Repository!).
+                   GroupBy(assembly => (assembly.Repository!, assembly.Commit!)).
                    Select (group    => group.First()).
-                   OrderBy(assembly => assembly.Repository, StringComparer.OrdinalIgnoreCase);
+                   OrderBy(assembly => assembly.Repository, StringComparer.OrdinalIgnoreCase).
+                   ThenBy (assembly => assembly.Commit,     StringComparer.OrdinalIgnoreCase);
 
         #endregion
 
