@@ -120,6 +120,19 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         public V2GNetworkInterface?  Interface     { get; private set; }
 
         /// <summary>
+        /// That interface as somebody reading a log or a banner needs it: which
+        /// one, and - where nobody named it - what made it that one.
+        /// </summary>
+        /// <remarks>
+        /// Kept rather than worked out again later, because the candidate list
+        /// it is a statement about only exists while the interfaces are being
+        /// looked at. A powerline modem is a USB device on most benches, so
+        /// asking again an hour later can give a different list and therefore a
+        /// different reason for a decision that was already taken.
+        /// </remarks>
+        public String?               InterfaceChoice   { get; private set; }
+
+        /// <summary>
         /// Where the V2G endpoint listens, once it does.
         /// </summary>
         public IPEndPoint?           V2GEndpoint   { get; private set; }
@@ -227,11 +240,105 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         #endregion
 
 
+        #region (static) Choose(Candidates)
+
+        /// <summary>
+        /// Which of several candidates to use when nobody said which.
+        /// </summary>
+        /// <remarks>
+        /// A V2G port carries IPv6 link-local and nothing else - there is no
+        /// IPv4 anywhere in ISO 15118 - while the interface a machine is
+        /// administered over practically always has an IPv4 address. So the one
+        /// candidate without one is very probably the port with the vehicle
+        /// behind it, and on the usual two-interface bench that decides it
+        /// without anybody configuring anything.
+        ///
+        /// It stays a guess and is treated as one, but never a guess that is
+        /// known to be wrong. With two powerline modems beside one management
+        /// interface the question is open between the modems - and answering it
+        /// with the management interface, on the grounds that the modems cannot
+        /// be told apart, would pick the one candidate that is certainly not
+        /// the answer. So the ones without IPv4 are preferred even when there
+        /// are several of them, and only a machine where every candidate has an
+        /// IPv4 address falls back to the first, which is what this gave before
+        /// there was any rule.
+        /// </remarks>
+        public static V2GNetworkInterface? Choose(IReadOnlyList<V2GNetworkInterface> Candidates)
+        {
+
+            if (Candidates.Count == 0)
+                return null;
+
+            var withoutIPv4 = Candidates.Where(candidate => !candidate.HasIPv4Address).ToArray();
+
+            return withoutIPv4.Length > 0
+                       ? withoutIPv4[0]
+                       : Candidates[0];
+
+        }
+
+        #endregion
+
+        #region (static) DescribeChoice(Configured, Candidates)
+
+        /// <summary>
+        /// Which interface a link would use, and - when nobody said - what made
+        /// it that one.
+        /// </summary>
+        /// <remarks>
+        /// One text for the log, the banner and the JSON, because two wordings
+        /// of the same decision drift apart and then disagree in a bug report.
+        ///
+        /// Three shapes, because the rule has three outcomes. One candidate
+        /// without IPv4 and it says so. Several, and it names them all rather
+        /// than letting a narrowed-down guess read as a conclusion - that is
+        /// the case where somebody still has to say, and --v2g-interface is how
+        /// they say it. None, and it falls back to the first and admits that
+        /// every candidate has an IPv4 address.
+        ///
+        /// A guess that does not announce itself is how somebody spends an
+        /// afternoon wondering which cable is in use.
+        /// </remarks>
+        public static String DescribeChoice(String?                             Configured,
+                                            IReadOnlyList<V2GNetworkInterface>  Candidates)
+        {
+
+            if (Configured is not null)
+                return Configured;
+
+            if (Candidates.Count == 0)
+                return "none - this machine has no interface that could carry V2G traffic";
+
+            var chosen = Choose(Candidates);
+
+            if (chosen is null)
+                return "none";
+
+            if (Candidates.Count == 1)
+                return chosen.Name;
+
+            var all          = String.Join(", ", Candidates.Select(candidate => candidate.Name));
+            var withoutIPv4  = Candidates.Where(candidate => !candidate.HasIPv4Address).ToArray();
+
+            return withoutIPv4.Length switch {
+
+                       1   => $"{chosen.Name} (the only one of {all} without an IPv4 address)",
+
+                       > 1 => $"{chosen.Name} (first of {String.Join(", ", withoutIPv4.Select(candidate => candidate.Name))}, which have no IPv4 address)",
+
+                       _   => $"{chosen.Name} (first of {all} - every one of them has an IPv4 address)"
+
+                   };
+
+        }
+
+        #endregion
+
         #region (private) FindInterface()
 
         /// <summary>
-        /// The interface the vehicle is on: the one that was named, or the
-        /// first candidate the system offers.
+        /// The interface the vehicle is on: the one that was named, or the one
+        /// <see cref="Choose"/> picks out of what this machine offers.
         /// </summary>
         private void FindInterface()
         {
@@ -241,7 +348,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
             if (Options.InterfaceName is not null)
             {
 
-                Interface = provider.FindByName(Options.InterfaceName);
+                Interface        = provider.FindByName(Options.InterfaceName);
+                InterfaceChoice  = Options.InterfaceName;
 
                 if (Interface is null)
                     log.Error(
@@ -257,7 +365,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                 var candidates = provider.Discover();
 
-                Interface = candidates.FirstOrDefault();
+                Interface        = Choose(candidates);
+                InterfaceChoice  = DescribeChoice(null, candidates);
 
                 if (Interface is null)
                     log.Warning(
@@ -267,8 +376,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                 else if (candidates.Count > 1)
                     log.Warning(
-                        $"Taking '{Interface.Name}' as the interface to the vehicle, out of {candidates.Count} candidates " +
-                        $"({Describe(candidates)}). Name one to be sure.",
+                        $"Taking {InterfaceChoice} as the interface to the vehicle. " +
+                        "Name one with --v2g-interface, or in the \"v2g\" section of the configuration file, to be sure.",
                         "15118"
                     );
 
@@ -817,6 +926,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
             => new (
                    new JProperty("interface",      Interface?.Name),
+                   new JProperty("interfaceChoice", InterfaceChoice),
                    new JProperty("linkLocal",      Interface?.LinkLocalIPAddress.ToString()),
                    new JProperty("v2gEndpoint",    V2GEndpoint?.ToString()),
                    new JProperty("v2gTLS",         UsesTLS),
