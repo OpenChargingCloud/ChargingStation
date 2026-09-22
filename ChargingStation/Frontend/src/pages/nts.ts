@@ -101,7 +101,12 @@ export const ntsPage: Page = {
 
                     <section class="card">
 
-                        <h2><i class="fa-solid fa-clock"></i> Server</h2>
+                        <h2><i class="fa-solid fa-clock"></i> Server for the detailed test</h2>
+
+                        <p class="hint">
+                            The host and ports the detailed test below starts from. Synchronisation
+                            does not come through here - it asks the group of time servers below.
+                        </p>
 
                         <form id="nts-form" class="form-stack">
 
@@ -170,8 +175,38 @@ export const ntsPage: Page = {
 
                     </section>
 
+                    ${!configuration.timeSources || configuration.timeSources.length === 0 ? '' : html`
+                        <section class="card">
+
+                            <h2><i class="fa-solid fa-users"></i> Time servers</h2>
+
+                            <div class="kv-list">
+                                ${configuration.timeSources.map(source => html`
+                                    <div class="kv">
+                                        <span class="k">${source.hostname}${source.enabled ? '' : html` <span class="muted small">switched off</span>`}</span>
+                                        <span class="v">
+                                            ${source.lastExchange
+                                                  ? html`${formatValue(source.cookies)} cookie(s)
+                                                         <span class="muted small">${source.aeadAlgorithm ?? ''}, exchanged ${formatValue(source.lastExchange)}</span>`
+                                                  : html`<span class="muted">not asked yet</span>`}
+                                        </span>
+                                    </div>
+                                `)}
+                            </div>
+
+                            ${configuration.group
+                                  ? html`<p class="hint">
+                                             Group '${configuration.group.name}': at least ${configuration.group.minServers}
+                                             of them must answer, and a disagreement of
+                                             ${configuration.group.maxDeviationSeconds} s or more is written down.
+                                         </p>`
+                                  : ''}
+
+                        </section>
+                    `}
+
                     <section class="card">
-                        <h2><i class="fa-solid fa-cookie-bite"></i> Cookies</h2>
+                        <h2><i class="fa-solid fa-cookie-bite"></i> Cookies of that client</h2>
                         <div class="kv-list">
                             ${Object.entries(configuration.cookies).map(([key, value]) => html`
                                 <div class="kv">
@@ -180,7 +215,12 @@ export const ntsPage: Page = {
                                 </div>
                             `)}
                         </div>
-                        <p class="hint">One cookie is spent per request and a new one usually comes back with the answer.</p>
+                        <p class="hint">
+                            One cookie is spent per request and a new one usually comes back with the answer.
+                            These stay at zero while nothing spends them: the detailed test builds a fresh
+                            client each time it runs, and what a synchronisation spends is shown per server
+                            in the card above.
+                        </p>
                     </section>
 
                     <section class="card">
@@ -197,7 +237,7 @@ export const ntsPage: Page = {
 
                     <section class="card">
 
-                        <h2><i class="fa-solid fa-key"></i> Key exchange</h2>
+                        <h2><i class="fa-solid fa-key"></i> Key exchange of that client</h2>
 
                         <div class="kv-list">
                             <div class="kv">
@@ -357,6 +397,36 @@ export const ntsPage: Page = {
                         ${sync.error      ? html`<div class="kv"><span class="k">Error</span><span class="v">${sync.error}</span></div>` : ''}
                         ${sync.runtime_ms ? html`<div class="kv"><span class="k">Took</span><span class="v">${sync.runtime_ms} ms</span></div>` : ''}
                     </div>
+
+                    ${sync.group
+                          ? html`
+                              <h3>What the group concluded</h3>
+                              <div class="kv-list">
+                                  ${Object.entries(sync.group).map(([key, value]) => html`
+                                      <div class="kv"><span class="k">${humanizeKey(key)}</span><span class="v">${formatValue(value)}</span></div>
+                                  `)}
+                              </div>
+                            `
+                          : ''}
+
+                    ${sync.servers && sync.servers.length > 0
+                          ? html`
+                              <h3>What each server said</h3>
+                              <div class="kv-list">
+                                  ${sync.servers.map(server => html`
+                                      <div class="kv">
+                                          <span class="k">${server.hostname}</span>
+                                          <span class="v">
+                                              ${server.ok
+                                                    ? html`${formatValue(server.offset_ms)} ms, round trip ${formatValue(server.roundTrip_ms)} ms
+                                                           <span class="muted small">key exchange ${server.keyExchange ?? 'unknown'}</span>`
+                                                    : html`<span class="muted">${server.error ?? 'no answer'}</span>`}
+                                          </span>
+                                      </div>
+                                  `)}
+                              </div>
+                            `
+                          : ''}
 
                     ${sync.ntske
                           ? html`

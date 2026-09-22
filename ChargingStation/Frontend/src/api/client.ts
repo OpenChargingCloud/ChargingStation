@@ -196,13 +196,48 @@ export interface NTSSyncResult {
     error?:       string;
     step?:        string;
     runtime_ms?:  number;
+    offset_ms?:   number | null;
+
+    /** What the group concluded: the median, how many answered, how far apart. */
+    group?:       Record<string, unknown>;
+
+    /** One entry per server asked, answered or not. */
+    servers?:     NTSServerResult[];
+
+    /** Only from the detailed test of a single server. */
     ntske?:       Record<string, unknown>;
     ntp?:         Record<string, unknown>;
+}
+
+/** What one time server of a group said. */
+export interface NTSServerResult {
+    hostname:       string;
+    ok:             boolean;
+    offset_ms?:     number | null;
+    roundTrip_ms?:  number | null;
+    authenticated?: boolean | null;
+    keyExchange?:   string;
+    error?:         string | null;
+}
+
+/** One server of this station's group, and what its key exchange is doing. */
+export interface NTSTimeSource {
+    hostname:       string;
+    priority:       number;
+    enabled:        boolean;
+    cookies?:       number | null;
+    lastExchange?:  string | null;
+    aeadAlgorithm?: string | null;
 }
 
 /** Where this station gets the time from, and how its key exchange is doing. */
 export interface NTSConfiguration {
     enabled:   boolean;
+
+    /** The servers this station asks, and the rules for believing them. */
+    timeSources?:  NTSTimeSource[];
+    group?:        { name: string; minServers: number; maxDeviationSeconds: number };
+
     server:    { hostname: string; ntsKEPort: number; ntpPort: number } & Record<string, unknown>;
     settings:  { timeoutSeconds: number | null };
     cookies: {

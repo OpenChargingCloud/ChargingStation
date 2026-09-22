@@ -131,6 +131,7 @@ interface Vocabulary {
     present:            string;
     legalTime:          (authority: string) => string;
     checkedAgainst:     (server: string) => string;
+    checkedAgainstGroup: (answered: number, asked: number) => string;
     timeUnverified:     string;
     notClaimed:         string;
     ntsOff:             string;
@@ -174,6 +175,7 @@ const english: Vocabulary = {
     present:            'Present',
     legalTime:          authority => `legal time · ${authority}`,
     checkedAgainst:     server => `checked against ${server},`,
+    checkedAgainstGroup: (answered, asked) => `checked against ${answered} of ${asked} time servers,`,
     timeUnverified:     'time not verified',
     notClaimed:         'no time authority configured',
     ntsOff:             'time checking is switched off',
@@ -217,6 +219,7 @@ const german: Vocabulary = {
     present:            'Auflegen',
     legalTime:          authority => `gesetzliche Zeit · ${authority}`,
     checkedAgainst:     server => `geprüft gegen ${server},`,
+    checkedAgainstGroup: (answered, asked) => `geprüft gegen ${answered} von ${asked} Zeitservern,`,
     timeUnverified:     'Zeit ungeprüft',
     notClaimed:         'keine Zeitautorität konfiguriert',
     ntsOff:             'Zeitprüfung ist abgeschaltet',
@@ -273,6 +276,7 @@ interface KioskState {
                       now:        string;
                       source:     string;
                       nts:        { enabled: boolean; server: string | null; lastServer: string | null;
+                                    servers: string[]; asked: number | null; answered: number | null;
                                     checkedAt: string | null; ageSeconds: number | null;
                                     offset_ms: number | null; everySeconds: number };
                       legal:      boolean;
@@ -656,6 +660,15 @@ function clockCorner(Current: KioskState) {
     // fully qualified name and the wrong way to put one in front of somebody.
     const server = (clock.nts.lastServer ?? clock.nts.server)?.replace(/\.$/, '') ?? null;
 
+    // A name where there is one server, and a count where there are several.
+    // The station sends numbers rather than a phrase for exactly this reason:
+    // it does not know which language this screen is showing.
+    const against = server !== null
+                        ? words.checkedAgainst(server)
+                        : (clock.nts.answered !== null && clock.nts.asked !== null && clock.nts.asked > 1
+                               ? words.checkedAgainstGroup(clock.nts.answered, clock.nts.asked)
+                               : null);
+
     return html`
         <div class="kiosk-clock ${clock.legal ? 'legal' : 'unverified'}">
             <span class="kiosk-time" id="clock">${clockText()}</span>
@@ -668,8 +681,8 @@ function clockCorner(Current: KioskState) {
                             // one thing twice reads as a line nobody wrote.
                             ? html`${words.timeNotYetChecked}`
                             : html`${words.timeUnverified}${why ? html` · ${why}` : ''}`}
-                ${server !== null && clock.nts.checkedAt !== null
-                      ? html`<br />${words.checkedAgainst(server)} <span id="clock-age">${ageText()}</span>`
+                ${against !== null && clock.nts.checkedAt !== null
+                      ? html`<br />${against} <span id="clock-age">${ageText()}</span>`
                       : ''}
             </span>
         </div>
@@ -1279,6 +1292,8 @@ function clockSignature(): string {
                enabled:    clock.nts.enabled,
                server:     clock.nts.server,
                last:       clock.nts.lastServer,
+               asked:      clock.nts.asked,
+               answered:   clock.nts.answered,
                checkedAt:  clock.nts.checkedAt,
                offset:     clock.nts.offset_ms
            });
