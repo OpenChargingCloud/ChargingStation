@@ -150,6 +150,46 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheDefaultIsFourPeersAndAQuorumOfTwo()
+
+        /// <summary>
+        /// What a station asks when its configuration says nothing at all.
+        /// </summary>
+        /// <remarks>
+        /// One band rather than two: the PTB's four are peers, and splitting
+        /// them into a first choice and a fallback would say something about
+        /// them that is not true. A quorum of two, so that one host being away
+        /// is survivable and one host being wrong is visible.
+        /// </remarks>
+        [Test]
+        public void TheDefaultIsFourPeersAndAQuorumOfTwo()
+        {
+
+            var group = NTSConfiguration.DefaultGroup();
+            var bands = group.Bands();
+
+            Assert.Multiple(() =>
+            {
+
+                Assert.That(bands,             Has.Count.EqualTo(1),  "peers, not a first choice and a fallback");
+                Assert.That(bands[0],          Has.Count.EqualTo(4));
+                Assert.That(group.MinServers,  Is.EqualTo(2));
+
+                Assert.That(bands[0].Select(source => source.Hostname.ToString()),
+                            Is.EqualTo(new[] { "ptbtime1.ptb.de.", "ptbtime2.ptb.de.",
+                                               "ptbtime3.ptb.de.", "ptbtime4.ptb.de." }));
+
+                // The single-server default is the first of them, so a client
+                // built the old way and this group cannot name different hosts.
+                Assert.That(bands[0][0].Hostname.ToString(),
+                            Is.EqualTo(DomainName.Parse(NTSConfiguration.DefaultHostname).ToString()));
+
+            });
+
+        }
+
+        #endregion
+
         #region AnEmptySectionFallsBackToTheGivenServer()
 
         [Test]
@@ -270,29 +310,35 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AGroupOfOneIsWhatAStationStartsWith()
+        #region TheDefaultFourAreWhatAStationStartsWith()
 
         /// <summary>
-        /// A station handed nothing but a time client has a group of one, so
-        /// that everything reading the group reads something rather than
-        /// checking for null first.
+        /// A station nobody has configured asks the PTB's four.
         /// </summary>
         /// <remarks>
-        /// This is the case every existing installation is in, and the one a
-        /// port to groups is likeliest to break: the station is built the way
-        /// it has always been built, with no "nts" section at all.
+        /// This is the case every existing installation is in - built the way
+        /// it has always been built, with no "nts" section at all - and it
+        /// used to be a group of one. Four is the better default for a clock
+        /// that a signed reading hangs off: one host being rebooted no longer
+        /// leaves the station without a time, and two that agree catch what
+        /// one cannot, a server that is wrong rather than absent.
+        ///
+        /// The first of the four is still what the single-server client points
+        /// at, so the group and the client cannot name different hosts - which
+        /// is what the third assertion is for, and why it reads the same as it
+        /// did when there was only one.
         /// </remarks>
         [Test]
-        public async Task AGroupOfOneIsWhatAStationStartsWith()
+        public async Task TheDefaultFourAreWhatAStationStartsWith()
         {
 
             await using var station = TestStations.New(directory);
 
             Assert.Multiple(() => {
-                Assert.That(station.TimeSources.Bands(),                 Has.Count.EqualTo(1));
-                Assert.That(station.TimeSources.Bands()[0],              Has.Count.EqualTo(1));
+                Assert.That(station.TimeSources.Bands(),                 Has.Count.EqualTo(1),  "peers, asked together");
+                Assert.That(station.TimeSources.Bands()[0],              Has.Count.EqualTo(4));
                 Assert.That(station.TimeSources.Bands()[0][0].Hostname,  Is.EqualTo(station.NTSClient.Hostname));
-                Assert.That(station.TimeSources.MinServers,              Is.EqualTo(1));
+                Assert.That(station.TimeSources.MinServers,              Is.EqualTo(2));
             });
 
         }
