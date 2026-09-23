@@ -89,6 +89,7 @@ They start real stations and talk to them over HTTP the way the browser does.
 | `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
 | `EventLogTests`         | the snapshot, the filters, and the live stream |
+| `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
 | `ShutdownTests`         | a station that is told to stop stops |
 
@@ -1238,3 +1239,11 @@ tagged `trace` plus whatever `TraceBridge` recognises in the text. That works
 in a debug build only: `Debug.WriteLine` carries `[Conditional("DEBUG")]`, so
 a release build of those libraries compiles the calls away. `--no-trace`
 switches the bridge off.
+
+A program that reads commands on the same console hands the log a way to write
+around the line being typed, so that an entry arriving mid-word neither lands
+inside the command nor waits for it:
+
+```csharp
+station.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line back
+```

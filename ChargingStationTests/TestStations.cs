@@ -60,12 +60,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
         /// <param name="HTTPPort">A port of its own rather than a free one, for a test about two stations wanting the same.</param>
         /// <param name="KioskPort">The same for the display.</param>
+        /// <param name="LogToConsole">Whether its log reaches the console, for a test about who gets to write there. Off otherwise, because a test run's console is for the test run.</param>
         public static ChargingStation New(String         Directory,
                                           JObject?       Configuration   = null,
                                           Boolean        WithDisplay     = true,
                                           TimeProvider?  Clock           = null,
                                           IPPort?        HTTPPort        = null,
-                                          IPPort?        KioskPort       = null)
+                                          IPPort?        KioskPort       = null,
+                                          Boolean        LogToConsole    = false)
         {
 
             System.IO.Directory.CreateDirectory(Directory);
@@ -82,7 +84,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                        NoKiosk:          !WithDisplay,
                        AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
                        ConfigFile:       new StationConfigFile(configFile),
-                       LogToConsole:     false,
+                       LogToConsole:     LogToConsole,
                        BridgeDebugLog:   false,
                        TimeProvider:     Clock
                    );
