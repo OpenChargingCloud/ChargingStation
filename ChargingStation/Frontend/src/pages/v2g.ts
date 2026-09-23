@@ -214,9 +214,10 @@ export const v2gPage: Page = {
                                 <input type="number" name="port" min="0" max="65535" step="1"
                                        value="${c.port}" ${mayChange ? '' : html`disabled`} />
                                 <span class="hint">
-                                    0 lets the system pick a free one, which is the usual answer: there is no
-                                    well-known port for this, and SDP exists precisely so that there need not
-                                    be one.
+                                    15118 unless you say otherwise, the port IANA registers for v2g-secc.
+                                    ISO 15118 does not require it - the port travels in the SDP response, so
+                                    a vehicle finds the endpoint wherever it is. 0 lets the system pick a
+                                    free one, which is what a machine running two stations wants.
                                 </span>
                             </label>
 

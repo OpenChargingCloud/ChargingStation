@@ -52,7 +52,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// </remarks>
     /// <param name="Enabled">Whether anything at all comes up below the cable.</param>
     /// <param name="InterfaceName">The powerline interface, or null to let the station pick one.</param>
-    /// <param name="V2GPort">The TCP port of the V2G endpoint; 0 lets the system pick one, which is what SDP then advertises.</param>
+    /// <param name="V2GPort">The TCP port of the V2G endpoint; 15118 unless said otherwise, and 0 to let the system pick one. Whichever it is, that is what SDP advertises.</param>
     /// <param name="SDP">Whether the SECC Discovery Protocol answers vehicles looking for that endpoint.</param>
     /// <param name="Loopback">Whether SDP also answers a vehicle running on this same machine - for a bench, and off in the field.</param>
     /// <param name="SlacTransport">Which medium the SLAC listener listens on.</param>
@@ -220,6 +220,10 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// nothing to one. This port belongs to a listener, where zero is how
         /// "any free one" is spelled - and SDP exists precisely so that a
         /// vehicle can still find it afterwards.
+        ///
+        /// Zero is no longer what a station does when nobody says: the default
+        /// is 15118, the port IANA registers for v2g-secc. It stays legal
+        /// because it is the right answer for a machine running two stations.
         /// </remarks>
         public static Boolean TryReadV2GPort(JObject                           JSON,
                                              String                            Name,

@@ -75,6 +75,48 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region TheEndpointListensOnTheRegisteredPortUnlessTold()
+
+        /// <summary>
+        /// What a station does when nobody says anything about the port.
+        /// </summary>
+        /// <remarks>
+        /// It used to be zero, so the endpoint took whatever the operating
+        /// system had free and SDP advertised 53417 on one start and 57443 on
+        /// the next. Legal - the port travels in the SDP response precisely so
+        /// that it need not be fixed - and unhelpful: nothing a firewall rule
+        /// can name, and a trap for the tools that assume the registered port
+        /// rather than reading the answer.
+        ///
+        /// Pinned in three places at once, because the default has to survive
+        /// all three to be worth anything: the record's own initialiser, the
+        /// named constant the command line and the help text use, and a
+        /// configuration section that mentions the port nowhere.
+        /// </remarks>
+        [Test]
+        public void TheEndpointListensOnTheRegisteredPortUnlessTold()
+        {
+
+            Assert.Multiple(() => {
+
+                // What a station does when nobody says anything at all.
+                Assert.That(new V2GOptions().V2GPort,
+                            Is.EqualTo((UInt16) 15118),
+                            "a station that says nothing would advertise a different port at every start");
+
+                Assert.That(V2GOptions.DefaultV2GPort,  Is.EqualTo((UInt16) 15118));
+
+                // And a section that does not mention the port leaves it there,
+                // rather than quietly reverting it to zero.
+                Assert.That(Parse("""{ "enabled": true }""").Apply(new V2GOptions()).V2GPort,
+                            Is.EqualTo((UInt16) 15118));
+
+            });
+
+        }
+
+        #endregion
+
         #region APortOfZeroIsARealAnswer()
 
         /// <summary>
@@ -87,6 +129,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// nothing to one. This port belongs to a listener. Reading it with the
         /// shared helper would have refused the ordinary case - and SDP exists
         /// precisely so that a station need not pick a port at all.
+        ///
+        /// Still legal now that the default is the registered port, because it
+        /// is the right answer for a machine running two stations at once.
         /// </remarks>
         [Test]
         public void APortOfZeroIsARealAnswer()

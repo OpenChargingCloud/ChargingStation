@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
@@ -455,6 +456,24 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                 acceptLoop = Task.Run(() => AcceptLoop(shutdown.Token), CancellationToken);
 
+            }
+
+            // Named rather than left to the stack trace, because a well-known
+            // default port makes this the likely failure on a bench: the second
+            // station of the day, or a tool still holding 15118 from an earlier
+            // run. What a vehicle sees is a station that answers no SDP at all,
+            // since the endpoint is what SDP advertises.
+            catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse)
+            {
+                log.Error(
+                    $"The V2G endpoint could not be opened: something else is already listening on port {Options.V2GPort}. " +
+                    (Options.V2GPort == V2GOptions.DefaultV2GPort
+                         ? "That is the registered V2G port and this station's default, so a second station on this machine is the usual answer. "
+                         : "") +
+                    "Give this one another port with --v2g-port, or 0 to let the system pick a free one. " +
+                    "SDP will not answer while there is no endpoint to point a vehicle at.",
+                    "15118", "v2g"
+                );
             }
             catch (Exception e)
             {

@@ -125,6 +125,28 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// </summary>
         public const String DefaultEVSEId = "DE*GEF*E0001*1";
 
+        /// <summary>
+        /// The TCP port the V2G endpoint listens on, unless another is given.
+        /// </summary>
+        /// <remarks>
+        /// 15118, which IANA registers for v2g-secc and which every other
+        /// implementation uses. ISO 15118 does not require it - the port
+        /// travels in the SDP response precisely so that it need not be fixed,
+        /// and a vehicle that reads the answer finds the endpoint wherever it
+        /// is.
+        ///
+        /// It is the default anyway, because the alternative was worse in
+        /// practice than it was wrong in theory. This station used to leave it
+        /// at zero and let the operating system choose, so it advertised 53417
+        /// on one start and 57443 on the next: nothing a firewall rule can
+        /// name, and a trap for the several tools out there that assume the
+        /// registered port instead of reading the response.
+        ///
+        /// Zero still means "any free one" and is still the right answer for a
+        /// machine running two stations at once.
+        /// </remarks>
+        public const UInt16 DefaultV2GPort = 15118;
+
         #endregion
 
         #region Properties
@@ -144,11 +166,11 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         /// <summary>
         /// The TCP port the V2G endpoint listens on; 0 lets the operating
-        /// system pick a free one, which SDP then advertises. There is no
-        /// well-known port for it - SDP exists precisely so that there need
-        /// not be one.
+        /// system pick a free one. Whichever it ends up being is what SDP
+        /// advertises, because SDP carries the port it was told rather than
+        /// one it assumes.
         /// </summary>
-        public UInt16             V2GPort            { get; init; }
+        public UInt16             V2GPort            { get; init; } = DefaultV2GPort;
 
         /// <summary>
         /// The certificate the V2G endpoint authenticates itself with. Without
