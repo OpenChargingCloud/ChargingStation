@@ -100,6 +100,13 @@ export const logsPage: Page = {
         /** How many lines the filters are letting through, for the count below. */
         let shown = 0;
 
+        // What the last adjustment below could not put into scrollTop.
+        // A line is 24.33px tall and scrollTop holds whole pixels, so a
+        // third of one is dropped on every batch and the line somebody
+        // is reading creeps away by a line every seventy or so. Carried
+        // to the next batch instead, where it is paid.
+        let scrollDebt = 0;
+
 
         function matches(entry: LogEntry): boolean {
 
@@ -226,6 +233,17 @@ export const logsPage: Page = {
 
                 const stick = follow.checked && atNewest();
 
+                // Where the line that is at the top right now sits on the
+                // screen. Everything below is about to be pushed down by
+                // whatever goes in above it, and how far this one moved is
+                // the answer - scrollHeight would not be, because the
+                // trimming below takes lines off the bottom and the
+                // filtering hides some of what just went in. Asked of the
+                // rectangle rather than offsetTop, which rounds to whole
+                // pixels and leaves a few behind on every batch.
+                const anchor     = lineBox.firstElementChild;
+                const anchorWas  = anchor?.getBoundingClientRect().top ?? 0;
+
                 // Newest first inside the batch as well, so that a burst of
                 // entries reads top-down the way a single one does.
                 const batch = [...added].reverse();
@@ -270,8 +288,27 @@ export const logsPage: Page = {
 
                     if (stick)
                         scrollToNewest();
-                    else
+
+                    else {
+                        // Put the view back by exactly as far as that line
+                        // moved, so the older one somebody stopped to read
+                        // stays where they are looking instead of walking
+                        // off the top at the speed the log fills. Measured
+                        // here rather than left to the browser: see
+                        // overflow-anchor in app.scss.
+                        if (anchor?.isConnected) {
+
+                            const owed  = anchor.getBoundingClientRect().top - anchorWas + scrollDebt;
+                            const was   = list.scrollTop;
+
+                            list.scrollTop += owed;
+
+                            scrollDebt  = owed - (list.scrollTop - was);
+
+                        }
+
                         toNewest.hidden = false;
+                    }
 
                 }
 
