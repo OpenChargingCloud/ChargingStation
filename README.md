@@ -1103,12 +1103,12 @@ screen whatever the rule above ever becomes.
 
 **And no notice can take the card away from its payment code.** The two share a
 card's height and only the code gives, so one 195-character message on one
-outlet took its code from 304 px down to 134 - under the 150 px a phone can read
-- on a card still saying "scan to charge". A card's message now says what fits
-and ends in an ellipsis when there is more; anything long enough to need the
-room belongs in the band across the top, which has the width of the screen for
-it. With a long message on both outlets *and* a band above them, the codes stay
-at 197 px.
+outlet took its code from 304 px down to 134 - under the 150 px a phone can
+read - on a card still saying "scan to charge". A card's message now says what
+fits and ends in an ellipsis when there is more; anything long enough to need
+the room belongs in the band across the top, which has the width of the screen
+for it. With a long message on both outlets *and* a band above them, the codes
+stay at 197 px.
 
 **A display message is meant to be read from where the cars are.** The
 operator's own sentences were the smallest type on the screen: 26 px for the
@@ -1161,15 +1161,15 @@ it. Tested with that clock seven minutes out: no effect. A clock that *jumps* -
 an NTP correction - costs one poll cycle, after which it is consistent again.
 
 **Every question has a deadline, and only one is asked at a time.** A station
-that is *down* rejects the connection and the page above notices. A station that
-is *wedged* - alive enough to accept the connection, not alive enough to answer
-- does neither, and `fetch` has no deadline of its own. Measured against one
-wedged on purpose: twenty-six requests outstanding after a minute, growing by
-one every two seconds, no warning anywhere on the screen, and an outlet still
-drawn as free while a car was charging on it. Nothing had failed, so nothing had
-been caught, so the page went on believing what it last heard - with the clock
-ticking away in the corner, which is what made it look healthy. A display that
-lies about a free bay is worse than a dark one.
+that is *down* rejects the connection and the page above notices. A station
+that is *wedged* - alive enough to accept the connection, not alive enough to
+answer - does neither, and `fetch` has no deadline of its own. Measured against
+one wedged on purpose: twenty-six requests outstanding after a minute, growing
+by one every two seconds, no warning anywhere on the screen, and an outlet
+still drawn as free while a car was charging on it. Nothing had failed, so
+nothing had been caught, so the page went on believing what it last heard -
+with the clock ticking away in the corner, which is what made it look healthy.
+A display that lies about a free bay is worse than a dark one.
 
 Each request is now given four seconds, which is well under the thirteen it
 takes for the screen to say it is out of contact, and only one is in flight at a
