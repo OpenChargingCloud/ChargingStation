@@ -103,6 +103,16 @@ h1, h2 {
         cursor:   default;
     }
 
+    // The hidden attribute is a rule of the browser's own stylesheet, and any
+    // rule in this one beats it - so the display above quietly puts a button
+    // that has set hidden back on the screen while the attribute goes on
+    // saying it is gone. Said again here, with the attribute in the selector,
+    // it wins on specificity and means what it says. Anything else this
+    // stylesheet gives a display to needs the same line of its own.
+    &[hidden] {
+        display:  none;
+    }
+
     &.primary {
         background:    $color-accent;
         border-color:  $color-accent;
@@ -1235,6 +1245,15 @@ textarea.mono {
 
     &:hover {
         background: rgba($color-accent, 0.05);
+    }
+
+    // Same trap as .btn above: the display on this rule beats the browser's
+    // own [hidden] { display: none }, and the error notice in the log is a
+    // .line that carries hidden until there is something to say. Without
+    // this it is never hidden at all - an empty red-tinted strip above every
+    // log, on every page load.
+    &[hidden] {
+        display: none;
     }
 
     time {
