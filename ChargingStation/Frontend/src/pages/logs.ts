@@ -1,5 +1,6 @@
 import { logLevels, type LogEntry, type LogLevel } from '../api/client';
 import { escapeHTML, html, must, render } from '../html';
+import { drawOrder, entryAt } from '../logs/order';
 import { logs } from '../logs/store';
 import type { Page } from '../router';
 import { shell } from '../shell';
@@ -8,11 +9,17 @@ import { formatTime, formatTimestamp, isAtLeast } from '../ui';
 /**
  * Everything that happens inside the station, as it happens.
  *
- * The entries arrive over one Server-Sent Events stream and are appended to
- * the list; the filters work on what is already in the browser, so changing
- * one costs nothing and asks the station for nothing. A list that is scrolled
- * to the bottom follows along; scrolling up stops that, which is what somebody
- * reading an older line wants - and the button at the bottom brings them back.
+ * The entries arrive over one Server-Sent Events stream and go in at the top,
+ * newest first, so that what just happened is where the eye already is and
+ * nobody has to chase a growing list downwards. The filters work on what is
+ * already in the browser, so changing one costs nothing and asks the station
+ * for nothing. A list that is scrolled to the top follows along; scrolling
+ * down stops that, which is what somebody reading an older line wants - and
+ * the button at the foot brings them back.
+ *
+ * The store keeps its entries oldest first and is left alone: that order is
+ * what its own de-duplication and its bounded trim are written against. Only
+ * what is drawn is reversed, at the three places that map a line to an entry.
  */
 export const logsPage: Page = {
 
@@ -67,7 +74,7 @@ export const logsPage: Page = {
 
             <div class="log-foot small muted">
                 <span id="counts"></span>
-                <button type="button" id="to-bottom" class="btn small" hidden>Jump to the newest</button>
+                <button type="button" id="to-newest" class="btn small" hidden>Jump to the newest</button>
             </div>
 
         `);
@@ -78,7 +85,7 @@ export const logsPage: Page = {
         const errorNote   = must<HTMLElement>       (content, '#log-error');
         const tagBox      = must<HTMLElement>       (content, '#tags');
         const counts      = must<HTMLElement>       (content, '#counts');
-        const toBottom    = must<HTMLButtonElement> (content, '#to-bottom');
+        const toNewest    = must<HTMLButtonElement> (content, '#to-newest');
         const search      = must<HTMLInputElement>  (content, '#search');
         const level       = must<HTMLSelectElement> (content, '#level');
         const follow      = must<HTMLInputElement>  (content, '#follow');
@@ -139,15 +146,15 @@ export const logsPage: Page = {
                    `</div>`;
         }
 
-        function atBottom(): boolean {
+        function atNewest(): boolean {
             // A few pixels of slack: a list that is one rounding error short
-            // of the bottom is, to the person reading it, at the bottom.
-            return list.scrollTop + list.clientHeight >= list.scrollHeight - 24;
+            // of the top is, to the person reading it, at the top.
+            return list.scrollTop <= 24;
         }
 
-        function scrollToBottom(): void {
-            list.scrollTop = list.scrollHeight;
-            toBottom.hidden = true;
+        function scrollToNewest(): void {
+            list.scrollTop = 0;
+            toNewest.hidden = true;
         }
 
         /**
@@ -159,12 +166,13 @@ export const logsPage: Page = {
          */
         function redraw(): void {
 
-            lineBox.innerHTML = logs.entries.map(lineHTML).join('');
+            // Reversed for drawing only; the store keeps them oldest first.
+            lineBox.innerHTML = drawOrder(logs.entries).map(lineHTML).join('');
 
             applyFilters();
 
             if (follow.checked)
-                scrollToBottom();
+                scrollToNewest();
 
             drawTags();
 
@@ -192,7 +200,11 @@ export const logsPage: Page = {
 
             for (let index = 0; index < many; index++) {
 
-                const wanted = matches(logs.entries[index]!);
+                // Line 0 is the newest entry, which is the last one the store
+                // holds. Lines and entries are kept the same length, so this
+                // pairing stays exact - and it is the same function the drawing
+                // above goes by, which is the point of it being one.
+                const wanted = matches(entryAt(logs.entries, index)!);
 
                 lines[index]!.classList.toggle('filtered-out', !wanted);
 
@@ -212,34 +224,38 @@ export const logsPage: Page = {
 
             if (added.length > 0) {
 
-                const stick = follow.checked && atBottom();
+                const stick = follow.checked && atNewest();
 
-                lineBox.insertAdjacentHTML('beforeend', added.map(lineHTML).join(''));
+                // Newest first inside the batch as well, so that a burst of
+                // entries reads top-down the way a single one does.
+                const batch = [...added].reverse();
+
+                lineBox.insertAdjacentHTML('afterbegin', batch.map(lineHTML).join(''));
 
                 // The station keeps a bounded log and so does this page; what
-                // fell out of the store has to leave the list as well. The
-                // lines and the entries are kept in step, oldest first, which
+                // fell out of the store has to leave the list as well. That is
+                // the oldest entry, which is now the last line rather than the
+                // first. The lines and the entries stay the same length, which
                 // is what lets a filter be applied by position above.
                 while (lineBox.childElementCount > logs.entries.length) {
 
-                    if (lineBox.firstElementChild?.classList.contains('filtered-out') === false)
+                    if (lineBox.lastElementChild?.classList.contains('filtered-out') === false)
                         shown--;
 
-                    lineBox.firstElementChild?.remove();
+                    lineBox.lastElementChild?.remove();
 
                 }
 
-                // Only the new lines are asked about. Asking the whole list
-                // again would put the cost of a filter change on every single
-                // line the station writes.
-                const first = lineBox.childElementCount - added.length;
-                let   any   = false;
+                // Only the new lines are asked about, and they are the first
+                // ones now. Asking the whole list again would put the cost of
+                // a filter change on every single line the station writes.
+                let any = false;
 
-                added.forEach((entry, index) => {
+                batch.forEach((entry, index) => {
 
                     const wanted = matches(entry);
 
-                    lineBox.children[first + index]?.classList.toggle('filtered-out', !wanted);
+                    lineBox.children[index]?.classList.toggle('filtered-out', !wanted);
 
                     if (wanted) {
                         shown++;
@@ -253,9 +269,9 @@ export const logsPage: Page = {
                 if (any) {
 
                     if (stick)
-                        scrollToBottom();
+                        scrollToNewest();
                     else
-                        toBottom.hidden = false;
+                        toNewest.hidden = false;
 
                 }
 
@@ -326,13 +342,13 @@ export const logsPage: Page = {
 
         search  .addEventListener('input',  () => applyFilters());
         level   .addEventListener('change', () => applyFilters());
-        follow  .addEventListener('change', () => { if (follow.checked) scrollToBottom(); });
-        toBottom.addEventListener('click',  () => scrollToBottom());
+        follow  .addEventListener('change', () => { if (follow.checked) scrollToNewest(); });
+        toNewest.addEventListener('click',  () => scrollToNewest());
         clear   .addEventListener('click',  () => logs.clear());
 
         list.addEventListener('scroll', () => {
-            if (atBottom())
-                toBottom.hidden = true;
+            if (atNewest())
+                toNewest.hidden = true;
         });
 
         const stopListening = logs.onChange(event => {
