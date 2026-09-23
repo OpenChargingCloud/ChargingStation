@@ -37,6 +37,21 @@ $sidebar-width:      15rem;
     box-sizing: border-box;
 }
 
+// An element that says it is hidden is hidden. The browser's own stylesheet
+// says so as well, but only at the strength of a single selector, so any rule
+// in this file that sets a display quietly overrules it - and a good many do.
+//
+// That went unnoticed for a long time in several of these projects, because
+// nothing complains: the attribute and the property go on reporting hidden
+// while the element sits there in plain sight, and only a screenshot or
+// getComputedStyle says otherwise. It was found four times and fixed with a
+// line per class, which is a line somebody has to remember to add.
+//
+// The one !important in this stylesheet, and the reason it earns one.
+[hidden] {
+    display: none !important;
+}
+
 html, body {
     margin:       0;
     height:       100%;
@@ -101,16 +116,6 @@ h1, h2 {
     &:disabled {
         opacity:  0.6;
         cursor:   default;
-    }
-
-    // The hidden attribute is a rule of the browser's own stylesheet, and any
-    // rule in this one beats it - so the display above quietly puts a button
-    // that has set hidden back on the screen while the attribute goes on
-    // saying it is gone. Said again here, with the attribute in the selector,
-    // it wins on specificity and means what it says. Anything else this
-    // stylesheet gives a display to needs the same line of its own.
-    &[hidden] {
-        display:  none;
     }
 
     &.primary {
@@ -324,18 +329,6 @@ input, textarea, select {
     .level-warning  { border-left-color: #f59e0b; background: $color-warn-bg;  }
     .level-error    { border-left-color: $color-error; background: $color-error-bg; }
 
-}
-
-// A section of a form that is only shown for one kind of thing.
-//
-// Needed because .form-stack sets display:flex, and an author rule beats the
-// browser's own [hidden] { display: none } however plainly the markup says
-// hidden. Without this, the parameters of a time-based password sit on the
-// page while HTTP Basic is selected, asking to be filled in for something
-// that will not use them.
-.form-stack[hidden],
-.form-row[hidden] {
-    display: none;
 }
 
 .hint {
@@ -1245,15 +1238,6 @@ textarea.mono {
 
     &:hover {
         background: rgba($color-accent, 0.05);
-    }
-
-    // Same trap as .btn above: the display on this rule beats the browser's
-    // own [hidden] { display: none }, and the error notice in the log is a
-    // .line that carries hidden until there is something to say. Without
-    // this it is never hidden at all - an empty red-tinted strip above every
-    // log, on every page load.
-    &[hidden] {
-        display: none;
     }
 
     time {
