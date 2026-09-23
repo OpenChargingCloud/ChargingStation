@@ -679,7 +679,7 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            V2G = await V2GLink.TryStart(V2GOptions, Log, CancellationToken);
+            V2G = await V2GLink.TryStart(V2GOptions, Log, TimeProvider, CancellationToken);
 
         }
 

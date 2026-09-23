@@ -1179,7 +1179,7 @@ namespace cloud.charging.open.ChargingStation
             // After the web interface, so that whoever is watching the Logs
             // page sees SLAC, SDP and the V2G endpoint come up rather than
             // having to reload to find out how it went.
-            V2G = await V2GLink.TryStart(V2GOptions, Log);
+            V2G = await V2GLink.TryStart(V2GOptions, Log, TimeProvider);
 
             // After the web interface for the same reason as the V2G link
             // above: somebody watching the Logs page sees each back end come up

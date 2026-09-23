@@ -20,6 +20,7 @@
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
 
+using cloud.charging.open.protocols.ISO15118.StateMachines;
 using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 
@@ -247,6 +248,29 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// NUL to the 17 bytes HomePlug wants.
         /// </summary>
         public String             EVSEId             { get; init; } = DefaultEVSEId;
+
+        /// <summary>
+        /// Whether the outlet behind this endpoint is AC or DC, which is what
+        /// the station offers a vehicle during the protocol handshake.
+        /// </summary>
+        /// <remarks>
+        /// AC, because a type 2 socket is what this station has. It is not a
+        /// preference: the namespace a vehicle asks for names the mode, so a
+        /// station offering the wrong one negotiates nothing at all.
+        /// </remarks>
+        public PowerMode          Mode               { get; init; } = PowerMode.Ac;
+
+        /// <summary>
+        /// How long one request-response step of a session may take before the
+        /// station gives up on it.
+        /// </summary>
+        /// <remarks>
+        /// Per step rather than per session, and it is the state machines that
+        /// enforce it. Sixty seconds is what the reference SECC uses; a car
+        /// that has gone quiet for a minute in the middle of a handshake is not
+        /// coming back, and this endpoint is serving one cable.
+        /// </remarks>
+        public TimeSpan           SessionTimeout     { get; init; } = TimeSpan.FromSeconds(60);
 
         /// <summary>
         /// The 10BASE-T1S bus of an MCS coupler, when this station is one.

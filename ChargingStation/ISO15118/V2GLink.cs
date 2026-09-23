@@ -30,6 +30,11 @@ using org.GraphDefined.Vanaheimr.Hermod.Ethernet;
 using cloud.charging.open.protocols.ISO15118.NetworkInterfaces;
 using cloud.charging.open.protocols.ISO15118.SDP.Messages;
 using cloud.charging.open.protocols.ISO15118.SDP.Server;
+using cloud.charging.open.protocols.ISO15118.Sap;
+using cloud.charging.open.protocols.ISO15118.Session;
+using cloud.charging.open.protocols.ISO15118.StateMachines;
+using cloud.charging.open.protocols.ISO15118.StateMachines.Iso2;
+using cloud.charging.open.protocols.ISO15118.StateMachines.Iso20;
 using cloud.charging.open.protocols.ISO15118.SLAC.StateMachine;
 using cloud.charging.open.protocols.ISO15118.SLAC.Transport;
 using cloud.charging.open.protocols.ISO15118.SLAC.Transport.Linux;
@@ -105,6 +110,22 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         private          SECC_SDPServer?          sdpServer;
         private          TcpV2GListener?          v2gListener;
         private          Task?                    acceptLoop;
+        private readonly TimeProvider             clock;
+
+        /// <summary>
+        /// What a car that paused left behind, offered to whichever connects
+        /// next.
+        /// </summary>
+        /// <remarks>
+        /// Held rather than written down, and deliberately: a paused session is
+        /// a car still on the cable, and this station serves one cable. It is
+        /// not offered to a car that cannot prove it is the one that paused -
+        /// the state machines check that, and say so when a resume is refused.
+        /// </remarks>
+        private          ResumableSession?        pausedSession;
+
+        /// <summary>How many sessions this endpoint has run since it came up.</summary>
+        private          Int32                    sessions;
 
         #endregion
 
@@ -196,11 +217,13 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #region Constructor(s)
 
-        private V2GLink(V2GOptions  Options,
-                        EventLog    Log)
+        private V2GLink(V2GOptions    Options,
+                        EventLog      Log,
+                        TimeProvider  Clock)
         {
             this.Options  = Options;
             this.log      = Log;
+            this.clock    = Clock;
         }
 
         #endregion
@@ -217,15 +240,17 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// a powerline modem should still answer SDP on the bench - but every
         /// piece that does not come up says why, at a level somebody will see.
         /// </remarks>
+        /// <param name="Clock">The station's own clock, which the session state machines time their steps by - so that a test which moves it moves them.</param>
         public static async Task<V2GLink?> TryStart(V2GOptions         Options,
                                                     EventLog           Log,
+                                                    TimeProvider?      Clock               = null,
                                                     CancellationToken  CancellationToken   = default)
         {
 
             if (!Options.Enabled)
                 return null;
 
-            var link = new V2GLink(Options, Log);
+            var link = new V2GLink(Options, Log, Clock ?? TimeProvider.System);
 
             link.FindInterface();
 
@@ -486,19 +511,224 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
+        #region (static) SessionOffers(Mode) / TransportOf(UsesTLS)
+
+        /// <summary>
+        /// What this station offers a vehicle during the protocol handshake.
+        /// </summary>
+        /// <remarks>
+        /// Both standards, in the mode of the outlet behind the socket, -20
+        /// first. The order is the station preference and the vehicle decides:
+        /// the handshake walks the offers the vehicle sent in its priority
+        /// order and takes the first this station also has, so -20 standing
+        /// first here only settles a tie.
+        ///
+        /// One mode, not both, and that is not a simplification. The namespace
+        /// a vehicle asks for names the mode, so a station that offered AC and
+        /// DC would be claiming an outlet it does not have. Measured on the
+        /// bench: a car asking for DC against this AC station gets as far as
+        /// ServiceDiscovery and is told "the station offers no DC energy
+        /// transfer mode (offered: AC_three_phase_core)" - which is the right
+        /// answer, arriving at the right place.
+        /// </remarks>
+        public static IReadOnlyList<SapOffer> SessionOffers(PowerMode Mode)
+
+            => [
+                   new SapOffer(ProtocolVariant.Iso15118_20, Mode),
+                   new SapOffer(ProtocolVariant.Iso15118_2,  Mode)
+               ];
+
+        /// <summary>
+        /// What the connection turned out to be, which the handshake needs.
+        /// </summary>
+        /// <remarks>
+        /// ISO 15118-20 may only ride on TLS 1.3 ([V2G20-2356]), so naming the
+        /// transport is what lets the library take -20 out of the catalogue for
+        /// the length of a plain connection. Measured on the bench, both ways:
+        /// a car offering both over plain TCP charges over -2, and a car
+        /// insisting on -20 over plain TCP is told Failed_NoNegotiation.
+        ///
+        /// Never Unknown. Unknown means "nobody said", and this station always
+        /// knows: it is the one that decided whether to put a certificate on
+        /// the endpoint.
+        /// </remarks>
+        public static TransportSecurity TransportOf(Boolean UsesTLS)
+
+            => UsesTLS
+                   ? TransportSecurity.Tls13
+                   : TransportSecurity.None;
+
+        #endregion
+
+        #region (private) RunSession        (Stream, CancellationToken)
+
+        /// <summary>
+        /// One vehicle, from SupportedAppProtocol to the end of the session.
+        /// </summary>
+        /// <remarks>
+        /// Two steps and nothing else, because the protocol is not this
+        /// station to implement: the handshake settles which standard and which
+        /// mode, and then the state machine for that pair drives the whole
+        /// exchange over the same stream. Both come from the ISO 15118 library,
+        /// which is what the reference SECC there runs as well.
+        ///
+        /// What this station brings is its own answer to three questions the
+        /// library leaves open. Which offers to make - both standards, in the
+        /// mode of the outlet behind the socket, -20 first because a car that
+        /// can do either should. Which clock to time the steps by - the
+        /// station own clock, so that a test which moves it moves the session
+        /// too. And what to do with a paused session - keep it for whoever
+        /// connects next, which the state machine will only hand back to a car
+        /// that can prove it is the one that paused.
+        ///
+        /// Contract chains are not checked. That needs trust roots and this
+        /// station is configured with none, so a Plug and Charge contract is
+        /// read and reported and believed. Said out loud in the log rather than
+        /// left for somebody to discover, because "we did not look" must never
+        /// read as "we looked and it was fine".
+        /// </remarks>
+        private async Task RunSession(Stream            Stream,
+                                      CancellationToken CancellationToken)
+        {
+
+            var started = clock.GetUtcNow();
+
+            var settled = await SapHandshake.RunSeccSideAsync(Stream,
+                                                              SessionOffers(Options.Mode),
+                                                              CancellationToken,
+                                                              TransportOf(UsesTLS));
+
+            log.Log(
+                LogLevel.Notice,
+                $"The vehicle and this station agreed on {Describe(settled.Protocol)}, {settled.Mode.ToString().ToUpperInvariant()}.",
+                new JObject(
+                    new JProperty("protocol",   Describe(settled.Protocol)),
+                    new JProperty("mode",       settled.Mode.ToString().ToUpperInvariant()),
+                    new JProperty("transport",  UsesTLS ? "TLS 1.3" : "plain TCP")
+                ),
+                "15118", "v2g", "session"
+            );
+
+            if (settled.Protocol == ProtocolVariant.Iso15118_2)
+            {
+
+                var secc = new Secc2(settled.Mode, Options.SessionTimeout, clock) {
+                               ResumeSessionId = pausedSession?.SessionId
+                           };
+
+                try
+                {
+                    await secc.RunAsync(Stream, CancellationToken);
+                }
+                finally
+                {
+                    pausedSession = secc.Paused
+                                        ? new ResumableSession(secc.SessionId, null, 0)
+                                        : null;
+                    ReportSession(started, "ISO 15118-2", secc.Paused, secc.Renegotiations, secc.PnCAuth is not null);
+                }
+
+            }
+
+            else
+            {
+
+                Secc20Base secc = settled.Mode == PowerMode.Dc
+                                      ? new Secc20Dc(Options.SessionTimeout, clock)
+                                      : new Secc20Ac(Options.SessionTimeout, clock);
+
+                secc.OfferResume(pausedSession);
+
+                try
+                {
+                    await secc.RunAsync(Stream, CancellationToken);
+                }
+                finally
+                {
+                    pausedSession = secc.PausedSession;
+                    ReportSession(started, "ISO 15118-20", secc.PausedSession is not null, secc.Renegotiations, secc.SelectedEnergyServiceId != 0);
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) ReportSession     (Started, Protocol, Paused, Renegotiations, PlugAndCharge)
+
+        /// <summary>
+        /// What the session came to, whether it ended well or was aborted.
+        /// </summary>
+        /// <remarks>
+        /// In a finally, so that a car which walks away mid-handshake still
+        /// leaves a line behind. An aborted session is the interesting one and
+        /// the one a station is likeliest to meet in the field.
+        /// </remarks>
+        private void ReportSession(DateTimeOffset  Started,
+                                   String          Protocol,
+                                   Boolean         Paused,
+                                   Int32           Renegotiations,
+                                   Boolean         PlugAndCharge)
+        {
+
+            sessions++;
+
+            var elapsed = clock.GetUtcNow() - Started;
+
+            log.Log(
+                LogLevel.Notice,
+                $"The {Protocol} session ended after {elapsed.TotalSeconds:F1} s" +
+                (Paused             ? ", paused - the vehicle may resume it"  : "") +
+                (Renegotiations > 0 ? $", {Renegotiations} renegotiation(s)"  : "") +
+                ".",
+                new JObject(
+                    new JProperty("protocol",        Protocol),
+                    new JProperty("seconds",         Math.Round(elapsed.TotalSeconds, 1)),
+                    new JProperty("paused",          Paused),
+                    new JProperty("renegotiations",  Renegotiations)
+                ),
+                "15118", "v2g", "session"
+            );
+
+            if (PlugAndCharge)
+                log.Warning(
+                    "The vehicle identified itself with a contract certificate, and this station did not check its chain: " +
+                    "no trust roots are configured. The identification was read and believed, not verified.",
+                    "15118", "v2g", "session", "pnc"
+                );
+
+        }
+
+        #endregion
+
+        #region (private static) Describe   (Protocol)
+
+        private static String Describe(ProtocolVariant Protocol)
+
+            => Protocol == ProtocolVariant.Iso15118_2
+                   ? "ISO 15118-2"
+                   : "ISO 15118-20";
+
+        #endregion
+
         #region (private) AcceptLoop        (CancellationToken)
 
         /// <summary>
-        /// Every vehicle that connects, and the first thing it says.
+        /// Every vehicle that connects, and the session it then has.
         /// </summary>
         /// <remarks>
-        /// The session above this - SupportedAppProtocol, the EXI messages of
-        /// -2 or -20, the charging loop - is not wired up yet. So the frame is
-        /// read, said out loud, and the connection is closed again. That is
-        /// more use than it sounds: it is the difference between "the listener
-        /// is bound" and "a vehicle got through SLAC, found us over SDP,
-        /// connected, and its first frame was a SupportedAppProtocol request" -
-        /// which is the whole handshake, and all of it in the log.
+        /// One at a time, and that is the station rather than a simplification:
+        /// this endpoint serves one cable, and a second car on it would be a
+        /// second car in the same socket. A session that stalls does not hold
+        /// the loop for ever either - the state machines time each step out,
+        /// see V2GOptions.SessionTimeout.
+        ///
+        /// Nothing is read off the stream here. The SAP handshake reads the
+        /// first frame itself, and a loop that peeked at it first would leave
+        /// the handshake with nothing to find - which is the one mistake this
+        /// rewrite could most easily have made, since peeking is exactly what
+        /// stood here before.
         /// </remarks>
         private async Task AcceptLoop(CancellationToken CancellationToken)
         {
@@ -513,25 +743,9 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                     stream = await v2gListener.AcceptAsync(CancellationToken);
 
-                    log.Notice($"A vehicle connected to the V2G endpoint.", "15118", "v2g");
+                    log.Notice("A vehicle connected to the V2G endpoint.", "15118", "v2g");
 
-                    var (frame, payloadType) = await V2GTPStream.ReadRawFrameAsync(stream, CancellationToken);
-
-                    log.Log(
-                        LogLevel.Info,
-                        $"Its first V2GTP frame is {Name(payloadType)}, {frame.Length} bytes.",
-                        new JObject(
-                            new JProperty("payloadType",  $"0x{payloadType:X4}"),
-                            new JProperty("payloadName",  Name(payloadType)),
-                            new JProperty("bytes",        frame.Length)
-                        ),
-                        "15118", "v2g"
-                    );
-
-                    log.Warning(
-                        "Closing it again: the V2G session layer above the listener is not wired up yet.",
-                        "15118", "v2g"
-                    );
+                    await RunSession(stream, CancellationToken);
 
                 }
                 catch (OperationCanceledException)
