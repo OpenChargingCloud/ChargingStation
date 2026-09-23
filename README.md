@@ -208,7 +208,9 @@ Everything this station can be told in writing lives in one file,
 ```json
 {
   "dns":   { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
-  "nts":   { "enabled": true, "hostname": "ptbtime1.ptb.de" },
+  "nts":   { "enabled": true, "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
+                                           "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
+             "minServers": 2 },
   "power": { "uplinkPowerLimit_kW": 55 },
   "evses": [ { "id": 1, "maxPower_kW": 22,
                "connectors": [ { "id": 1, "type": "sType2", "maxPower_kW": 22 } ] } ],
@@ -843,12 +845,35 @@ The display carries the time, and under it one line saying what that time is
 worth. Two different questions, and a charging station has to keep them apart.
 
 The time shown is the station's **own system clock**. Whether it is any good is
-answered by asking a server that knows - and **this station does not set its
+answered by asking servers that know - and **this station does not set its
 clock from the answer**. It measures the difference and reports it. Stepping the
 clock of a machine that meters energy and writes signed records is not something
 a background task does by surprise: a jump backwards puts two readings out of
 order with nothing in the record to say why. Measuring is the part that can be
 done safely and the part that tells somebody whether there is a problem.
+
+**It asks a group, not a server.** `nts.servers` is a list, and by default it
+is the PTB's four, of which `nts.minServers` - two - have to answer before the
+group has a time at all. One host being rebooted no longer leaves this station
+without a check, and two servers that agree catch what one server cannot: one
+that is wrong rather than absent. What the check reports is what the servers
+that answered and authenticated agree on, with a line for each of them, so a
+failure says which of the four failed and how.
+
+Servers sharing a priority are **one band** and are asked together; a lower
+priority is asked first. The four it asks by default share one, because they are peers -
+putting them in separate bands would say something about them that is not true.
+An entry may be a bare host name or an object saying more:
+`{ "hostname": "time.local", "priority": 0, "enabled": true }`.
+
+Servers that disagree by more than `nts.maxDeviationSeconds` (sixty by
+default) are written down rather than acted on. The disagreement belongs in the log,
+and the time is still a time.
+
+A section naming a single `hostname` and no list becomes a group of one, which
+is what every file written before there were groups says, and it keeps working.
+A section mentioning neither leaves the servers alone rather than quietly
+reducing four to one.
 
 **"Legal time" is never guessed.** Nothing here can tell from a hostname whether
 a server disseminates a country's legal time - that is a fact about an
