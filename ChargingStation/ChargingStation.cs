@@ -101,6 +101,11 @@ namespace cloud.charging.open.ChargingStation
         public const String  DefaultAccountsDatabaseFile  = "users.db";
 
         /// <summary>
+        /// Where the log files go, unless another directory is given.
+        /// </summary>
+        public const String  DefaultLogPath               = "logs";
+
+        /// <summary>
         /// Where the HTTPExt API answers: accounts, groups and API keys.
         /// </summary>
         /// <remarks>
@@ -238,6 +243,7 @@ namespace cloud.charging.open.ChargingStation
         private           NTSConfiguration?                    ntsSettings;
 
         private readonly  ConsoleLog?                          consoleLog;
+        private readonly  FileLog?                             fileLog;
         private readonly  TraceBridge?                         traceBridge;
 
         private           OCPPv1_6.   TestChargePointNode      cs01;
@@ -315,6 +321,13 @@ namespace cloud.charging.open.ChargingStation
         /// The directory the accounts live in between starts.
         /// </summary>
         public String                 AccountsPath           { get; }
+
+        /// <summary>
+        /// The directory the log files are written to, one per day, or null
+        /// when this station writes none.
+        /// </summary>
+        public String?                LogPath
+            => fileLog?.Directory;
 
         /// <summary>
         /// Where everything this station can be told in writing lives between
@@ -572,6 +585,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
+        /// <param name="LogPath">The directory the log files are written to, or null to write none.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX ends up in the log.</param>
         /// <param name="TimeProvider">Where this station reads the time; the system clock by default.</param>
         public ChargingStation(DNSClient?             DNSClient         = null,
@@ -595,6 +609,7 @@ namespace cloud.charging.open.ChargingStation
                                EventLog?              Log               = null,
                                Boolean                LogToConsole      = true,
                                LogLevel               ConsoleLogLevel   = LogLevel.Info,
+                               String?                LogPath           = null,
                                Boolean                BridgeDebugLog    = true,
                                TimeProvider?          TimeProvider      = null)
         {
@@ -617,6 +632,14 @@ namespace cloud.charging.open.ChargingStation
 
             this.consoleLog   = LogToConsole
                                     ? new ConsoleLog(this.Log, ConsoleLogLevel)
+                                    : null;
+
+            // Everything, and not what the console was told to show: a level
+            // is chosen to keep a console readable, and a file nobody is
+            // reading has no such problem. What is left out here cannot be
+            // asked for afterwards.
+            this.fileLog      = LogPath is not null
+                                    ? new FileLog(this.Log, LogPath)
                                     : null;
 
             // Attached before anything else is built, so that what the DNS
@@ -1499,6 +1522,7 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("lastId",         Log.LastId),
                        new JProperty("debugBridge",    traceBridge is not null),
                        new JProperty("console",        consoleLog is not null),
+                       new JProperty("files",          LogPath),
                        new JProperty("tags",           new JArray(Log.KnownTags))
                    )),
 
@@ -1626,7 +1650,8 @@ namespace cloud.charging.open.ChargingStation
         #region DisposeAsync()
 
         /// <summary>
-        /// Stop listening and let go of the console and the debug bridge.
+        /// Stop listening and let go of the console, the log file and the debug
+        /// bridge.
         /// </summary>
         public async ValueTask DisposeAsync()
         {
@@ -1635,6 +1660,7 @@ namespace cloud.charging.open.ChargingStation
 
             traceBridge?.Dispose();
             consoleLog? .Dispose();
+            fileLog?    .Dispose();
 
             reconfigureLock.Dispose();
 

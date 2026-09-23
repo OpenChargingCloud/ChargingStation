@@ -89,6 +89,7 @@ They start real stations and talk to them over HTTP the way the browser does.
 | `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
 | `EventLogTests`         | the snapshot, the filters, and the live stream |
+| `FileLogTests`          | the log on disk: every entry, the UTC day it belongs to, nothing overwritten, and a disk that fails said once |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
 | `ShutdownTests`         | a station that is told to stop stops |
@@ -128,6 +129,7 @@ is handed something else.
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
 | `Logging/EventLog.cs`     | everything that happens, with timestamps and tags, kept in a ring buffer and handed on at once |
 | `Logging/TraceBridge.cs`  | what the libraries below write with `DebugX`, into the same log |
+| `Logging/FileLog.cs`      | the same log on disk: one file per UTC day, every entry, on disk as soon as it is written |
 | `Frontend/`               | the npm project: `src/pages/` are the pages, `src/shell.ts` the menu around them |
 
 Serving the bundle is Hermod's: `MapSinglePageApplication` with an
@@ -1239,6 +1241,15 @@ tagged `trace` plus whatever `TraceBridge` recognises in the text. That works
 in a debug build only: `Debug.WriteLine` carries `[Conditional("DEBUG")]`, so
 a release build of those libraries compiles the calls away. `--no-trace`
 switches the bridge off.
+
+Three places keep it, because they answer different questions. The console
+shows it to whoever started the station, at the level they chose; the Logs
+page keeps the last two thousand entries; and a `LogPath` handed to the
+constructor writes every entry, down to the debug ones, into one file per UTC
+day below it. The program above does that unless told `--no-log-file`, since
+the other two are gone with the process. A file that cannot be written is said
+once on stderr, and the file says how many entries it missed once it can be
+written again.
 
 A program that reads commands on the same console hands the log a way to write
 around the line being typed, so that an entry arriving mid-word neither lands
