@@ -220,13 +220,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// made to fail: it fails the same way on every platform and on every
         /// attempt, and taking it away again is how the disk "recovers".
         ///
-        /// Three things are measured, because each has a failure that looks
+        /// Four things are measured, because each has a failure that looks
         /// fine from the outside. A complaint per entry would bury the console
         /// of a station that runs for weeks under one line per log entry. A
         /// writer that gave up for good would cost those weeks the file over an
-        /// hour of full disk. And a file that simply carried on afterwards
-        /// would have a hole in it that nobody would find until they needed
-        /// what was in it.
+        /// hour of full disk. A file that simply carried on afterwards would
+        /// have a hole in it that nobody would find until they needed what was
+        /// in it. And the entry after the first one that makes it comes on its
+        /// own: a gap said again before every entry that follows would be the
+        /// complaint per entry, moved into the file.
         /// </remarks>
         [Test]
         public void AFileThatCannotBeWrittenIsSaidOnceAndItsGapWrittenDown()
@@ -254,6 +256,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                     clock.Now = Afternoon.AddSeconds(5);
                     log.Info("The first entry after the disk came back.", "test");
+                    log.Info("And the one after that.",                   "test");
 
                 }
 
@@ -277,7 +280,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(File.ReadAllLines(blocked),
                             Is.EqualTo(new[] {
                                 "2026-09-23T13:45:06.123Z warning [log] 3 entries since 2026-09-23T13:45:01.123Z could not be written here.",
-                                "2026-09-23T13:45:06.123Z info    [test] The first entry after the disk came back."
+                                "2026-09-23T13:45:06.123Z info    [test] The first entry after the disk came back.",
+                                "2026-09-23T13:45:06.123Z info    [test] And the one after that."
                             }));
 
             });
