@@ -729,11 +729,19 @@ namespace cloud.charging.open.ChargingStation
                 // Written down rather than acted on, which is what the white
                 // paper asks for: the disagreement belongs in the metrological
                 // log book, and the time is still a time.
+                //
+                // Invariant, like the lines of the test above, and the agreed
+                // deviation with as many places as it has: it may be set as low
+                // as a millisecond, and a whole-second format wrote that as
+                // "0 s".
                 if (verdict.DeviationExceeded)
                     Log.Warning(
-                        $"NTS: the time servers of group '{group.Name}' disagree by " +
-                        $"{verdict.Spread!.Value.TotalMilliseconds:F1} ms, which reaches the agreed deviation of " +
-                        $"{group.MaxDeviation.TotalSeconds:F0} s.",
+                        String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                      "NTS: the time servers of group '{0}' disagree by {1:F1} ms, " +
+                                      "which reaches the agreed deviation of {2:0.###} s.",
+                                      group.Name,
+                                      verdict.Spread!.Value.TotalMilliseconds,
+                                      group.MaxDeviation.TotalSeconds),
                         "nts", "test"
                     );
 
