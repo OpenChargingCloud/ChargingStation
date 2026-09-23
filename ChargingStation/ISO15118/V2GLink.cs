@@ -558,6 +558,52 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
+        #region (static) SDPOptionsFor(Interface, SeccPort, UsesTLS, MulticastLoopback)
+
+        /// <summary>
+        /// What this station tells a vehicle about itself over SDP.
+        /// </summary>
+        /// <remarks>
+        /// Its own method so that the one invariant in it can be asserted
+        /// without opening a socket: <b>what a station offers and what it
+        /// accepts have to be the same thing.</b>
+        ///
+        /// They were not. OfferedSecurity followed the certificate - a station
+        /// without one advertises NoTLS, because advertising TLS it cannot
+        /// speak would send every vehicle into a handshake that cannot finish.
+        /// RejectNoTlsRequests was left at its default of true, the CRA/NIS2
+        /// posture and right for a station holding a certificate. Together
+        /// that is a station which advertises NoTLS and then drops every
+        /// vehicle that asks for NoTLS: discoverable by nobody at all, in
+        /// exactly what "--v2g" without "--v2g-cert" gives you.
+        ///
+        /// Measured on one machine before and after, with the car asking for
+        /// no TLS both times: eight requests, every one logged "no-TLS request
+        /// rejected by policy", the car reporting that nothing answered -
+        /// against found on the first request, 506 ms.
+        /// </remarks>
+        public static SECC_SDPServerOptions SDPOptionsFor(V2GNetworkInterface  Interface,
+                                                          UInt16               SeccPort,
+                                                          Boolean              UsesTLS,
+                                                          Boolean              MulticastLoopback)
+
+            => new () {
+
+                   Interface            = Interface,
+                   SeccPort             = SeccPort,
+
+                   OfferedSecurity      = UsesTLS
+                                              ? SDP_Security.TLS
+                                              : SDP_Security.NoTLS,
+
+                   RejectNoTlsRequests  = UsesTLS,
+
+                   MulticastLoopback    = MulticastLoopback
+
+               };
+
+        #endregion
+
         #region (private) StartSDPServer    (CancellationToken)
 
         /// <summary>
@@ -585,19 +631,10 @@ namespace cloud.charging.open.ChargingStation.ISO15118
             {
 
                 sdpServer = new SECC_SDPServer(
-                                new SECC_SDPServerOptions {
-                                    Interface        = Interface,
-                                    SeccPort         = (UInt16) V2GEndpoint.Port,
-                                    // What the endpoint actually is, not what
-                                    // the standard would like it to be: a
-                                    // station without a certificate that
-                                    // advertised TLS would send every vehicle
-                                    // into a handshake that cannot finish.
-                                    OfferedSecurity  = UsesTLS
-                                                           ? SDP_Security.TLS
-                                                           : SDP_Security.NoTLS,
-                                    MulticastLoopback  = Options.MulticastLoopback
-                                }
+                                SDPOptionsFor(Interface,
+                                              (UInt16) V2GEndpoint.Port,
+                                              UsesTLS,
+                                              Options.MulticastLoopback)
                             );
 
                 sdpServer.RequestReceived          += request => log.Log(
