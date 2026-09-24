@@ -254,6 +254,20 @@ export interface NTSTimeSource {
     cookies?:       number | null;
     lastExchange?:  string | null;
     aeadAlgorithm?: string | null;
+
+    /**
+     * The root CA the certificate chain of the last key exchange ended at -
+     * the chain this station built, so the root it judged the certificate by -
+     * or null before the first exchange.
+     */
+    rootCA?:        NTSRootCA | null;
+}
+
+/** A root CA, by a name to call it, its subject, and its SHA-256 fingerprint. */
+export interface NTSRootCA {
+    name:         string;
+    subject:      string;
+    fingerprint:  string;
 }
 
 /** Where this station gets the time from, and how its key exchange is doing. */

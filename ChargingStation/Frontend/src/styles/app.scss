@@ -926,16 +926,21 @@ input, textarea, select {
     margin-top:  0.75rem;
 }
 
+// Measured by its own width rather than the window's, which is what the rows
+// below lay themselves out by: the same window leaves this list more room
+// with the menu along the top than beside it.
 .time-server-list {
     display:         flex;
     flex-direction:  column;
     margin:          0 0 0.25rem;
+    container-type:  inline-size;
 }
 
 .time-server-row {
 
     display:                grid;
-    grid-template-columns:  minmax(11rem, 1fr) minmax(12rem, 1.4fr) auto;
+    grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.3fr) minmax(14rem, 1.3fr) auto;
+    grid-template-areas:    "who said root actions";
     gap:                    0.4rem 1rem;
     align-items:            center;
     padding:                0.6rem 0.25rem;
@@ -944,11 +949,26 @@ input, textarea, select {
         border-top: 1px solid $color-border;
     }
 
-    .who, .said {
+    .who, .said, .root-ca {
         display:         flex;
         flex-direction:  column;
         gap:             0.1rem;
         min-width:       0;
+    }
+
+    .who      { grid-area: who;     }
+    .said     { grid-area: said;    }
+    .root-ca  { grid-area: root;    }
+    .actions  { grid-area: actions; }
+
+    // The root CA's fingerprint is compared character by character with a
+    // pinned one, so it is shown whole - in a typewriter face, and allowed to
+    // break anywhere, because 64 characters have nowhere else to break.
+    .fingerprint {
+        font-family:    $font-mono;
+        font-size:      0.75rem;
+        color:          $color-muted;
+        overflow-wrap:  anywhere;
     }
 
     .name {
@@ -972,10 +992,22 @@ input, textarea, select {
 
 }
 
-// On a phone the row stacks: name, what it said, then the buttons.
-@media (max-width: 40rem) {
+// Narrower, the root CA goes under what the server said rather than pushing
+// the buttons out of the card - measured at 1100 pixels, where four columns
+// did exactly that.
+@container (max-width: 56rem) {
     .time-server-row {
-        grid-template-columns: 1fr;
+        grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.6fr) auto;
+        grid-template-areas:    "who said actions"
+                                "who root actions";
+    }
+}
+
+// On a phone the row stacks: name, what it said, the root CA, then the buttons.
+@container (max-width: 34rem) {
+    .time-server-row {
+        grid-template-columns:  1fr;
+        grid-template-areas:    "who" "said" "root" "actions";
     }
 }
 

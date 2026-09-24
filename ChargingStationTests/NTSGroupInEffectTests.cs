@@ -314,6 +314,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(listed?[1]?.Value<Boolean>("enabled"),       Is.False);
                 Assert.That(listed?[1]?.Value<Int32>("ntsKEPort"),       Is.EqualTo(4461));
                 Assert.That(listed?[0]?.Value<Int32>("ntpPort"),         Is.EqualTo(123));
+
+                // There and empty until a key exchange has shown a chain.
+                Assert.That(listed?[0]?["rootCA"]?.Type,                 Is.EqualTo(JTokenType.Null));
             });
 
         }
