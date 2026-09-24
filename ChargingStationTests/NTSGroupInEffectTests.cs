@@ -514,6 +514,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <remarks>
         /// It led with "NTS: ptbtime1.ptb.de." above the servers switched on:
         /// one server, which was the test's, above the group that was asked.
+        /// The NTS answer carried the same client as "server", "cookies" and
+        /// "keyExchange", and does not any more either.
         /// </remarks>
         [Test]
         public async Task TheOverviewNamesTheGroupAndNotTheTestClient()
@@ -526,8 +528,14 @@ namespace cloud.charging.open.ChargingStation.Tests
                                           """);
 
             var time = station.ConfigurationJSON()["time"] as JObject;
+            var nts  = station.NTSConfigurationJSON();
 
             Assert.Multiple(() => {
+
+                Assert.That(nts.ContainsKey("server"),           Is.False);
+                Assert.That(nts.ContainsKey("cookies"),          Is.False);
+                Assert.That(nts.ContainsKey("keyExchange"),      Is.False);
+
 
                 Assert.That(time?.Value<String>("timeServers"),  Is.EqualTo("a.example, b.example (priority 5), c.example (switched off)"));
                 Assert.That(time?.Value<Boolean>("ntsEnabled"),  Is.True);

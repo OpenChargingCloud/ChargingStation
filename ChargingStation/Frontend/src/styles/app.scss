@@ -620,6 +620,26 @@ input, textarea, select {
     grid-column: 1 / -1;
 }
 
+// One card under the other, each as wide as the page: for a page that is read
+// from the top down rather than taken in at a glance. What is inside keeps to
+// a width that can be read - a form, or names beside their values, stretched
+// across a wide screen puts a label a screen away from what it labels, and a
+// name server's buttons a screen away from its address.
+.cards.stacked {
+
+    grid-template-columns: minmax(0, 1fr);
+
+    .form-stack,
+    .kv-list {
+        max-width: 36rem;
+    }
+
+    .server-list {
+        max-width: 44rem;
+    }
+
+}
+
 .kv-list {
     display:         flex;
     flex-direction:  column;
@@ -859,6 +879,104 @@ input, textarea, select {
         width: 5.5rem;
     }
 
+}
+
+// What a form says after a save: that it took, or why not. Every page has
+// these next to its Save, and without a colour a refusal read like one more
+// hint under the fields.
+.form-notice { color: $color-ok;    }
+.form-error  { color: $color-error; }
+
+// A path in a sentence, which has no spaces for a line to break at and would
+// otherwise run out of its card.
+.path {
+    overflow-wrap:  anywhere;
+}
+
+// The time servers of the NTS page.
+//
+// "Sync now" first and big, because asking all of them is what the page is
+// mostly for; then one row per server, with what it said the last time it was
+// asked and the two things that can be done with it on the right.
+.btn.large {
+    padding:    0.65rem 1.3rem;
+    font-size:  1.05rem;
+}
+
+.sync-bar {
+
+    display:      flex;
+    align-items:  center;
+    gap:          1rem;
+    flex-wrap:    wrap;
+
+    .hint {
+        flex:  1 1 18rem;
+    }
+
+}
+
+.sync-verdict {
+    margin-top:  0.75rem;
+}
+
+.time-server-list {
+    display:         flex;
+    flex-direction:  column;
+    margin:          0 0 0.25rem;
+}
+
+.time-server-row {
+
+    display:                grid;
+    grid-template-columns:  minmax(11rem, 1fr) minmax(12rem, 1.4fr) auto;
+    gap:                    0.4rem 1rem;
+    align-items:            center;
+    padding:                0.6rem 0.25rem;
+
+    + .time-server-row {
+        border-top: 1px solid $color-border;
+    }
+
+    .who, .said {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.1rem;
+        min-width:       0;
+    }
+
+    .name {
+        font-weight:  600;
+        word-break:   break-all;
+    }
+
+    .answer.ok  { color: $color-ok;    }
+    .answer.bad { color: $color-error; }
+
+    .actions {
+        display:  flex;
+        gap:      0.4rem;
+    }
+
+    // Still in the list, and not asked: there, but quieter.
+    &.off .name {
+        color:            $color-muted;
+        text-decoration:  line-through;
+    }
+
+}
+
+// On a phone the row stacks: name, what it said, then the buttons.
+@media (max-width: 40rem) {
+    .time-server-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+// The dialog a time server is added, changed or deleted in: the test's dialog,
+// narrower, because it holds a form and not a log.
+.server-dialog {
+    width:  min(30rem, 92vw);
 }
 
 // Asking a name server something, and what it said.

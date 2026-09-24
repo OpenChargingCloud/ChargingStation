@@ -459,11 +459,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 // Switched off by the fixture, so that no test reaches the
-                // network - the server it would ask is still named.
+                // network - the servers it would ask are still named, below,
+                // and so is what they are held to.
                 Assert.That(nts.Value<Boolean>("enabled"),                Is.False);
-                Assert.That(nts["server"]?.Value<String>("hostname"),     Is.Not.Null.And.Not.Empty);
-                Assert.That(nts["cookies"],                               Is.Not.Null);
-                Assert.That(nts["keyExchange"],                           Is.Not.Null);
+                Assert.That(nts["settings"]?.Value<Int32>("minServers"),  Is.EqualTo(2));
                 Assert.That(nts.Value<String>("file"),                    Is.EqualTo(Station.ConfigFile.Path));
 
                 // What the page draws its "Time servers" card from. A station
