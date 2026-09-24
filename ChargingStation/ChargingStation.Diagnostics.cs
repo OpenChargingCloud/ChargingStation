@@ -458,9 +458,21 @@ namespace cloud.charging.open.ChargingStation
 
             var where = directedAt ?? $"{host}";
 
+            // A server of the group is asked on its own ports, which need not
+            // be those of the client above: the page tests each server from
+            // its own row, and a server with a port of its own was asked on
+            // the usual one and reported as not answering.
+            var entry      = directedAt is null
+                                 ? timeSources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
+                                 : null;
+
+            var ntsKEPort  = entry?.NTSKEPort ?? configured.NTSKE_Port;
+            var ntpPort    = entry?.NTPPort   ?? configured.NTP_Port;
+
             Step("info", directedAt is null
-                             ? $"Asking {host}: key exchange on port {configured.NTSKE_Port}, " +
-                               $"time on port {configured.NTP_Port}, {configured.Timeout?.TotalSeconds ?? 0:0.#} second(s) allowed."
+                             ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                             "Asking {0}: key exchange on port {1}, time on port {2}, {3:0.#} second(s) allowed.",
+                                             host, ntsKEPort, ntpPort, configured.Timeout?.TotalSeconds ?? 0)
                              : $"Asking {directedAt} for the time, with cookies from a key exchange with {host} - " +
                                 "an address cannot have a key exchange of its own, because the TLS certificate is " +
                                 "issued for a name.");
@@ -507,8 +519,8 @@ namespace cloud.charging.open.ChargingStation
 
             var asking = new NTSClient(
                              host,
-                             NTSKE_Port:    configured.NTSKE_Port,
-                             NTP_Port:      configured.NTP_Port,
+                             NTSKE_Port:    ntsKEPort,
+                             NTP_Port:      ntpPort,
                              Timeout:       configured.Timeout,
                              DNSClient:     dnsClient,
                              TimeProvider:  TimeProvider
