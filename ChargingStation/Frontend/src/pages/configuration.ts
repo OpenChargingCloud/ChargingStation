@@ -72,10 +72,10 @@ export const configurationPage: Page = {
                             <div class="kv-list">
                                 ${configuration.assemblies.map(assembly => html`
                                     <div class="kv">
-                                        <span class="k">${formatValue(assembly.name)}</span>
+                                        <span class="k">${breakable(formatValue(assembly.name))}</span>
                                         <span class="v">
                                             ${formatValue(assembly.version)}
-                                            <span class="muted small">${formatValue(assembly.assembly)}</span>
+                                            <span class="muted small">${breakable(formatValue(assembly.assembly))}</span>
                                         </span>
                                     </div>
                                 `)}
@@ -108,6 +108,28 @@ export const configurationPage: Page = {
     }
 
 };
+
+
+/**
+ * A library's name that may break where somebody reading it would break it:
+ * after a dot, and after an underscore.
+ *
+ * Such a name has no space in it to break at, so a long one broke wherever the
+ * line happened to end - "org.GraphDefined.Vanaheim" on one line and "r.Hermod"
+ * on the next, measured in a column 420 pixels wide. Not after a dot followed by
+ * a digit, though: that dot belongs to a version, and "WWCP_OCPPv2." above
+ * "1_ChargingStation" splits the one thing in the name that has to stay whole.
+ * The underscore is where the station's own libraries separate their words.
+ */
+function breakable(name: string): HTMLFragment {
+
+    const parts = name.split(/(?<=\.)(?=\D)|(?<=_)/);
+
+    return html`${parts.map((part, index) => index < parts.length - 1
+                                                 ? html`${part}<wbr>`
+                                                 : html`${part}`)}`;
+
+}
 
 
 /**
