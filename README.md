@@ -250,7 +250,7 @@ interface will not delete the part it did not understand.
 |---|---|
 | `/configuration`             | what the station is made of, read-only |
 | `/configuration/dns`         | name resolution: on/off, the servers, the settings, and a test |
-| `/configuration/nts`         | the time source: on/off, the server, the cookie pool, and "Sync now" |
+| `/configuration/nts`         | the time servers: on/off, the group and what it is held to, a test of each, and "Sync now" |
 | `/configuration/power`       | what the grid connection allows, against what the EVSEs could draw |
 | `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
@@ -877,11 +877,27 @@ that is wrong rather than absent. What the check reports is what the servers
 that answered and authenticated agree on, with a line for each of them, so a
 failure says which of the four failed and how.
 
+Every key of the `nts` section, and what it is when absent:
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `true` | whether to ask at all |
+| `servers` | the PTB's four | a list, see below |
+| `minServers` | `2`, or all of them when fewer | how many must answer for the group to have a time |
+| `maxDeviationSeconds` | `60` | how far apart they may be before it is written down |
+| `hostname` | - | one server instead of a list |
+| `ntsKEPort`, `ntpPort` | `4460`, `123` | for that one server |
+| `timeoutSeconds` | `10` | per request |
+| `checkEverySeconds` | `900` | how often the clock is checked |
+| `legalTimeAuthority` | - | who the operator says stands behind it |
+| `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
+| `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
+
 Servers sharing a priority are **one band** and are asked together; a lower
 priority is asked first. The four it asks by default share one, because they are peers -
 putting them in separate bands would say something about them that is not true.
 An entry may be a bare host name or an object saying more:
-`{ "hostname": "time.local", "priority": 0, "enabled": true }`.
+`{ "hostname": "time.local", "priority": 0, "ntsKEPort": 4460, "enabled": true }`.
 
 Servers that disagree by more than `nts.maxDeviationSeconds` (sixty by
 default) are written down rather than acted on. The disagreement belongs in the log,
@@ -929,6 +945,11 @@ checked and how many of it had to answer, how long ago and how far off, and
 whether all of that adds up to legal time and why not - is also served at
 `GET /api/v1/clock`, to anybody signed in, as the status is. Nothing there can
 be changed; that is the NTS page's.
+
+A host name written back into the file carries the root label -
+`ptbtime1.ptb.de.` - because that is the absolute form it was parsed into, and
+not a stray character. What the station prints for somebody to read drops it
+again.
 
 The digits tick in place rather than through a redraw, and the time comes from
 the station's clock carried forward by the difference between two readings of
