@@ -93,14 +93,18 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var heartbeat     = await stream.ReadUntil(": keep-alive");
 
-            // Without it there is nothing to carry on after: a read that gives
-            // up takes the stream with it.
-            Assert.That(heartbeat, Is.True, "a comment came while nothing was logged");
+            // Each step is judged as soon as it is taken. A read that timed out
+            // has closed the connection under the reader, and the next read
+            // would fail with an ObjectDisposedException that says nothing about
+            // why - which is how a stream without a heartbeat failed here.
+            Assert.That(heartbeat,  Is.True,  "a comment came while nothing was logged");
 
             var marker        = "A line for the event stream " + Guid.NewGuid().ToString("N")[..8];
             Station.Log.Info(marker, "test");
 
             var entry         = await stream.ReadUntil(marker);
+
+            Assert.That(entry,      Is.True,  "the entry logged after the heartbeat arrived");
 
             // And the one after it, to be sure the stream is still waiting for
             // entries and not only for the heartbeat.
@@ -114,7 +118,6 @@ namespace cloud.charging.open.ChargingStation.Tests
             var delivered     = stream.Received.Split($"\"{marker}\"").Length - 1;
 
             Assert.Multiple(() => {
-                Assert.That(entry,        Is.True,         "the entry logged after the heartbeat arrived");
                 Assert.That(secondEntry,  Is.True,         "and so did the one after it");
                 Assert.That(delivered,    Is.EqualTo(1),   "once");
             });
