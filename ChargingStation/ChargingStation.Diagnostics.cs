@@ -458,6 +458,13 @@ namespace cloud.charging.open.ChargingStation
 
             var where = directedAt ?? $"{host}";
 
+            // The name as people read it, for every sentence below - the steps
+            // and the log alike. Without the root's dot: "ptbtime1.ptb.de." is
+            // the name exactly, and in the middle of a line it reads like a
+            // typing mistake, which is why everything else this station prints
+            // leaves it out.
+            var name  = host.Trimmed;
+
             // A server of the group is asked on its own ports, which need not
             // be those of the client above: the page tests each server from
             // its own row, and a server with a port of its own was asked on
@@ -472,12 +479,12 @@ namespace cloud.charging.open.ChargingStation
             Step("info", directedAt is null
                              ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
                                              "Asking {0}: key exchange on port {1}, time on port {2}, {3:0.#} second(s) allowed.",
-                                             host, ntsKEPort, ntpPort, configured.Timeout?.TotalSeconds ?? 0)
-                             : $"Asking {directedAt} for the time, with cookies from a key exchange with {host} - " +
+                                             name, ntsKEPort, ntpPort, configured.Timeout?.TotalSeconds ?? 0)
+                             : $"Asking {directedAt} for the time, with cookies from a key exchange with {name} - " +
                                 "an address cannot have a key exchange of its own, because the TLS certificate is " +
                                 "issued for a name.");
 
-            Log.Info($"NTS test: asking {host} ...", "nts", "test");
+            Log.Info($"NTS test: asking {name} ...", "nts", "test");
 
             #endregion
 
@@ -505,13 +512,13 @@ namespace cloud.charging.open.ChargingStation
 
                     Step(addresses.Length > 0 ? "info" : "warning",
                          addresses.Length > 0
-                             ? $"'{host}' resolves to {String.Join(", ", addresses)}."
-                             : $"'{host}' resolved to nothing ({lookedUp.ResponseCode}).");
+                             ? $"'{name}' resolves to {String.Join(", ", addresses)}."
+                             : $"'{name}' resolved to nothing ({lookedUp.ResponseCode}).");
 
                 }
                 catch (Exception e)
                 {
-                    Step("warning", $"'{host}' could not be looked up here: {e.Message}. Asking anyway.");
+                    Step("warning", $"'{name}' could not be looked up here: {e.Message}. Asking anyway.");
                 }
             }
 
@@ -557,7 +564,7 @@ namespace cloud.charging.open.ChargingStation
                 if (!keyExchange.Success || keyExchange.Response is null)
                 {
                     Step("error", $"The key exchange failed ({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}");
-                    Log.Warning($"NTS test: the key exchange with {host} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
+                    Log.Warning($"NTS test: the key exchange with {name} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
                     return Done(where, false);
                 }
 
@@ -597,7 +604,7 @@ namespace cloud.charging.open.ChargingStation
                 {
                     Step("error", $"The NTP request to {query.RemoteDescription} failed " +
                                   $"({query.ErrorCategory}): {query.ErrorMessage}");
-                    Log.Warning($"NTS test: the NTP request to {host} failed: {query.ErrorMessage}", "nts", "ntp", "test");
+                    Log.Warning($"NTS test: the NTP request to {name} failed: {query.ErrorMessage}", "nts", "ntp", "test");
                     return Done(where, false);
                 }
 
@@ -618,15 +625,15 @@ namespace cloud.charging.open.ChargingStation
                 Step("notice", offset.HasValue
                                    ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
                                                    "This station's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
-                                                   offset.Value.TotalMilliseconds, host)
-                                   : $"{host} answered, but said nothing this station could take an offset from.");
+                                                   offset.Value.TotalMilliseconds, name)
+                                   : $"{name} answered, but said nothing this station could take an offset from.");
 
                 #endregion
 
                 Step("info", "The clock was not stepped: that is a different thing, with meter readings and " +
                              "certificates hanging off it, and not something a test does by surprise.");
 
-                Log.Notice($"NTS test: {host} answered in {clock.ElapsedMilliseconds} ms.", "nts", "test");
+                Log.Notice($"NTS test: {name} answered in {clock.ElapsedMilliseconds} ms.", "nts", "test");
 
                 return Done(where, true);
 
@@ -634,7 +641,7 @@ namespace cloud.charging.open.ChargingStation
             catch (Exception e)
             {
                 Step("error", $"{e.GetType().Name}: {e.Message}");
-                Log.Warning($"NTS test: asking {host} failed: {e.Message}", "nts", "test");
+                Log.Warning($"NTS test: asking {name} failed: {e.Message}", "nts", "test");
                 return Done(where, false);
             }
 
