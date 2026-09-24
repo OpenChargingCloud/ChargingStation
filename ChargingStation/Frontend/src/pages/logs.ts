@@ -19,7 +19,8 @@ import { formatTime, formatTimestamp, isAtLeast } from '../ui';
  *
  * The store keeps its entries oldest first and is left alone: that order is
  * what its own de-duplication and its bounded trim are written against. Only
- * what is drawn is reversed, at the three places that map a line to an entry.
+ * what is drawn is reversed, by drawOrder and entryAt in logs/order.ts, which
+ * the three places that map a line to an entry all go through.
  */
 export const logsPage: Page = {
 
@@ -189,14 +190,17 @@ export const logsPage: Page = {
          * Which of the lines already drawn are wanted.
          *
          * A filter used to rebuild the whole list, which measured 597 ms for
-         * one keystroke in the search box at 1959 entries - a third of a
-         * second of frozen page per character, and it grows with the log. Most
-         * of that was work already done: the same lines built again from the
-         * same entries, and every timestamp put through the locale formatter
-         * a second time.
+         * one keystroke in the search box at 1959 entries, the layout that
+         * follows included - more than half a second of frozen page per
+         * character, and it grows with the log. Most of that was work already
+         * done: the same lines built again from the same entries, and every
+         * timestamp put through the locale formatter a second time.
          *
-         * A line is now made once and then only told whether it is wanted,
-         * which measured 2 ms for the same 1959.
+         * A line is now made once and then only told whether it is wanted.
+         * One keystroke then measured 50 ms at 2033 entries, layout included
+         * as before: twelve times less. Deciding which lines are wanted is
+         * the least of it, 2 ms for the same 1959; the rest is the browser
+         * laying the list out again.
          */
         function applyFilters(): void {
 
@@ -245,8 +249,10 @@ export const logsPage: Page = {
                 const anchorWas  = anchor?.getBoundingClientRect().top ?? 0;
 
                 // Newest first inside the batch as well, so that a burst of
-                // entries reads top-down the way a single one does.
-                const batch = [...added].reverse();
+                // entries reads top-down the way a single one does - drawn by
+                // the same drawOrder as the rest of the list, so that the two
+                // cannot come to disagree.
+                const batch = drawOrder(added);
 
                 lineBox.insertAdjacentHTML('afterbegin', batch.map(lineHTML).join(''));
 
