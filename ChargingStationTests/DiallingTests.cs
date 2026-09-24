@@ -68,7 +68,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void MakeAStation()
         {
             directory  = TestStations.TemporaryDirectory("dialling");
-            station    = TestStations.New(directory);
+
+            // With the time client off, as every other station of the suite
+            // has it: these are started, and a station nobody configured would
+            // otherwise have its first clock check a minute later.
+            station    = TestStations.New(directory, TestStations.Offline);
         }
 
         [TearDown]

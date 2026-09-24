@@ -35,9 +35,10 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// matters here - what a section does not mention is left as it is - can
     /// only be seen against something that is already there.
     ///
-    /// The stations are built and never started. The constructor is what
+    /// The stations are built and not started. The constructor is what
     /// applies the file, and it is Start() that would put a timer on the
-    /// network to ask the servers.
+    /// network to ask the servers. The one test about a running station's
+    /// check is started, on a clock whose timers never fire.
     /// </remarks>
     [TestFixture]
     public class NTSGroupInEffectTests
@@ -333,15 +334,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// The check runs on a timer set at the start, and a save used to change
         /// only the setting: the page said "in effect" about an interval the
         /// timer did not have until the next start. Seen here in the line the
-        /// check writes whenever it is set. Started, and the first check is a
-        /// minute in, so a test that is over long before that asks no time
-        /// server anything.
+        /// check writes whenever it is set. Started, and on a clock whose timers
+        /// never fire, so that the checks those lines announce are never made.
         /// </remarks>
         [Test]
         public async Task ARunningStationPutsANewIntervalIntoItsClockCheckAtOnce()
         {
 
-            await using var station = Station();
+            await using var station = TestStations.New(directory, Clock: ClockWithoutTimers.Instance);
 
             await station.Start();
 

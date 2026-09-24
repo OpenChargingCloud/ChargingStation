@@ -113,7 +113,11 @@ Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for the two files a station
 writes. Nothing reaches the network: the configuration written before each
 station switches the time client off, which is what stops the clock check from
-being scheduled at all, and a station is built with `V2GOptions.Off` unless it
+being scheduled at all - and the one test that needs it on, to read what a
+running station writes when its interval changes, runs on a clock whose timers
+never fire. A test that asks a time server something has it refused before
+anything goes out: the time client switched off, a name that is none, or name
+resolution switched off. And a station is built with `V2GOptions.Off` unless it
 is handed something else.
 
 
