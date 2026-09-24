@@ -263,6 +263,44 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region ANameServerInTheFormTheLogUsesIsRefusedAndNothingIsWritten()
+
+        /// <summary>
+        /// "udp://…:53", as the log and the banner write a name server, typed
+        /// into the DNS page: refused with the sentence that says why, and
+        /// neither applied nor written down. It was an internal server error,
+        /// out of an exception in the address parser.
+        /// </summary>
+        [Test]
+        public async Task ANameServerInTheFormTheLogUsesIsRefusedAndNothingIsWritten()
+        {
+
+            using var http = await SignedIn();
+
+            var response = await http.PutAsync(
+                                     "/api/v1/configuration/dns",
+                                     JSONBody(
+                                         new JProperty("servers", new JArray("udp://213.133.98.98:53"))
+                                     )
+                                 );
+
+            var answered = await response.Content.ReadAsStringAsync();
+            var onDisk   = File.Exists(Station.ConfigFile.Path)
+                               ? File.ReadAllText(Station.ConfigFile.Path)
+                               : "";
+
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest),  answered);
+                Assert.That(answered,             Does.Contain("'dns.servers'").And.Contain("udp://213.133.98.98:53"));
+                Assert.That(onDisk,               Does.Not.Contain("213.133.98.98"));
+                Assert.That(Station.DNSClient.DNSServers.Select(server => server.ToString()),
+                            Has.None.Contains("213.133.98.98"));
+            });
+
+        }
+
+        #endregion
+
         #region WhatAChangeDoesNotMentionIsLeftAlone()
 
         /// <summary>

@@ -88,6 +88,7 @@ They start real stations and talk to them over HTTP the way the browser does.
 | `WebInterfaceTests`     | the stub, the hashed bundle, deep links, a real 404 for a missing asset - and the display's own page out of the same bundle |
 | `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
+| `DNSConfigurationTests` | what a name server may be written as in the file, and what it may not |
 | `EventLogTests`         | the snapshot, the filters, and the live stream |
 | `FileLogTests`          | the log on disk: every entry, the UTC day it belongs to, nothing overwritten, and a disk that fails said once |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
@@ -347,6 +348,19 @@ request is checked again on arrival, so editing the list in a browser buys a
 button that answers 403.
 
 ### DNS
+
+An entry of `dns.servers` is an address or a host name, as a string or as the
+object the example above uses - which may say more, and is the form the DNS
+page writes the list back in:
+
+```json
+{ "address": "9.9.9.9", "port": 853, "transport": "TLS", "queryTimeoutSeconds": 2 }
+```
+
+Without a port, the transport's own is used. `udp://9.9.9.9:53` is how the log
+and the banner name a name server, and not a form the file takes: a file saying
+it is refused at the start, and the page refuses it the same way, with the
+entry named.
 
 Switching name resolution off takes the servers away from the DNS client,
 which is what off means - for everything that was handed that client, not only
