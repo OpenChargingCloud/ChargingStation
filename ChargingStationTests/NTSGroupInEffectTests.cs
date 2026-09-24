@@ -504,6 +504,114 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheOverviewNamesTheGroupAndNotTheTestClient()
+
+        /// <summary>
+        /// The Configuration page's time card names the servers the clock is
+        /// set by - all of them, the one switched off as well - and not the
+        /// host of the single client the detailed test starts from.
+        /// </summary>
+        /// <remarks>
+        /// It led with "NTS: ptbtime1.ptb.de." above the servers switched on:
+        /// one server, which was the test's, above the group that was asked.
+        /// </remarks>
+        [Test]
+        public async Task TheOverviewNamesTheGroupAndNotTheTestClient()
+        {
+
+            await using var station = Station("""
+                                          { "nts": { "servers": [ "a.example",
+                                                                  { "hostname": "b.example", "priority": 5 },
+                                                                  { "hostname": "c.example", "enabled": false } ] } }
+                                          """);
+
+            var time = station.ConfigurationJSON()["time"] as JObject;
+
+            Assert.Multiple(() => {
+
+                Assert.That(time?.Value<String>("timeServers"),  Is.EqualTo("a.example, b.example (priority 5), c.example (switched off)"));
+                Assert.That(time?.Value<Boolean>("ntsEnabled"),  Is.True);
+                Assert.That(time?.ContainsKey("nts"),            Is.False,  "the test client's host is named again");
+
+                // There and empty while nothing has been synchronised, so that
+                // the card says "-" rather than leaving the line out.
+                Assert.That(time?["lastSync"]?.      Type,       Is.EqualTo(JTokenType.Null));
+                Assert.That(time?["lastSyncResult"]?.Type,       Is.EqualTo(JTokenType.Null));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheClockIsCheckedAgainstTheGroupAndNotTheTestClient()
+
+        /// <summary>
+        /// Against whom the clock is checked, as its JSON says it: the group,
+        /// its servers switched on in the order they are asked, and how many of
+        /// them have to answer.
+        /// </summary>
+        /// <remarks>
+        /// The servers used to come with their root dots and without the group
+        /// or its quorum; the log line at the start, which names the same
+        /// servers, has always left the dots out. Both come from one place now.
+        /// "server" stays for a group of one, because that is what the display
+        /// shows beside the time.
+        /// </remarks>
+        [Test]
+        public async Task TheClockIsCheckedAgainstTheGroupAndNotTheTestClient()
+        {
+
+            await using var station = Station("""
+                                          { "nts": { "servers": [ { "hostname": "b.example", "priority": 5 },
+                                                                  "a.example",
+                                                                  { "hostname": "c.example", "enabled": false } ] } }
+                                          """);
+
+            var nts = (JObject) station.ClockJSON()["nts"]!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(nts.Value<String>("group"),        Is.EqualTo("legal"));
+
+                Assert.That(nts["servers"]!.Values<String>(),  Is.EqualTo(new[] { "a.example", "b.example" }),
+                            "switched on, in the order their bands are asked, and without the root's dot");
+
+                Assert.That(nts.Value<Int32>("minServers"),    Is.EqualTo(2));
+
+                Assert.That(nts["server"]?.Type,               Is.EqualTo(JTokenType.Null),  "one server named for a group of two");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AClockThatIsNotCheckedNamesNobody()
+
+        /// <summary>
+        /// Switched off, the clock is checked against nobody, and says so -
+        /// rather than naming servers that are not asked.
+        /// </summary>
+        [Test]
+        public async Task AClockThatIsNotCheckedNamesNobody()
+        {
+
+            await using var station = Station("""{ "nts": { "enabled": false } }""");
+
+            var nts = (JObject) station.ClockJSON()["nts"]!;
+
+            Assert.Multiple(() => {
+                Assert.That(nts.Value<Boolean>("enabled"),  Is.False);
+                Assert.That(nts["group"]?.     Type,        Is.EqualTo(JTokenType.Null));
+                Assert.That(nts["servers"]?.   Type,        Is.EqualTo(JTokenType.Null));
+                Assert.That(nts["minServers"]?.Type,        Is.EqualTo(JTokenType.Null));
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

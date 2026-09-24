@@ -1553,15 +1553,23 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("enabled",        false)
                    )),
 
+                   // The group, which is what sets the clock. This card used to
+                   // lead with "NTS" and the host of the single client the
+                   // detailed test starts from - one server, above the four that
+                   // are actually asked, and with its root dot - and it left out
+                   // every server that was switched off. The servers are now
+                   // named the way the log names them when they change.
+                   //
+                   // And the last synchronisation - the button's, the prompt's
+                   // or the clock check's - when it happened and how it went,
+                   // or nothing while there has been none.
                    new JProperty("time",       new JObject(
-                       new JProperty("nts",            ntsClient.Hostname.ToString()),
-                       new JProperty("timeSources",    new JArray(
-                           timeSources.Bands().SelectMany(band => band).Select(source => new JObject(
-                               new JProperty("hostname",  source.Hostname.ToString()),
-                               new JProperty("priority",  source.Priority)
-                           ))
-                       )),
+                       new JProperty("ntsEnabled",     NTSEnabled),
+                       new JProperty("timeServers",    Described(timeSources)),
                        new JProperty("minServers",     timeSources.MinServers),
+                       new JProperty("checkedEvery",   TimeCheckEvery.ToString()),
+                       new JProperty("lastSync",       lastTimeSync?.Value<String>("at")),
+                       new JProperty("lastSyncResult", LastSyncSaid(lastTimeSync)),
                        new JProperty("now",            TimeProvider.GetUtcNow().ToString("o"))
                    )),
 

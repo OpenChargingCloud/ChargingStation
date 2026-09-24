@@ -57,6 +57,38 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheClockIsServedToWhoeverIsSignedIn()
+
+        /// <summary>
+        /// GET /api/v1/clock: what time it is here and what that is worth - to
+        /// anybody signed in, as the status is, and to nobody else.
+        /// </summary>
+        /// <remarks>
+        /// The display has had this JSON all along, inside its own answer on its
+        /// own port. A station started without a display served it nowhere, and
+        /// a page of the administration could not ask it at all.
+        /// </remarks>
+        [Test]
+        public async Task TheClockIsServedToWhoeverIsSignedIn()
+        {
+
+            using var anonymous  = Anonymous();
+            var       refused    = await anonymous.GetAsync("/api/v1/clock");
+
+            using var http       = await SignedIn();
+            var       clock      = await GetJSON(http, "/api/v1/clock");
+
+            Assert.Multiple(() => {
+                Assert.That(refused.StatusCode,                      Is.EqualTo(HttpStatusCode.Unauthorized));
+                Assert.That(clock.Value<String>("source"),           Is.EqualTo("system"));
+                Assert.That(clock["legal"]?.Type,                    Is.EqualTo(JTokenType.Boolean));
+                Assert.That(clock["nts"]?.Value<Boolean>("enabled"), Is.EqualTo(Station.NTSEnabled));
+            });
+
+        }
+
+        #endregion
+
         #region TheConfigurationNamesEverySection()
 
         /// <summary>

@@ -275,8 +275,9 @@ interface KioskState {
     clock:        {
                       now:        string;
                       source:     string;
-                      nts:        { enabled: boolean; server: string | null; lastServer: string | null;
-                                    servers: string[]; asked: number | null; answered: number | null;
+                      nts:        { enabled: boolean; group: string | null; server: string | null; lastServer: string | null;
+                                    servers: string[] | null; minServers: number | null;
+                                    asked: number | null; answered: number | null;
                                     checkedAt: string | null; ageSeconds: number | null;
                                     offset_ms: number | null; everySeconds: number };
                       legal:      boolean;

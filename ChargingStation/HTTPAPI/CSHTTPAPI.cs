@@ -196,6 +196,7 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/auth/me",       Me,                HTTPMethod.GET);
 
             AddHandler(HTTPPath.Root + "v1/status",        GetStatus,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/clock",         GetClock,          HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
 
             AddHandler(HTTPPath.Root + "v1/configuration/dns",        GetDNSConfiguration,   HTTPMethod.GET);
@@ -356,6 +357,38 @@ namespace cloud.charging.open.ChargingStation
                                                            ))
                            )
                        )
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetClock        (Request)
+
+        /// <summary>
+        /// GET /api/v1/clock: what time it is here, whether it has been checked,
+        /// against whom and how long ago, and whether all of that adds up to
+        /// legal time.
+        /// </summary>
+        /// <remarks>
+        /// For anybody signed in, as the status is: a screen that shows the time
+        /// has to be able to say what it is worth, and that is no secret of the
+        /// configuration. Nothing here changes anything - the servers and the
+        /// rules are the NTS page's, and "legal" is decided by the station and
+        /// sent as a fact, never worked out by whoever reads it.
+        ///
+        /// The same JSON the display gets inside its own answer, on its own
+        /// port. A station started without a display served it nowhere, and a
+        /// page of the administration could not ask it at all.
+        /// </remarks>
+        private Task<HTTPResponse> GetClock(HTTPRequest Request)
+        {
+
+            if (!TryGetUser(Request, out _, out var unauthorized))
+                return Task.FromResult(unauthorized);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.ClockJSON())
                    );
 
         }

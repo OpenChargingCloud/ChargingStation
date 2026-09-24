@@ -921,7 +921,14 @@ clock nobody verified.
 The check runs by itself every `nts.checkEverySeconds` (fifteen minutes by
 default), the first one a minute after starting - everything else is still
 coming up, and a display that says "unverified" for a minute after a start is
-telling the truth.
+telling the truth. A new interval, and switching NTS off or on, reach a running
+check at once.
+
+What the display is told about the clock - the time, against which group it was
+checked and how many of it had to answer, how long ago and how far off, and
+whether all of that adds up to legal time and why not - is also served at
+`GET /api/v1/clock`, to anybody signed in, as the status is. Nothing there can
+be changed; that is the NTS page's.
 
 The digits tick in place rather than through a redraw, and the time comes from
 the station's clock carried forward by the difference between two readings of
