@@ -188,8 +188,8 @@ namespace cloud.charging.open.ChargingStation.Logging
                     if (failingSince is not null)
                     {
 
-                        Console.Error.WriteLine($"The log file in '{Directory}' is being written again; " +
-                                                $"{missed} entr{(missed == 1 ? "y is" : "ies are")} missing from it.");
+                        log.Complain($"The log file in '{Directory}' is being written again; " +
+                                     $"{missed} entr{(missed == 1 ? "y is" : "ies are")} missing from it.");
 
                         failingSince  = null;
                         missed        = 0;
@@ -201,12 +201,14 @@ namespace cloud.charging.open.ChargingStation.Logging
                 {
 
                     // Once, and on stderr rather than through the log - going
-                    // through the log would come back here and fail again.
+                    // through the log would come back here and fail again. By
+                    // way of its Complain, which keeps it off a command line
+                    // somebody is typing.
                     if (failingSince is null)
                     {
 
-                        Console.Error.WriteLine($"The log file in '{Directory}' could not be written: {e.Message} " +
-                                                "Every following entry is tried again, and the file will say what it missed.");
+                        log.Complain($"The log file in '{Directory}' could not be written: {e.Message} " +
+                                     "Every following entry is tried again, and the file will say what it missed.");
 
                         failingSince = Entry.Timestamp;
 

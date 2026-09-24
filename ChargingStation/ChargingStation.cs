@@ -655,6 +655,13 @@ namespace cloud.charging.open.ChargingStation
                                     ? new FileLog(this.Log, LogPath)
                                     : null;
 
+            // What the log says about itself - a listener that failed, a file
+            // that cannot be written - goes to stderr, and through the same
+            // block as the entries, so that it cannot land in the middle of
+            // one. ShareConsoleWith moves both along together.
+            if (consoleLog is not null)
+                this.Log.ComplaintBlock = consoleLog.WriteBlock;
+
             // Attached before anything else is built, so that what the DNS
             // client, the HTTP server and the OCPP nodes say while they are
             // being made is already in the log a browser will see later.
@@ -1665,7 +1672,11 @@ namespace cloud.charging.open.ChargingStation
         /// nothing is delayed, which is what makes this better than the obvious
         /// alternative of going quiet while a command line is open.
         ///
-        /// Has no effect on a station whose log does not reach the console.
+        /// The same goes for the few things the log says on stderr about
+        /// itself - a listener that failed, a log file that cannot be written.
+        /// They are rare, which is how they came to be written past the command
+        /// line for a while without anybody noticing, and they are handed over
+        /// too - even by a station whose entries do not reach the console.
         /// </remarks>
         /// <param name="WriteBlock">Runs what it is given with the console to itself.</param>
         public void ShareConsoleWith(Action<Action> WriteBlock)
@@ -1673,6 +1684,8 @@ namespace cloud.charging.open.ChargingStation
 
             if (consoleLog is not null)
                 consoleLog.WriteBlock = WriteBlock;
+
+            Log.ComplaintBlock = WriteBlock;
 
         }
 
