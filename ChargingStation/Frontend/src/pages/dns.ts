@@ -79,7 +79,7 @@ export const dnsPage: Page = {
                     </div>
                 `}
 
-                <div class="cards">
+                <div class="cards stacked">
 
                     <section class="card">
 
@@ -587,7 +587,12 @@ export const dnsPage: Page = {
                     return;
                 }
 
-                busy = true;
+                // The last answer goes the moment the next question is asked.
+                // Left standing under "Asking ...", it read as the answer to
+                // the new one - and when that one never came back, it went on
+                // reading that way.
+                asked = null;
+                busy  = true;
                 paint();
 
                 try
