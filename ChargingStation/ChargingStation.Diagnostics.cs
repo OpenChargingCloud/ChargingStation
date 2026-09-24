@@ -19,6 +19,10 @@
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
@@ -351,6 +355,229 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
+        #region (static) TLSSteps(TLS, Now)
+
+        /// <summary>
+        /// What a time server's TLS session and certificate say, and whether that
+        /// held up - as steps of a server's test, from the session to the verdict.
+        /// </summary>
+        /// <remarks>
+        /// Every certificate of the chain with both ends of its validity and the
+        /// days that are left: the root's as much as the server's. A root can be
+        /// pinned, and a pinned root that runs out stops whatever relies on it,
+        /// however new the server's certificate is. The root also comes with its
+        /// SHA-256 fingerprint, which is what a pin is compared with.
+        ///
+        /// The chain is the one this station built, not the one the server sent -
+        /// see NTSKE_TLSInfo.ValidatedChain. Where none was built, the server's
+        /// certificates are shown as they came.
+        ///
+        /// The verdict is Norn's, taken from what its validation decided; the
+        /// reasons are its chain's, in words, because the platform's own texts
+        /// for them are in whatever language the machine speaks.
+        /// </remarks>
+        /// <param name="TLS">What the key exchange kept of its TLS session.</param>
+        /// <param name="Now">The moment the days that are left are counted from.</param>
+        public static IEnumerable<(String Level, String Text)> TLSSteps(NTSKE_TLSInfo   TLS,
+                                                                         DateTimeOffset  Now)
+        {
+
+            var session = new[] {
+                              TLS.NegotiatedTLSVersion,
+                              TLS.NegotiatedCipherSuite,
+                              TLS.NegotiatedApplicationProtocol is String protocol ? $"ALPN {protocol}" : null
+                          }.Where(part => part is not null).ToArray();
+
+            if (session.Length > 0)
+                yield return ("info", $"{String.Join(", ", session)}.");
+
+            if (TLS.ServerCertificate is null)
+                yield break;
+
+            IReadOnlyList<X509Certificate2> chain = TLS.ValidatedChain.  Count > 0 ? TLS.ValidatedChain
+                                                  : TLS.CertificateChain.Count > 0 ? TLS.CertificateChain
+                                                  : [ TLS.ServerCertificate ];
+
+            for (var position = 0; position < chain.Count; position++)
+            {
+
+                var certificate = chain[position];
+                var selfSigned  = certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData);
+                var last        = position == chain.Count - 1;
+
+                var what        = position == 0  ? selfSigned ? "Server certificate, self-signed" : "Server certificate"
+                                : !last          ? "Intermediate CA"
+                                : selfSigned     ? "Root CA"
+                                :                  "Last in the chain, and no root";
+
+                var (level, validity) = Validity(certificate, Now);
+
+                yield return (level,
+                              String.Concat(
+                                  $"{what}: {certificate.Subject}",
+                                  position == 0 && NamesOf(certificate) is String names ? $", for {names}"               : "",
+                                  last && !selfSigned                                   ? $", issued by {certificate.Issuer}" : "",
+                                  $"; {KeyAlgorithmOf(certificate)}, {certificate.SignatureAlgorithm.FriendlyName ?? certificate.SignatureAlgorithm.Value}",
+                                  $"; {validity}."
+                              ));
+
+                // What a pin is compared with - for the certificate the chain
+                // ends at, which is the server's own when it signed itself.
+                if (last && selfSigned)
+                    yield return ("info", $"{(position == 0 ? "Its" : "The root's")} SHA-256 fingerprint: {ThumbprintOf(certificate)}.");
+
+            }
+
+            var host   = TLS.CheckedHostname?.Trimmed;
+            var errors = TLS.CertificatePolicyErrors ?? SslPolicyErrors.None;
+
+            if (errors == SslPolicyErrors.None)
+                yield return ("notice", String.Concat(
+                                            "Validated: the chain ends at a root this machine trusts",
+                                            TLS.RevocationMode == X509RevocationMode.Online ? ", nothing in it is revoked (asked online)"                : "",
+                                            host is not null                                ? $", and '{host}' is one of the server certificate's names" : "",
+                                            "."
+                                        ));
+
+            else
+            {
+
+                var reasons = TLS.ChainStatus.Select(ReasonFor).Distinct().ToList();
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) && reasons.Count == 0)
+                    reasons.Add("its chain did not validate");
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch))
+                    reasons.Add(host is not null
+                                    ? $"'{host}' is not one of the server certificate's names"
+                                    : "it was issued for another name");
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
+                    reasons.Add("no certificate came");
+
+                yield return ("error", $"Not validated: {String.Join("; ", reasons)}.");
+
+            }
+
+        }
+
+        /// <summary>
+        /// Both ends of a certificate's validity, and where the given moment is
+        /// between them - with the level that deserves.
+        /// </summary>
+        /// <remarks>
+        /// A week's warning, as Norn's monitoring gives by default. Inside its
+        /// validity is information; outside it, on either side, is an error.
+        /// </remarks>
+        private static (String Level, String Text) Validity(X509Certificate2  Certificate,
+                                                            DateTimeOffset    Now)
+        {
+
+            var notBefore  = new DateTimeOffset(Certificate.NotBefore.ToUniversalTime());
+            var notAfter   = new DateTimeOffset(Certificate.NotAfter. ToUniversalTime());
+            var span       = String.Create(CultureInfo.InvariantCulture, $"valid {notBefore:yyyy-MM-dd HH:mm:ss} to {notAfter:yyyy-MM-dd HH:mm:ss} UTC");
+
+            if (Now < notBefore)
+                return ("error",   $"{span}, not valid for another {Days(notBefore - Now)} day(s)");
+
+            if (Now > notAfter)
+                return ("error",   $"{span}, expired {Days(Now - notAfter)} day(s) ago");
+
+            var left = Days(notAfter - Now);
+
+            return (left <= 7 ? "warning" : "info",
+                    $"{span}, {left} day(s) left");
+
+            static Int32 Days(TimeSpan Span)
+                => (Int32) Math.Floor(Span.TotalDays);
+
+        }
+
+        /// <summary>
+        /// The names a certificate is for - its subject alternative names, which
+        /// are the only ones a host name is matched against - or null when it
+        /// names none.
+        /// </summary>
+        private static String? NamesOf(X509Certificate2 Certificate)
+        {
+
+            var alternative = Certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>().FirstOrDefault();
+
+            if (alternative is null)
+                return null;
+
+            var names = alternative.EnumerateDnsNames().
+                            Concat(alternative.EnumerateIPAddresses().Select(address => address.ToString())).
+                            ToArray();
+
+            return names.Length == 0 ? null
+                 : names.Length <= 4 ? String.Join(", ", names)
+                 :                     $"{String.Join(", ", names.Take(4))} and {names.Length - 4} more";
+
+        }
+
+        /// <summary>
+        /// Why a chain did not validate, in words.
+        /// </summary>
+        private static String ReasonFor(X509ChainStatusFlags Status)
+
+            => Status switch {
+                   X509ChainStatusFlags.UntrustedRoot            => "its root is not one this machine trusts",
+                   X509ChainStatusFlags.PartialChain             => "no chain up to a root could be built",
+                   X509ChainStatusFlags.NotTimeValid             => "a certificate in it is outside its validity",
+                   X509ChainStatusFlags.Revoked                  => "a certificate in it has been revoked",
+                   X509ChainStatusFlags.RevocationStatusUnknown  => "whether a certificate in it is revoked could not be found out",
+                   X509ChainStatusFlags.OfflineRevocation        => "the revocation lists could not be reached",
+                   X509ChainStatusFlags.NotSignatureValid        => "a signature in it does not verify",
+                   X509ChainStatusFlags.NotValidForUsage         => "a certificate in it is not meant for this use",
+                   X509ChainStatusFlags.Cyclic                   => "the chain runs in a circle",
+                   _                                             => Status.ToString()
+               };
+
+        /// <summary>
+        /// What kind of key a certificate carries, written the way somebody
+        /// comparing it against a specification would write it: the curve
+        /// named, and not only its size.
+        /// </summary>
+        private static String KeyAlgorithmOf(X509Certificate2 Certificate)
+        {
+
+            using var ecdsa = Certificate.GetECDsaPublicKey();
+
+            if (ecdsa is not null)
+            {
+
+                var curve = ecdsa.KeySize switch {
+                                256  => "P-256",
+                                384  => "P-384",
+                                521  => "P-521",
+                                _    => $"{ecdsa.KeySize}-bit"
+                            };
+
+                return $"ECDSA {curve}";
+
+            }
+
+            using var rsa = Certificate.GetRSAPublicKey();
+
+            return rsa is not null
+                       ? $"RSA {rsa.KeySize}-bit"
+                       : Certificate.PublicKey.Oid.FriendlyName ?? Certificate.PublicKey.Oid.Value ?? "unknown";
+
+        }
+
+        /// <summary>
+        /// A certificate's SHA-256 fingerprint, in lower-case hexadecimal -
+        /// SHA-256 rather than X509Certificate2.Thumbprint, which is SHA-1 and
+        /// has no business identifying anything in 2026.
+        /// </summary>
+        private static String ThumbprintOf(X509Certificate2 Certificate)
+
+            => Convert.ToHexString(SHA256.HashData(Certificate.RawData)).ToLowerInvariant();
+
+        #endregion
+
+
         #region SyncTimeAsync(CancellationToken = default)
 
         #region TestTimeServerAsync(Host = null, CancellationToken = default)
@@ -560,6 +787,12 @@ namespace cloud.charging.open.ChargingStation
                                  }.Where(one => one is not null)) + ".");
 
                 }
+
+                // Before the verdict on the exchange, and whichever way it went:
+                // a certificate that was refused is the one to see most of all.
+                if (keyExchange.TLSInfo is NTSKE_TLSInfo tlsInfo)
+                    foreach (var (level, text) in TLSSteps(tlsInfo, TimeProvider.GetUtcNow()))
+                        Step(level, text);
 
                 if (!keyExchange.Success || keyExchange.Response is null)
                 {
