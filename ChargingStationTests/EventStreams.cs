@@ -55,6 +55,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region Properties
+
+        /// <summary>
+        /// Everything that has come down the stream so far.
+        /// </summary>
+        public String Received
+            => read.ToString();
+
+        #endregion
+
         #region Constructor(s)
 
         private EventStream(HttpResponseMessage  Response,
