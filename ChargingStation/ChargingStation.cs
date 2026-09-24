@@ -161,6 +161,19 @@ namespace cloud.charging.open.ChargingStation
         private           TimeSourceGroup                      timeSources;
 
         /// <summary>
+        /// How many of those servers this station was told must answer: by the
+        /// last section that named "minServers", or the default of two.
+        /// </summary>
+        /// <remarks>
+        /// Kept apart from the group's own quorum, which cannot be more than the
+        /// servers it has switched on. A lone hostname holds a group to one, and
+        /// if that one were all that was remembered, a list of four arriving
+        /// afterwards would be held to one as well - where the same file, read
+        /// at the next start, holds it to two.
+        /// </remarks>
+        private           Byte                                 ntsQuorum           = NTSConfiguration.DefaultMinServers;
+
+        /// <summary>
         /// What does the asking.
         /// </summary>
         /// <remarks>
@@ -780,7 +793,17 @@ namespace cloud.charging.open.ChargingStation
                 ApplyDNSConfiguration(configuration.DNS);
 
             if (configuration?.NTS is not null)
+            {
+
+                // Checked here rather than when the file was read: a quorum
+                // on its own is about the servers in effect, and which those
+                // are is only known now.
+                if (!TryCheckNTSQuorum(configuration.NTS, out var quorumError))
+                    throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
+
                 ApplyNTSConfiguration(configuration.NTS);
+
+            }
 
             this.ntsSettings = configuration?.NTS;
 

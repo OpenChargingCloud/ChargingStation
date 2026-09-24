@@ -889,8 +889,15 @@ and the time is still a time.
 
 A section naming a single `hostname` and no list becomes a group of one, which
 is what every file written before there were groups says, and it keeps working.
+A group of one is held to a quorum of one, and a section asking two of it is
+refused. A list without `minServers` is held to two, as the default four are,
+or to all of its servers when it has fewer switched on.
+
 A section mentioning neither leaves the servers alone rather than quietly
-reducing four to one.
+reducing four to one, and one mentioning nothing but `minServers` or
+`maxDeviationSeconds` holds the servers the station already has to it. A quorum
+those servers could never reach is refused: at the start, before anything is
+asked, and over the API, before anything is written into the file.
 
 **"Legal time" is never guessed.** Nothing here can tell from a hostname whether
 a server disseminates a country's legal time - that is a fact about an
