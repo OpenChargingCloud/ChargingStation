@@ -151,21 +151,12 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         /// <remarks>
         /// Stopping the HTTP server closes their sockets anyway; this is so that
-        /// each app is told with a close frame that the station went, rather
-        /// than finding out from a connection that broke. The WebSocket server's
-        /// own Shutdown() closes each connection without one - a close frame is
-        /// only sent where a status is given - so the status is given here.
+        /// each app is told with a close frame - 1001, going away, and this
+        /// sentence as its reason - that the station went, rather than finding
+        /// out from a connection that broke.
         /// </remarks>
-        public async Task CloseWebSockets()
-        {
-
-            foreach (var connection in webSocketServer.WebSocketConnections)
-                await connection.Close(WebSocketFrame.ClosingStatusCode.GoingAway,
-                                       "The charging station is stopping.");
-
-            await webSocketServer.Shutdown();
-
-        }
+        public Task CloseWebSockets()
+            => webSocketServer.Shutdown("The charging station is stopping.");
 
         #endregion
 

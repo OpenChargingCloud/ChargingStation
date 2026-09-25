@@ -305,8 +305,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             try
             {
-                Assert.That((await told).MessageType, Is.EqualTo(WebSocketMessageType.Close),
-                            "The app was sent something other than goodbye.");
+
+                var goodbye = await told;
+
+                Assert.Multiple(() => {
+                    Assert.That(goodbye.MessageType,             Is.EqualTo(WebSocketMessageType.Close),
+                                "The app was sent something other than goodbye.");
+                    Assert.That(goodbye.CloseStatus,             Is.EqualTo(WebSocketCloseStatus.EndpointUnavailable));
+                    Assert.That(goodbye.CloseStatusDescription,  Is.EqualTo("The charging station is stopping."));
+                });
+
             }
             catch (WebSocketException broken)
             {
