@@ -25,6 +25,8 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Configuration

@@ -21,6 +21,8 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.RFID;
 
@@ -30,14 +32,18 @@ namespace cloud.charging.open.ChargingStation.Configuration
 {
 
     /// <summary>
-    /// Everything this charging station can be told in writing: one document
-    /// with one section per thing that can be configured.
+    /// Everything this charging station can be told in writing beyond what
+    /// every node can: one document with one section per thing that can be
+    /// configured.
     /// </summary>
     /// <remarks>
     /// One file rather than one per subject, because these settings are read
     /// together, changed together and backed up together - and because the
     /// question "what is this station configured as" should have one answer
-    /// that fits on a screen instead of a directory to go through.
+    /// that fits on a screen instead of a directory to go through. The
+    /// sections every node has - "dns", "nts" and "certificates" - are in the
+    /// same file and are the node's to read; this passes them over, as the
+    /// node passes over these.
     ///
     /// Every section is optional and so is every field inside it. A section
     /// that is absent is not a section set to nothing: it means the file has no
@@ -46,8 +52,6 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// order is: system default, then what the constructor was given, then what
     /// this file says - each one only where it actually speaks.
     /// </remarks>
-    /// <param name="DNS">How this station resolves names.</param>
-    /// <param name="NTS">Where this station reads the time.</param>
     /// <param name="Power">What this station may draw from the grid.</param>
     /// <param name="EVSEs">What this station is made of.</param>
     /// <param name="Calibration">The calibration certificates it runs under.</param>
@@ -56,9 +60,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
     /// <param name="Display">The quiet hours the screen on the front keeps.</param>
     /// <param name="V2G">What this station offers a vehicle on the wire below the charging cable.</param>
-    public sealed record StationConfiguration(DNSConfiguration?                        DNS           = null,
-                                              NTSConfiguration?                        NTS           = null,
-                                              PowerConfiguration?                      Power         = null,
+    public sealed record StationConfiguration(PowerConfiguration?                      Power         = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs         = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
                                               IReadOnlyList<RFIDReaderConfig>?         RFID          = null,
@@ -93,9 +95,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this document says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => DNS is null && NTS is null && Power is null && EVSEs is null &&
-               Calibration is null && RFID is null && Operator is null && WebPayments is null &&
-               Display is null && V2G is null;
+            => Power is null && EVSEs is null && Calibration is null && RFID is null &&
+               Operator is null && WebPayments is null && Display is null && V2G is null;
 
         #endregion
 
@@ -111,10 +112,10 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// DNS, but <c>"dns": "google"</c> is a file whose author believed they
         /// had configured something.
         ///
-        /// Sections this station does not know are passed over without a word.
-        /// A file written by a newer station should still start an older one,
-        /// and the file keeps them - see
-        /// <see cref="StationConfigFile.TryReplaceSection"/>.
+        /// Sections this station does not know are passed over without a word -
+        /// the node's own among them, which the node below has read already. A
+        /// file written by a newer station should still start an older one, and
+        /// the file keeps them - see <see cref="WWCPConfigFile.TryReplaceSection"/>.
         /// </remarks>
         public static Boolean TryParse(JObject                                       JSON,
                                        [NotNullWhen(true)]  out StationConfiguration? Configuration,
@@ -123,46 +124,6 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             Configuration  = null;
             Error          = null;
-
-            #region DNS
-
-            DNSConfiguration? dns = null;
-
-            if (JSON[DNSConfiguration.SectionName] is JToken dnsToken && dnsToken.Type != JTokenType.Null)
-            {
-
-                if (dnsToken is not JObject dnsJSON)
-                {
-                    Error = $"'{DNSConfiguration.SectionName}' must be a JSON object.";
-                    return false;
-                }
-
-                if (!DNSConfiguration.TryParse(dnsJSON, out dns, out Error))
-                    return false;
-
-            }
-
-            #endregion
-
-            #region NTS
-
-            NTSConfiguration? nts = null;
-
-            if (JSON[NTSConfiguration.SectionName] is JToken ntsToken && ntsToken.Type != JTokenType.Null)
-            {
-
-                if (ntsToken is not JObject ntsJSON)
-                {
-                    Error = $"'{NTSConfiguration.SectionName}' must be a JSON object.";
-                    return false;
-                }
-
-                if (!NTSConfiguration.TryParse(ntsJSON, out nts, out Error))
-                    return false;
-
-            }
-
-            #endregion
 
             #region Display
 
@@ -324,7 +285,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(dns, nts, power, evses, calibration, rfid, stationOperator, webPayments, display, v2g);
+            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g);
             return true;
 
         }
@@ -340,12 +301,6 @@ namespace cloud.charging.open.ChargingStation.Configuration
         {
 
             var json = new JObject();
-
-            if (DNS is not null)
-                json.Add(DNSConfiguration.SectionName,  DNS.ToJSON());
-
-            if (NTS is not null)
-                json.Add(NTSConfiguration.SectionName,    NTS.ToJSON());
 
             if (Power is not null)
                 json.Add(PowerConfiguration.SectionName,  Power.ToJSON());
@@ -386,8 +341,6 @@ namespace cloud.charging.open.ChargingStation.Configuration
                    ? "nothing configured"
                    : String.Join(", ",
                          new[] {
-                             DNS         is not null ? "DNS"                                    : null,
-                             NTS         is not null ? "NTS"                                    : null,
                              Power       is not null ? Power.ToString()                         : null,
                              EVSEs       is not null ? $"{EVSEs.Count} EVSE(s)"                 : null,
                              Calibration is not null ? $"{Calibration.Count} certificate(s)"    : null,

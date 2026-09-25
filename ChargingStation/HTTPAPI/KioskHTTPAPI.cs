@@ -25,7 +25,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
-using cloud.charging.open.ChargingStation.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 

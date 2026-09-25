@@ -21,7 +21,7 @@ using System.Text;
 
 using NUnit.Framework;
 
-using cloud.charging.open.ChargingStation.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 
@@ -217,7 +217,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Directory.CreateDirectory(blocked);
 
-            using (new FileLog(log, directory))
+            using (new FileLog(log, directory, "station"))
             {
 
                 log.Info("The entry the disk refuses.", "test");

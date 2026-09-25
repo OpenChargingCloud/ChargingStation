@@ -6,6 +6,14 @@ of HTML, SCSS and TypeScript bundled by webpack and embedded into the
 assembly - so the station is one binary to deploy and needs nothing installed
 beside it.
 
+Below it is [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node): what
+every one of these programs is before it is anything in particular - the log,
+the configuration file, name resolution and the time, a certificate store, the
+accounts, and the HTTP server with the web interface behind it. The vehicle of
+[EV](https://github.com/OpenChargingCloud/EV) is one of those with a battery;
+this station is one with EVSEs, a display on a port of its own, and the OCPP
+nodes it dials its back ends with.
+
 Nothing is rendered on the server. The browser loads one bundle and talks to
 the station over a JSON API and one Server-Sent Events stream.
 
@@ -82,6 +90,10 @@ dotnet test libs/ChargingStation/ChargingStationTests
 ```
 
 They start real stations and talk to them over HTTP the way the browser does.
+What the node below does on its own - the file's sections, the log, the time
+servers, the certificate store, the accounts' roles and the ports - is tested
+once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
+particular kind.
 
 | | |
 |---|---|
@@ -110,8 +122,8 @@ kill timeout to shut down instead of stopping. `Stop()` ends the streams
 first, and these say it still does.
 
 Each test builds its own station, on ports the operating system has just
-confirmed are free and with its own directory for the two files a station
-writes. Nothing reaches the network: the configuration written before each
+confirmed are free and with its own directory for what a station writes: its
+accounts, its configuration file and the node's certificate store beside it. Nothing reaches the network: the configuration written before each
 station switches the time client off, which is what stops the clock check from
 being scheduled at all - and the one test that needs it on, to read what a
 running station writes when its interval changes, runs on a clock whose timers
@@ -125,17 +137,23 @@ is handed something else.
 
 | | |
 |---|---|
-| `ChargingStation.cs`      | the station: the OCPP nodes, the HTTP server, and everything below wired together |
+| `ChargingStation.cs`      | the station: a `WWCPNode` with its own sections of the file, the JSON API, the display and the OCPP nodes on top |
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
 | `Web/WebSessions.cs`      | who is signed in: one login in front of Hermod's `SessionStore`, and the cookie its token travels in |
 | `Web/WebLogin*.cs`        | that one login and the file it lives in, its password a `SecurePassword` and never in the clear |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
-| `Logging/EventLog.cs`     | everything that happens, with timestamps and tags, kept in a ring buffer and handed on at once |
-| `Logging/TraceBridge.cs`  | what the libraries below write with `DebugX`, into the same log |
-| `Logging/FileLog.cs`      | the same log on disk: one file per UTC day, every entry, on disk as soon as it is written |
 | `Frontend/`               | the npm project: `src/pages/` are the pages, `src/shell.ts` the menu around them |
+
+The log, the configuration file, name resolution and the time are the node's,
+and so are their pages' JSON: `WWCPNode.cs`, `WWCPNode.Clock.cs`,
+`WWCPNode.Diagnostics.cs`, `Logging/` and `Configuration/` in WWCP_Node. What
+this repository adds to them is what a charging station is: its own sections
+of the same file, read from the document the node has already read; the roles
+its accounts know - which the node makes a group of at every start; the
+display's port, taken in `OnListening` before the station calls itself
+started; and its own cards on the Configuration page.
 
 Serving the bundle is Hermod's: `MapSinglePageApplication` with an
 `EmbeddedContentSource` or a `FileSystemContentSource` does the entity tags,
@@ -235,6 +253,14 @@ One file rather than one per subject, because these are read together, changed
 together and backed up together - and because "what is this station configured
 as" should have one answer that fits on a screen instead of a directory to go
 through.
+
+The node below reads the sections every one of these programs has - `dns`,
+`nts` and `certificates` - and the station reads its own from the same
+document; each passes over what is the other's. The `certificates` section
+says where the node keeps its certificate store, `certificates/` beside this
+file unless it says otherwise. The station does not choose from that store
+yet: the keys it dials its back ends with are in `ocpp-client-keys/`, beside
+it too.
 
 **What is missing is not what is empty.** A section the file does not mention
 leaves whatever the station was handed at construction; a station handed
@@ -1256,9 +1282,10 @@ sessions - through Hermod's `SessionStore`, which takes one too. The system
 clock by default; an NTS-disciplined or a fake one where a test or a
 calibration says so.
 
-It is assigned first in the constructor, before the event log is built, because
-the log stamps its entries with it - a clock set afterwards would leave the log
-reading the system one, which is a log that cannot be held against anything.
+It is assigned first - by the node below, before the event log is built -
+because the log stamps its entries with it: a clock set afterwards would leave
+the log reading the system one, which is a log that cannot be held against
+anything.
 
 ```csharp
 sealed class FixedClock(DateTimeOffset Start) : TimeProvider
@@ -1281,7 +1308,9 @@ var gone  = station.Sessions.Count;                             // 0
 Every entry carries a timestamp, a level (`debug`, `info`, `notice`,
 `warning`, `error`, `critical`) and any number of tags (`http`, `ocpp`,
 `15118`, `web`, `auth`, ...). The Logs page filters on both - the level counts
-as a tag, so `critical` and `ocpp` can be picked together.
+as a tag, so `critical` and `ocpp` can be picked together. The log is the
+node's, and so are its three listeners below; the entries about the station
+itself are tagged `station`, and a day's file is `station-2026-09-25.log`.
 
 Anything in the station can write to it:
 

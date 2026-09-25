@@ -26,6 +26,8 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.ChargingStation.Configuration;
+
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.ChargingStation.Web;
 
 #endregion
@@ -85,7 +87,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                        KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
                        NoKiosk:          !WithDisplay,
                        AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
-                       ConfigFile:       new StationConfigFile(configFile),
+                       ConfigFile:       new WWCPConfigFile(configFile),
                        LogToConsole:     LogToConsole,
                        LogPath:          LogPath,
                        BridgeDebugLog:   false,

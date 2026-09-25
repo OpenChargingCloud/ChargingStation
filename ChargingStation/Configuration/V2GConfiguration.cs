@@ -28,6 +28,8 @@ using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 
 using cloud.charging.open.ChargingStation.ISO15118;
 
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Configuration

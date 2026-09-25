@@ -46,7 +46,7 @@ using cloud.charging.open.protocols.ISO15118.Transport;
 using cloud.charging.open.protocols.ISO15118.V2GTP;
 using cloud.charging.open.protocols.ISO15118.Framing;
 
-using cloud.charging.open.ChargingStation.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 #endregion
 

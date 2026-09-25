@@ -297,7 +297,7 @@ namespace cloud.charging.open.ChargingStation
                                              HTTPAuthentication:  basic,
                                              ClientCertificates:  certificates,
                                              TOTPConfig:          totp,
-                                             DNSClient:           dnsClient,
+                                             DNSClient:           DNSClient,
                                              CancellationToken:   CancellationToken
                                          )
 
@@ -306,7 +306,7 @@ namespace cloud.charging.open.ChargingStation
                                              HTTPAuthentication:  basic,
                                              ClientCertificates:  certificates,
                                              TOTPConfig:          totp,
-                                             DNSClient:           dnsClient,
+                                             DNSClient:           DNSClient,
                                              CancellationToken:   CancellationToken
                                          );
 
@@ -550,7 +550,7 @@ namespace cloud.charging.open.ChargingStation
                 try
                 {
 
-                    var lookedUp  = await dnsClient.Query(
+                    var lookedUp  = await DNSClient.Query(
                                               DNSServiceName.Parse(host),
                                               [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
                                               CancellationToken: CancellationToken

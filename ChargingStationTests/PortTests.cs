@@ -23,6 +23,8 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
+using cloud.charging.open.protocols.WWCP.Node;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -93,7 +95,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(problem.Port,     Is.EqualTo(first.HTTPPort),
                             "The port that could not be had was not the one it was about.");
 
-                Assert.That(problem.Whose,    Is.EqualTo(StationPort.WebInterface),
+                Assert.That(problem.Whose,    Is.EqualTo(NodePort.WebInterface),
                             "It did not say which of the two servers wanted it.");
 
                 Assert.That(problem.Because,  Is.EqualTo(SocketError.AddressAlreadyInUse));
@@ -159,7 +161,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
 
             Assert.Multiple(() => {
-                Assert.That(problem.Whose,   Is.EqualTo(StationPort.Display));
+                Assert.That(problem.Whose,   Is.EqualTo(ChargingStation.DisplayPort));
                 Assert.That(problem.Port,    Is.EqualTo(first.KioskPort));
                 Assert.That(problem.Message, Does.Contain("display"));
             });

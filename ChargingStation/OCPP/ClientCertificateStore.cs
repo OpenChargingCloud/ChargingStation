@@ -32,7 +32,7 @@ using Org.BouncyCastle.X509;
 
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
-using cloud.charging.open.ChargingStation.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
 #endregion
