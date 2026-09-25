@@ -106,6 +106,22 @@ namespace cloud.charging.open.ChargingStation
         public static readonly NodePort DisplayPort = new ("The display");
 
         /// <summary>
+        /// The TCP port the program gives the local app server.
+        /// </summary>
+        /// <remarks>
+        /// Next to the other two. A station built without a port for it has no
+        /// local app server at all - this is the program's choice, not the
+        /// station's default. See <see cref="LocalAppHTTPAPI"/>.
+        /// </remarks>
+        public static readonly IPPort DefaultLocalAppPort = IPPort.Parse(2350);
+
+        /// <summary>
+        /// What the local app server's port is for, as a port that cannot be
+        /// had names it: the third thing this station may listen for.
+        /// </summary>
+        public static readonly NodePort AppPort = new ("The local app server");
+
+        /// <summary>
         /// The organization the accounts of this station are in.
         /// </summary>
         /// <remarks>
@@ -124,6 +140,8 @@ namespace cloud.charging.open.ChargingStation
         private readonly  ConcurrentDictionary<Byte, ChargingSession>  sessions = [];
 
         private readonly  HTTPServer?                          kioskServer;
+
+        private readonly  HTTPServer?                          localAppServer;
 
         private readonly  WebPaymentsConfiguration?            webPayments;
 
@@ -234,6 +252,23 @@ namespace cloud.charging.open.ChargingStation
         public KioskHTTPAPI?                  KioskAPI               { get; }
 
         /// <summary>
+        /// Where the local app server of this station is, or null when it has
+        /// none - which it has not, unless it was given a port.
+        /// </summary>
+        public URL?                           LocalAppURL            { get; }
+
+        /// <summary>
+        /// The port the local app server listens on, or null where there is
+        /// none.
+        /// </summary>
+        public IPPort?                        LocalAppPort           { get; }
+
+        /// <summary>
+        /// The local app API, on its own server and its own port.
+        /// </summary>
+        public LocalAppHTTPAPI?               LocalAppAPI            { get; }
+
+        /// <summary>
         /// The JSON API at "/api/".
         /// </summary>
         public CSHTTPAPI              API                    { get; }
@@ -280,6 +315,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="KioskPort">The TCP port the display listens on; DefaultKioskPort by default. Its own server on its own port - see KioskHTTPAPI.</param>
         /// <param name="KioskHostname">The address the display listens on; the same as the web interface by default.</param>
         /// <param name="NoKiosk">Whether to leave the display out entirely, so that the station listens on one port.</param>
+        /// <param name="LocalAppPort">The TCP port the local app server listens on, or null for no such server - which is the default. See LocalAppHTTPAPI.</param>
+        /// <param name="LocalAppHostname">The address the local app server listens on; the loopback address by default, and never the web interface's or the display's by implication.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
@@ -304,6 +341,8 @@ namespace cloud.charging.open.ChargingStation
                                IPPort?                               KioskPort                 = null,
                                IIPAddress?                           KioskHostname             = null,
                                Boolean                               NoKiosk                   = false,
+                               IPPort?                               LocalAppPort              = null,
+                               IIPAddress?                           LocalAppHostname          = null,
                                IStaticContentSource?                 Frontend                  = null,
                                V2GOptions?                           V2G                       = null,
                                EventLog?                             Log                       = null,
@@ -518,12 +557,17 @@ namespace cloud.charging.open.ChargingStation
             // sockets that can be bound to two addresses - see KioskHTTPAPI
             // for the whole argument. Building it here and starting it in
             // OnListening, once the node below has its own port.
+            var webAddress      = HTTPHostname ?? IPv4Address.Localhost;
+            var displayAddress  = (IIPAddress?) null;
+
             if (!NoKiosk)
             {
 
-                var address       = HTTPHostname  ?? IPv4Address.Localhost;
+                var address       = webAddress;
                 var kioskAddress  = KioskHostname ?? address;
                 var kioskPort     = KioskPort     ?? DefaultKioskPort;
+
+                displayAddress    = kioskAddress;
 
                 if (kioskAddress.Equals(address) && kioskPort == this.HTTPPort)
                     throw new ArgumentException(
@@ -577,6 +621,60 @@ namespace cloud.charging.open.ChargingStation
 
             #endregion
 
+            #region The local app, on a server and a port of its own - when it is given one
+
+            // A third listener for a third kind of visitor: an app on a phone in
+            // the station's own network, which may be an open WLAN. None unless
+            // a port is given, and on the loopback address unless an address is
+            // given: it is the one of the three that faces a network nobody
+            // controls, so it goes there only when somebody says so, never by
+            // following the web interface or the display. See LocalAppHTTPAPI.
+            if (LocalAppPort.HasValue)
+            {
+
+                var appAddress  = LocalAppHostname ?? IPv4Address.Localhost;
+                var appPort     = LocalAppPort.Value;
+
+                if (appAddress.Equals(webAddress) && appPort == this.HTTPPort)
+                    throw new ArgumentException(
+                              $"The local app server and the web interface would both listen on {appAddress}:{appPort}. " +
+                              "The point of the local app server being its own server is that the administration is somewhere else.",
+                              nameof(LocalAppPort)
+                          );
+
+                if (displayAddress is not null && appAddress.Equals(displayAddress) && appPort == this.KioskPort)
+                    throw new ArgumentException(
+                              $"The local app server and the display would both listen on {appAddress}:{appPort}.",
+                              nameof(LocalAppPort)
+                          );
+
+                this.localAppServer  = new HTTPServer(
+                                           IPAddress:       appAddress,
+                                           TCPPort:         appPort,
+                                           HTTPServerName:  $"OpenChargingCloud ChargingStation Local App v{Version}",
+                                           DNSClient:       this.DNSClient
+                                       );
+
+                this.LocalAppPort    = appPort;
+                this.LocalAppURL     = URL.Parse($"http://{appAddress}:{appPort}/");
+
+                this.LocalAppAPI     = new LocalAppHTTPAPI(
+                                           HTTPServer:  localAppServer,
+                                           Station:     this,
+                                           Log:         this.Log
+                                       );
+
+                // Without the handle a stop carries in its path: whoever can read
+                // the log could otherwise end that session.
+                localAppServer.OnHTTPRequest += (server, request, cancellationToken) => {
+                    this.Log.Debug($"{request.HTTPMethod} {LocalAppHTTPAPI.Loggable(request.Path)} from {request.RemoteSocket}", "localapp", "http");
+                    return Task.CompletedTask;
+                };
+
+            }
+
+            #endregion
+
             #region The OCPP nodes
 
             // Built from the EVSEs above, and rebuilt whenever those change -
@@ -596,29 +694,53 @@ namespace cloud.charging.open.ChargingStation
         #region (protected override) OnListening()
 
         /// <summary>
-        /// The display's port, once the web interface has its own.
+        /// The display's port and the local app server's, once the web
+        /// interface has its own.
         /// </summary>
         /// <remarks>
-        /// Before this station calls itself started, so that a display that
-        /// cannot have its port ends the start rather than leaving a station
-        /// that says it is listening and has no screen. The socket layer throws
-        /// the same exception for both servers, and its own words for it name
-        /// neither the port nor what the port was for; both are known here. The
-        /// node below lets go of the web interface's port again on the way out.
+        /// Before this station calls itself started, so that a display or a
+        /// local app server that cannot have its port ends the start rather
+        /// than leaving a station that says it is listening and is missing a
+        /// door. The socket layer throws the same exception for every server,
+        /// and its own words for it name neither the port nor what the port was
+        /// for; both are known here.
+        ///
+        /// The node below lets go of the web interface's port again on the way
+        /// out, and knows nothing of the display's: when the local app server
+        /// is the one that fails, the display is already listening, and it is
+        /// this station's to stop. A station that did not start is not stopped
+        /// by anybody - its Stop() returns at once.
         /// </remarks>
         protected override async Task OnListening()
         {
 
-            if (kioskServer is null || !KioskPort.HasValue)
-                return;
-
-            try
+            if (kioskServer is not null && KioskPort.HasValue)
             {
-                await kioskServer.Start();
+                try
+                {
+                    await kioskServer.Start();
+                }
+                catch (SocketException problem)
+                {
+                    throw new PortUnavailableException(KioskPort.Value, problem, DisplayPort);
+                }
             }
-            catch (SocketException problem)
+
+            if (localAppServer is not null && LocalAppPort.HasValue)
             {
-                throw new PortUnavailableException(KioskPort.Value, problem, DisplayPort);
+                try
+                {
+                    await localAppServer.Start();
+                }
+                catch (SocketException problem)
+                {
+
+                    if (kioskServer is not null)
+                        await kioskServer.Stop();
+
+                    throw new PortUnavailableException(LocalAppPort.Value, problem, AppPort);
+
+                }
             }
 
         }
@@ -636,6 +758,9 @@ namespace cloud.charging.open.ChargingStation
 
             if (KioskURL.HasValue)
                 Log.Notice($"The display is listening on {KioskURL.Value} - no sign-in, and nothing of the administration on it.", "kiosk", "http");
+
+            if (LocalAppURL.HasValue)
+                Log.Notice($"The local app server is listening on {LocalAppURL.Value} - no sign-in: a card's UID starts a charge, as at a reader, and nothing of the administration is on it.", "localapp", "http");
 
             Log.Info($"The JSON API is at {APIURL}v1/status", "web", "http");
 
@@ -684,6 +809,15 @@ namespace cloud.charging.open.ChargingStation
 
             if (kioskServer is not null)
                 await kioskServer.Stop();
+
+            // Each app on the WebSocket told with a close frame that the station
+            // is going, rather than left to find out from a broken connection -
+            // then the server, which would close their sockets anyway.
+            if (LocalAppAPI is not null)
+                await LocalAppAPI.CloseWebSockets();
+
+            if (localAppServer is not null)
+                await localAppServer.Stop();
 
         }
 

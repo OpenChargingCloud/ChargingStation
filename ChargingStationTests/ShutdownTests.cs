@@ -18,10 +18,13 @@
 #region Usings
 
 using System.Diagnostics;
+using System.Net.WebSockets;
 
 using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
+
+using org.GraphDefined.Vanaheimr.Hermod;
 
 #endregion
 
@@ -258,6 +261,57 @@ namespace cloud.charging.open.ChargingStation.Tests
                 await station.Stop();
                 await station.DisposeAsync();
             });
+
+        }
+
+        #endregion
+
+
+        #region StopsWithAnAppOnTheWebSocket()
+
+        /// <summary>
+        /// A station with an app on the WebSocket of its local app server
+        /// stops just the same - and the app is told so with a close frame,
+        /// rather than finding out from a connection that broke.
+        /// </summary>
+        /// <remarks>
+        /// The third listener, and the one kind of request here that stays
+        /// open for as long as the app likes: the HTTP server hands the
+        /// connection over and keeps waiting on it.
+        /// </remarks>
+        [Test]
+        public async Task StopsWithAnAppOnTheWebSocket()
+        {
+
+            var station = TestStations.New(directory, TestStations.Offline,
+                                           LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+
+            await station.Start();
+
+            using var app = new ClientWebSocket();
+
+            await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
+                                   CancellationToken.None);
+
+            var told     = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
+
+            var elapsed  = await TimeTheStop(station);
+
+            Assert.That(elapsed, Is.LessThan(MustStopWithin),
+                        $"A station with an app on its WebSocket took {elapsed.TotalSeconds:F1} s to stop.");
+
+            Assert.That(await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))), Is.SameAs(told),
+                        "The station stopped and the app on its WebSocket heard nothing.");
+
+            try
+            {
+                Assert.That((await told).MessageType, Is.EqualTo(WebSocketMessageType.Close),
+                            "The app was sent something other than goodbye.");
+            }
+            catch (WebSocketException broken)
+            {
+                Assert.Fail($"The app found out from a broken connection rather than a close frame: {broken.Message}");
+            }
 
         }
 

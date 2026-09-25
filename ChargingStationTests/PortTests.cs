@@ -206,6 +206,103 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region The local app server's port
+
+        /// <summary>
+        /// The local app server has a port of its own, and its own way out.
+        /// </summary>
+        [Test]
+        public async Task TheLocalAppServersPortIsSaidToBeItsOwn()
+        {
+
+            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
+                                                     LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+
+            await first.Start();
+
+            await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
+                                                      LocalAppPort: first.LocalAppPort);
+
+            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
+
+            Assert.Multiple(() => {
+                Assert.That(problem.Whose,   Is.EqualTo(ChargingStation.AppPort));
+                Assert.That(problem.Port,    Is.EqualTo(first.LocalAppPort));
+                Assert.That(problem.Message, Does.Contain("local app"));
+            });
+
+        }
+
+        /// <summary>
+        /// And the web interface and the display let their ports go again on
+        /// the way out.
+        /// </summary>
+        /// <remarks>
+        /// By the time the local app server fails, both have been listening for
+        /// a moment. The node below lets go of the web interface's port; the
+        /// display is the station's own, and nobody else would stop it - a
+        /// station that did not start is not stopped by its Stop().
+        /// </remarks>
+        [Test]
+        public async Task TheWebInterfaceAndTheDisplayLetGoWhenTheLocalAppServerCannotStart()
+        {
+
+            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
+                                                     LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+
+            await first.Start();
+
+            await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
+                                                      LocalAppPort: first.LocalAppPort);
+
+            Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start());
+
+            foreach (var (port, what) in new[] { (second.HTTPPort, "web interface"), (second.KioskPort!.Value, "display") })
+            {
+
+                var listener = new TcpListener(System.Net.IPAddress.Loopback, port.ToUInt16());
+
+                try
+                {
+                    Assert.DoesNotThrow(() => listener.Start(),
+                                        $"The {what} was still holding its port after the local app server could not have one.");
+                }
+                finally
+                {
+                    listener.Stop();
+                }
+
+            }
+
+        }
+
+        /// <summary>
+        /// The local app server is refused the web interface's port and the
+        /// display's, before anything listens: the point of it is to be
+        /// somewhere else.
+        /// </summary>
+        [Test]
+        public void TheLocalAppServerIsNeitherTheWebInterfaceNorTheDisplay()
+        {
+
+            var port = IPPort.Parse(TestStations.FreePort());
+
+            Assert.Multiple(() => {
+
+                Assert.Throws<ArgumentException>(() => TestStations.New(Path.Combine(directory, "web"),     TestStations.Offline,
+                                                                        HTTPPort:      port,
+                                                                        LocalAppPort:  port));
+
+                Assert.Throws<ArgumentException>(() => TestStations.New(Path.Combine(directory, "display"), TestStations.Offline,
+                                                                        KioskPort:     port,
+                                                                        LocalAppPort:  port));
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

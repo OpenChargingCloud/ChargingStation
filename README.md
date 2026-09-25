@@ -11,8 +11,9 @@ every one of these programs is before it is anything in particular - the log,
 the configuration file, name resolution and the time, a certificate store, the
 accounts, and the HTTP server with the web interface behind it. The vehicle of
 [EV](https://github.com/OpenChargingCloud/EV) is one of those with a battery;
-this station is one with EVSEs, a display on a port of its own, and the OCPP
-nodes it dials its back ends with.
+this station is one with EVSEs, a display on a port of its own, a server for an
+app in the station's own network on a third port when it is given one, and the
+OCPP nodes it dials its back ends with.
 
 Nothing is rendered on the server. The browser loads one bundle and talks to
 the station over a JSON API and one Server-Sent Events stream.
@@ -52,7 +53,9 @@ their sessions and their API keys are Hermod's HTTPExt API, mounted under
 
 `--help` lists the rest: `--port`, `--any`, `--accounts <dir>`,
 `--frontend <dir>`, `--config <file>`, `--verbose`, `--quiet`, `--no-trace`,
-and the `--v2g` family below.
+the display's `--kiosk-port` and `--no-kiosk`, the local app server's
+`--local-app-port`, `--local-app-any` and `--no-local-app`, and the `--v2g`
+family below.
 
 
 ## Building
@@ -105,14 +108,18 @@ particular kind.
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
-| `ShutdownTests`         | a station that is told to stop stops |
+| `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
+| `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both - and nothing else on its port |
+| `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
 
-Two of them are about the station having two doors. The display is a second
-single-page application on a second server, with no sign-in at all - so its
-port has to serve its own page and none of the administration. It is worth
+Two of them are about the station having more than one door. The display is a
+second single-page application on a second server, with no sign-in at all - so
+its port has to serve its own page and none of the administration. It is worth
 asserting rather than assuming: the session cookie really does reach that
 port, because cookies belong to a host and not to a port. What keeps the two
-apart is that they are two servers with two sets of resources.
+apart is that they are two servers with two sets of resources. The local app
+server is a third, and `LocalAppTests` asserts the same of it: a start and a
+stop, and nothing that says what the station is.
 
 `ShutdownTests` is the one with a history. An event stream is a request that
 has been answered and is still being written to, and it waits for the next log
@@ -138,6 +145,8 @@ is handed something else.
 |---|---|
 | `ChargingStation.cs`      | the station: a `WWCPNode` with its own sections of the file, the JSON API, the display and the OCPP nodes on top |
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
+| `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
+| `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
 | `Web/UserRoles.cs`        | the roles a station knows - `viewer`, `cpo`, `installer`, `systemadmin` - and what each of them may do; the node makes their groups |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
@@ -151,8 +160,8 @@ and so are their pages' JSON: `WWCPNode.cs`, `WWCPNode.Clock.cs`,
 this repository adds to them is what a charging station is: its own sections
 of the same file, read from the document the node has already read; the roles
 its accounts know - which the node makes a group of at every start; the
-display's port, taken in `OnListening` before the station calls itself
-started; the kinds of certificate it keeps in the node's store, which are
+display's port and the local app server's, taken in `OnListening` before the
+station calls itself started; the kinds of certificate it keeps in the node's store, which are
 none; and its own cards on the Configuration page.
 
 Serving the bundle is Hermod's: `MapSinglePageApplication` with an
@@ -562,11 +571,12 @@ or out of service, what it is drawing against what it could, the shape and limit
 of each cable, who is charging and their provider's name or logo, the QR code
 to pay with, and a card symbol where there is a reader.
 
-Two of the four ways a session can be authorised can actually begin at this
-station today: a card held against a reader (`RFID`), and a payment made at the
-screen (`AdHoc`). `PnC` needs the vehicle to say who it is over the cable, and
-`Remote` needs a back end to ask over OCPP; the display can draw both, and
-nothing here can cause either yet.
+Three of the five ways a session can be authorised can actually begin at this
+station today: a card held against a reader (`RFID`), a payment made at the
+screen (`AdHoc`), and a card's UID held up by an app on the local app server
+(`LocalApp`, see [below](#the-local-app)). `PnC` needs the vehicle to say who it
+is over the cable, and `Remote` needs a back end to ask over OCPP; the display
+can draw both, and nothing here can cause either yet.
 
 ### Quiet hours
 
@@ -1271,6 +1281,70 @@ buttons go inactive until the answer arrives, or until ten seconds have passed,
 after which it says the station did not answer *in the language the screen is
 in* and keeps the typed card number so nobody has to enter it twice. Measured
 the same way: three taps, one card, one session.
+
+
+## The local app
+
+A third server, for an app on a phone in the station's own network - an open
+WLAN, say - to start and stop a charge the way a card at a reader does. A
+station has none unless it is given a port (`LocalAppPort`). The program gives
+it one: `http://127.0.0.1:2350/` by default, `--local-app-port <n>` for another,
+`--no-local-app` to leave it out, and `--local-app-any` to listen on every
+address. That switch is its own. `--any` does not reach this server, and this
+one does not move the web interface or the display: the network anybody may join
+is the one place the administration must never be, so the app server goes there
+only when somebody says so, and alone.
+
+    POST /localStart                  {"evse": 1, "uid": "04 A2 B3 C4"}
+    200  {"sessionId":"e969d12f3f0be40e51956d7a37c5bac9","evse":1,"uid":"04A2B3C4","started":true}
+
+    POST /localStop/e969d12f3f0be40e51956d7a37c5bac9
+    200  {"sessionId":"e969d12f3f0be40e51956d7a37c5bac9","evse":1,"seconds":0.0,"stopped":true}
+
+A start is a card held up without the card. The UID is read by the rules a
+reader's is - separators out, upper case, four to twenty bytes of hex - an outlet
+out of service turns it away, a reservation lets in the card it is held for and
+nobody else, and, as for a card, nobody authorises the UID itself. `"evse"` may
+be left out where the station has one outlet. What differs is the end: an
+occupied outlet is refused rather than stopped, and the answer carries a handle -
+128 random bits - that is the app's one way of stopping what it started. The same
+card at a reader still stops it, because it is the same card. The handle is in no
+log line, not even the one for the request whose path carries it, and a handle
+that stops nothing is answered the same whether it never was one or its session
+has ended.
+
+A refusal says why in `{"error": "..."}`, and its status says what kind:
+
+| | |
+|---|---|
+| 400 | not a start at all: no UID, a UID that is none, an EVSE the station does not have, or none named where it has two |
+| 404 | a handle that stops nothing |
+| 409 | an outlet that is charging, held for somebody else or out of service |
+| 501 | a start that carries a one-time password (`"totp"`) or a certificate (`"certificate"`) |
+
+The last is refused rather than ignored. This station checks neither yet - nor a
+challenge and a response - and a start that took one along unchecked would let
+the app go on believing it had been checked. Until they are here, a UID is all it
+takes, and on an open WLAN anybody in range can send any UID. That is what this
+server is today, and why the library has none unless asked and the program keeps
+it on the loopback address unless told.
+
+The WebSocket at `ws://<host>:2350/localApp` takes the same two as messages, and
+answers each with what the POST would have answered: its status in front, and
+the message's `"id"` back where it had one. Asked of the program:
+
+    → {"id": 1, "action": "start", "evse": 1, "uid": "04A2B3C4"}
+    ← {"id":1,"action":"start","status":200,"sessionId":"<handle>","evse":1,"uid":"04A2B3C4","started":true}
+    → {"id": 2, "action": "start", "evse": 1, "uid": "11223344"}
+    ← {"id":2,"action":"start","status":409,"error":"EVSE 1 is already charging."}
+    → {"id": 3, "action": "stop", "sessionId": "<handle>"}
+    ← {"id":3,"action":"stop","status":200,"sessionId":"<handle>","evse":1,"seconds":0.0,"stopped":true}
+
+One piece of code is behind both doors, so what one of them started the other
+stops. A station that is told to stop says goodbye to every app on the WebSocket
+with a close frame - 1001, going away - before its server goes. And nothing else
+is on this port: no page, no sign-in, none of the administration and none of the
+display. Everything else is a JSON 404 that lists what there is.
 
 
 ## The clock

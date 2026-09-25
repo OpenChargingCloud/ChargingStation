@@ -62,6 +62,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
         /// <param name="HTTPPort">A port of its own rather than a free one, for a test about two stations wanting the same.</param>
         /// <param name="KioskPort">The same for the display.</param>
+        /// <param name="LocalAppPort">A port for the local app server, which a station has none of unless it is given one - as here, only for a test about it.</param>
         /// <param name="LogToConsole">Whether its log reaches the console, for a test about who gets to write there. Off otherwise, because a test run's console is for the test run.</param>
         /// <param name="LogPath">A directory for its log files, for a test about those. None otherwise.</param>
         public static ChargingStation New(String         Directory,
@@ -70,6 +71,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                           TimeProvider?  Clock           = null,
                                           IPPort?        HTTPPort        = null,
                                           IPPort?        KioskPort       = null,
+                                          IPPort?        LocalAppPort    = null,
                                           Boolean        LogToConsole    = false,
                                           String?        LogPath         = null)
         {
@@ -86,6 +88,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                        HTTPPort:         HTTPPort  ?? IPPort.Parse(FreePort()),
                        KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
                        NoKiosk:          !WithDisplay,
+                       LocalAppPort:     LocalAppPort,
                        AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
                        ConfigFile:       new WWCPConfigFile(configFile),
                        LogToConsole:     LogToConsole,

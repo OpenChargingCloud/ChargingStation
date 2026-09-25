@@ -17,6 +17,9 @@
 
 #region Usings
 
+using System.Security.Cryptography;
+using System.Text;
+
 using cloud.charging.open.ChargingStation.Configuration;
 
 #endregion
@@ -49,7 +52,13 @@ namespace cloud.charging.open.ChargingStation.Kiosk
         /// A back end, over OCPP - an app, a call to a hotline, a roaming
         /// platform.
         /// </summary>
-        Remote
+        Remote,
+
+        /// <summary>
+        /// An app on a phone in the station's own network, over the local app
+        /// server: a card's UID, held up by the app rather than by the card.
+        /// </summary>
+        LocalApp
 
     }
 
@@ -91,6 +100,12 @@ namespace cloud.charging.open.ChargingStation.Kiosk
     /// meter reading, no tariff and no identifier of a transaction in here:
     /// this station has no metering and no billing, and a record that carried
     /// fields for them would invite somebody to believe it did.
+    ///
+    /// A session a local app started carries one thing more: the handle the
+    /// app was given to stop it again - see <see cref="ForLocalApp"/>. It is no
+    /// transaction's identifier and names nothing outside this station, and it
+    /// is kept where no ToString reaches it, because whoever holds it can end
+    /// the session and a log line is read by more people than the app.
     /// </remarks>
     /// <param name="EVSEId">Which EVSE.</param>
     /// <param name="Method">How they said who they are.</param>
@@ -116,6 +131,67 @@ namespace cloud.charging.open.ChargingStation.Kiosk
         /// tells you nothing about whether anything is still running.
         /// </remarks>
         public static readonly TimeSpan  RampUpTime = TimeSpan.FromSeconds(30);
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// The handle the local app that started this session was given, or
+        /// null for a session started any other way.
+        /// </summary>
+        /// <remarks>
+        /// Private, because a record prints its public members into its
+        /// ToString and this one would then be in every log line that names a
+        /// session. Here it takes part in the session's equality and in nothing
+        /// that is written down.
+        /// </remarks>
+        private String?  LocalAppSessionId  { get; init; }
+
+        #endregion
+
+        #region (static) ForLocalApp(EVSEId, TokenUID, Provider, StartedAt, SessionId)
+
+        /// <summary>
+        /// A session a local app started with a card's UID, and the handle it
+        /// was given to stop it with.
+        /// </summary>
+        /// <param name="EVSEId">Which EVSE.</param>
+        /// <param name="TokenUID">The card the app held up.</param>
+        /// <param name="Provider">Whose customer they are, when this station can tell.</param>
+        /// <param name="StartedAt">When it began.</param>
+        /// <param name="SessionId">The handle the app is given.</param>
+        public static ChargingSession ForLocalApp(Byte                EVSEId,
+                                                  String              TokenUID,
+                                                  EMobilityProvider?  Provider,
+                                                  DateTimeOffset      StartedAt,
+                                                  String              SessionId)
+
+            => new (EVSEId, AuthorizationMethod.LocalApp, TokenUID, Provider, StartedAt) {
+                   LocalAppSessionId = SessionId
+               };
+
+        #endregion
+
+        #region WasStartedWith(SessionId)
+
+        /// <summary>
+        /// Whether this is the session a local app was given that handle for.
+        /// </summary>
+        /// <remarks>
+        /// Compared without saying where the two stop matching. The handle is
+        /// all it takes to end a session, and a comparison that took longer the
+        /// more of it was right would hand it out a character at a time.
+        /// </remarks>
+        /// <param name="SessionId">The handle an app sent.</param>
+        public Boolean WasStartedWith(String? SessionId)
+
+            => LocalAppSessionId is not null &&
+               SessionId         is not null &&
+               CryptographicOperations.FixedTimeEquals(
+                   Encoding.UTF8.GetBytes(LocalAppSessionId),
+                   Encoding.UTF8.GetBytes(SessionId)
+               );
 
         #endregion
 

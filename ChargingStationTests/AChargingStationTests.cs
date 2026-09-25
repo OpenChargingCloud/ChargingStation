@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -76,6 +78,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         protected String           KioskURL     { get; private set; } = default!;
 
         /// <summary>
+        /// The local app server, on a server and a port of its own - where the
+        /// fixture asked for one, see <see cref="WithLocalApp"/>; empty
+        /// otherwise.
+        /// </summary>
+        protected String           LocalAppURL  { get; private set; } = "";
+
+        /// <summary>
         /// The directory holding its accounts and its configuration, removed
         /// again in TearDown.
         /// </summary>
@@ -107,6 +116,17 @@ namespace cloud.charging.open.ChargingStation.Tests
         protected virtual TimeProvider? Clock
             => null;
 
+        /// <summary>
+        /// Whether it also has a local app server.
+        /// </summary>
+        /// <remarks>
+        /// Off, as for a station built without a port for one: overridden by
+        /// the fixtures that are about it, so that every other test goes on
+        /// running against the station everybody else gets.
+        /// </remarks>
+        protected virtual Boolean WithLocalApp
+            => false;
+
         #endregion
 
         #region SetUp / TearDown
@@ -117,12 +137,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Directory  = TestStations.TemporaryDirectory("tests");
 
-            Station    = TestStations.New(Directory, Configuration, Clock: Clock);
+            Station    = TestStations.New(Directory, Configuration, Clock: Clock,
+                                          LocalAppPort: WithLocalApp ? IPPort.Parse(TestStations.FreePort()) : null);
 
             BaseURL    = Station.WebInterfaceURL.ToString();
 
             KioskURL   = Station.KioskURL?.ToString()
                              ?? throw new InvalidOperationException("The station was built with a display and has no URL for it!");
+
+            LocalAppURL = Station.LocalAppURL?.ToString() ?? "";
 
             await Station.Start();
 
@@ -168,6 +191,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             => new (new HttpClientHandler { CookieContainer = new CookieContainer(), UseCookies = true }) {
                    BaseAddress = new Uri(KioskURL)
+               };
+
+        /// <summary>
+        /// An app on a phone, at the local app server: no browser, and no
+        /// cookies to carry.
+        /// </summary>
+        protected HttpClient AtTheLocalApp()
+
+            => new () {
+                   BaseAddress = new Uri(LocalAppURL)
                };
 
         #endregion
