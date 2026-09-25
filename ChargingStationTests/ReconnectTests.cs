@@ -20,6 +20,7 @@
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 #endregion
@@ -122,6 +123,128 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AConnectionComesBackThroughABackEndThatIsStillStarting()
+
+        /// <summary>
+        /// A back end behind a reverse proxy answers the first attempts with
+        /// 503 while it is still starting; the station keeps trying through
+        /// them.
+        /// </summary>
+        [Test]
+        public async Task AConnectionComesBackThroughABackEndThatIsStillStarting()
+        {
+
+            var port     = IPPort.Parse(TestStations.FreePort());
+            var first    = await Connected(port);
+            var refused  = 0;
+
+            await first.Stop();
+
+            var lent     = new WebSocketServer(AutoStart: false);
+            var proxy    = new HTTPServer(TCPPort: port);
+            var upgrade  = WebSocketUpgrade.For(lent);
+
+            proxy.AddHTTPAPI().AddHandler(
+                HTTPMethod.GET,
+                HTTPPath.Parse("/cs001"),
+                HTTPDelegate: request => Interlocked.Increment(ref refused) <= 2
+                                             ? Task.FromResult(new HTTPResponse.Builder(request) {
+                                                                   HTTPStatusCode  = HTTPStatusCode.ServiceUnavailable,
+                                                                   Connection      = ConnectionType.Close
+                                                               }.AsImmutable)
+                                             : upgrade(request)
+            );
+
+            await proxy.Start();
+
+            try
+            {
+
+                var giveUp = DateTimeOffset.UtcNow + ComesBackWithin;
+
+                while (DateTimeOffset.UtcNow < giveUp && !lent.WebSocketConnections.Any())
+                    await Task.Delay(100);
+
+                Assert.Multiple(() => {
+                    Assert.That(lent.WebSocketConnections.Any(), Is.True,
+                                $"The station was answered 503 on its way back and did not come back within {ComesBackWithin.TotalSeconds:F0} s.");
+                    Assert.That(refused, Is.GreaterThanOrEqualTo(3),
+                                "The station came back without being refused first, so this test tested nothing.");
+                });
+
+            }
+            finally
+            {
+                await lent.Shutdown();
+                await proxy.Stop();
+            }
+
+        }
+
+        #endregion
+
+        #region WhatIsSaidOfAConnectionFollowsIt()
+
+        /// <summary>
+        /// A connection that is lost is said to be lost - in the log, and in
+        /// what DialledConnections tells somebody who arrives later - and one
+        /// that comes back is said to be connected again.
+        /// </summary>
+        /// <remarks>
+        /// The station used to write "Connected, and will come back by itself
+        /// if it drops" once, when it dialled, and then nothing: a connection
+        /// gone for an hour was still "Connected".
+        /// </remarks>
+        [Test]
+        public async Task WhatIsSaidOfAConnectionFollowsIt()
+        {
+
+            var port   = IPPort.Parse(TestStations.FreePort());
+            var first  = await Connected(port);
+            var id     = station!.DialledConnections.Keys.Single();
+
+            await first.Shutdown("Restarting.");
+
+            var lost = await Said(id, what => what.Contains("was lost"));
+
+            Assert.That(lost, Does.Contain("1001").And.Contain("Restarting."),
+                        "What the station says of the connection did not change when it was lost.");
+
+            // Started here rather than through ComesBack, which shuts its server
+            // down again as soon as the station is back - and a station that is
+            // asked afterwards has lost the connection a second time.
+            var backAgain = new WebSocketServer(HTTPPort: port, AutoStart: true);
+
+            try
+            {
+
+                var giveUp = DateTimeOffset.UtcNow + ComesBackWithin;
+
+                while (DateTimeOffset.UtcNow < giveUp && !backAgain.WebSocketConnections.Any())
+                    await Task.Delay(100);
+
+                Assert.That(backAgain.WebSocketConnections.Any(), Is.True, "The station did not come back.");
+
+                var again   = await Said(id, what => what.StartsWith("Connected again"));
+                var logged  = station.Log.Recent(500).Select(entry => entry.Message).ToArray();
+
+                Assert.Multiple(() => {
+                    Assert.That(again,  Does.StartWith("Connected again"),
+                                "What the station says of the connection did not change when it came back.");
+                    Assert.That(logged, Has.Some.Contains("was lost (1001 GoingAway: Restarting.)"));
+                    Assert.That(logged, Has.Some.Contains("Connected again"));
+                });
+
+            }
+            finally
+            {
+                await backAgain.Shutdown();
+            }
+
+        }
+
+        #endregion
+
 
         #region (private) Connected(Port)
 
@@ -146,6 +269,30 @@ namespace cloud.charging.open.ChargingStation.Tests
                         "The station did not get connected to begin with.");
 
             return backEnd;
+
+        }
+
+        #endregion
+
+        #region (private) Said(Id, Enough)
+
+        /// <summary>
+        /// What DialledConnections says of the connection, once it says what
+        /// is expected or five seconds have passed.
+        /// </summary>
+        private async Task<String> Said(String Id, Func<String, Boolean> Enough)
+        {
+
+            var giveUp = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+            var what   = station!.DialledConnections[Id];
+
+            while (DateTimeOffset.UtcNow < giveUp && !Enough(what))
+            {
+                await Task.Delay(50);
+                what = station.DialledConnections[Id];
+            }
+
+            return what;
 
         }
 

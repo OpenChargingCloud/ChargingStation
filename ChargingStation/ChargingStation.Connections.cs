@@ -380,6 +380,34 @@ namespace cloud.charging.open.ChargingStation
 
             client.ReconnectPolicy = new WebSocketClientReconnectPolicy();
 
+            // What becomes of it from here on, said where what happened when
+            // it was dialled is said: in the log, and in DialledConnections -
+            // which otherwise went on saying "Connected" of a connection that
+            // had been gone for an hour. Not while this station hangs up:
+            // HangUp takes the policy away first, and a close this station
+            // asked for is not a loss.
+            client.OnCloseMessageReceived += (timestamp, sender, connection, frame, eventTrackingId, statusCode, reason, cancellationToken) => {
+
+                if (client.ReconnectPolicy is not null)
+                    Fail(Connection, $"'{Connection.Description}' was lost ({(UInt16) statusCode} {statusCode}" +
+                                     $"{(String.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}); it comes back by itself.");
+
+                return Task.CompletedTask;
+
+            };
+
+            client.OnReconnecting += (timestamp, sender, attempt, delay, cancellationToken) => {
+                Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt}).", "ocpp", "connections");
+                return Task.CompletedTask;
+            };
+
+            // Sent for every connection a reconnect opens, and only for those:
+            // this is subscribed to after the first one was made.
+            client.OnWebSocketConnectionAccepted += (timestamp, sender, connection, response, cancellationToken) => {
+                Note(Connection, "Connected again, and will come back by itself if it drops.");
+                return Task.CompletedTask;
+            };
+
         }
 
         #endregion
