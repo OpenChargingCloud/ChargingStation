@@ -15,7 +15,7 @@ import { formatTime, formatTimestamp, isAtLeast } from '../ui';
  * already in the browser, so changing one costs nothing and asks the station
  * for nothing. A list that is scrolled to the top follows along; scrolling
  * down stops that, which is what somebody reading an older line wants - and
- * the button at the foot brings them back.
+ * the button that floats over the top of the list brings them back.
  *
  * The store keeps its entries oldest first and is left alone: that order is
  * what its own de-duplication and its bounded trim are written against. Only
@@ -65,17 +65,25 @@ export const logsPage: Page = {
 
             <div id="tags" class="tag-filters"></div>
 
-            <div id="log" class="log" role="log" aria-live="polite" tabindex="0">
-                <div id="log-lines"></div>
-                <div id="log-error" class="line error" hidden></div>
-                <div id="log-empty" class="log-empty" hidden>
-                    Nothing to show. The station has been quiet, or the filters are too narrow.
+            <div class="log-pane">
+
+                <button type="button" id="to-newest" class="btn small jump-newest" hidden>
+                    <i class="fa-solid fa-arrow-up"></i>
+                    Jump to the newest
+                </button>
+
+                <div id="log" class="log" role="log" aria-live="polite" tabindex="0">
+                    <div id="log-lines"></div>
+                    <div id="log-error" class="line error" hidden></div>
+                    <div id="log-empty" class="log-empty" hidden>
+                        Nothing to show. The station has been quiet, or the filters are too narrow.
+                    </div>
                 </div>
+
             </div>
 
             <div class="log-foot small muted">
                 <span id="counts"></span>
-                <button type="button" id="to-newest" class="btn small" hidden>Jump to the newest</button>
             </div>
 
         `);
@@ -101,11 +109,17 @@ export const logsPage: Page = {
         /** How many lines the filters are letting through, for the count below. */
         let shown = 0;
 
-        // What the last adjustment below could not put into scrollTop.
-        // A line is 24.33px tall and scrollTop holds whole pixels, so a
-        // third of one is dropped on every batch and the line somebody
-        // is reading creeps away by a line every seventy or so. Carried
-        // to the next batch instead, where it is paid.
+        /**
+         * What the last correction still owes the view.
+         *
+         * scrollTop snaps to whole device pixels, so asking for 24.32 px on a
+         * screen of one and a half sets 24 and drops the rest. Every line of a
+         * log is the same height, so the same fraction is dropped every time -
+         * this is not noise that cancels itself out but a drift in one
+         * direction, a third of a pixel a line, a screenful over a busy
+         * evening. Carried here and added to the next correction, where the
+         * browser can finally take it.
+         */
         let scrollDebt = 0;
 
 
@@ -161,7 +175,8 @@ export const logsPage: Page = {
         }
 
         function scrollToNewest(): void {
-            list.scrollTop = 0;
+            list.scrollTop  = 0;
+            scrollDebt      = 0;
             toNewest.hidden = true;
         }
 
@@ -173,6 +188,9 @@ export const logsPage: Page = {
          * Changing a filter is not one of them - see applyFilters below.
          */
         function redraw(): void {
+
+            // Everything is drawn again, so nothing is owed from before.
+            scrollDebt = 0;
 
             // Reversed for drawing only; the store keeps them oldest first.
             lineBox.innerHTML = drawOrder(logs.entries).map(lineHTML).join('');
@@ -200,9 +218,16 @@ export const logsPage: Page = {
          * One keystroke then measured 50 ms at 2033 entries, layout included
          * as before: twelve times less. Deciding which lines are wanted is
          * the least of it, 2 ms for the same 1959; the rest is the browser
-         * laying the list out again.
+         * laying the list out again. Measured once more at 2207 entries, the
+         * JavaScript alone went from 144 ms to 2 ms, and the layout took 47 ms
+         * either way: this buys back the work the page was doing twice, not
+         * the work of showing the answer.
          */
         function applyFilters(): void {
+
+            // What is shown changes wholesale, so the fraction the last
+            // correction was short is about a layout that no longer exists.
+            scrollDebt = 0;
 
             const lines = lineBox.children;
             const many  = Math.min(lines.length, logs.entries.length);
@@ -213,8 +238,9 @@ export const logsPage: Page = {
 
                 // Line 0 is the newest entry, which is the last one the store
                 // holds. Lines and entries are kept the same length, so this
-                // pairing stays exact - and it is the same function the drawing
-                // above goes by, which is the point of it being one.
+                // pairing stays exact - and entryAt is the one place it is
+                // written down, held by its tests to the drawOrder the drawing
+                // above goes by.
                 const wanted = matches(entryAt(logs.entries, index)!);
 
                 lines[index]!.classList.toggle('filtered-out', !wanted);
@@ -297,19 +323,36 @@ export const logsPage: Page = {
 
                     else {
                         // Put the view back by exactly as far as that line
-                        // moved, so the older one somebody stopped to read
-                        // stays where they are looking instead of walking
-                        // off the top at the speed the log fills. Measured
-                        // here rather than left to the browser: see
+                        // moved, and whatever the last correction was short,
+                        // so the older one somebody stopped to read stays
+                        // where they are looking instead of walking off the
+                        // top at the speed the log fills. Measured here
+                        // rather than left to the browser: see
                         // overflow-anchor in app.scss.
+                        //
+                        // Asked after the filtering above rather than before
+                        // it: a hidden line has no height, so a batch the
+                        // filters swallowed moved nothing and is owed nothing.
+                        // And asked of the line itself, which the trimming can
+                        // have taken when the store has just wrapped - then
+                        // there is nothing left to hold still.
                         if (anchor?.isConnected) {
 
-                            const owed  = anchor.getBoundingClientRect().top - anchorWas + scrollDebt;
-                            const was   = list.scrollTop;
+                            const asked    = list.scrollTop + scrollDebt +
+                                             anchor.getBoundingClientRect().top - anchorWas;
 
-                            list.scrollTop += owed;
+                            list.scrollTop = asked;
 
-                            scrollDebt  = owed - (list.scrollTop - was);
+                            // What the browser took is not always what it
+                            // was asked for. Only the snapping is worth
+                            // carrying: when it refuses a larger jump than
+                            // that - the list is at its end already, or the
+                            // trimming above took the ground away - the
+                            // difference is not a rounding error, and carrying
+                            // it would be arguing with the browser rather than
+                            // with the arithmetic.
+                            const refused  = asked - list.scrollTop;
+                            scrollDebt     = Math.abs(refused) < 1 ? refused : 0;
 
                         }
 
@@ -337,6 +380,13 @@ export const logsPage: Page = {
         function drawTags(): void {
 
             const all = [...new Set([...logLevels, ...logs.tags])].sort();
+
+            // NUL as the separator, written as an escape rather than as the
+            // byte itself - the byte made this file binary to git, which shows
+            // every change to it as a blob instead of a diff, and to grep,
+            // which then skips it without a word. A tag may hold anything a
+            // tag may hold, so the separator has to be the one thing it
+            // cannot contain, or two different sets could share a key.
             const key = all.join('\0') + '|' + [...chosenTags].sort().join('\0');
 
             if (key === renderedTags)
