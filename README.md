@@ -109,7 +109,7 @@ particular kind.
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
 | `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
-| `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both - and nothing else on its port |
+| `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
 
 Two of them are about the station having more than one door. The display is a
@@ -1341,10 +1341,17 @@ the message's `"id"` back where it had one. Asked of the program:
     ← {"id":3,"action":"stop","status":200,"sessionId":"<handle>","evse":1,"seconds":0.0,"stopped":true}
 
 One piece of code is behind both doors, so what one of them started the other
-stops. A station that is told to stop says goodbye to every app on the WebSocket
-with a close frame - 1001, going away - before its server goes. And nothing else
-is on this port: no page, no sign-in, none of the administration and none of the
-display. Everything else is a JSON 404 that lists what there is.
+stops. And the card at the reader and the payment at the screen take an outlet
+the way the app does - only where nothing is - so two starts at the same moment
+are never both told that they started. They used to look first and write over
+whatever was there after: with an app racing a card five thousand times, both
+were told so in a fifth to more than a quarter of the rounds, and with an app
+racing a payment, whose password takes a while to check, in more than nine out
+of ten. `LocalAppTests` races them that way, and none is lost now. A station
+that is told to stop says goodbye to every app on the WebSocket with a close
+frame - 1001, going away - before its server goes. And nothing else is on this
+port: no page, no sign-in, none of the administration and none of the display.
+Everything else is a JSON 404 that lists what there is.
 
 
 ## The clock

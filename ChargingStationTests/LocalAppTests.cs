@@ -117,6 +117,15 @@ namespace cloud.charging.open.ChargingStation.Tests
                                new JProperty("tokenPrefixes",  new JArray("04A2"))
                            )
                        ))
+                   )),
+
+                   // So that a payment at the screen can race an app for an
+                   // outlet, as a card at the reader can.
+                   new JProperty("webPayments", new JObject(
+                       new JProperty("enabled",          true),
+                       new JProperty("urlTemplate",      "https://pay.example.org/{evseId}/{TOTP}"),
+                       new JProperty("validitySeconds",  30),
+                       new JProperty("sharedSecret",     "a-shared-secret-nobody-else-has")
                    ))
 
                );
@@ -519,6 +528,111 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region Two doors at the same moment
+
+        /// <summary>
+        /// How often two starts are sent at the same moment below.
+        /// </summary>
+        /// <remarks>
+        /// A race between checking that an outlet is free and taking it is a
+        /// matter of microseconds, and nothing outside the station can hold it
+        /// open for a test. What a test can do is run it often enough that it
+        /// is lost: this many rounds, each of two threads released together.
+        /// </remarks>
+        private const Int32 Rounds = 5000;
+
+        /// <summary>
+        /// An app and a card at the reader, starting at the same outlet at the
+        /// same moment, are never both told that they started.
+        /// </summary>
+        /// <remarks>
+        /// The display and an app on the network can ask at once, and an outlet
+        /// has room for one session. Whichever comes second is refused - rather
+        /// than overwriting the first, which is then still told it is charging
+        /// and holds a handle that stops nothing.
+        /// </remarks>
+        [Test]
+        public void AnAppAndACardAtTheSameMomentAreNeverBothStarted()
+        {
+
+            var (both, neither) = Race(
+                                      () => Station.TryStartLocally(1, CardOfKnown, out var result, out _, out _) &&
+                                            result.Value<Boolean>("started"),
+                                      () => Station.TryPresentToken("reader", 1, CardOfUnknown, out var result, out _) &&
+                                            result.Value<Boolean>("started")
+                                  );
+
+            Assert.Multiple(() => {
+                Assert.That(both,    Is.Zero, $"In {both} of {Rounds} rounds, the app and the card were both told they had started at EVSE 1.");
+                Assert.That(neither, Is.Zero, $"In {neither} of {Rounds} rounds, neither of them started, at a free EVSE.");
+            });
+
+        }
+
+        /// <summary>
+        /// And an app and a payment at the screen the same.
+        /// </summary>
+        [Test]
+        public void AnAppAndAPaymentAtTheSameMomentAreNeverBothStarted()
+        {
+
+            String? password = null;
+
+            var (both, neither) = Race(
+                                      () => Station.TryStartLocally(1, CardOfKnown, out var result, out _, out _) &&
+                                            result.Value<Boolean>("started"),
+                                      () => Station.TryStartWebPayment(1, password, out var result, out _) &&
+                                            result.Value<Boolean>("started"),
+                                      // The password on the screen, while the
+                                      // outlet is free and the screen shows one.
+                                      BeforeEachRound: () => password = PasswordOnTheDisplay(1)
+                                  );
+
+            Assert.Multiple(() => {
+                Assert.That(both,    Is.Zero, $"In {both} of {Rounds} rounds, the app and the payment were both told they had started at EVSE 1.");
+                Assert.That(neither, Is.Zero, $"In {neither} of {Rounds} rounds, neither of them started, at a free EVSE.");
+            });
+
+        }
+
+        /// <summary>
+        /// Two starts at EVSE 1, released together <see cref="Rounds"/> times:
+        /// in how many rounds both said they had started, and in how many
+        /// neither did. EVSE 1 is freed again after every round.
+        /// </summary>
+        private (Int32 Both, Int32 Neither) Race(Func<Boolean>  One,
+                                                 Func<Boolean>  Other,
+                                                 Action?        BeforeEachRound   = null)
+        {
+
+            var both     = 0;
+            var neither  = 0;
+
+            for (var round = 0; round < Rounds; round++)
+            {
+
+                BeforeEachRound?.Invoke();
+
+                using var together = new Barrier(2);
+
+                var one    = Task.Run(() => { together.SignalAndWait(); return One();   });
+                var other  = Task.Run(() => { together.SignalAndWait(); return Other(); });
+
+                Task.WaitAll(one, other);
+
+                if ( one.Result &&  other.Result) both++;
+                if (!one.Result && !other.Result) neither++;
+
+                Station.TryStopSession(1, out _, out _);
+
+            }
+
+            return (both, neither);
+
+        }
+
+        #endregion
+
         #region Nothing else on it, and it on nothing else
 
         /// <summary>
@@ -676,6 +790,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             => (Station.KioskJSON()["evses"] as JArray)!.
                    OfType<JObject>().
                    First(evse => evse.Value<Byte>("id") == EVSEId);
+
+        /// <summary>
+        /// The password out of the payment URL the display is showing.
+        /// </summary>
+        private String? PasswordOnTheDisplay(Byte EVSEId)
+            => (OutletOnTheDisplay(EVSEId)["qrCode"] as JObject)?.
+                   Value<String>("url")?.
+                   Split('/').Last();
 
         #endregion
 

@@ -428,13 +428,22 @@ namespace cloud.charging.open.ChargingStation
                 return false;
             }
 
-            sessions[EVSEId] = new ChargingSession(
-                                   EVSEId,
-                                   AuthorizationMethod.AdHoc,
-                                   null,
-                                   null,
-                                   now
-                               );
+            // Taken only where nothing is. Checking the password takes long
+            // enough that an app on the network or a card at the reader can
+            // take the outlet in the meantime, and whichever of them came first
+            // keeps it: the payment is refused rather than written over it,
+            // which would leave the first told it is charging, and not.
+            if (!sessions.TryAdd(EVSEId, new ChargingSession(
+                                             EVSEId,
+                                             AuthorizationMethod.AdHoc,
+                                             null,
+                                             null,
+                                             now
+                                         )))
+            {
+                Error = $"EVSE {EVSEId} is already charging.";
+                return false;
+            }
 
             SetCharging(EVSEId, true);
 
@@ -681,13 +690,20 @@ namespace cloud.charging.open.ChargingStation
 
                 var provider = Operator.ProviderOf(token);
 
-                sessions[evse.Id] = new ChargingSession(
-                                        evse.Id,
-                                        AuthorizationMethod.RFID,
-                                        token.UID,
-                                        provider,
-                                        now
-                                    );
+                // Taken only where nothing is, for the same reason as a payment:
+                // between the look above and this line an app on the network
+                // may have taken the outlet, and it keeps what it took.
+                if (!sessions.TryAdd(evse.Id, new ChargingSession(
+                                                  evse.Id,
+                                                  AuthorizationMethod.RFID,
+                                                  token.UID,
+                                                  provider,
+                                                  now
+                                              )))
+                {
+                    Error = $"EVSE {evse.Id} is already charging.";
+                    return false;
+                }
 
                 started = true;
 
