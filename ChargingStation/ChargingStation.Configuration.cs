@@ -1338,6 +1338,15 @@ namespace cloud.charging.open.ChargingStation
 
             ConfigureWebPayments(chargingStation);
 
+            // Every back end this station dials is dialled again after a drop,
+            // and until it answers at all: the node gives each client the
+            // policy before its first attempt, so that a CSMS that is down
+            // while this station starts is reached once it is up. Here, where
+            // the nodes are made, so that a node rebuilt for new EVSEs does
+            // the same.
+            chargePoint.    ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
+            chargingStation.ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
+
             return (chargePoint, chargingStation);
 
         }

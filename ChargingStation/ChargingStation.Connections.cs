@@ -321,14 +321,37 @@ namespace cloud.charging.open.ChargingStation
                 // what happened and not who did it; claiming the far end
                 // answered would send somebody looking for a server that was
                 // never there.
+                var client = ClientOf(Connection);
+
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
+
+                    // Whether it goes on, asked of the client rather than read
+                    // from the answer: a first attempt that found nothing, or a
+                    // back end not ready yet, is tried again by itself; an
+                    // answer that means no - a wrong address, a wrong password
+                    // - is an answer, and is not.
+                    var keepsTrying = client?.KeepsTrying == true;
+
                     Fail(Connection, $"{where} did not become a WebSocket connection: {response.HTTPStatusCode}. " +
-                                      "Nothing answering and an answer that will not upgrade look the same here.");
+                                      "Nothing answering and an answer that will not upgrade look the same here" +
+                                      (keepsTrying
+                                           ? "; it is tried again by itself, and said here when it gets through."
+                                           : "; that answer is final, and it is not tried again."));
+
+                    if (client is not null && keepsTrying)
+                        Follow(Connection, client, Connected: false);
+
                     return;
+
                 }
 
-                KeepComingBack(Connection);
+                if (client is not null)
+                    Follow(Connection, client, Connected: true);
+
+                else
+                    Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
+                                 "so nothing could be said about what becomes of it.", "ocpp", "connections");
 
                 Note(Connection, "Connected, and will come back by itself if it drops.");
 
@@ -346,49 +369,56 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) KeepComingBack(Connection)
+        #region (private) ClientOf(Connection)
 
         /// <summary>
-        /// Whether this connection dials again by itself after a drop.
+        /// The client the node made for this connection when it was dialled.
         /// </summary>
         /// <remarks>
-        /// Set after the connection is made rather than before, because the
-        /// client that carries the policy is made inside the call: the node
-        /// builds it, connects it and keeps it. The policy is about losing a
-        /// connection that exists, so the moment after it exists is soon
-        /// enough.
-        ///
-        /// Everything that reaches here was set to connect by itself, so it
-        /// gets a policy. The ones that were not never got as far as being
-        /// connected.
+        /// Made inside the call and kept by the node, whether it got through or
+        /// not; the last one to the connection's address is the one this dial
+        /// made.
         /// </remarks>
-        private void KeepComingBack(ConnectionEntry Connection)
+        private WebSocketClient? ClientOf(ConnectionEntry Connection)
+
+            => (Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
+                    ? cs01.OCPPWebSocketClients
+                    : cs02.OCPPWebSocketClients).
+               OfType<WebSocketClient>().
+               LastOrDefault(one => one.RemoteURL == Connection.URL);
+
+        #endregion
+
+        #region (private) Follow(Connection, Client, Connected)
+
+        /// <summary>
+        /// Say what becomes of a dialled connection from here on.
+        /// </summary>
+        /// <remarks>
+        /// The client comes back by itself - after a drop, and until it gets
+        /// through at all: the node gave it its policy before its first
+        /// attempt, see BuildOCPPNodes. What becomes of it is said where what
+        /// happened when it was dialled is said, in the log and in
+        /// DialledConnections, which otherwise went on saying "Connected" of a
+        /// connection gone for an hour, and "did not become a WebSocket
+        /// connection" of one made long since.
+        ///
+        /// Not while this station hangs up: HangUp takes the policy away first,
+        /// and a close this station asked for is not a loss.
+        /// </remarks>
+        /// <param name="Connection">The connection, as it is written down.</param>
+        /// <param name="Client">The client the node made for it.</param>
+        /// <param name="Connected">Whether the dial got through, so that the next connection the client opens is "again".</param>
+        private void Follow(ConnectionEntry  Connection,
+                            WebSocketClient  Client,
+                            Boolean          Connected)
         {
 
-            var client = (Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
-                              ? cs01.OCPPWebSocketClients
-                              : cs02.OCPPWebSocketClients).
-                         OfType<WebSocketClient>().
-                         LastOrDefault(one => one.RemoteURL == Connection.URL);
+            var connectedBefore = Connected;
 
-            if (client is null)
-            {
-                Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
-                             "so nothing could be said about reconnecting.", "ocpp", "connections");
-                return;
-            }
+            Client.OnCloseMessageReceived += (timestamp, sender, connection, frame, eventTrackingId, statusCode, reason, cancellationToken) => {
 
-            client.ReconnectPolicy = new WebSocketClientReconnectPolicy();
-
-            // What becomes of it from here on, said where what happened when
-            // it was dialled is said: in the log, and in DialledConnections -
-            // which otherwise went on saying "Connected" of a connection that
-            // had been gone for an hour. Not while this station hangs up:
-            // HangUp takes the policy away first, and a close this station
-            // asked for is not a loss.
-            client.OnCloseMessageReceived += (timestamp, sender, connection, frame, eventTrackingId, statusCode, reason, cancellationToken) => {
-
-                if (client.ReconnectPolicy is not null)
+                if (Client.ReconnectPolicy is not null)
                     Fail(Connection, $"'{Connection.Description}' was lost ({(UInt16) statusCode} {statusCode}" +
                                      $"{(String.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}); it comes back by itself.");
 
@@ -396,16 +426,24 @@ namespace cloud.charging.open.ChargingStation
 
             };
 
-            client.OnReconnecting += (timestamp, sender, attempt, delay, cancellationToken) => {
+            Client.OnReconnecting += (timestamp, sender, attempt, delay, cancellationToken) => {
                 Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt}).", "ocpp", "connections");
                 return Task.CompletedTask;
             };
 
-            // Sent for every connection a reconnect opens, and only for those:
-            // this is subscribed to after the first one was made.
-            client.OnWebSocketConnectionAccepted += (timestamp, sender, connection, response, cancellationToken) => {
-                Note(Connection, "Connected again, and will come back by itself if it drops.");
+            // Sent for every connection the client opens from here on: the first
+            // one a connection that failed at the start gets, or the next one
+            // after a loss.
+            Client.OnWebSocketConnectionAccepted += (timestamp, sender, connection, response, cancellationToken) => {
+
+                Note(Connection, connectedBefore
+                                     ? "Connected again, and will come back by itself if it drops."
+                                     : "Connected, and will come back by itself if it drops.");
+
+                connectedBefore = true;
+
                 return Task.CompletedTask;
+
             };
 
         }

@@ -183,6 +183,74 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AConnectionThatCannotBeMadeAtTheStartIsMadeLater()
+
+        /// <summary>
+        /// A back end that is not there when the station starts is reached
+        /// once it is - without the start waiting for it, and with one client
+        /// for the connection however often it was tried.
+        /// </summary>
+        /// <remarks>
+        /// The policy used to be given to a client once its connection had been
+        /// made, so a connection that could not be made at the start had none,
+        /// and was never tried again: a station started while its CSMS was down
+        /// stayed off the network until it was started again.
+        /// </remarks>
+        [Test]
+        public async Task AConnectionThatCannotBeMadeAtTheStartIsMadeLater()
+        {
+
+            var port = IPPort.Parse(TestStations.FreePort());
+
+            Assert.That(station!.Connections.TryAddConnection(
+                            "Not up yet",
+                            $"ws://127.0.0.1:{port}/cs001",
+                            "CSMS",
+                            true, null, null, out var connection, out var error),
+                        Is.True, error);
+
+            var took = System.Diagnostics.Stopwatch.StartNew();
+            await station.Start();
+            took.Stop();
+
+            Assert.Multiple(() => {
+                Assert.That(took.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)),
+                            "The station waited for a back end that was not there before it said it had started.");
+                Assert.That(station.DialledConnections[connection!], Does.Contain("did not become a WebSocket").And.Contain("tried again by itself"),
+                            "What the station says of the connection does not say that it goes on trying.");
+            });
+
+            var backEnd = new WebSocketServer(HTTPPort: port, AutoStart: true);
+
+            try
+            {
+
+                var giveUp = DateTimeOffset.UtcNow + ComesBackWithin;
+
+                while (DateTimeOffset.UtcNow < giveUp && !backEnd.WebSocketConnections.Any())
+                    await Task.Delay(100);
+
+                Assert.That(backEnd.WebSocketConnections.Any(), Is.True,
+                            $"The back end came up after the station had started, and the station did not reach it within {ComesBackWithin.TotalSeconds:F0} s.");
+
+                var said = await Said(connection!, what => what.StartsWith("Connected"));
+
+                Assert.Multiple(() => {
+                    Assert.That(said, Does.StartWith("Connected, and will come back by itself"));
+                    Assert.That(station.OCPPWebSocketClientCount, Is.EqualTo(1),
+                                "Trying the connection again made a client each time.");
+                });
+
+            }
+            finally
+            {
+                await backEnd.Shutdown();
+            }
+
+        }
+
+        #endregion
+
         #region WhatIsSaidOfAConnectionFollowsIt()
 
         /// <summary>
