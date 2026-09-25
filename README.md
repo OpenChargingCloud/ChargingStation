@@ -111,6 +111,7 @@ particular kind.
 | `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
+| `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -295,6 +296,7 @@ interface will not delete the part it did not understand.
 | `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
 | `/configuration/calibration` | the calibration certificates this station runs under |
+| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
     POST /api/v1/configuration/dns/query    {"name": "...", "recordTypes": ["A"]}
@@ -308,11 +310,15 @@ interface will not delete the part it did not understand.
     GET  /api/v1/messages                   POST {"text": "...", "priority": "...", "state": "...", "evse": 1}
     POST /api/v1/messages/clear             {"id": "..."}
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
+    GET  /api/v1/status/connections         where each connection this station dialled stands
 
 Every change takes effect at once - no restart, and no page that says a restart
-is owed. The file is written first and the change applied second, because a
-change that was applied but not written down disappears at the next start
-without anybody noticing, and that is the worse of the two failures.
+is owed. The one exception is the connections: they are written at once and
+dialled when the station starts, and their page says so beside each one - see
+[Connections](#connections). The file is written first and the change applied
+second, because a change that was applied but not written down disappears at
+the next start without anybody noticing, and that is the worse of the two
+failures.
 
 A PUT changes only the fields it names. A form with six checkboxes on it sends
 six checkboxes, and a save that replaced the whole section would take the name
@@ -560,7 +566,48 @@ because the second attempt looks like the station is broken.
 the one piece of configuration in this station worth stealing, and the display
 it ends up on hangs in public - so it stays in the file, and changing it is
 editing the file and restarting. Everything else this station can be told still
-changes while it runs.
+changes while it runs - the connections are written down at once and dialled at
+the next start, see below.
+
+### Connections
+
+`/configuration/connections` is where this station dials: an address, which of
+its two OCPP nodes dials it, what it proves itself with, and whether it
+connects by itself. Beside each one it says where the connection stands, and
+asks again every five seconds while the page is in view - it is where somebody
+looks to find out whether the station is on its back end, and a page that was
+right when it was opened is not the answer to that.
+
+| | |
+|---|---|
+| connected   | since when |
+| lost        | since when, tried again by itself, and which attempt comes next and when |
+| not reached | not connected since the start, and tried again by itself |
+| refused     | answered with something that means no - a 401, a 404 - and not tried again |
+| not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
+| failed      | dialling it went wrong in a way that says nothing about what comes next |
+
+"Not reached" and "refused" are told apart by whether anything answered. An
+attempt that ended before it could ask anything - nothing listening, a name
+that does not resolve, a TLS handshake that failed - is answered by the
+WebSocket client itself, with a 400 that looks like a real one but answers no
+request. The station says it could not be reached, rather than send somebody
+looking for a server that answered 400 and does not exist. And a back end that
+comes back as one that will not have the station - its passwords changed, the
+station removed from it - turns the connection away on its way back: it is
+said to be refused, not promised to come back by itself.
+
+**A connection is dialled when the station starts.** One written down, changed
+or removed while it runs is written at once and dialled, or hung up, at the
+next start - and the page says so: beside a changed one, what was dialled;
+below the list, one removed here that the station is still on.
+
+    GET  /api/v1/status/connections
+    {"timestamp": "...", "states": {"<id>": {"status": "lost", "since": "...", "said": "...",
+                                             "url": "...", "attempt": 3, "nextAttemptAt": "..."}}}
+
+"Since" and "next" are counted on the station's clock, which the answer
+carries, and not on the browser's.
 
 ## The display
 

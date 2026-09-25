@@ -665,6 +665,38 @@ export interface ConnectionTest {
     steps:        ConnectionTestStep[];
 }
 
+/**
+ * Where a connection this station dialled stands.
+ *
+ * Three kinds of "not connected", because they ask three different things of
+ * whoever is looking: lost and trying are waited out, the station comes back by
+ * itself; refused needs the other end fixed; not dialled and failed need this
+ * end fixed.
+ */
+export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notDialled' | 'failed';
+
+/** What became of one connection this station dialled, and since when. */
+export interface ConnectionState {
+    status:          ConnectionStatus;
+    since:           string;
+    /** The sentence the station logged when it came to stand there. */
+    said:            string;
+    /** What was dialled - which is what is written down now only until something is changed. */
+    description:     string;
+    url:             string;
+    ocppVersion:     string;
+    /** While it is tried again: which attempt comes next, and when. */
+    attempt?:        number;
+    nextAttemptAt?:  string;
+}
+
+/** Where every connection this station dialled stands, and what time it is there. */
+export interface ConnectionStates {
+    /** The station's own clock, which is what "since" and "next" are counted from. */
+    timestamp:  string;
+    states:     Record<string, ConnectionState>;
+}
+
 /** A client certificate, as far as a connection is concerned. */
 export interface ConnectionCertificate {
     id:                  string;
@@ -681,7 +713,7 @@ export interface ConnectionCertificate {
  * needs the credentials in order to offer them, and the Authentication page
  * needs the connections in order to say which ones a removal would break.
  */
-export interface StationConnections {
+export interface StationConnections extends ConnectionStates {
     directory:             string;
     authentications:       StationLogin[];
     connections:           StationConnection[];
@@ -1198,6 +1230,13 @@ export const api = {
 
         remove:  (id: string) =>
                      request<StationConnections>('POST', '/configuration/connections/remove', { id }),
+
+        /**
+         * Where each connection this station dialled stands - asked again and
+         * again while the page is open, and therefore only that, rather than
+         * everything the page was drawn from.
+         */
+        states:  ()  => request<ConnectionStates>('GET', '/status/connections'),
 
         /**
          * Make this connection once, and say everything that happened.

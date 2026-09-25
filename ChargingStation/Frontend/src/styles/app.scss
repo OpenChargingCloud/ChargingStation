@@ -1572,3 +1572,38 @@ textarea.mono {
 .card.in-use {
     border-color: $color-accent;
 }
+
+// Where a connection stands, under its name: the chip and since when on one
+// line, what the station said below it. Its own block, because it is drawn
+// again every few seconds and the rest of the card is not.
+.connection-state {
+
+    margin-bottom: 0.6rem;
+
+    &:empty {
+        display: none;
+    }
+
+    .state-head {
+        display:      flex;
+        align-items:  baseline;
+        flex-wrap:    wrap;
+        gap:          0.5rem;
+    }
+
+    .hint {
+        word-break:   break-word;
+    }
+
+}
+
+// A connection removed on the page and still dialled until the next start.
+.removed-state {
+
+    margin-top:  0.5rem;
+
+    code {
+        word-break: break-all;
+    }
+
+}

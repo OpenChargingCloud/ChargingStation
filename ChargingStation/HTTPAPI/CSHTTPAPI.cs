@@ -216,6 +216,7 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/auth/me",       Me,                HTTPMethod.GET);
 
             AddHandler(HTTPPath.Root + "v1/status",        GetStatus,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/status/connections", GetConnectionStates, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/clock",         GetClock,          HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration", GetConfiguration,  HTTPMethod.GET);
 
@@ -1258,7 +1259,53 @@ namespace cloud.charging.open.ChargingStation
                                 new JProperty("canBeHeldUp",     entry.CanBeHeldUp)
                             )))));
 
+            // Where each connection stands, so that the page does not first
+            // draw every connection without it and then again with it.
+            json.Merge(ConnectionStatesJSON());
+
             return json;
+
+        }
+
+        /// <summary>
+        /// Where each connection this station dialled stands, by
+        /// identification, and what time it is here.
+        /// </summary>
+        /// <remarks>
+        /// The time, because the page says how long ago and how soon, and the
+        /// clock it would otherwise ask is the browser's - which is not this
+        /// station's, and on a laptop in a car park not always right either.
+        /// </remarks>
+        private JObject ConnectionStatesJSON()
+
+            => new (
+                   new JProperty("timestamp",  Station.TimeProvider.GetUtcNow().UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
+                   new JProperty("states",     new JObject(
+                       Station.ConnectionStates.Select(entry => new JProperty(entry.Key, entry.Value.ToJSON()))
+                   ))
+               );
+
+        /// <summary>
+        /// GET /api/v1/status/connections: where each connection this station
+        /// dialled stands.
+        /// </summary>
+        /// <remarks>
+        /// Asked again and again by the Connections page while it is open, so
+        /// that a connection lost or back again is seen without a reload -
+        /// which is why it is its own route and not the whole configuration
+        /// every few seconds. At the permission that reads the configuration,
+        /// because what it says - the addresses, what the back end answered -
+        /// is the configuration's.
+        /// </remarks>
+        private Task<HTTPResponse> GetConnectionStates(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionStatesJSON())
+                   );
 
         }
 

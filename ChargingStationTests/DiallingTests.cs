@@ -47,9 +47,11 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// out a connect timeout is a test nobody runs.
     ///
     /// A refused connection does not throw: the WebSocket client has no stream
-    /// to read and answers itself with a bare 400. So what is asserted is that
-    /// the connection did not become a WebSocket, which is the one thing this
-    /// station can honestly know at that point.
+    /// to read and answers itself with a bare 400 - to no request, because it
+    /// never got as far as making one. That is what tells it apart from a 400
+    /// somebody sent, so what is asserted is that the back end could not be
+    /// reached, rather than only that the connection did not become a
+    /// WebSocket.
     /// </remarks>
     [TestFixture]
     public class DiallingTests
@@ -136,7 +138,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.WebInterfaceURL.ToString(), Is.Not.Empty,
                             "The station is up but has no web interface.");
 
-                Assert.That(station.DialledConnections[id!], Does.Contain("did not become a WebSocket"),
+                Assert.That(station.DialledConnections[id!], Does.Contain("could not be reached"),
                             "Nothing was recorded about the back end that did not answer.");
 
             });
@@ -179,7 +181,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.DialledConnections.ContainsKey(kept!), Is.False,
                             "A connection that was not told to connect was tried anyway.");
 
-                Assert.That(station.DialledConnections[used!], Does.Contain("did not become a WebSocket"),
+                Assert.That(station.DialledConnections[used!], Does.Contain("could not be reached"),
                             "The one that was told to connect was not tried.");
 
             });
@@ -241,10 +243,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                     Assert.That(station.DialledConnections[answering!],  Does.Contain("Connected"),
                                 "The one that answered was not recorded as connected.");
 
-                    Assert.That(station.DialledConnections[spare!],      Does.Contain("did not become a WebSocket"),
+                    Assert.That(station.DialledConnections[spare!],      Does.Contain("could not be reached"),
                                 "A connection was skipped because of what it is called.");
 
-                    Assert.That(station.DialledConnections[controller!], Does.Contain("did not become a WebSocket"),
+                    Assert.That(station.DialledConnections[controller!], Does.Contain("could not be reached"),
                                 "A connection was skipped because another one answered.");
 
                 });
@@ -368,7 +370,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await station.Start();
 
-            Assert.That(station.DialledConnections[id!], Does.Contain("did not become a WebSocket"),
+            Assert.That(station.DialledConnections[id!], Does.Contain("could not be reached"),
                         $"An {Version} connection never reached a node that would try it.");
 
         }

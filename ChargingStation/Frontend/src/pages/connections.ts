@@ -1,10 +1,11 @@
-import { api, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, field, formatTimestamp, whileSaving } from '../ui';
+import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
+import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
 
 /**
  * The places this charging station dials.
@@ -23,6 +24,11 @@ import { typedSinceDrawn, unsaved } from '../unsaved';
  * certificate on a URL that makes no TLS handshake, credentials that were
  * removed next door. None of it is refused, because a station on a bench
  * talking to a test back end over ws:// is a real thing to want.
+ *
+ * And where each connection stands - connected, lost and coming back, turned
+ * away - asked again every few seconds while the page is in view, because this
+ * is where somebody looks to find out whether the station is on its back end,
+ * and a page that was right when it was opened is not the answer to that.
  */
 export const connectionsPage: Page = {
 
@@ -54,6 +60,13 @@ export const connectionsPage: Page = {
         let cancelled = false;
         let store: StationConnections | null = null;
 
+        // Where the connections stand, and the station's clock when it said
+        // so - kept apart from the store, because they are asked again on
+        // their own and drawn again on their own, without the forms.
+        let states:     Record<string, ConnectionState> = {};
+        let timestamp   = '';
+        let notAnswered: string | null = null;
+
         const opened = new Set<string>();
 
         /** What the one authentication control calls each choice. */
@@ -72,6 +85,12 @@ export const connectionsPage: Page = {
                 return;
 
             const state = store;
+
+            // Whatever the store came with is the newest there is: it was
+            // loaded, or written, a moment ago.
+            states       = state.states ?? {};
+            timestamp    = state.timestamp ?? timestamp;
+            notAnswered  = null;
 
             render(content, html`
 
@@ -114,13 +133,19 @@ export const connectionsPage: Page = {
 
                     <p class="hint">Newest first. Written to ${state.directory}.</p>
 
+                    <p class="hint" id="states-note" role="status"></p>
+
                     ${state.connections.length === 0
-                          ? html`
-                                <p class="hint">
-                                    Nothing yet. This station dials nowhere and waits to be dialled.
-                                </p>
-                            `
+                          ? Object.keys(states).length === 0
+                                ? html`
+                                      <p class="hint">
+                                          Nothing yet. This station dials nowhere and waits to be dialled.
+                                      </p>
+                                  `
+                                : html`<p class="hint">Nothing written down any more.</p>`
                           : html`<div class="cards">${state.connections.map(entry => entryCard(entry, state))}</div>`}
+
+                    <div id="no-longer-written-down">${noLongerWrittenDownView()}</div>
 
                 </section>
 
@@ -257,6 +282,8 @@ export const connectionsPage: Page = {
                               : html`<span class="chip">configured only</span>`}
                     </div>
 
+                    <div class="connection-state" data-state="${entry.id}">${stateView(entry)}</div>
+
                     <dl class="kv">
                         <dt>Where</dt>   <dd><code>${entry.url}</code></dd>
                         <dt>Proves itself</dt>
@@ -304,6 +331,134 @@ export const connectionsPage: Page = {
 
                 </div>
             `;
+
+        }
+
+        /** Where one connection stands, as a chip, since when, and what the station said. */
+        function stateView(entry: StationConnection): HTMLFragment {
+
+            const line = stateLine(entry, states[entry.id], timestamp);
+
+            return line === null ? html`` : lineView(line);
+
+        }
+
+        function lineView(line: StateLine): HTMLFragment {
+
+            return html`
+                <div class="state-head">
+                    <span class="chip ${line.tone}">${line.chip}</span>
+                    <span class="hint">${line.when}</span>
+                </div>
+                <div class="hint">${line.said}</div>
+                ${line.notes.map(note => html`<div class="notice small">${note}</div>`)}
+            `;
+
+        }
+
+        /**
+         * The connections removed here that the station still dials: it hangs
+         * them up at its next start, and until then it may well be on a back
+         * end this page no longer mentions.
+         */
+        function noLongerWrittenDownView(): HTMLFragment {
+
+            const left = noLongerWrittenDown(store?.connections ?? [], states);
+
+            if (left.length === 0)
+                return html``;
+
+            return html`
+                <div class="notice">
+                    Removed here, and dialled as before until this station starts again:
+                    ${left.map(([ , state ]) => {
+                        const line = stateLine({ url: state.url, ocppVersion: state.ocppVersion, autoConnect: true }, state, timestamp);
+                        return html`
+                            <div class="removed-state">
+                                <strong>${state.description}</strong> <code>${state.url}</code>
+                                ${line === null ? '' : lineView(line)}
+                            </div>
+                        `;
+                    })}
+                </div>
+            `;
+
+        }
+
+        /**
+         * Draw where the connections stand again, and nothing else.
+         *
+         * Only the lines that say so: the forms beside them may hold something
+         * somebody is typing, and a page that redrew them every few seconds
+         * would be a page nobody could write anything down on.
+         */
+        function drawStates(): void {
+
+            if (store === null)
+                return;
+
+            const connections = store.connections;
+
+            content.querySelectorAll<HTMLElement>('[data-state]').forEach(element => {
+                const entry = connections.find(connection => connection.id === element.dataset.state);
+                if (entry !== undefined)
+                    render(element, stateView(entry));
+            });
+
+            const left = content.querySelector<HTMLElement>('#no-longer-written-down');
+
+            if (left !== null)
+                render(left, noLongerWrittenDownView());
+
+            const note = content.querySelector<HTMLElement>('#states-note');
+
+            if (note !== null)
+                note.textContent = notAnswered === null
+                                       ? ''
+                                       : `Where the connections stand is as it was at ${formatTime(timestamp)}: ` +
+                                         `asking again did not work (${notAnswered}).`;
+
+        }
+
+        let asking = false;
+
+        /**
+         * Ask where the connections stand, while the page is in view.
+         *
+         * Not while it is hidden: nobody is looking, and a tab left open in the
+         * background has no business asking the station something every few
+         * seconds for as long as the browser runs. Not twice at once either -
+         * a station slow to answer is not helped by being asked again.
+         */
+        async function askAgain(): Promise<void> {
+
+            if (asking || store === null || document.hidden)
+                return;
+
+            asking = true;
+
+            try
+            {
+                const answer = await api.connections.states();
+
+                if (cancelled)
+                    return;
+
+                states       = answer.states;
+                timestamp    = answer.timestamp;
+                notAnswered  = null;
+            }
+            catch (problem)
+            {
+                notAnswered  = errorMessage(problem);
+            }
+            finally
+            {
+                asking = false;
+            }
+
+            if (!cancelled)
+                drawStates();
 
         }
 
@@ -586,7 +741,12 @@ export const connectionsPage: Page = {
 
         void load();
 
-        return () => { cancelled = true; release(); };
+        // Every five seconds: a connection that is lost is tried again after a
+        // second or so, so this is about as late as the page can be told of it
+        // without asking more often than a person could read.
+        const askingAgain = setInterval(() => void askAgain(), 5_000);
+
+        return () => { cancelled = true; clearInterval(askingAgain); release(); };
 
     }
 

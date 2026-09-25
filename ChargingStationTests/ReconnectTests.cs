@@ -216,7 +216,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(took.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)),
                             "The station waited for a back end that was not there before it said it had started.");
-                Assert.That(station.DialledConnections[connection!], Does.Contain("did not become a WebSocket").And.Contain("tried again by itself"),
+                Assert.That(station.DialledConnections[connection!], Does.Contain("could not be reached").And.Contain("tried again by itself"),
                             "What the station says of the connection does not say that it goes on trying.");
             });
 

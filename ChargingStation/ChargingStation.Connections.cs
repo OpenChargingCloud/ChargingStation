@@ -55,9 +55,9 @@ namespace cloud.charging.open.ChargingStation
         #region Data
 
         /// <summary>
-        /// What each connection did, by its identification.
+        /// What became of each connection, by its identification.
         /// </summary>
-        private readonly Dictionary<String, String> dialled = [];
+        private readonly Dictionary<String, ConnectionState> dialled = [];
 
         /// <summary>
         /// How long a connection test stays connected before closing again.
@@ -88,7 +88,27 @@ namespace cloud.charging.open.ChargingStation
             get
             {
                 lock (dialled)
-                    return new Dictionary<String, String>(dialled);
+                    return dialled.ToDictionary(entry => entry.Key, entry => entry.Value.Said);
+            }
+        }
+
+        /// <summary>
+        /// Where each connection this station dialled stands, by
+        /// identification.
+        /// </summary>
+        /// <remarks>
+        /// The sentence of DialledConnections, and around it what the
+        /// Connections page says beside each connection: whether it is
+        /// connected, since when, what was dialled - a connection changed
+        /// after the start is dialled as it was until the next one - and,
+        /// while it is tried again, when the next attempt is.
+        /// </remarks>
+        public IReadOnlyDictionary<String, ConnectionState> ConnectionStates
+        {
+            get
+            {
+                lock (dialled)
+                    return new Dictionary<String, ConnectionState>(dialled);
             }
         }
 
@@ -283,7 +303,7 @@ namespace cloud.charging.open.ChargingStation
 
                 if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var certificates, out _, out var wrong))
                 {
-                    Fail(Connection, $"Not dialled: {where} {wrong}.");
+                    Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {wrong}.");
                     return;
                 }
 
@@ -313,15 +333,16 @@ namespace cloud.charging.open.ChargingStation
                 // 101 and nothing else: an HTTP answer that is not an upgrade
                 // is a web server being polite, not a back end.
                 //
-                // What it is not is a report of who said so. Measured: when
-                // the connection is refused outright the client has no stream
-                // to read and answers itself with a bare 400, headers and all
-                // absent - indistinguishable at this point from a real 400
-                // sent by something that is listening. So the sentence says
-                // what happened and not who did it; claiming the far end
-                // answered would send somebody looking for a server that was
-                // never there.
-                var client = ClientOf(Connection);
+                // Nor is every answer one the far end gave. An attempt that
+                // ended before it could ask anything - nothing listening, a
+                // name that does not resolve, a TLS handshake that failed - is
+                // answered by the client itself, with a 400 that looks like a
+                // real one. What gives it away is that it answers no request:
+                // there was none. So a station whose back end is not there says
+                // it could not be reached, rather than sending somebody looking
+                // for a server that answered 400 and never existed.
+                var client     = ClientOf(Connection);
+                var unreached  = response.HTTPRequest is null;
 
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
@@ -333,11 +354,18 @@ namespace cloud.charging.open.ChargingStation
                     // - is an answer, and is not.
                     var keepsTrying = client?.KeepsTrying == true;
 
-                    Fail(Connection, $"{where} did not become a WebSocket connection: {response.HTTPStatusCode}. " +
-                                      "Nothing answering and an answer that will not upgrade look the same here" +
-                                      (keepsTrying
-                                           ? "; it is tried again by itself, and said here when it gets through."
-                                           : "; that answer is final, and it is not tried again."));
+                    Fail(Connection,
+                         keepsTrying ? ConnectionStatus.Trying
+                                     : unreached ? ConnectionStatus.Failed
+                                                 : ConnectionStatus.Refused,
+                         (unreached
+                              ? $"{where} could not be reached: the attempt ended before anything could be asked of it"
+                              : $"{where} did not become a WebSocket connection: {response.HTTPStatusCode}") +
+                         (keepsTrying
+                              ? "; it is tried again by itself, and said here when it gets through."
+                              : unreached
+                                    ? "; it is not tried again."
+                                    : "; that answer is final, and it is not tried again."));
 
                     if (client is not null && keepsTrying)
                         Follow(Connection, client, Connected: false);
@@ -362,7 +390,7 @@ namespace cloud.charging.open.ChargingStation
                 // socket, a certificate the other end will not accept. One
                 // connection that cannot be made must not take the station
                 // down with it.
-                Fail(Connection, $"{where} could not be reached: {e.Message}");
+                Fail(Connection, ConnectionStatus.Failed, $"{where} could not be reached: {e.Message}");
             }
 
         }
@@ -404,7 +432,10 @@ namespace cloud.charging.open.ChargingStation
         /// connection" of one made long since.
         ///
         /// Not while this station hangs up: HangUp takes the policy away first,
-        /// and a close this station asked for is not a loss.
+        /// and a close this station asked for is not a loss. Every event below
+        /// asks for the policy before it says anything, so that one arriving
+        /// late from a client being closed does not bring back a connection
+        /// HangUp has just forgotten.
         /// </remarks>
         /// <param name="Connection">The connection, as it is written down.</param>
         /// <param name="Client">The client the node made for it.</param>
@@ -419,22 +450,61 @@ namespace cloud.charging.open.ChargingStation
             Client.OnCloseMessageReceived += (timestamp, sender, connection, frame, eventTrackingId, statusCode, reason, cancellationToken) => {
 
                 if (Client.ReconnectPolicy is not null)
-                    Fail(Connection, $"'{Connection.Description}' was lost ({(UInt16) statusCode} {statusCode}" +
-                                     $"{(String.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}); it comes back by itself.");
+                    Fail(Connection, ConnectionStatus.Lost,
+                         $"'{Connection.Description}' was lost ({(UInt16) statusCode} {statusCode}" +
+                         $"{(String.IsNullOrWhiteSpace(reason) ? "" : $": {reason}")}); it comes back by itself.");
 
                 return Task.CompletedTask;
 
             };
 
+            // A connection that went without a word - a back end that crashed,
+            // a socket reset underneath, pings no longer answered - arrives
+            // above as well: the client reports it with a close frame of its
+            // own making, 1006.
+
+            // Before every attempt the client makes, and so what the page says
+            // of when the next one is.
             Client.OnReconnecting += (timestamp, sender, attempt, delay, cancellationToken) => {
+
+                if (Client.ReconnectPolicy is null)
+                    return Task.CompletedTask;
+
                 Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt}).", "ocpp", "connections");
+
+                NextAttempt(Connection, attempt, delay);
+
                 return Task.CompletedTask;
+
+            };
+
+            // After every attempt, whatever came of it. One that ended the
+            // client's trying is the end of "it comes back by itself": a back
+            // end that came back as something that will not have this station
+            // - a 401 after its passwords were changed, a 404 after the station
+            // was removed from it. Without this the station went on promising a
+            // connection that nothing was trying to make any more.
+            Client.ResponseLogDelegate += (timestamp, sender, request, response) => {
+
+                if (Client.ReconnectPolicy is not null && !Client.KeepsTrying)
+                    Fail(Connection, ConnectionStatus.Refused,
+                         response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols
+                             ? $"'{Connection.Description}' answered {response.HTTPStatusCode} when it was tried again; " +
+                                "that answer is final, and it is not tried again."
+                             : $"'{Connection.Description}' ended the connection in a way that is not tried again " +
+                               $"({Client.ClientCloseMessage ?? "nothing more was said"}).");
+
+                return Task.CompletedTask;
+
             };
 
             // Sent for every connection the client opens from here on: the first
             // one a connection that failed at the start gets, or the next one
             // after a loss.
             Client.OnWebSocketConnectionAccepted += (timestamp, sender, connection, response, cancellationToken) => {
+
+                if (Client.ReconnectPolicy is null)
+                    return Task.CompletedTask;
 
                 Note(Connection, connectedBefore
                                      ? "Connected again, and will come back by itself if it drops."
@@ -450,29 +520,65 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) Note(Connection, What) / Fail(Connection, What)
+        #region (private) Note(Connection, What) / Fail(Connection, Status, What)
 
+        /// <summary>
+        /// Say that the connection is connected.
+        /// </summary>
         private void Note(ConnectionEntry Connection, String What)
         {
 
-            lock (dialled)
-                dialled[Connection.Id] = What;
+            Record(Connection, ConnectionStatus.Connected, What);
 
             Log.Info($"'{Connection.Description}': {What}", "ocpp", "connections");
 
         }
 
-        private void Fail(ConnectionEntry Connection, String What)
+        /// <summary>
+        /// Say that the connection is not, and how it stands.
+        /// </summary>
+        private void Fail(ConnectionEntry Connection, ConnectionStatus Status, String What)
         {
 
-            lock (dialled)
-                dialled[Connection.Id] = What;
+            Record(Connection, Status, What);
 
             // A warning and not an error: the station is doing what it can,
             // and the thing that is wrong is normally somewhere else and
             // normally fixable from the page this message is visible on.
             Log.Warning(What, "ocpp", "connections");
 
+        }
+
+        private void Record(ConnectionEntry Connection, ConnectionStatus Status, String What)
+        {
+            lock (dialled)
+                dialled[Connection.Id] = new ConnectionState(
+                                             Status,
+                                             TimeProvider.GetUtcNow(),
+                                             What,
+                                             Connection.Description,
+                                             Connection.URL,
+                                             Connection.OCPPVersion
+                                         );
+        }
+
+        #endregion
+
+        #region (private) NextAttempt(Connection, Attempt, Delay)
+
+        /// <summary>
+        /// When the next attempt is, beside how the connection stands - which
+        /// does not change with it: a connection lost ten minutes ago and
+        /// tried for the fifth time is still lost since ten minutes ago.
+        /// </summary>
+        private void NextAttempt(ConnectionEntry Connection, UInt32 Attempt, TimeSpan Delay)
+        {
+            lock (dialled)
+                if (dialled.TryGetValue(Connection.Id, out var state))
+                    dialled[Connection.Id] = state with {
+                                                 Attempt        = Attempt,
+                                                 NextAttemptAt  = TimeProvider.GetUtcNow() + Delay
+                                             };
         }
 
         #endregion
