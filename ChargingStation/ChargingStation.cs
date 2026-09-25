@@ -282,7 +282,6 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="NoKiosk">Whether to leave the display out entirely, so that the station listens on one port.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
-        /// <param name="CertificatesPath">The directory the certificate store of the node below lives in between starts; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
@@ -307,7 +306,6 @@ namespace cloud.charging.open.ChargingStation
                                Boolean                               NoKiosk                   = false,
                                IStaticContentSource?                 Frontend                  = null,
                                V2GOptions?                           V2G                       = null,
-                               String?                               CertificatesPath          = null,
                                EventLog?                             Log                       = null,
                                Boolean                               LogToConsole              = true,
                                LogLevel                              ConsoleLogLevel           = LogLevel.Info,
@@ -343,7 +341,14 @@ namespace cloud.charging.open.ChargingStation
                    DNSClient:         DNSClient,
                    NTSClient:         NTSClient,
                    Frontend:          Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
-                   CertificatesPath:  CertificatesPath,
+
+                   // None in the node's store. The keys this station dials its
+                   // back ends with are in a store of its own, and what it offers
+                   // a vehicle comes with its V2G options - so a store of a
+                   // vehicle's seven kinds beside its configuration file would
+                   // be seven empty directories promising something nothing
+                   // here reads.
+                   CertificateKinds:  [],
                    Log:               Log,
                    LogToConsole:      LogToConsole,
                    ConsoleLogLevel:   ConsoleLogLevel,

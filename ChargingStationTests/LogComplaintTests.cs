@@ -40,6 +40,10 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// cannot be driven without a terminal, so what is checked here is the
     /// promise it depends on: every one of these lines is written inside the
     /// block it was handed, and none of them beside it.
+    ///
+    /// That the log keeps that promise is the node's, and is tested in
+    /// WWCP_Node. What is tested here is that a station hands the block over
+    /// when the command line asks for it.
     /// </remarks>
     [TestFixture]
     public class LogComplaintTests
@@ -110,18 +114,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (class) StoppedClock
-
-        /// <summary>
-        /// A clock that says the same time whenever it is asked, so that the
-        /// name of the day's log file is known in advance.
-        /// </summary>
-        private sealed class StoppedClock(DateTimeOffset Now) : TimeProvider
-        {
-            public override DateTimeOffset GetUtcNow() => Now;
-        }
-
-        #endregion
 
         #region Data
 
@@ -173,132 +165,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-
-        #region AFailingListenerIsComplainedAboutInsideTheBlock()
-
-        /// <summary>
-        /// A listener that throws is said on stderr - inside the block.
-        /// </summary>
-        [Test]
-        public void AFailingListenerIsComplainedAboutInsideTheBlock()
-        {
-
-            var log = new EventLog {
-                          ComplaintBlock = console.Block
-                      };
-
-            log.OnLogged += _ => throw new InvalidOperationException("The listener broke.");
-
-            log.Info("Something happened.", "test");
-
-            Assert.That(console.Lines, Is.EqualTo(new[] { new Line(Broken, InBlock: true) }));
-
-        }
-
-        #endregion
-
-        #region AFileThatCannotBeWrittenIsComplainedAboutInsideTheBlock()
-
-        /// <summary>
-        /// The two things a log file says on stderr - that it cannot be written,
-        /// and that it is being written again - both inside the block.
-        /// </summary>
-        [Test]
-        public void AFileThatCannotBeWrittenIsComplainedAboutInsideTheBlock()
-        {
-
-            var log      = new EventLog(TimeProvider: new StoppedClock(new DateTimeOffset(2026, 9, 24, 13, 45, 1, TimeSpan.Zero))) {
-                               ComplaintBlock = console.Block
-                           };
-
-            // A directory where the day's file should be: refused on every
-            // platform, and gone again with one call.
-            var blocked  = Path.Combine(directory, "station-2026-09-24.log");
-
-            Directory.CreateDirectory(blocked);
-
-            using (new FileLog(log, directory, "station"))
-            {
-
-                log.Info("The entry the disk refuses.", "test");
-
-                Directory.Delete(blocked);
-
-                log.Info("The first one after it came back.", "test");
-
-            }
-
-            Assert.Multiple(() => {
-
-                Assert.That(console.Lines.Select(line => line.InBlock), Is.EqualTo(new[] { true, true }),
-                            "Not the two lines, both inside the block: " + String.Join(" | ", console.Lines));
-
-                Assert.That(console.Lines.ElementAtOrDefault(0).Text, Does.Contain("could not be written"));
-                Assert.That(console.Lines.ElementAtOrDefault(1).Text, Does.Contain("is being written again; 1 entry is missing from it."));
-
-            });
-
-        }
-
-        #endregion
-
-        #region AComplaintTheBlockCannotTakeIsWrittenAnyway()
-
-        /// <summary>
-        /// A block that throws before it writes: the complaint is written
-        /// without it, once, and whoever was logging never hears of it.
-        /// </summary>
-        /// <remarks>
-        /// Not far-fetched: a listener fails because the command line could not
-        /// take itself off the screen, and the complaint about that listener
-        /// then asks the same command line.
-        /// </remarks>
-        [Test]
-        public void AComplaintTheBlockCannotTakeIsWrittenAnyway()
-        {
-
-            var log = new EventLog {
-                          ComplaintBlock = _ => throw new IOException("The command line could not be taken off the screen.")
-                      };
-
-            log.OnLogged += _ => throw new InvalidOperationException("The listener broke.");
-
-            Assert.Multiple(() => {
-                Assert.That(() => log.Info("Something happened.", "test"), Throws.Nothing);
-                Assert.That(console.Lines, Is.EqualTo(new[] { new Line(Broken, InBlock: false) }));
-            });
-
-        }
-
-        #endregion
-
-        #region AComplaintIsNotWrittenTwiceWhenTheBlockBreaksAfterIt()
-
-        /// <summary>
-        /// A block that throws after it wrote: the complaint stands as it was
-        /// written, and is not written again beside it.
-        /// </summary>
-        [Test]
-        public void AComplaintIsNotWrittenTwiceWhenTheBlockBreaksAfterIt()
-        {
-
-            var log = new EventLog {
-                          ComplaintBlock = write => {
-                                               console.Block(write);
-                                               throw new IOException("The command line could not be put back.");
-                                           }
-                      };
-
-            log.OnLogged += _ => throw new InvalidOperationException("The listener broke.");
-
-            Assert.Multiple(() => {
-                Assert.That(() => log.Info("Something happened.", "test"), Throws.Nothing);
-                Assert.That(console.Lines, Is.EqualTo(new[] { new Line(Broken, InBlock: true) }));
-            });
-
-        }
-
-        #endregion
 
         #region AStationHandsItsComplaintsOverWithItsConsole(LogToConsole)
 

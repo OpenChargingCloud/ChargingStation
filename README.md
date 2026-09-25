@@ -19,7 +19,7 @@ the station over a JSON API and one Server-Sent Events stream.
 
 ```
   browser  ──  GET /                       the SPA stub and the bundle
-           ──  POST /api/v1/auth/login     the session cookie
+           ──  POST /ext/login             the session cookie, from Hermod's HTTPExt API
            ──  GET  /api/v1/configuration  what the station is made of
            ──  GET  /api/v1/logs           what happened up to now
            ──  GET  /api/v1/events         and everything from now on (SSE)
@@ -100,9 +100,9 @@ particular kind.
 | `WebInterfaceTests`     | the stub, the hashed bundle, deep links, a real 404 for a missing asset - and the display's own page out of the same bundle |
 | `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
-| `DNSConfigurationTests` | what a name server may be written as in the file, and what it may not |
+| `DNSConfigurationTests` | a station that stops over a name server its file writes the way the log does, and says so in a sentence |
 | `EventLogTests`         | the snapshot, the filters, and the live stream |
-| `FileLogTests`          | the log on disk: every entry, the UTC day it belongs to, nothing overwritten, and a disk that fails said once |
+| `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
 | `ShutdownTests`         | a station that is told to stop stops |
@@ -123,13 +123,12 @@ first, and these say it still does.
 
 Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for what a station writes: its
-accounts, its configuration file and the node's certificate store beside it. Nothing reaches the network: the configuration written before each
-station switches the time client off, which is what stops the clock check from
-being scheduled at all - and the one test that needs it on, to read what a
-running station writes when its interval changes, runs on a clock whose timers
-never fire. A test that asks a time server something has it refused before
-anything goes out: the time client switched off, a name that is none, or name
-resolution switched off. And a station is built with `V2GOptions.Off` unless it
+accounts and its configuration file. Nothing reaches the network: the
+configuration written before each station switches the time client off, which
+is what stops the clock check from being scheduled at all, and the station
+that starts with the default four is never started. A test that asks a time
+server something has it refused before anything goes out: the time client
+switched off, a name that is none, or name resolution switched off. And a station is built with `V2GOptions.Off` unless it
 is handed something else.
 
 
@@ -139,8 +138,8 @@ is handed something else.
 |---|---|
 | `ChargingStation.cs`      | the station: a `WWCPNode` with its own sections of the file, the JSON API, the display and the OCPP nodes on top |
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
-| `Web/WebSessions.cs`      | who is signed in: one login in front of Hermod's `SessionStore`, and the cookie its token travels in |
-| `Web/WebLogin*.cs`        | that one login and the file it lives in, its password a `SecurePassword` and never in the clear |
+| `Web/UserRoles.cs`        | the roles a station knows - `viewer`, `cpo`, `installer`, `systemadmin` - and what each of them may do; the node makes their groups |
+| `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
@@ -153,7 +152,8 @@ this repository adds to them is what a charging station is: its own sections
 of the same file, read from the document the node has already read; the roles
 its accounts know - which the node makes a group of at every start; the
 display's port, taken in `OnListening` before the station calls itself
-started; and its own cards on the Configuration page.
+started; the kinds of certificate it keeps in the node's store, which are
+none; and its own cards on the Configuration page.
 
 Serving the bundle is Hermod's: `MapSinglePageApplication` with an
 `EmbeddedContentSource` or a `FileSystemContentSource` does the entity tags,
@@ -256,11 +256,12 @@ through.
 
 The node below reads the sections every one of these programs has - `dns`,
 `nts` and `certificates` - and the station reads its own from the same
-document; each passes over what is the other's. The `certificates` section
-says where the node keeps its certificate store, `certificates/` beside this
-file unless it says otherwise. The station does not choose from that store
-yet: the keys it dials its back ends with are in `ocpp-client-keys/`, beside
-it too.
+document; each passes over what is the other's. The station keeps no
+certificates in the node's store: the keys it dials its back ends with are in
+`ocpp-client-keys/` beside this file, the connections in `ocpp-connections/`,
+and what it offers a vehicle comes with its V2G options. So there is no
+`certificates/` beside it, and a `certificates` section has nothing to say to
+it.
 
 **What is missing is not what is empty.** A section the file does not mention
 leaves whatever the station was handed at construction; a station handed
@@ -366,11 +367,10 @@ changes a plug type gets
 and the page says the same thing before the button is pressed, by making the
 same comparison in the browser.
 
-A login file without `"roles"` describes a system administrator, which is what
-the one login of a station used to be. An **unknown** role is refused at
-startup rather than granting nothing: a connector type this station has never
-heard of is still a socket somebody can plug a car into, but a role it has
-never heard of is a role it cannot enforce.
+A group whose name is none of these four grants **nothing**, rather than
+something, and is never taken for one of them because it looks similar: a
+connector type this station has never heard of is still a socket somebody can
+plug a car into, but a role it has never heard of is a role it cannot enforce.
 
 The browser is told its own permissions so a page can grey out what it may not
 do. That is a copy of what the station enforces, not the enforcement: every
@@ -797,7 +797,7 @@ display on the screen's own network, the administration on the maintenance side,
 neither reachable from the other's wire. That is a sentence somebody can check
 with a port scanner, which "we reviewed the handlers" is not.
 
-    $ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:2349/api/v1/auth/login
+    $ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:2349/api/v1/configuration
     404
 
 The cost is one more socket: the same process, the same station object, the same
@@ -1277,10 +1277,10 @@ the same way: three taps, one card, one session.
 
 `ChargingStation` takes a `TimeProvider` as its last constructor parameter and
 hands it to everything of its own that asks what time it is: the timestamp of
-every log entry, `CreatedAt`, the uptime the status resource reports, and the
-sessions - through Hermod's `SessionStore`, which takes one too. The system
-clock by default; an NTS-disciplined or a fake one where a test or a
-calibration says so.
+every log entry, `CreatedAt`, the uptime the status resource reports, the
+clock check and what the display says about the time, and the two stores
+beside the configuration file. The system clock by default; an NTS-disciplined
+or a fake one where a test or a calibration says so.
 
 It is assigned first - by the node below, before the event log is built -
 because the log stamps its entries with it: a clock set afterwards would leave
@@ -1297,9 +1297,9 @@ sealed class FixedClock(DateTimeOffset Start) : TimeProvider
 var clock   = new FixedClock(new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero));
 var station = new ChargingStation(TimeProvider: clock);
 
-station.Sessions.TryLogin("root", password, out var session);   // 1 live session
-clock.Now = clock.Now.AddHours(13);                             // past the 12 hour idle timeout
-var gone  = station.Sessions.Count;                             // 0
+clock.Now   = clock.Now.AddHours(13);
+var entry   = station.Log.Info("Thirteen hours on.", "test");   // entry.Timestamp: 2000-01-01T13:00:00Z
+var shown   = station.ClockJSON()["now"];                       // what the display shows: the same
 ```
 
 
@@ -1340,3 +1340,14 @@ inside the command nor waits for it:
 ```csharp
 station.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line back
 ```
+
+
+## Your participation
+
+This software is Open Source under the **Affero GPL 3.0 license**.
+We appreciate your participation in this ongoing project, and your help to
+improve it and the e-mobility ICT in general. If you find bugs, want to
+request a feature or send us a pull request, feel free to use the normal
+GitHub features to do so. For this please read the Contributor License
+Agreement carefully and send us a signed copy or use a similar free and
+open license.
