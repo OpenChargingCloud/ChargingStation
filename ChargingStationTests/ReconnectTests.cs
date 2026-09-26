@@ -43,7 +43,9 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// Two ways for a back end to go: shut down, which tells every client with
     /// a close frame, and stopped, which closes the sockets and says nothing.
     /// A plain WebSocket server stands in for the back end, on the same port
-    /// before and after.
+    /// before and after - one that lets anybody in, because a WebSocket server
+    /// asks for credentials unless it is told not to, and this station proves
+    /// itself with nothing here.
     /// </remarks>
     [TestFixture]
     public class ReconnectTests
@@ -140,7 +142,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await first.Stop();
 
-            var lent     = new WebSocketServer(AutoStart: false);
+            var lent     = new WebSocketServer(RequireAuthentication: false, AutoStart: false);
             var proxy    = new HTTPServer(TCPPort: port);
             var upgrade  = WebSocketUpgrade.For(lent);
 
@@ -220,7 +222,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             "What the station says of the connection does not say that it goes on trying.");
             });
 
-            var backEnd = new WebSocketServer(HTTPPort: port, AutoStart: true);
+            var backEnd = new WebSocketServer(HTTPPort: port, RequireAuthentication: false, AutoStart: true);
 
             try
             {
@@ -281,7 +283,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Started here rather than through ComesBack, which shuts its server
             // down again as soon as the station is back - and a station that is
             // asked afterwards has lost the connection a second time.
-            var backAgain = new WebSocketServer(HTTPPort: port, AutoStart: true);
+            var backAgain = new WebSocketServer(HTTPPort: port, RequireAuthentication: false, AutoStart: true);
 
             try
             {
@@ -322,7 +324,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task<WebSocketServer> Connected(IPPort Port)
         {
 
-            var backEnd = new WebSocketServer(HTTPPort: Port, AutoStart: true);
+            var backEnd = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
 
             Assert.That(station!.Connections.TryAddConnection(
                             "Restarts",
@@ -375,7 +377,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private static async Task<Boolean> ComesBack(IPPort Port)
         {
 
-            var again = new WebSocketServer(HTTPPort: Port, AutoStart: true);
+            var again = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
 
             try
             {

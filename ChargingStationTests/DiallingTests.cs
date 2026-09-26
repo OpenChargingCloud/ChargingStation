@@ -213,9 +213,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task EveryConnectionIsDialledWhateverItIsCalled()
         {
 
+            // Anybody may connect: a WebSocket server asks for credentials
+            // unless it is told not to, and this station proves itself with
+            // nothing here.
             var listening = new WebSocketServer(
-                                HTTPPort:   IPPort.Parse(TestStations.FreePort()),
-                                AutoStart:  true
+                                HTTPPort:               IPPort.Parse(TestStations.FreePort()),
+                                RequireAuthentication:  false,
+                                AutoStart:              true
                             );
 
             try
@@ -491,9 +495,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestThatGetsThroughStaysConnectedAndThenLetsGo()
         {
 
+            // Anybody may connect: a WebSocket server asks for credentials
+            // unless it is told not to, and this station proves itself with
+            // nothing here.
             var listening = new WebSocketServer(
-                                HTTPPort:   IPPort.Parse(TestStations.FreePort()),
-                                AutoStart:  true
+                                HTTPPort:               IPPort.Parse(TestStations.FreePort()),
+                                RequireAuthentication:  false,
+                                AutoStart:              true
                             );
 
             try

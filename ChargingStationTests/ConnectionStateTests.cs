@@ -46,8 +46,8 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// happens next.
     ///
     /// A plain WebSocket server stands in for the back end, as in
-    /// <see cref="ReconnectTests"/>, and the page is a signed-in HTTP client
-    /// asking the route the page asks.
+    /// <see cref="ReconnectTests"/> - one that lets anybody in - and the page
+    /// is a signed-in HTTP client asking the route the page asks.
     /// </remarks>
     [TestFixture]
     public class ConnectionStateTests
@@ -177,7 +177,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             "It said the next attempt was before the connection was lost.");
             });
 
-            var again    = new WebSocketServer(HTTPPort: port, AutoStart: true);
+            var again    = new WebSocketServer(HTTPPort: port, RequireAuthentication: false, AutoStart: true);
 
             try
             {
@@ -297,6 +297,94 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AStartDoesNotWaitForABackEndThatNeverAnswers()
+
+        /// <summary>
+        /// A back end that takes the connection and never answers - a hung
+        /// process, a load balancer with nothing behind it - neither holds up
+        /// the start nor keeps the station from trying again.
+        /// </summary>
+        /// <remarks>
+        /// The deadline for the answer to the upgrade was looked at only after
+        /// a byte had arrived, so an attempt nobody answered never ended: the
+        /// start waited for the client's request timeout, ten minutes, and the
+        /// connection was never tried again.
+        /// </remarks>
+        [Test]
+        public async Task AStartDoesNotWaitForABackEndThatNeverAnswers()
+        {
+
+            var listener  = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            var taken     = new List<System.Net.Sockets.Socket>();
+
+            listener.Start();
+
+            _ = Task.Run(async () => {
+                while (true)
+                {
+                    try
+                    {
+                        var socket = await listener.AcceptSocketAsync();
+                        lock (taken)
+                            taken.Add(socket);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                }
+            });
+
+            try
+            {
+
+                Assert.That(station!.Connections.TryAddConnection(
+                                "Says nothing",
+                                $"ws://127.0.0.1:{((IPEndPoint) listener.LocalEndpoint).Port}/cs001",
+                                "CSMS",
+                                true, null, null, out var id, out var error),
+                            Is.True, error);
+
+                var took     = System.Diagnostics.Stopwatch.StartNew();
+                var starting = station.Start();
+
+                Assert.That(await Task.WhenAny(starting, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(starting),
+                            "The station had not started 30 s after it was told to, waiting for a back end that never answers.");
+
+                took.Stop();
+
+                Assert.Multiple(() => {
+                    Assert.That(took.Elapsed, Is.LessThan(TimeSpan.FromSeconds(15)));
+                    Assert.That(station.DialledConnections[id!], Does.Contain("tried again by itself"));
+                });
+
+                var giveUp = DateTimeOffset.UtcNow + Within;
+
+                while (DateTimeOffset.UtcNow < giveUp)
+                {
+                    lock (taken)
+                        if (taken.Count >= 2)
+                            break;
+                    await Task.Delay(100);
+                }
+
+                lock (taken)
+                    Assert.That(taken.Count, Is.GreaterThanOrEqualTo(2),
+                                "The station never tried again after an attempt nobody answered.");
+
+            }
+            finally
+            {
+                listener.Stop();
+                lock (taken)
+                    foreach (var socket in taken)
+                        socket.Close();
+            }
+
+        }
+
+        #endregion
+
         #region OnlySomebodyWhoMayReadTheConfigurationIsTold()
 
         /// <summary>
@@ -326,7 +414,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task<WebSocketServer> Connected(IPPort Port)
         {
 
-            var backEnd = new WebSocketServer(HTTPPort: Port, AutoStart: true);
+            var backEnd = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
 
             Assert.That(station!.Connections.TryAddConnection(
                             "Restarts",

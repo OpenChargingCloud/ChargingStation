@@ -597,6 +597,12 @@ comes back as one that will not have the station - its passwords changed, the
 station removed from it - turns the connection away on its way back: it is
 said to be refused, not promised to come back by itself.
 
+A back end that takes the connection and then says nothing at all - a hung
+process, a load balancer with nothing behind it - is given up on after five
+seconds, with a 408 of the client's own making, and tried again like any other
+that is not there yet. It used to hold the start of the station for ten
+minutes and was never tried again.
+
 **A connection is dialled when the station starts.** One written down, changed
 or removed while it runs is written at once and dialled, or hung up, at the
 next start - and the page says so: beside a changed one, what was dialled;
