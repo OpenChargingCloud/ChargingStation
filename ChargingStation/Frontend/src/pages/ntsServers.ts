@@ -1,4 +1,5 @@
-import type { NTSHeldTo, NTSServerEntry, NTSTimeSource } from '../api/client';
+import type { NTSServerEntry, NTSTimeSource } from '../api/client';
+import { learnedOnly, pinsIn, pinsOf } from './pins';
 
 /**
  * The list of time servers as the NTS page edits it.
@@ -50,56 +51,14 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
 }
 
 
-/** The part of an entry that says what its server is held to. */
-type Pins = Pick<NTSServerEntry, 'certificateFingerprint' | 'certificateFingerprints' |
-                                 'rootFingerprint'        | 'rootFingerprints'        |
-                                 'onMismatch'             | 'trustOnFirstUse'>;
-
-/**
- * What a server is held to, as its entry says it: one pin of a kind as one,
- * several as a list, and a mismatch or something to learn only where it is
- * not the usual - the way the station writes it into the file.
- *
- * Carried back although this page shows none of it, because the station is
- * told the whole list every time and writes back what it is sent: an entry
- * made only of what the page shows is a server held to nothing. A pin typed
- * into the file, or learned on first use, went with the next save of any
- * server in the list, and nobody had touched it.
- */
-export function pinsOf(heldTo: NTSHeldTo | null | undefined): Pins {
-
-    const pins: Pins = {};
-
-    if (!heldTo)
-        return pins;
-
-    const certificates  = heldTo.certificates ?? (heldTo.certificate ? [ heldTo.certificate ] : []);
-    const roots         = heldTo.roots        ?? (heldTo.root        ? [ heldTo.root ]        : []);
-
-    if      (certificates.length === 1)  pins.certificateFingerprint   = certificates[0];
-    else if (certificates.length  >  1)  pins.certificateFingerprints  = [ ...certificates ];
-
-    if      (roots.length === 1)         pins.rootFingerprint          = roots[0];
-    else if (roots.length  >  1)         pins.rootFingerprints         = [ ...roots ];
-
-    if (heldTo.onMismatch      !== undefined && heldTo.onMismatch      !== 'refuse')  pins.onMismatch       = heldTo.onMismatch;
-    if (heldTo.trustOnFirstUse !== undefined && heldTo.trustOnFirstUse !== 'none')    pins.trustOnFirstUse  = heldTo.trustOnFirstUse;
-
-    return pins;
-
-}
-
-
 /**
  * The entry the dialog makes of what was typed into it, for the server that
  * was at that place before - or for a new one.
  *
  * The dialog shows nothing of what a server is held to, so what it was held
  * to is carried over: a server whose priority was changed is still the server
- * that was pinned. Given another name, it is another server, and the
- * fingerprints were the old one's - but what its entry was to learn on first
- * use, and what a mismatch comes to then, is how that entry treats whichever
- * server it names, and it learns the new one's.
+ * that was pinned. Given another name, it is another server, and keeps only
+ * what its entry was to learn - see learnedOnly.
  */
 export function editedEntry(before:  NTSServerEntry | null,
                             typed:   NTSServerEntry): NTSServerEntry {
@@ -107,35 +66,9 @@ export function editedEntry(before:  NTSServerEntry | null,
     if (before === null)
         return typed;
 
-    if (readable(before.hostname).toLowerCase() === readable(typed.hostname).toLowerCase())
-        return { ...typed, ...pinsIn(before) };
-
-    if (before.trustOnFirstUse === undefined || before.trustOnFirstUse === 'none')
-        return typed;
-
-    const learned: NTSServerEntry = { ...typed, trustOnFirstUse: before.trustOnFirstUse };
-
-    if (before.onMismatch !== undefined)
-        learned.onMismatch = before.onMismatch;
-
-    return learned;
-
-}
-
-
-/** What an entry says its server is held to, and nothing else of it. */
-function pinsIn(entry: NTSServerEntry): Pins {
-
-    const pins: Pins = {};
-
-    if (entry.certificateFingerprint  !== undefined)  pins.certificateFingerprint   = entry.certificateFingerprint;
-    if (entry.certificateFingerprints !== undefined)  pins.certificateFingerprints  = [ ...entry.certificateFingerprints ];
-    if (entry.rootFingerprint         !== undefined)  pins.rootFingerprint          = entry.rootFingerprint;
-    if (entry.rootFingerprints        !== undefined)  pins.rootFingerprints         = [ ...entry.rootFingerprints ];
-    if (entry.onMismatch              !== undefined)  pins.onMismatch               = entry.onMismatch;
-    if (entry.trustOnFirstUse         !== undefined)  pins.trustOnFirstUse          = entry.trustOnFirstUse;
-
-    return pins;
+    return readable(before.hostname).toLowerCase() === readable(typed.hostname).toLowerCase()
+               ? { ...typed, ...pinsIn(before) }
+               : { ...typed, ...learnedOnly(pinsIn(before)) };
 
 }
 

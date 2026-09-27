@@ -84,13 +84,26 @@ export interface Configuration {
 }
 
 
-/** One name server this station asks. */
-export interface DNSServer {
+/**
+ * One name server this station asks: its entry in the configuration - with
+ * what it is held to, where it is reached over TLS or HTTPS - and, for reading
+ * only, what the station makes of it.
+ */
+export interface DNSServer extends ServerPinKeys {
     /** An IP address or a host name. */
     address:              string;
     port:                 number;
     transport:            string;
     queryTimeoutSeconds:  number | null;
+
+    /** What its entry holds it to, or null where it says nothing about it. */
+    heldTo?:              ServerHeldTo | null;
+
+    /** What was made of its certificate the last time it showed one. */
+    judgement?:           unknown;
+
+    /** What it was last believed with. */
+    known?:               KnownServer | null;
 }
 
 /** What may be changed about the name resolution while the station runs. */
@@ -197,45 +210,57 @@ export interface NTSUpdate {
  * One time server as the configuration names it. Whatever is left out is the
  * usual: priority 0, the usual ports, switched on, and held to nothing beyond
  * what every server is held to.
- *
- * A pin of a kind is one fingerprint, several are a list - the way the file
- * writes them - and a mismatch or something to learn is only there where it
- * is not the usual.
  */
-export interface NTSServerEntry {
-    hostname:                  string;
-    priority?:                 number;
-    ntsKEPort?:                number;
-    ntpPort?:                  number;
-    enabled?:                  boolean;
+export interface NTSServerEntry extends ServerPinKeys {
+    hostname:    string;
+    priority?:   number;
+    ntsKEPort?:  number;
+    ntpPort?:    number;
+    enabled?:    boolean;
+}
+
+/**
+ * What the entry of a server - a time server, or a name server reached over
+ * TLS or HTTPS - says it is held to, in the keys the configuration file writes
+ * it under: a pin of a kind as one fingerprint, several as a list, and a
+ * mismatch or something to learn only where it is not the usual.
+ */
+export interface ServerPinKeys {
     certificateFingerprint?:   string;
     certificateFingerprints?:  string[];
     rootFingerprint?:          string;
     rootFingerprints?:         string[];
-    onMismatch?:               NTSPinMismatch;
-    trustOnFirstUse?:          NTSTrustOnFirstUse;
+    onMismatch?:               PinMismatch;
+    trustOnFirstUse?:          TrustOnFirstUse;
 }
 
 /** What a connection to a pinned server comes to whose certificate is not one of its pins. */
-export type NTSPinMismatch     = 'refuse' | 'record' | 'accept';
+export type PinMismatch     = 'refuse' | 'record' | 'accept';
 
 /** What a server is held to from the first time it is believed, where it is held to nothing of that kind yet. */
-export type NTSTrustOnFirstUse = 'none' | 'root' | 'certificate';
+export type TrustOnFirstUse = 'none' | 'root' | 'certificate';
 
 /**
- * What one time server is held to, beside what every server is held to: the
+ * What one server is held to, beside what every server is held to: the
  * certificates it may show and the roots its chain may end at, each by its
  * SHA-256 fingerprint, what a mismatch comes to, and what it learns on first
  * use. The first certificate and the first root are also said on their own,
  * as they were before a server could be held to several.
  */
-export interface NTSHeldTo {
+export interface ServerHeldTo {
     certificate?:      string | null;
     root?:             string | null;
     certificates?:     string[];
     roots?:            string[];
-    onMismatch?:       NTSPinMismatch;
-    trustOnFirstUse?:  NTSTrustOnFirstUse;
+    onMismatch?:       PinMismatch;
+    trustOnFirstUse?:  TrustOnFirstUse;
+}
+
+/** What a server was last believed with, and since when. */
+export interface KnownServer {
+    certificate:  string | null;
+    root:         string | null;
+    since:        string;
 }
 
 /** How one synchronisation went, step by step. */
@@ -299,7 +324,7 @@ export interface NTSTimeSource {
      * What its entry in the configuration holds it to, or null where it says
      * nothing about it.
      */
-    heldTo?:        NTSHeldTo | null;
+    heldTo?:        ServerHeldTo | null;
 }
 
 /** A root CA, by a name to call it, its subject, and its SHA-256 fingerprint. */

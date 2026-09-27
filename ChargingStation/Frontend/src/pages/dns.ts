@@ -5,7 +5,7 @@ import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
-import { allServersTake, oneServerTakes } from './dnsServers';
+import { allServersTake, entryOf, oneServerTakes } from './dnsServers';
 
 /**
  * How this charging station resolves names.
@@ -49,6 +49,26 @@ export const dnsPage: Page = {
 
         /** The servers on screen; edited as a list and sent as one value. */
         let servers: DNSServer[] = [];
+
+        /**
+         * The address each server on screen had when the station last said
+         * the list - so that one given another address is not sent back held
+         * to what the old one was.
+         */
+        let loadedAs = new WeakMap<DNSServer, string>();
+
+        /** The servers as the station said them, as copies the page may edit. */
+        function editable(said: readonly DNSServer[]): DNSServer[] {
+
+            loadedAs = new WeakMap<DNSServer, string>();
+
+            return said.map(server => {
+                const copy = { ...server };
+                loadedAs.set(copy, server.address);
+                return copy;
+            });
+
+        }
 
         let result: DNSQueryResult | null = null;
         let testing = false;
@@ -306,7 +326,8 @@ export const dnsPage: Page = {
                 void save({
                     // The servers travel with the settings, because the form is
                     // where somebody presses Save after editing either.
-                    servers:              servers.filter(server => server.address.trim().length > 0),
+                    servers:              servers.filter(server => server.address.trim().length > 0).
+                                                  map(server => entryOf(server, loadedAs.get(server) ?? null)),
                     useCache:             data.get('useCache')     !== null,
                     dnssecOK:             data.get('dnssecOK')     !== null,
                     followCNAMEs:         data.get('followCNAMEs') !== null,
@@ -346,7 +367,7 @@ export const dnsPage: Page = {
                 // the page shows what the station took rather than what the
                 // form sent.
                 current = await whileSaving(content, note, () => api.dns.save(update));
-                servers = current.servers.map(server => ({ ...server }));
+                servers = editable(current.servers);
 
                 draw();
 
@@ -612,7 +633,7 @@ export const dnsPage: Page = {
                     return;
 
                 current = loaded;
-                servers = loaded.servers.map(server => ({ ...server }));
+                servers = editable(loaded.servers);
 
                 draw();
             }

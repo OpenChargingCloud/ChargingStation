@@ -8,10 +8,23 @@
  */
 
 import { strict as assert }  from 'node:assert';
+import { registerHooks }     from 'node:module';
 import { describe, it }      from 'node:test';
 
-import type { NTSHeldTo, NTSTimeSource } from '../api/client';
-import { editedEntry, entryOf, nameTaken, readable, withServer, withoutServer } from './ntsServers.ts';
+import type { NTSTimeSource, ServerHeldTo } from '../api/client';
+
+// The pages are written for webpack, which does not want the extension in a
+// relative import; Node does. One hook puts it back for whatever this test
+// loads - the list reads what a server is held to from pins.ts.
+registerHooks({
+    resolve(specifier, context, next) {
+        return specifier.startsWith('.') && !specifier.endsWith('.ts')
+                   ? next(`${specifier}.ts`, context)
+                   : next(specifier, context);
+    }
+});
+
+const { editedEntry, entryOf, nameTaken, readable, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -47,7 +60,7 @@ describe('what a time server is held to, turned back into its entry', () => {
     const R = 'C'.repeat(64);
 
     /** What the station says a server is held to, the way it says it. */
-    const held = (more: Partial<NTSHeldTo>): NTSHeldTo =>
+    const held = (more: Partial<ServerHeldTo>): ServerHeldTo =>
         ({ certificate: null, root: null, certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: 'none', ...more });
 
     it('is the pin the file had, told to the station again', () => {

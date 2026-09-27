@@ -333,6 +333,14 @@ server in the list. A server given another name in the dialog is another
 server: it keeps what its entry was to learn on first use, and none of the old
 name's fingerprints.
 
+The name servers are the same kind of field, and a name server reached over TLS
+or HTTPS is held to its certificate the same way - so the DNS page sends each
+one back with what it is held to, and without what the station only says about
+it. A server switched to UDP or TCP lets go of its pins when it is saved: the
+station refuses a pin on a server that shows no certificate, and would refuse
+the whole list with it. And one given another address keeps, as on the NTS
+page, only what its entry was to learn.
+
 ### Who may change what
 
 Every account carries roles, and a role is a user group of that name in the
