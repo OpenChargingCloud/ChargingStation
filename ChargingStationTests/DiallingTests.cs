@@ -62,6 +62,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String            directory  = "";
         private ChargingStation?  station;
 
+        /// <summary>
+        /// The ports this test holds closed, until it is over.
+        /// </summary>
+        private readonly List<ClosedPort>  closedPorts  = [];
+
         #endregion
 
         #region SetUp / TearDown
@@ -86,27 +91,62 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = null;
 
+            foreach (var port in closedPorts)
+                port.Dispose();
+
+            closedPorts.Clear();
+
             TestStations.Remove(directory);
 
         }
 
         #endregion
 
-        #region (private static) NowhereInParticular()
+        #region (private) NowhereInParticular()
 
         /// <summary>
-        /// A loopback address nothing is listening on.
+        /// A loopback address nothing is listening on, for as long as the test
+        /// runs.
         /// </summary>
         /// <remarks>
-        /// A port that was free a moment ago and that nothing was then told to
-        /// listen on. "A moment ago" is the honest phrase and it is the same
-        /// bargain every free-port helper makes; what matters here is only
-        /// that the connection is refused quickly rather than that it is
-        /// refused for a particular reason.
+        /// A port held closed rather than one that was free a moment ago: a
+        /// free port was anybody's, and another test run on the same machine
+        /// took one now and then - the station was answered 401 where these
+        /// tests count on nothing answering, and said the connection was
+        /// refused rather than not reached. See <see cref="ClosedPort"/>.
         /// </remarks>
-        private static String NowhereInParticular()
+        private String NowhereInParticular()
+        {
 
-            => $"ws://127.0.0.1:{TestStations.FreePort()}/cs001";
+            var port = new ClosedPort();
+
+            closedPorts.Add(port);
+
+            return $"ws://127.0.0.1:{port}/cs001";
+
+        }
+
+        #endregion
+
+        #region (private) ForABackEnd()
+
+        /// <summary>
+        /// A port for a back end of the test's own, held for as long as the test
+        /// runs and handed over to it - so that nobody asking for a free port is
+        /// given it, before the back end is up or after it has stopped.
+        /// </summary>
+        private IPPort ForABackEnd()
+        {
+
+            var port = new ClosedPort();
+
+            closedPorts.Add(port);
+
+            port.HandOver();
+
+            return port.Number;
+
+        }
 
         #endregion
 
@@ -217,7 +257,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // unless it is told not to, and this station proves itself with
             // nothing here.
             var listening = new WebSocketServer(
-                                HTTPPort:               IPPort.Parse(TestStations.FreePort()),
+                                HTTPPort:               ForABackEnd(),
                                 RequireAuthentication:  false,
                                 AutoStart:              true
                             );
@@ -499,7 +539,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // unless it is told not to, and this station proves itself with
             // nothing here.
             var listening = new WebSocketServer(
-                                HTTPPort:               IPPort.Parse(TestStations.FreePort()),
+                                HTTPPort:               ForABackEnd(),
                                 RequireAuthentication:  false,
                                 AutoStart:              true
                             );

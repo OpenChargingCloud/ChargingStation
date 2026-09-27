@@ -179,6 +179,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// There is a gap between letting the port go and binding it again, and
         /// nothing here can close it; what it buys is that the gap is
         /// milliseconds wide instead of the whole test run.
+        ///
+        /// Only for the ports a station opens itself - its web interface, its
+        /// display, its local app - where a port somebody else took in the gap
+        /// ends the start with a sentence that says so. A port nothing may
+        /// answer on, and one a back end of the test's own is started on, is a
+        /// <see cref="ClosedPort"/>: there somebody else in the gap was
+        /// answered as the back end, and the test believed it.
         /// </remarks>
         public static UInt16 FreePort()
         {

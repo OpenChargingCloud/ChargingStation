@@ -104,7 +104,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionThatGotThroughIsSaidToBeConnected()
         {
 
-            var port     = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port     = closed.Number;
             var backEnd  = await Connected(port);
 
             try
@@ -157,7 +163,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ALostConnectionIsSaidToBeLostAndWhenItIsTriedAgain()
         {
 
-            var port     = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port     = closed.Number;
             var first    = await Connected(port);
             var id       = station!.DialledConnections.Keys.Single();
 
@@ -217,7 +229,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionRefusedOnItsWayBackIsNotPromisedAnyMore()
         {
 
-            var port     = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port     = closed.Number;
             var first    = await Connected(port);
             var id       = station!.DialledConnections.Keys.Single();
 
@@ -274,9 +292,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionToNothingCouldNotBeReachedAndIsTriedAgain()
         {
 
+            // Held closed for the whole test: nothing may answer on it.
+            using var nowhere = new ClosedPort();
+
             Assert.That(station!.Connections.TryAddConnection(
                             "Not up yet",
-                            $"ws://127.0.0.1:{TestStations.FreePort()}/cs001",
+                            $"ws://127.0.0.1:{nowhere}/cs001",
                             "CSMS",
                             true, null, null, out var id, out var error),
                         Is.True, error);

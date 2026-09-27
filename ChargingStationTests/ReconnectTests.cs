@@ -95,7 +95,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionComesBackWhenItsBackEndIsShutDownAndStartedAgain()
         {
 
-            var port   = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port   = closed.Number;
             var first  = await Connected(port);
 
             await first.Shutdown("Restarting.");
@@ -113,7 +119,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionComesBackWhenItsBackEndIsStoppedAndStartedAgain()
         {
 
-            var port   = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port   = closed.Number;
             var first  = await Connected(port);
 
             await first.Stop();
@@ -136,7 +148,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionComesBackThroughABackEndThatIsStillStarting()
         {
 
-            var port     = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port     = closed.Number;
             var first    = await Connected(port);
             var refused  = 0;
 
@@ -202,7 +220,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionThatCannotBeMadeAtTheStartIsMadeLater()
         {
 
-            var port = IPPort.Parse(TestStations.FreePort());
+            // Held closed until the back end below starts on it, and handed
+            // over right before: until then, nothing may answer on it.
+            using var closed = new ClosedPort();
+
+            var port = closed.Number;
 
             Assert.That(station!.Connections.TryAddConnection(
                             "Not up yet",
@@ -221,6 +243,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.DialledConnections[connection!], Does.Contain("could not be reached").And.Contain("tried again by itself"),
                             "What the station says of the connection does not say that it goes on trying.");
             });
+
+            closed.HandOver();
 
             var backEnd = new WebSocketServer(HTTPPort: port, RequireAuthentication: false, AutoStart: true);
 
@@ -269,7 +293,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task WhatIsSaidOfAConnectionFollowsIt()
         {
 
-            var port   = IPPort.Parse(TestStations.FreePort());
+            // Held for the whole test and handed over to the back ends it
+            // starts: nobody else is given it, even while none of them is up.
+            using var closed = new ClosedPort();
+
+            closed.HandOver();
+
+            var port   = closed.Number;
             var first  = await Connected(port);
             var id     = station!.DialledConnections.Keys.Single();
 

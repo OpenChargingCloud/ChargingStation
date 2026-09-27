@@ -112,6 +112,7 @@ particular kind.
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, and that only the administrators change it |
+| `ClosedPortTests`       | a port a test holds closed: refused, nobody else can listen on it, and handed over it takes a back end - what the tests that dial nowhere and their own back ends stand on |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 
 Two of them are about the station having more than one door. The display is a
