@@ -707,8 +707,10 @@ has to bring its private key. A TLS root and a server certificate are told what
 they are for - the time servers (`nts`), the name servers (`dns`), or with
 nothing said every use - at the upload and again later, because one root may
 vouch for both and a root kept for the name servers vouches for no time. The NTS
-and the DNS page offer, in a server's dialog, the ones kept for it. Copying a
-file into the directory is a way to install one as well: the store reads the
+and the DNS page offer, in a server's dialog, the ones kept for it. An identity
+is told the listeners it is shown on where a kind of node names some; a station
+names none, so the page offers an identity nothing to be told. Copying a file
+into the directory is a way to install one as well: the store reads the
 directory at every start, and "Re-read the directory" does it at once.
 
 Reading the store is `certificates:read`. Changing it - importing, switching

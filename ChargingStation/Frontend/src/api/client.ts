@@ -932,10 +932,15 @@ export interface CertificateStore {
                        description:     string;
                        trustAnchor:     boolean;
                        needsPrivateKey: boolean;
-                       /** Whether one of this kind is told what it is for. */
+                       /** Whether one of this kind is told what it is for in this store. */
                        hasUsages?:      boolean;
+                       /**
+                        * What it may be told: the services for a TLS root or a
+                        * server certificate, the listeners for a TLS identity.
+                        */
+                       usages?:         string[];
                    }>;
-    /** What a certificate of a kind that has usages may be told it is for. */
+    /** What a TLS root or a server certificate may be told it is for, as it was said before every kind said its own. */
     usages?:       string[];
     certificates:  Record<CertificateKind, Certificate[]>;
     /** Whether anything in the store carries a private key, which is kept unencrypted. */

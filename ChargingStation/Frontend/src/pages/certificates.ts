@@ -4,6 +4,7 @@ import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, whileSaving } from '../ui';
+import { hasUsages as storeHasUsages, usageName, usagesOf } from './certificateUsages';
 
 /**
  * The largest file this page will offer to import.
@@ -17,17 +18,6 @@ const largestImport = 1024 * 1024;
 
 /** How soon a certificate is worth warning about, in days. */
 const expiringSoon = 30;
-
-
-/** What a usage is called on this page: the service, in the words of the pages it is set on. */
-const usageNames: Record<string, string> = {
-    dns:  'name servers (DNS)',
-    nts:  'time servers (NTS)'
-};
-
-function usageName(usage: string): string {
-    return usageNames[usage] ?? usage;
-}
 
 
 /**
@@ -152,28 +142,33 @@ export const certificatesPage: Page = {
             return [ ...store.trustAnchors, ...store.credentials, ...(store.recognised ?? []) ];
         }
 
-        /** Whether a certificate of this kind is told what it is for. */
+        /** Whether a certificate of this kind is told what it is for in this store. */
         function hasUsages(kind: CertificateKind): boolean {
-            return current?.kinds[kind]?.hasUsages === true;
+            return current !== null && storeHasUsages(current, kind);
         }
 
         /**
-         * The boxes that say what a certificate is for, one per usage the
-         * station knows - none ticked for every use, which is what a
-         * certificate kept before there were usages is as well, and what the
-         * station would refuse to be told as an empty list.
+         * The boxes that say what a certificate of this kind is for, one per
+         * usage the station offers that kind - the services for a root or a
+         * server certificate, the listeners for an identity - with its legend.
+         * None ticked for every use, which is what a certificate kept before
+         * there were usages is as well, and what the station would refuse to be
+         * told as an empty list.
          */
-        function usagesFields(ticked: readonly string[] | null | undefined) {
+        function usagesFields(kind: CertificateKind, ticked: readonly string[] | null | undefined) {
+
+            const listeners = kind === 'tlsIdentity';
 
             return html`
-                ${(current!.usages ?? []).map(usage => html`
+                <legend>${listeners ? 'Where it is shown' : 'What it is kept for'}</legend>
+                ${usagesOf(current!, kind).map(usage => html`
                     <label class="checkbox">
                         <input type="checkbox" name="usage" value="${usage}"
                                ${ticked?.includes(usage) ? html`checked` : ''} ${busy ? html`disabled` : ''} />
                         ${usageName(usage)}
                     </label>
                 `)}
-                <span class="hint">None ticked: for every use.</span>
+                <span class="hint">None ticked: ${listeners ? 'on every listener' : 'for every use'}.</span>
             `;
 
         }
@@ -210,8 +205,7 @@ export const certificatesPage: Page = {
                         </label>
 
                         <fieldset class="usages" id="import-usages" ${first !== undefined && hasUsages(first) ? '' : html`hidden`}>
-                            <legend>What it is kept for</legend>
-                            ${usagesFields(null)}
+                            ${first === undefined ? '' : usagesFields(first, null)}
                         </fieldset>
 
                         <label>What opens it, if it is a protected PKCS#12
@@ -349,10 +343,18 @@ export const certificatesPage: Page = {
                 void doImport(form);
             });
 
-            // What it is kept for is asked only of the kinds that are told it.
+            // What it is kept for is asked only of the kinds that are told it,
+            // and with what that kind may be told: a root and an identity are
+            // offered different things.
             content.querySelector<HTMLSelectElement>('#import-kind')?.addEventListener('change', event => {
-                must<HTMLElement>(content, '#import-usages').hidden =
-                    !hasUsages((event.target as HTMLSelectElement).value as CertificateKind);
+
+                const kind     = (event.target as HTMLSelectElement).value as CertificateKind;
+                const usages   = must<HTMLElement>(content, '#import-usages');
+
+                render(usages, usagesFields(kind, null));
+
+                usages.hidden = !hasUsages(kind);
+
             });
 
             for (const button of content.querySelectorAll<HTMLButtonElement>('[data-usages]'))
@@ -497,8 +499,7 @@ export const certificatesPage: Page = {
                 <form id="usages-form" class="form-stack">
 
                     <fieldset class="usages">
-                        <legend>What it is kept for</legend>
-                        ${usagesFields(entry.usages)}
+                        ${usagesFields(entry.kind, entry.usages)}
                     </fieldset>
 
                     <p class="hint">
