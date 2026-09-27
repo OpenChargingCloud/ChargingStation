@@ -1,7 +1,8 @@
-import type { KnownServer, ServerJudgement } from '../api/client';
+import { api, type KnownServer, type ServerJudgement } from '../api/client';
+import { auth } from '../auth';
 import { html, must, type HTMLFragment } from '../html';
 import { formatValue } from '../ui';
-import { outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft } from './pins';
+import { offersOf, outcomeText, outcomeTone, pinsText, readPins, shortFingerprint, type PinsDraft, type StoreOffers } from './pins';
 
 /**
  * The certificate of a server this station connects to - a time server, a
@@ -30,15 +31,39 @@ function dayOf(iso: string): string {
 }
 
 
-/** Where a server's dialog is opened, and what it can offer to be added. */
+/** Where a server's dialog is opened, and what it can offer to be picked. */
 export interface PinsContext {
-    /** "nts" or "dns": whether it is a time server or a name server. */
+    /** "nts" or "dns": which roots and server certificates of the store are for it. */
     service:  'nts' | 'dns';
     /**
      * The server, and the certificate and root it showed the last time it was
      * asked - which is what a pin is most often written down from.
      */
     shown:    { name: string; certificate: string | null; root: string | null } | null;
+    /** What the certificate store keeps for this service, where this person may read it. */
+    offers:   StoreOffers | null;
+}
+
+
+/**
+ * What the certificate store keeps for a service, or null where the person
+ * signed in may not read it or it cannot be read - the fields are there
+ * either way, and a fingerprint can always be typed.
+ */
+export async function storeOffers(service: 'nts' | 'dns'): Promise<StoreOffers | null> {
+
+    if (!auth.can('readConfiguration'))
+        return null;
+
+    try
+    {
+        return offersOf(await api.certificates.get(), service);
+    }
+    catch
+    {
+        return null;
+    }
+
 }
 
 
@@ -136,9 +161,9 @@ export function heldToView(draft:    PinsDraft,
  * The fields that say what a server is held to, for the dialog of a time
  * server or of a name server.
  *
- * Fingerprints are typed or pasted one to a line, and the one there is a
- * better source for - what the server showed last - can be added with a click
- * rather than copied by hand. A
+ * Fingerprints are typed or pasted one to a line, and the ones there are
+ * better sources for - what the server showed last, what the certificate
+ * store keeps - can be added with a click rather than copied by hand. A
  * time server's certificate is evidence for the time this station keeps, so
  * the list of what a mismatch comes to says where each goes.
  */
@@ -147,6 +172,7 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
     const what     = context.service === 'nts' ? 'time server' : 'name server';
     const evidence = context.service === 'nts';
     const shown    = context.shown;
+    const offers   = context.offers;
 
     return html`
         <fieldset class="pins">
@@ -155,7 +181,7 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
             <p class="hint">
                 Beyond what every ${what} is held to: a certificate issued for its name, whose chain ends
-                at a root this machine trusts. Nothing here, and any such certificate is
+                at a root this machine or this station trusts. Nothing here, and any such certificate is
                 believed - and a change of it is written into the log all the same.
             </p>
 
@@ -166,7 +192,8 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
             </label>
 
             ${offerView('pinCertificates', shown?.certificate ?? null, draft.certificates,
-                        shown === null ? '' : `Add the one ${shown.name} showed`)}
+                        shown === null ? '' : `Add the one ${shown.name} showed`,
+                        offers?.certificates ?? [], `... or a server certificate kept for ${context.service.toUpperCase()}`)}
 
             <label>Roots its chain may end at
                 <textarea name="pinRoots" rows="2" spellcheck="false" autocomplete="off"
@@ -178,7 +205,8 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
             </label>
 
             ${offerView('pinRoots', shown?.root ?? null, draft.roots,
-                        shown === null ? '' : `Add the root its chain ended at`)}
+                        shown === null ? '' : `Add the root its chain ended at`,
+                        offers?.roots ?? [], `... or a TLS root kept for ${context.service.toUpperCase()}`)}
 
             <label>When it shows another one
                 <select name="pinMismatch">
@@ -213,21 +241,33 @@ export function pinsFieldset(draft: PinsDraft, context: PinsContext): HTMLFragme
 
 
 /**
- * The way to add a fingerprint to one of the lists without typing it: the one
- * the server showed, where it is not in the list already.
+ * The ways to add a fingerprint to one of the lists without typing it: the one
+ * the server showed, and the ones the certificate store keeps for this service.
  */
 function offerView(list:          'pinCertificates' | 'pinRoots',
                    shown:         string | null,
                    already:       string[],
-                   shownLabel:    string): HTMLFragment {
+                   shownLabel:    string,
+                   kept:          { thumbprint: string; label: string; id: string }[],
+                   keptLabel:     string): HTMLFragment {
 
-    if (shown === null || shownLabel.length === 0 || already.includes(shown))
+    const offerShown = shown !== null && shownLabel.length > 0 && !already.includes(shown);
+
+    if (!offerShown && kept.length === 0)
         return html``;
 
     return html`
         <div class="pin-offers">
-            <button type="button" class="btn small" data-pin-add="${list}" data-fingerprint="${shown}"
-                    title="${shown}">${shownLabel}</button>
+            ${offerShown
+                  ? html`<button type="button" class="btn small" data-pin-add="${list}" data-fingerprint="${shown}"
+                                 title="${shown}">${shownLabel}</button>`
+                  : ''}
+            ${kept.length > 0
+                  ? html`<select data-pin-pick="${list}" aria-label="${keptLabel}">
+                             <option value="">${keptLabel}</option>
+                             ${kept.map(entry => html`<option value="${entry.thumbprint}">${entry.label} (${entry.id})</option>`)}
+                         </select>`
+                  : ''}
         </div>
     `;
 
@@ -235,8 +275,8 @@ function offerView(list:          'pinCertificates' | 'pinRoots',
 
 
 /**
- * Make the offer of a dialog's pin fields add what it offers: to the end of
- * its list, once.
+ * Make the offers of a dialog's pin fields add what they offer: to the end of
+ * their list, once.
  */
 export function wirePinsFieldset(dialog: HTMLElement): void {
 
@@ -264,6 +304,19 @@ export function wirePinsFieldset(dialog: HTMLElement): void {
         add(button.dataset.pinAdd!, button.dataset.fingerprint ?? '');
 
         button.hidden = true;
+
+    });
+
+    dialog.addEventListener('change', event => {
+
+        const select = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-pin-pick]');
+
+        if (select === null)
+            return;
+
+        add(select.dataset.pinPick!, select.value);
+
+        select.value = '';
 
     });
 

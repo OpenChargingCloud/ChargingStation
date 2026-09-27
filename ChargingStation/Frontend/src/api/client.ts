@@ -47,7 +47,8 @@ export type Permission = 'readConfiguration'
                        | 'changeAvailability'
                        | 'changePowerLimits'
                        | 'manageCalibration'
-                       | 'changeHardware';
+                       | 'changeHardware'
+                       | 'manageCertificates';
 
 /** Who is signed in to the web interface. */
 export interface Me {
@@ -869,6 +870,94 @@ export interface StationKey {
     warnings?:     string[];
 }
 
+/**
+ * What a certificate is for, as the node names every kind - of which this
+ * station keeps the roots and TLS's four. Roots are believed, an identity is
+ * presented; a server certificate is neither, but kept to recognise a server
+ * by its fingerprint.
+ */
+export type CertificateKind = 'v2gRoot' | 'moRoot' | 'oemRoot'
+                            | 'vehicle' | 'contract' | 'oemProvisioning' | 'tariffVerification'
+                            | 'tlsRoot' | 'clientRoot' | 'tlsServer' | 'tlsIdentity';
+
+/** One certificate in the store. Everything but label and active is read out of the file. */
+export interface Certificate {
+    /** The handle it is addressed by: the first 16 digits of its fingerprint. */
+    id:             string;
+    kind:           CertificateKind;
+    fileName:       string;
+    label:          string;
+    subject:        string;
+    issuer:         string;
+    serialNumber:   string;
+    /** Its SHA-256 fingerprint in full, for comparing against what a CA said. */
+    thumbprint:     string;
+    notBefore:      string;
+    notAfter:       string;
+    keyAlgorithm:   string;
+    hasPrivateKey:  boolean;
+    /** How many further certificates travel with it, e.g. its sub-CAs. */
+    chainLength:    number;
+    /** Whether this station is using it. Somebody switches this; time does not. */
+    active:         boolean;
+    importedAt:     string;
+    expired:        boolean;
+    notYetValid:    boolean;
+    /** Active, and inside its own validity. */
+    usable:         boolean;
+    description:    string;
+    /**
+     * What it may be used for - "dns", "nts" - where its kind is kept for
+     * some uses and not others, and null there for every use. Left out for
+     * every other kind, which is for what its kind says.
+     */
+    usages?:        string[] | null;
+}
+
+/** The whole store, grouped the way it is shown. */
+export interface CertificateStore {
+    directory:     string;
+    /** The kinds that are trust anchors, in the order they are shown. */
+    trustAnchors:  CertificateKind[];
+    /** The kinds that are presented, in the order they are shown. */
+    credentials:   CertificateKind[];
+    /** The kinds that are neither: kept to recognise a server by its fingerprint. */
+    recognised?:   CertificateKind[];
+    kinds:         Record<CertificateKind, {
+                       description:     string;
+                       trustAnchor:     boolean;
+                       needsPrivateKey: boolean;
+                       /** Whether one of this kind is told what it is for. */
+                       hasUsages?:      boolean;
+                   }>;
+    /** What a certificate of a kind that has usages may be told it is for. */
+    usages?:       string[];
+    certificates:  Record<CertificateKind, Certificate[]>;
+    /** Whether anything in the store carries a private key, which is kept unencrypted. */
+    keysAreUnencrypted: boolean;
+}
+
+/** What an import sends: the file, base64-encoded, and what to make of it. */
+export interface CertificateImport {
+    kind:       CertificateKind;
+    /** The file's bytes, base64-encoded. PEM, DER or PKCS#12. */
+    content:    string;
+    /** What opens it, where it is a protected PKCS#12. Used once and not kept. */
+    password?:  string;
+    /** What to call it; its common name where this is left out. */
+    label?:     string;
+    /** What it is for, where its kind has usages; left out for every use. */
+    usages?:    string[];
+}
+
+/** What a change to a stored certificate may say. Everything else is read from the file. */
+export interface CertificateUpdate {
+    active?:  boolean;
+    label?:   string | null;
+    /** What it is for; null for every use again, and left out to leave it alone. */
+    usages?:  string[] | null;
+}
+
 /** The keys and certificates this station dials a back end with. */
 export interface StationCertificates {
     directory:             string;
@@ -1349,7 +1438,8 @@ export const api = {
 
     },
 
-    certificates: {
+    /** The keys this station dials its back ends with, made here and never imported. */
+    clientKeys: {
 
         get:     ()  => request<StationCertificates>('GET', '/configuration/certificates'),
 
@@ -1373,6 +1463,36 @@ export const api = {
         /** The identification travels in the body, as it does everywhere else in this API. */
         remove:  (id: string) =>
                      request<StationCertificates>('POST', '/configuration/certificates/remove', { id })
+
+    },
+
+    certificates: {
+
+        /** The whole store, grouped by kind. */
+        get:     ()                                       => request<CertificateStore>('GET', '/certificates'),
+
+        /**
+         * Put a certificate into the store.
+         *
+         * Importing the same file twice is the same entry - the handle is its
+         * fingerprint - so this is safe to repeat.
+         */
+        import:  (certificate: CertificateImport)         => request<Certificate>('POST', '/certificates', certificate),
+
+        /** Switch one on or off, or rename it. */
+        update:  (id: string, update: CertificateUpdate)  => request<Certificate>('PATCH', `/certificates/${encodeURIComponent(id)}`, update),
+
+        /** Take one out of the store and delete its file. */
+        remove:  (id: string)                             => request<CertificateStore>('DELETE', `/certificates/${encodeURIComponent(id)}`),
+
+        /**
+         * Read the store directory again.
+         *
+         * For certificates somebody copied in rather than uploaded - which is a
+         * perfectly good way to install one on a machine you already have a
+         * shell on.
+         */
+        reload:  ()                                       => request<CertificateStore>('POST', '/certificates/reload', {})
 
     },
 

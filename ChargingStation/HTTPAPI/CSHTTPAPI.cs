@@ -28,6 +28,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.RFID;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -259,6 +260,13 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates/import", PostClientCertificate,   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates/remove", PostRemoveClientKey,     HTTPMethod.POST);
+
+            AddHandler(HTTPPath.Root + "v1/certificates",             GetCertificates,          HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/certificates",             PostCertificate,          HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/certificates/reload",      PostCertificateReload,    HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/certificates/{id}",        GetCertificate,           HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/certificates/{id}",        PatchCertificate,         HTTPMethod.PATCH);
+            AddHandler(HTTPPath.Root + "v1/certificates/{id}",        DeleteCertificate,        HTTPMethod.DELETE);
 
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       GetRFIDConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/rfid",       PutRFIDConfiguration,         HTTPMethod.PUT);
@@ -1698,6 +1706,316 @@ namespace cloud.charging.open.ChargingStation
                    );
 
         }
+
+        #endregion
+
+
+        #region (private) GetCertificates(Request) / PostCertificate(Request)
+
+        /// <summary>
+        /// GET /api/v1/certificates: everything in this station's certificate
+        /// store.
+        /// </summary>
+        /// <remarks>
+        /// Grouped by kind rather than returned as one list, because the page
+        /// that reads it shows the roots this station believes, what it presents
+        /// and what it recognises as three different things.
+        ///
+        /// At the reading permission: what certificates a station holds is not
+        /// a secret from anybody who may look at it at all, and the private
+        /// keys are not in the answer. Changing any of it needs the
+        /// administrators' permission, as on the vehicle.
+        /// </remarks>
+        private Task<HTTPResponse> GetCertificates(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CertificatesJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/certificates with {"kind", "content", "password", "label",
+        /// "usages"}: put a certificate into the store.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The file arrives as base64 in <c>content</c>, which is what an
+        /// upload from the browser turns into. The password is what opens it if
+        /// it is a protected PKCS#12, is used once here, and is not kept: the
+        /// store writes what it holds without one.
+        /// </para>
+        /// <para>
+        /// Answered with 200 rather than 201 when the certificate was already
+        /// there. Importing the same file twice is the same entry - the id is
+        /// its fingerprint - so the second import created nothing.
+        /// </para>
+        /// <para>
+        /// <c>usages</c> says what a TLS root or a server certificate is for -
+        /// ["dns", "nts"] - and is left out, or null, for every use.
+        /// </para>
+        /// </remarks>
+        private Task<HTTPResponse> PostCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!CertificateKindExtensions.TryParseKind(json.Value<String>("kind"), out var kind) ||
+                !Station.Certificates.Kinds.Contains(kind))
+            {
+                return Task.FromResult(
+                           ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                     "'kind' has to be one of " +
+                                     String.Join(", ", Station.Certificates.Kinds.Select(one => one.AsText())) + ".")
+                       );
+            }
+
+            var content = json.Value<String>("content")?.Trim();
+
+            if (content is null or { Length: 0 })
+                return Task.FromResult(
+                           ErrorJSON(Request, HTTPStatusCode.BadRequest,
+                                     "'content' has to be the certificate file, base64-encoded.")
+                       );
+
+            Byte[] bytes;
+
+            try
+            {
+                bytes = Convert.FromBase64String(content);
+            }
+            catch (FormatException)
+            {
+                return Task.FromResult(
+                           ErrorJSON(Request, HTTPStatusCode.BadRequest, "'content' is not valid base64.")
+                       );
+            }
+
+            if (!TryReadUsages(json, out var usages, out var usagesError))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError));
+
+            var existed = Station.Certificates.Entries.Count;
+
+            if (!Station.Certificates.Import(bytes,
+                                             kind,
+                                             json.Value<String>("password"),
+                                             json.Value<String>("label"),
+                                             usages,
+                                             out var entry,
+                                             out var error))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            }
+
+            return Task.FromResult(
+                       JSONResponse(
+                           Request,
+                           Station.Certificates.Entries.Count > existed
+                               ? HTTPStatusCode.Created
+                               : HTTPStatusCode.OK,
+                           entry.ToJSON(WithDiagnostics: true)
+                       )
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) GetCertificate(Request) / PatchCertificate(Request) / DeleteCertificate(Request)
+
+        /// <summary>
+        /// GET /api/v1/certificates/{id}: one certificate.
+        /// </summary>
+        private Task<HTTPResponse> GetCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            var entry = Station.Certificates.Get(HandleOf(Request));
+
+            return Task.FromResult(
+                       entry is null
+                           ? ErrorJSON(Request, HTTPStatusCode.NotFound, "There is no such certificate in this store.")
+                           : JSONResponse(Request, HTTPStatusCode.OK, entry.ToJSON(WithDiagnostics: true))
+                   );
+
+        }
+
+        /// <summary>
+        /// PATCH /api/v1/certificates/{id} with {"active"}, {"label"} and/or
+        /// {"usages"}: switch a certificate on or off, rename it, or say what
+        /// it is for.
+        /// </summary>
+        /// <remarks>
+        /// Three things in one request because they are the only three things
+        /// about a stored certificate that can be changed at all - everything
+        /// else about it is read out of the file and is not somebody's to edit.
+        /// "usages" set to null is every use again; left out, it is left alone.
+        /// </remarks>
+        private Task<HTTPResponse> PatchCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var handle = HandleOf(Request);
+
+            if (Station.Certificates.Get(handle) is null)
+                return Task.FromResult(
+                           ErrorJSON(Request, HTTPStatusCode.NotFound, "There is no such certificate in this store.")
+                       );
+
+            if (json.TryGetValue("label", out var label) && label.Type != JTokenType.Undefined)
+            {
+                if (!Station.Certificates.Relabel(handle, label.Value<String>(), out _, out var relabelError))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, relabelError));
+            }
+
+            if (json.TryGetValue("active", out var active))
+            {
+
+                if (active.Type != JTokenType.Boolean)
+                    return Task.FromResult(
+                               ErrorJSON(Request, HTTPStatusCode.BadRequest, "'active' has to be true or false.")
+                           );
+
+                if (!Station.Certificates.SetActive(handle, active.Value<Boolean>(), out _, out var activeError))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, activeError));
+
+            }
+
+            // Present, even as null, is something to set: null is every use.
+            if (json.ContainsKey("usages"))
+            {
+
+                if (!TryReadUsages(json, out var usages, out var usagesError))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesError));
+
+                if (!Station.Certificates.SetUsages(handle, usages, out _, out var usagesRefused))
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, usagesRefused));
+
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK,
+                                    Station.Certificates.Get(handle)!.ToJSON(WithDiagnostics: true))
+                   );
+
+        }
+
+        /// <summary>
+        /// DELETE /api/v1/certificates/{id}: take a certificate out of the
+        /// store and delete its file.
+        /// </summary>
+        /// <remarks>
+        /// Nothing on this station names a stored certificate by its handle -
+        /// a server is held to a fingerprint, which stays written where it was
+        /// written - so there is nothing to refuse it for. Switching it off is
+        /// there for whoever meant to take it out of service rather than out of
+        /// the store.
+        /// </remarks>
+        private Task<HTTPResponse> DeleteCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!Station.Certificates.Remove(HandleOf(Request), out var error))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, error));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CertificatesJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostCertificateReload(Request)
+
+        /// <summary>
+        /// POST /api/v1/certificates/reload: read the store directory again.
+        /// </summary>
+        /// <remarks>
+        /// What the store does at every start, on demand: certificates somebody
+        /// copied into the directory are adopted, and entries whose files are
+        /// gone are dropped. It exists because putting a file in a directory is
+        /// a perfectly good way to install a certificate on a machine somebody
+        /// already has a shell on, and having to restart the station to be
+        /// noticed would make it a worse one.
+        /// </remarks>
+        private Task<HTTPResponse> PostCertificateReload(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            Station.Certificates.Reload();
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CertificatesJSON())
+                   );
+
+        }
+
+        #endregion
+
+        #region (private static) TryReadUsages(JSON, out Usages, out Error)
+
+        /// <summary>
+        /// The "usages" of a request: absent or null for every use, or a list
+        /// of usages - or why not.
+        /// </summary>
+        /// <remarks>
+        /// Whether each of them is a usage the store knows is the store's to
+        /// say, and it says so in a sentence that names the ones it knows.
+        /// </remarks>
+        private static Boolean TryReadUsages(JObject                           JSON,
+                                             out IReadOnlyList<String>?        Usages,
+                                             [NotNullWhen(false)] out String?  Error)
+        {
+
+            Usages  = null;
+            Error   = null;
+
+            if (!JSON.TryGetValue("usages", out var token) || token.Type == JTokenType.Null)
+                return true;
+
+            if (token is not JArray array || array.Any(usage => usage.Type != JTokenType.String))
+            {
+                Error = "'usages' has to be a list of usages, such as [\"dns\", \"nts\"], or null for every use.";
+                return false;
+            }
+
+            Usages = [.. array.Select(usage => usage.Value<String>()!)];
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) HandleOf(Request)
+
+        /// <summary>
+        /// The certificate handle out of the request's path.
+        /// </summary>
+        private static String HandleOf(HTTPRequest Request)
+
+            => Request.ParsedURLParameters.Length > 0
+                   ? Request.ParsedURLParameters[0].Trim()
+                   : "";
 
         #endregion
 

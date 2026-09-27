@@ -131,7 +131,21 @@ namespace cloud.charging.open.ChargingStation.Web
         /// a number that gets corrected is a different thing from a socket
         /// that gets invented.
         /// </remarks>
-        ChangeHardware         = 64
+        ChangeHardware         = 64,
+
+        /// <summary>
+        /// Put certificates into the certificate store, switch them on and
+        /// off, say what they are for, and take them out.
+        /// </summary>
+        /// <remarks>
+        /// The administrators' alone, as on the vehicle. A root in the store is
+        /// a decision about whom this station believes: somebody who can add
+        /// one can make it believe a time server, a name server or - once the
+        /// back ends are held to it - a back end nobody else would. Reading the
+        /// store is reading the configuration; no private key is ever in what
+        /// is read.
+        /// </remarks>
+        ManageCertificates     = 128
 
     }
 
@@ -236,7 +250,8 @@ namespace cloud.charging.open.ChargingStation.Web
                                                              Permissions.ChangeAvailability    |
                                                              Permissions.ChangePowerLimits     |
                                                              Permissions.ManageCalibration     |
-                                                             Permissions.ChangeHardware);
+                                                             Permissions.ChangeHardware        |
+                                                             Permissions.ManageCertificates);
 
         /// <summary>
         /// Every role this station knows.

@@ -38,8 +38,9 @@ export const menu: MenuEntry[] = [
             { path: '/configuration/rfid',        label: 'RFID',            icon: 'fa-id-card'                   },
             { path: '/configuration/authentication', label: 'Authentication', icon: 'fa-user-lock'              },
             { path: '/configuration/connections', label: 'Connections',     icon: 'fa-network-wired'             },
-            { path: '/configuration/certificates', label: 'Certificates',   icon: 'fa-key'                      },
-            { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-certificate'               }
+            { path: '/configuration/client-keys',  label: 'Client keys',    icon: 'fa-key'                      },
+            { path: '/configuration/certificates', label: 'Certificates',   icon: 'fa-certificate'              },
+            { path: '/configuration/calibration', label: 'Calibration',     icon: 'fa-scale-balanced'            }
         ]
     },
     { path: '/logs', label: 'Logs', icon: 'fa-list-ul' }

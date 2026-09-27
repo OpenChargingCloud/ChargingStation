@@ -381,13 +381,17 @@ namespace cloud.charging.open.ChargingStation
                    NTSClient:         NTSClient,
                    Frontend:          Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
 
-                   // None in the node's store. The keys this station dials its
-                   // back ends with are in a store of its own, and what it offers
-                   // a vehicle comes with its V2G options - so a store of a
-                   // vehicle's seven kinds beside its configuration file would
-                   // be seven empty directories promising something nothing
-                   // here reads.
-                   CertificateKinds:  [],
+                   // TLS's four and the three roots a vehicle's certificates chain
+                   // to, and none of what only a vehicle holds - its own
+                   // certificate, its contracts, its OEM provisioning certificate,
+                   // the key it checks a tariff with. The TLS roots are what a
+                   // time server and a name server may be vouched for by, and
+                   // their server certificates what one may be held to; the
+                   // V2G, Mobility Operator and OEM roots are what Plug & Charge
+                   // checks a vehicle against. The keys this station dials its
+                   // back ends with stay in a store of their own, where they are
+                   // made and never imported - see ClientCertificateStore.
+                   CertificateKinds:  StoredCertificateKinds,
                    Log:               Log,
                    LogToConsole:      LogToConsole,
                    ConsoleLogLevel:   ConsoleLogLevel,

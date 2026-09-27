@@ -6,8 +6,8 @@ import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
 import { entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
-import { draftOf, withPins } from './pins';
-import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, wirePinsFieldset } from './serverCertificates';
+import { draftOf, withPins, type StoreOffers } from './pins';
+import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers, wirePinsFieldset } from './serverCertificates';
 
 /**
  * What the NTS client allows itself when the station has not been told.
@@ -74,6 +74,13 @@ export const ntsPage: Page = {
         let cancelled = false;
         let current: NTSConfiguration | null = null;
         let syncing = false;
+
+        /**
+         * The roots and server certificates the store keeps for the time
+         * servers, to be picked in a server's dialog and to name a pinned
+         * fingerprint by - or null where this person may not read the store.
+         */
+        let offers: StoreOffers | null = null;
 
 
         /** The ports a server is asked on unless its entry says otherwise. */
@@ -383,7 +390,7 @@ export const ntsPage: Page = {
                                 `
                               : html`<span class="muted small">Root CA: no key exchange yet</span>`}
                         <span class="server-certificate small">
-                            ${heldToView(draftOf(source.heldTo))}
+                            ${heldToView(draftOf(source.heldTo), offers?.nameOf)}
                             ${source.judgement || source.known && !source.rootCA
                                   ? certificateVerdictView(source.judgement, source.known)
                                   : ''}
@@ -535,7 +542,8 @@ export const ntsPage: Page = {
                                               name:         readable(shown.hostname),
                                               certificate:  shown.certificate ?? shown.judgement?.certificate ?? shown.known?.certificate ?? null,
                                               root:         shown.rootCA?.fingerprint ?? shown.judgement?.root ?? shown.known?.root ?? null
-                                          }
+                                          },
+                          offers
                       })}
 
                     <div class="form-actions">
@@ -894,10 +902,14 @@ export const ntsPage: Page = {
 
             try
             {
-                const loaded = await api.nts.get();
+                // The store beside the configuration and not after it: it only
+                // names fingerprints and offers them in the dialog, and a store
+                // this person may not read is no reason to show no page.
+                const [ loaded, kept ] = await Promise.all([ api.nts.get(), storeOffers('nts') ]);
 
                 if (!cancelled) {
                     current = loaded;
+                    offers  = kept;
                     draw();
                 }
             }

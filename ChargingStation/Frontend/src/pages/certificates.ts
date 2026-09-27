@@ -1,23 +1,56 @@
-import { api, type StationCertificates, type StationKey } from '../api/client';
+import { api, type Certificate, type CertificateKind, type CertificateStore } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render, type HTMLFragment } from '../html';
+import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, field, formatTimestamp, whileSaving } from '../ui';
-import { typedSinceDrawn, unsaved } from '../unsaved';
+import { errorMessage, whileSaving } from '../ui';
 
 /**
- * The keys and certificates this station dials a back end with.
+ * The largest file this page will offer to import.
  *
- * The page is built around the one thing that is hard about certificates:
- * replacing one before it runs out, without a window in which the station
- * cannot connect. So more than one lives here at a time, the replacement is
- * brought in the day it arrives even if it only becomes valid in two days, and
- * the station switches over by itself at the moment it may.
+ * A certificate chain is a few kilobytes; a megabyte is already somebody who
+ * picked the wrong file. Refused here rather than at the station so that the
+ * answer is immediate and the browser does not base64 a video first.
+ */
+const largestImport = 1024 * 1024;
+
+
+/** How soon a certificate is worth warning about, in days. */
+const expiringSoon = 30;
+
+
+/** What a usage is called on this page: the service, in the words of the pages it is set on. */
+const usageNames: Record<string, string> = {
+    dns:  'name servers (DNS)',
+    nts:  'time servers (NTS)'
+};
+
+function usageName(usage: string): string {
+    return usageNames[usage] ?? usage;
+}
+
+
+/**
+ * Everything this station believes, everything it presents, and the servers
+ * it recognises.
  *
- * There is no way to upload a private key, and saying so on the page is
- * deliberate: the key is made here and never leaves, and somebody looking for
- * the button should find the reason instead.
+ * Two groups, and the difference between them is the whole shape of this page.
+ * A **root** is what this station believes: any number of each kind may be on
+ * at once, and switching one off changes what chains are accepted from then
+ * on. A **credential** is what this station presents in TLS, with its private
+ * key. Beside them the **server certificates**,
+ * which are neither: kept so that a time server or a name server can be held
+ * to one of them by its fingerprint, on the NTS and the DNS page.
+ *
+ * A TLS root and a server certificate are told what they are for - the time
+ * servers, the name servers, or every use - when they are uploaded, and can
+ * be told again: a root uploaded for the name servers vouches for no time.
+ *
+ * Certificates arrive two ways and both are first class. "Import" uploads a
+ * file and copies it in; "Re-read the directory" picks up whatever somebody put
+ * there by hand, which on a machine you already have a shell on is the shorter
+ * path. Either way the store ends up the same, because the store is the
+ * directory.
  */
 export const certificatesPage: Page = {
 
@@ -28,178 +61,83 @@ export const certificatesPage: Page = {
         const content = shell(root, {
             active:    '/configuration/certificates',
             title:     'Certificates',
-            subtitle:  'What this charging station says it is when it dials a back end.',
+            subtitle:  'The roots this station believes, the certificates it presents, and the servers it recognises.',
             actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
-        // Reload throws a half-typed request away just as thoroughly as
-        // anything else, and from the opposite corner of the screen.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void load();
-        });
+        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => { void load(); });
 
-        const mayManage = auth.can('changeNetworkSettings');
+        const mayChange = auth.can('manageCertificates');
 
         let cancelled = false;
-        let store: StationCertificates | null = null;
-
-        /** The request that was just made, put in front of somebody straight away. */
-        let justMade: { id: string; csr: string } | null = null;
+        let current: CertificateStore | null = null;
+        let busy = false;
 
 
         function draw(): void {
 
-            if (store === null)
+            if (current === null)
                 return;
 
-            const certificates = store;
-            const chosen       = certificates.algorithms.find(one => one.id === certificates.defaultAlgorithm);
+            const store = current;
 
             render(content, html`
 
-                ${mayManage ? '' : html`
+                ${store.keysAreUnencrypted ? html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the
-                        certificates but not make or replace them. That needs the role that changes how this
-                        station reaches the outside world.
-                    </div>
-                `}
-
-                <div class="cards">
-
-                    <section class="card">
-
-                        <h2><i class="fa-solid fa-key"></i> Make a signing request</h2>
-
-                        <form id="create-form" class="form-stack">
-
-                            <label>Subject
-                                <input type="text" name="subject" maxlength="${certificates.maxSubjectLength}"
-                                       placeholder="cs001.example.org"
-                                       ${mayManage ? '' : html`disabled`} />
-                                <span class="hint">
-                                    What a back end recognises this station by. Plain text is read as a common
-                                    name; a full distinguished name is taken as written. A station is not
-                                    something anybody dials, so nothing else is asked for.
-                                </span>
-                            </label>
-
-                            <label>Key
-                                <select name="algorithm" id="algorithm" ${mayManage ? '' : html`disabled`}>
-                                    ${certificates.algorithms.map(algorithm => html`
-                                        <option value="${algorithm.id}"
-                                                ${algorithm.id === certificates.defaultAlgorithm ? html`selected` : ''}>
-                                            ${algorithm.name}
-                                        </option>
-                                    `)}
-                                </select>
-                                <span class="hint" id="algorithm-remark">${chosen?.remark ?? ''}</span>
-                            </label>
-
-                            <div class="notice">
-                                <strong>Making a key and holding it up are two questions.</strong> Every kind here
-                                can be generated and made into a signing request that a certificate authority will
-                                accept. Whether this station can then load the certificate that comes back together
-                                with its key depends on the runtime underneath - Ed25519, Ed448 and the
-                                post-quantum kinds have no key object in .NET today. Such a certificate is kept and
-                                passed over rather than refused, and this page says so beside it.
-                            </div>
-
-                            <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
-                                    Make a key and a request
-                                </button>
-                                <span id="create-note"  class="form-notice" role="status"></span>
-                                <span id="create-error" class="form-error"  role="alert"></span>
-                            </div>
-
-                            <span class="hint">
-                                An RSA 4096 or a post-quantum key takes a few seconds to generate.
-                                Written to ${certificates.directory}, the private key readable by nobody else.
-                            </span>
-
-                        </form>
-
-                    </section>
-
-                    ${justMade !== null ? html`
-                        <section class="card">
-                            <h2><i class="fa-solid fa-file-export"></i> The request, waiting to be collected</h2>
-                            <p class="hint">
-                                Hand this to whoever issues certificates for this station. It is not a secret -
-                                it holds the public half of the key and nothing else - and it stays here until
-                                the answer comes back.
-                            </p>
-                            <textarea id="just-made" class="mono" rows="10" readonly>${justMade.csr}</textarea>
-                            <div class="form-actions">
-                                <button type="button" id="copy-csr" class="btn small">Copy</button>
-                                <span id="copy-note" class="form-notice" role="status"></span>
-                            </div>
-                        </section>
-                    ` : ''}
-
-                    <section class="card">
-
-                        <h2><i class="fa-solid fa-file-import"></i> Bring a certificate in</h2>
-
-                        <form id="import-form" class="form-stack">
-
-                            <label>The certificate, and any intermediates
-                                <textarea name="pem" class="mono" rows="8"
-                                          placeholder="-----BEGIN CERTIFICATE-----"
-                                          ${mayManage ? '' : html`disabled`}></textarea>
-                                <span class="hint">
-                                    PEM, this station's own certificate first. It is matched to the key whose
-                                    request it answers, so nothing has to be said about which one it is for.
-                                </span>
-                            </label>
-
-                            <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
-                                    Bring it in
-                                </button>
-                                <span id="import-note"  class="form-notice" role="status"></span>
-                                <span id="import-error" class="form-error"  role="alert"></span>
-                            </div>
-
-                            <span class="hint">
-                                ${certificates.canImportPrivateKeys
-                                      ? ''
-                                      : html`
-                                            A private key cannot be brought in, only a certificate. The key is
-                                            made on this station and never leaves it - one that arrived from
-                                            somewhere else is one somebody else has a copy of.
-                                        `}
-                            </span>
-
-                        </form>
-
-                    </section>
-
-                </div>
+                        The private keys in this store are <strong>not encrypted</strong>. Anybody who can read
+                        <code>${store.directory}</code> can take the identity this station presents in TLS.
+                    </div>` : ''}
 
                 <section class="card">
-
-                    <h2><i class="fa-solid fa-list"></i> What is here</h2>
-
+                    <h2><i class="fa-solid fa-certificate"></i> The store</h2>
                     <p class="hint">
-                        Newest first. By this station's clock it is
-                        ${formatTimestamp(certificates.now)}, which is what the days below are counted against.
+                        One file per certificate below <code>${store.directory}</code>, with
+                        <code>index.json</code> beside them recording what each one is called, whether it is
+                        switched on and what it is kept for. Certificates already in that directory are read again
+                        at every start, so copying one in is a way to install it.
                     </p>
-
-                    ${certificates.entries.length === 0
-                          ? html`
-                                <p class="hint">
-                                    Nothing yet. This station can only dial a back end that does not ask it
-                                    for a certificate.
-                                </p>
-                            `
-                          : html`<div class="cards">${certificates.entries.map(entryCard)}</div>`}
-
+                    <div class="form-actions">
+                        <button type="button" id="rescan" class="btn" ${mayChange && !busy ? '' : html`disabled`}>
+                            Re-read the directory
+                        </button>
+                        <span id="store-note"  class="form-notice" role="status"></span>
+                        <span id="store-error" class="form-error"  role="alert"></span>
+                    </div>
                 </section>
+
+                ${mayChange ? importCard() : ''}
+
+                <h2>What this station believes</h2>
+                <p class="hint">
+                    Trust anchors. Every switched-on root of a kind is believed at once. A TLS root vouches for
+                    the time servers and the name servers it is kept for, beside the roots of the machine this
+                    station runs on. The V2G, Mobility Operator and OEM roots are kept for Plug &amp; Charge:
+                    what a vehicle's certificate, a contract and an OEM provisioning certificate chain to.
+                </p>
+                ${store.trustAnchors.map(kind => kindCard(kind))}
+
+                <h2>What this station presents</h2>
+                <p class="hint">
+                    A TLS identity, with its private key: what this station would show a server that asks for
+                    one, or a browser at its web interface. The keys it dials its back ends with are not here
+                    but on the <a href="/configuration/client-keys">Client keys</a> page, because they are made
+                    on this station and never imported.
+                </p>
+                ${store.credentials.map(kind => kindCard(kind))}
+
+                ${(store.recognised ?? []).length === 0 ? '' : html`
+                    <h2>What this station recognises</h2>
+                    <p class="hint">
+                        Neither believed nor presented: the certificates of servers this station connects to,
+                        kept so that a time server or a name server can be held to one of them by its fingerprint -
+                        on the <a href="/configuration/nts">NTS</a> and the <a href="/configuration/dns">DNS</a>
+                        page, where each server's dialog offers the ones kept for it.
+                    </p>
+                    ${(store.recognised ?? []).map(kind => kindCard(kind))}
+                `}
 
             `);
 
@@ -207,192 +145,502 @@ export const certificatesPage: Page = {
 
         }
 
-        function entryCard(entry: StationKey): HTMLFragment {
+
+        /** The kinds in the order the page shows them, which is the order the import offers them in. */
+        function kindsShown(): CertificateKind[] {
+            const store = current!;
+            return [ ...store.trustAnchors, ...store.credentials, ...(store.recognised ?? []) ];
+        }
+
+        /** Whether a certificate of this kind is told what it is for. */
+        function hasUsages(kind: CertificateKind): boolean {
+            return current?.kinds[kind]?.hasUsages === true;
+        }
+
+        /**
+         * The boxes that say what a certificate is for, one per usage the
+         * station knows - none ticked for every use, which is what a
+         * certificate kept before there were usages is as well, and what the
+         * station would refuse to be told as an empty list.
+         */
+        function usagesFields(ticked: readonly string[] | null | undefined) {
 
             return html`
-                <div class="card ${entry.inUse ? 'in-use' : ''}">
-
-                    <div class="key-head">
-                        <strong>${entry.subject || entry.id}</strong>
-                        ${entry.inUse ? html`<span class="chip on">in use</span>` : ''}
-                        ${entry.certificate === undefined
-                              ? html`<span class="chip">request out</span>`
-                              : entry.certificate.expired
-                                    ? html`<span class="chip warn">expired</span>`
-                                    : entry.certificate.notYetValid
-                                          ? html`<span class="chip">not yet valid</span>`
-                                          : html`<span class="chip">${entry.certificate.daysLeft} days left</span>`}
-                    </div>
-
-                    <dl class="kv">
-                        <dt>Key</dt>          <dd>${entry.algorithm}</dd>
-                        <dt>Identification</dt> <dd><code>${entry.id}</code></dd>
-                        <dt>Made</dt>         <dd>${formatTimestamp(entry.createdAt)}</dd>
-                        ${entry.certificate !== undefined ? html`
-                            <dt>Issued by</dt>  <dd>${entry.certificate.issuer}</dd>
-                            <dt>Valid</dt>      <dd>${formatTimestamp(entry.certificate.notBefore)}
-                                                    &ndash; ${formatTimestamp(entry.certificate.notAfter)}</dd>
-                            <dt>Fingerprint</dt><dd><code>${entry.certificate.thumbprintSHA256}</code></dd>
-                            <dt>Sent along</dt> <dd>${entry.certificate.intermediates} intermediate(s)</dd>
-                        ` : ''}
-                    </dl>
-
-                    ${(entry.warnings ?? []).map(warning => html`<div class="notice">${warning}</div>`)}
-
-                    ${entry.csr !== undefined ? html`
-                        <details>
-                            <summary>The signing request, waiting to be collected</summary>
-                            <textarea class="mono" rows="8" readonly data-csr="${entry.id}">${entry.csr}</textarea>
-                        </details>
-                    ` : ''}
-
-                    <div class="form-actions">
-                        <button type="button" class="btn small" data-remove="${entry.id}"
-                                ${mayManage && !entry.inUse ? '' : html`disabled`}>
-                            Remove
-                        </button>
-                        ${entry.inUse
-                              ? html`<span class="hint">
-                                         The one this station dials with. Bring another in before removing it,
-                                         or it comes back from its next restart unable to connect.
-                                     </span>`
-                              : ''}
-                    </div>
-
-                </div>
+                ${(current!.usages ?? []).map(usage => html`
+                    <label class="checkbox">
+                        <input type="checkbox" name="usage" value="${usage}"
+                               ${ticked?.includes(usage) ? html`checked` : ''} ${busy ? html`disabled` : ''} />
+                        ${usageName(usage)}
+                    </label>
+                `)}
+                <span class="hint">None ticked: for every use.</span>
             `;
 
         }
 
+
+        /** The card that puts a new certificate on this station. */
+        function importCard() {
+
+            const store = current!;
+            const first = kindsShown()[0];
+
+            return html`
+                <section class="card">
+                    <h2><i class="fa-solid fa-file-import"></i> Import a certificate</h2>
+                    <form id="import-form" class="form-stack">
+
+                        <label>The file
+                            <input type="file" name="file" id="import-file"
+                                   accept=".pem,.crt,.cer,.der,.p12,.pfx" ${busy ? html`disabled` : ''} />
+                        </label>
+                        <p class="hint">
+                            PEM, DER or PKCS#12, copied into the store rather than referenced where it is.
+                            A certificate this station <em>presents</em> has to bring its private key, so a
+                            PEM for one holds the key beside the certificate - which is how
+                            <code>openssl</code> writes a whole credential into one file.
+                        </p>
+
+                        <label>What it is for
+                            <select name="kind" id="import-kind" ${busy ? html`disabled` : ''}>
+                                ${kindsShown().map(kind => html`
+                                    <option value="${kind}">${store.kinds[kind].description}</option>
+                                `)}
+                            </select>
+                        </label>
+
+                        <fieldset class="usages" id="import-usages" ${first !== undefined && hasUsages(first) ? '' : html`hidden`}>
+                            <legend>What it is kept for</legend>
+                            ${usagesFields(null)}
+                        </fieldset>
+
+                        <label>What opens it, if it is a protected PKCS#12
+                            <input type="password" name="password" autocomplete="off" ${busy ? html`disabled` : ''} />
+                        </label>
+                        <p class="hint">
+                            Used once, to read the file. The store keeps what it holds without a password, so this
+                            is not written down anywhere.
+                        </p>
+
+                        <label>What to call it
+                            <input type="text" name="label" maxlength="120" placeholder="its common name"
+                                   ${busy ? html`disabled` : ''} />
+                        </label>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn primary" ${busy ? html`disabled` : ''}>Import</button>
+                            <span id="import-note"  class="form-notice" role="status"></span>
+                            <span id="import-error" class="form-error"  role="alert"></span>
+                        </div>
+
+                    </form>
+                </section>
+            `;
+
+        }
+
+
+        /** One kind, and everything in the store of that kind. */
+        function kindCard(kind: CertificateKind) {
+
+            const store    = current!;
+            const entries  = store.certificates[kind] ?? [];
+
+            return html`
+                <section class="card">
+                    <h3>${store.kinds[kind].description}</h3>
+
+                    ${entries.length === 0
+                        ? html`<p class="hint">None.</p>`
+                        : html`
+                          <div class="table-scroll">
+                            <table class="records">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Subject</th>
+                                        <th>Key</th>
+                                        <th>Valid until</th>
+                                        <th>State</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${entries.map(entry => row(entry))}
+                                </tbody>
+                            </table>
+                          </div>
+                        `}
+
+                </section>
+            `;
+
+        }
+
+
+        /** One certificate. */
+        function row(entry: Certificate) {
+
+            const days = Math.floor((new Date(entry.notAfter).getTime() - Date.now()) / 86400000);
+
+            const state = entry.expired        ? html`<span class="chip bad">expired</span>`
+                        : entry.notYetValid    ? html`<span class="chip warn">not yet valid</span>`
+                        : !entry.active        ? html`<span class="chip">switched off</span>`
+                        : days <= expiringSoon ? html`<span class="chip warn">${days} day(s) left</span>`
+                        :                        html`<span class="chip">on</span>`;
+
+            return html`
+                <tr>
+                    <td>
+                        ${entry.label}
+                        <br /><code class="muted" title="SHA-256: ${entry.thumbprint}">${entry.id}</code>
+                        ${hasUsages(entry.kind)
+                              ? html`<br /><span class="chips usages-of">
+                                         ${entry.usages === null || entry.usages === undefined
+                                               ? html`<span class="chip">for every use</span>`
+                                               : entry.usages.map(usage => html`<span class="chip">${usageName(usage)}</span>`)}
+                                     </span>`
+                              : ''}
+                    </td>
+                    <td>
+                        ${entry.subject}
+                        ${entry.chainLength > 0 ? html`<br /><span class="muted">+${entry.chainLength} sub-CA(s)</span>` : ''}
+                    </td>
+                    <td>
+                        ${entry.keyAlgorithm}
+                        ${entry.hasPrivateKey ? html`<br /><span class="muted">with private key</span>` : ''}
+                    </td>
+                    <td>${new Date(entry.notAfter).toISOString().slice(0, 10)}</td>
+                    <td>${state}</td>
+                    <td>
+                        <button type="button" class="btn small" data-toggle="${entry.id}"
+                                ${mayChange && !busy ? '' : html`disabled`}>
+                            ${entry.active ? 'Switch off' : 'Switch on'}
+                        </button>
+                        <button type="button" class="btn small" data-rename="${entry.id}"
+                                ${mayChange && !busy ? '' : html`disabled`}>
+                            Rename
+                        </button>
+                        ${hasUsages(entry.kind)
+                              ? html`<button type="button" class="btn small" data-usages="${entry.id}"
+                                             ${mayChange && !busy ? '' : html`disabled`}>
+                                         Uses
+                                     </button>`
+                              : ''}
+                        <button type="button" class="btn small danger" data-remove="${entry.id}"
+                                ${mayChange && !busy ? '' : html`disabled`}>
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+
+        }
+
+
         function wire(): void {
 
-            const algorithm = content.querySelector<HTMLSelectElement>('#algorithm');
+            must<HTMLButtonElement>(content, '#rescan').addEventListener('click', () => { void rescan(); });
 
-            algorithm?.addEventListener('change', () => {
-                must<HTMLElement>(content, '#algorithm-remark').textContent =
-                    store?.algorithms.find(one => one.id === algorithm.value)?.remark ?? '';
-            });
+            const form = content.querySelector<HTMLFormElement>('#import-form');
 
-            must<HTMLFormElement>(content, '#create-form').addEventListener('submit', event => {
+            form?.addEventListener('submit', event => {
                 event.preventDefault();
-                void create();
+                void doImport(form);
             });
 
-            must<HTMLFormElement>(content, '#import-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void bringIn();
+            // What it is kept for is asked only of the kinds that are told it.
+            content.querySelector<HTMLSelectElement>('#import-kind')?.addEventListener('change', event => {
+                must<HTMLElement>(content, '#import-usages').hidden =
+                    !hasUsages((event.target as HTMLSelectElement).value as CertificateKind);
             });
 
-            content.querySelector('#copy-csr')?.addEventListener('click', () => {
-                const box = content.querySelector<HTMLTextAreaElement>('#just-made');
-                if (box === null)
-                    return;
-                box.select();
-                void navigator.clipboard?.writeText(box.value).then(
-                    () => { must<HTMLElement>(content, '#copy-note').textContent = 'Copied.'; },
-                    () => { must<HTMLElement>(content, '#copy-note').textContent = 'Select it and copy it by hand.'; }
-                );
-            });
+            for (const button of content.querySelectorAll<HTMLButtonElement>('[data-usages]'))
+                button.addEventListener('click', () => { editUsages(button.dataset.usages!); });
 
-            content.addEventListener('click', event => {
+            for (const button of content.querySelectorAll<HTMLButtonElement>('[data-toggle]'))
+                button.addEventListener('click', () => { void toggle(button.dataset.toggle!); });
 
-                const button = (event.target as Element | null)?.closest<HTMLElement>('[data-remove]');
+            for (const button of content.querySelectorAll<HTMLButtonElement>('[data-rename]'))
+                button.addEventListener('click', () => { void rename(button.dataset.rename!); });
 
-                if (button && !(button as HTMLButtonElement).disabled)
-                    void remove(button.dataset.remove ?? '');
-
-            });
+            for (const button of content.querySelectorAll<HTMLButtonElement>('[data-remove]'))
+                button.addEventListener('click', () => { void remove(button.dataset.remove!); });
 
         }
 
 
-        async function create(): Promise<void> {
+        async function doImport(form: HTMLFormElement): Promise<void> {
 
-            const form  = must<HTMLFormElement>(content, '#create-form');
-            const note  = must<HTMLElement>(content, '#create-note');
+            const note  = must<HTMLElement>(content, '#import-note');
+            const error = must<HTMLElement>(content, '#import-error');
 
-            note.textContent = '';
-            must<HTMLElement>(content, '#create-error').textContent = '';
+            note.textContent  = '';
+            error.textContent = '';
 
-            // Read before the page is held still: a disabled field is left out
-            // of a FormData.
-            const subject   = field(form, 'subject');
-            const algorithm = field(form, 'algorithm');
+            const chosen = must<HTMLInputElement>(content, '#import-file').files?.[0];
+
+            if (chosen === undefined) {
+                error.textContent = 'Choose a file first.';
+                return;
+            }
+
+            if (chosen.size > largestImport) {
+                error.textContent = `That file is ${Math.round(chosen.size / 1024)} kB, and a certificate is a few. ` +
+                                     'This is almost certainly not the file you meant.';
+                return;
+            }
+
+            const data     = new FormData(form);
+            const kind     = data.get('kind') as CertificateKind;
+            const password = String(data.get('password') ?? '');
+            const label    = String(data.get('label')    ?? '').trim();
+            const usages   = hasUsages(kind) ? data.getAll('usage').map(String) : [];
+
+            busy = true;
 
             try
             {
-                const made = await whileSaving(content, note, () => api.certificates.create(subject, algorithm));
 
-                justMade  = { id: made.id, csr: made.csr };
-                store     = made.certificates;
+                const imported = await whileSaving(content, note, async () => api.certificates.import({
+                                           kind,
+                                           content:  await base64Of(chosen),
+                                           password: password.length > 0 ? password : undefined,
+                                           label:    label.length    > 0 ? label    : undefined,
+                                           // Left out for every use; the station
+                                           // refuses a certificate for no use.
+                                           usages:   usages.length   > 0 ? usages   : undefined
+                                       }));
 
-                draw();
-
-                must<HTMLElement>(content, '#create-note').textContent =
-                    'Made. The request is below, waiting to be collected.';
-            }
-            catch (problem)
-            {
-                must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
-            }
-
-        }
-
-        async function bringIn(): Promise<void> {
-
-            const form = must<HTMLFormElement>(content, '#import-form');
-            const note = must<HTMLElement>(content, '#import-note');
-
-            note.textContent = '';
-            must<HTMLElement>(content, '#import-error').textContent = '';
-
-            const pem = field(form, 'pem', false);
-
-            try
-            {
-                const taken = await whileSaving(content, note, () => api.certificates.add(pem));
-
-                store     = taken.certificates;
-                justMade  = null;
-
+                busy    = false;
+                current = await api.certificates.get();
                 draw();
 
                 must<HTMLElement>(content, '#import-note').textContent =
-                    taken.warnings.length > 0
-                        ? `Taken in. ${taken.warnings.join(' ')}`
-                        : 'Taken in.';
+                    `Imported ${imported.label}, and switched on.`;
+
             }
             catch (problem)
             {
+                busy = false;
+                draw();
                 must<HTMLElement>(content, '#import-error').textContent = errorMessage(problem);
             }
 
         }
 
-        async function remove(id: string): Promise<void> {
 
-            if (id === '')
+        async function toggle(id: string): Promise<void> {
+
+            const entry = everything().find(one => one.id === id);
+
+            if (entry === undefined)
                 return;
 
-            const note = must<HTMLElement>(content, '#create-note');
+            await change(() => api.certificates.update(id, { active: !entry.active }));
 
-            note.textContent = '';
+        }
+
+
+        async function rename(id: string): Promise<void> {
+
+            const entry = everything().find(one => one.id === id);
+
+            if (entry === undefined)
+                return;
+
+            // The label is one of the two things about a stored certificate
+            // that are somebody's to decide; everything else on the row is read
+            // out of the file and is not up for editing.
+            const given = prompt(`What should this certificate be called?
+
+` +
+                                 `Leave it empty for its own common name.`, entry.label);
+
+            if (given === null)
+                return;
+
+            await change(() => api.certificates.update(id, { label: given.trim().length > 0 ? given.trim() : null }));
+
+        }
+
+
+        /**
+         * Say again what a TLS root or a server certificate is for, in a
+         * dialog.
+         *
+         * A dialog with a Save rather than boxes in the row that save on every
+         * click: each change is a line in the metrological log, and taking the
+         * last tick away on the way to another one would have made the
+         * certificate one for every use in between.
+         */
+        function editUsages(id: string): void {
+
+            const entry = everything().find(one => one.id === id);
+
+            if (entry === undefined)
+                return;
+
+            const dialog = document.createElement('dialog');
+
+            dialog.className = 'test-dialog server-dialog';
+
+            document.body.appendChild(dialog);
+
+            /** Shut it and take it away - see the connections page for why both. */
+            const dismiss = (): void => { dialog.close(); dialog.remove(); };
+
+            render(dialog, html`
+
+                <h2><i class="fa-solid fa-certificate"></i> ${entry.label}</h2>
+
+                <form id="usages-form" class="form-stack">
+
+                    <fieldset class="usages">
+                        <legend>What it is kept for</legend>
+                        ${usagesFields(entry.usages)}
+                    </fieldset>
+
+                    <p class="hint">
+                        ${entry.kind === 'tlsRoot'
+                              ? html`A root kept for the time servers alone vouches for no name server, and the other
+                                     way round - except for a server whose own entry names it: naming it there says
+                                     the same, and more narrowly.`
+                              : html`Offered in the dialog of the servers it is kept for, on the NTS and the DNS page.`}
+                    </p>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn primary">Save</button>
+                        <button type="button" class="btn" id="usages-cancel">Cancel</button>
+                        <span id="usages-error" class="form-error" role="alert"></span>
+                    </div>
+
+                </form>
+
+            `);
+
+            const form = must<HTMLFormElement>(dialog, '#usages-form');
+
+            form.addEventListener('submit', event => {
+
+                event.preventDefault();
+
+                const ticked = new FormData(form).getAll('usage').map(String);
+
+                void (async () => {
+
+                    try
+                    {
+                        // None ticked is every use again, which the station
+                        // is told as null: a list with nothing in it would be
+                        // a certificate for no use, and is refused.
+                        await whileSaving(dialog, null, () => api.certificates.update(id, { usages: ticked.length > 0 ? ticked : null }));
+                    }
+                    catch (problem)
+                    {
+                        must<HTMLElement>(dialog, '#usages-error').textContent = errorMessage(problem);
+                        return;
+                    }
+
+                    dismiss();
+
+                    // The store again rather than the one certificate the
+                    // answer carries, as after every other change on this page.
+                    await load();
+
+                })();
+
+            });
+
+            must<HTMLButtonElement>(dialog, '#usages-cancel').addEventListener('click', dismiss);
+
+            dialog.addEventListener('close',  dismiss);
+            dialog.addEventListener('cancel', dismiss);
+
+            dialog.showModal();
+
+        }
+
+
+        async function remove(id: string): Promise<void> {
+
+            const entry = everything().find(one => one.id === id);
+
+            if (entry === undefined)
+                return;
+
+            // The file goes with it, and there is no copy anywhere else. Asked
+            // once, naming what is about to go.
+            if (!confirm(`Delete ${entry.label}?\n\nIts file is deleted from the store as well, and ` +
+                         `a certificate with a private key cannot be put back without that key.`))
+                return;
+
+            await change(() => api.certificates.remove(id));
+
+        }
+
+
+        /** Everything in the store, flattened - for finding one by its handle. */
+        function everything(): Certificate[] {
+            return Object.values(current?.certificates ?? {}).flat();
+        }
+
+
+        /** One change to the store, with the page held still and then redrawn from the answer. */
+        async function change(doing: () => Promise<unknown>): Promise<void> {
+
+            const note  = must<HTMLElement>(content, '#store-note');
+            const error = must<HTMLElement>(content, '#store-error');
+
+            note.textContent  = '';
+            error.textContent = '';
+
+            busy = true;
 
             try
             {
-                store = await whileSaving(content, note, () => api.certificates.remove(id));
-
-                if (justMade?.id === id)
-                    justMade = null;
-
+                await whileSaving(content, note, doing);
+                busy    = false;
+                current = await api.certificates.get();
                 draw();
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
+                busy = false;
+                draw();
+                must<HTMLElement>(content, '#store-error').textContent = errorMessage(problem);
             }
 
         }
+
+
+        async function rescan(): Promise<void> {
+
+            const note  = must<HTMLElement>(content, '#store-note');
+            const error = must<HTMLElement>(content, '#store-error');
+
+            note.textContent  = '';
+            error.textContent = '';
+
+            busy = true;
+
+            try
+            {
+                current = await whileSaving(content, note, () => api.certificates.reload());
+                busy    = false;
+                draw();
+                must<HTMLElement>(content, '#store-note').textContent =
+                    `The directory was read again: ${everything().length} certificate(s).`;
+            }
+            catch (problem)
+            {
+                busy = false;
+                draw();
+                must<HTMLElement>(content, '#store-error').textContent = errorMessage(problem);
+            }
+
+        }
+
 
         async function load(): Promise<void> {
 
@@ -400,31 +648,61 @@ export const certificatesPage: Page = {
             {
                 const loaded = await api.certificates.get();
 
-                if (cancelled)
-                    return;
-
-                store = loaded;
-                draw();
+                if (!cancelled) {
+                    current = loaded;
+                    draw();
+                }
             }
             catch (problem)
             {
                 if (!cancelled)
                     render(content, html`
-                        <div class="error-box">The certificates could not be loaded: ${errorMessage(problem)}</div>
+                        <div class="error-box">The certificate store could not be loaded: ${errorMessage(problem)}</div>
                     `);
             }
 
         }
 
-        // A half-typed subject or a certificate pasted but not yet brought in
-        // is work like any other.
-        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#create-form')) ||
-                                             typedSinceDrawn(content.querySelector('#import-form')));
-
         void load();
 
-        return () => { cancelled = true; release(); };
+        return () => { cancelled = true; };
 
     }
 
 };
+
+
+/**
+ * One file's bytes, base64-encoded.
+ *
+ * Through a data: URL rather than by walking the bytes, because the browser's
+ * own encoder is the one that will not get a 3-megabyte string wrong. The
+ * prefix up to the comma is the media type the reader chose and is dropped.
+ */
+function base64Of(file: File): Promise<string> {
+
+    return new Promise((resolve, reject) => {
+
+        const reader = new FileReader();
+
+        reader.onerror = () => reject(new Error(`'${file.name}' could not be read.`));
+
+        reader.onload  = () => {
+
+            const asURL = String(reader.result ?? '');
+            const comma = asURL.indexOf(',');
+
+            if (comma < 0) {
+                reject(new Error(`'${file.name}' could not be read.`));
+                return;
+            }
+
+            resolve(asURL.slice(comma + 1));
+
+        };
+
+        reader.readAsDataURL(file);
+
+    });
+
+}

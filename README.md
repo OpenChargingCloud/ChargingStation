@@ -111,6 +111,7 @@ particular kind.
 | `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
+| `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, and that only the administrators change it |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 
 Two of them are about the station having more than one door. The display is a
@@ -149,6 +150,7 @@ is handed something else.
 | `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
 | `Web/UserRoles.cs`        | the roles a station knows - `viewer`, `cpo`, `installer`, `systemadmin` - and what each of them may do; the node makes their groups |
+| `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
@@ -162,8 +164,9 @@ this repository adds to them is what a charging station is: its own sections
 of the same file, read from the document the node has already read; the roles
 its accounts know - which the node makes a group of at every start; the
 display's port and the local app server's, taken in `OnListening` before the
-station calls itself started; the kinds of certificate it keeps in the node's store, which are
-none; and its own cards on the Configuration page.
+station calls itself started; the kinds of certificate it keeps in the node's store -
+TLS's four, and the three roots Plug & Charge checks a vehicle against; and its
+own cards on the Configuration page.
 
 Serving the bundle is Hermod's: `MapSinglePageApplication` with an
 `EmbeddedContentSource` or a `FileSystemContentSource` does the entity tags,
@@ -297,6 +300,8 @@ interface will not delete the part it did not understand.
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
+| `/configuration/client-keys` | the keys it dials its back ends with: made here, a signing request, and the certificate that came back |
+| `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
     POST /api/v1/configuration/dns/query    {"name": "...", "recordTypes": ["A"]}
@@ -311,6 +316,9 @@ interface will not delete the part it did not understand.
     POST /api/v1/messages/clear             {"id": "..."}
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
     GET  /api/v1/status/connections         where each connection this station dialled stands
+    GET  /api/v1/certificates               POST {"kind", "content", "password", "label", "usages"}
+    GET  /api/v1/certificates/{id}          PATCH {"active", "label", "usages"}, DELETE
+    POST /api/v1/certificates/reload        read the store's directory again
 
 Every change takes effect at once - no restart, and no page that says a restart
 is owed. The one exception is the connections: they are written at once and
@@ -327,15 +335,15 @@ servers with it because the form had nothing to say about them.
 A time server, and a name server asked over TLS or HTTPS, can be held to a
 certificate or a root, and the NTS and the DNS page are where that is said: a
 server's dialog takes SHA-256 fingerprints one to a line, adds the one the
-server showed last with a click, and says what a mismatch comes to and whether
-the server is held to what it is first believed with. Its row says what was
+server showed last or one the certificate store keeps for it with a click, and
+says what a mismatch comes to and whether the server is held to what it is
+first believed with. Its row says what was
 made of its certificate the last time - believed, used although it did not
 match, or refused, and why - what it is held to, and when it showed another
 certificate than before. A lookup on the DNS page says the same of every
-certificate it met. Unlike the vehicle's, this station's node keeps no
-certificate store - the keys it dials its back ends with are in one of its own -
-so a pin is typed or taken from what the server showed, and a server is
-vouched for by the roots of the machine the station runs on.
+certificate it met. A server is vouched for by the roots of the machine the
+station runs on and by the TLS roots of its certificate store that are kept for
+it - see [Certificates](#certificates).
 
 The time servers and the name servers are each one such field, sent whole at
 every save, so every server goes with what it is held to, and the pages'
@@ -365,7 +373,7 @@ that lets them do.
 | `viewer`      | read the configuration |
 | `cpo`         | that, plus change DNS and NTS, run their tests, and take an EVSE or a card reader out of service |
 | `installer`   | that, plus the power limits and the calibration certificates |
-| `systemadmin` | that, plus change what the station is made of |
+| `systemadmin` | that, plus change what the station is made of, and what is in its certificate store |
 
 The two steps above the operator are different in kind, and that is the whole
 reason there are two of them.
@@ -638,6 +646,45 @@ below the list, one removed here that the station is still on.
 
 "Since" and "next" are counted on the station's clock, which the answer
 carries, and not on the browser's.
+
+### Certificates
+
+Everything this station believes, everything it presents in TLS and every
+server it recognises is in one store - WWCP_Node's `CertificateStore`, the
+same one a vehicle keeps, a directory of files with an `index.json` beside
+them, `certificates` beside the configuration file - and is addressed by a
+short handle, the first sixteen digits of its fingerprint, rather than by a
+path. `/configuration/certificates` shows it in the three groups that behave
+differently:
+
+| | |
+|---|---|
+| believed   | TLS roots, client roots, and the V2G, Mobility Operator and OEM roots Plug & Charge checks a vehicle's certificate, a contract and an OEM provisioning certificate against. Any number of each may be on at once. |
+| presented  | a TLS identity, with its private key |
+| recognised | a server certificate: kept so that a time server or a name server can be held to it by its fingerprint, and never with a key |
+
+What only a vehicle holds - its own certificate, its contracts, its OEM
+provisioning certificate, the key it checks a tariff with - is not kept here:
+the store refuses those kinds, and the page does not offer them. Nor are the
+keys this station dials its back ends with, which are on
+`/configuration/client-keys`: they are made on this station and never
+imported, which a store that takes files cannot promise.
+
+A certificate is imported as PEM, DER or PKCS#12, and one this station presents
+has to bring its private key. A TLS root and a server certificate are told what
+they are for - the time servers (`nts`), the name servers (`dns`), or with
+nothing said every use - at the upload and again later, because one root may
+vouch for both and a root kept for the name servers vouches for no time. The NTS
+and the DNS page offer, in a server's dialog, the ones kept for it. Copying a
+file into the directory is a way to install one as well: the store reads the
+directory at every start, and "Re-read the directory" does it at once.
+
+Reading the store is reading the configuration. Changing it - importing,
+switching on and off, saying what a certificate is for, deleting - is the
+administrators' alone, as on the vehicle: a root is a decision about whom this
+station believes, and somebody who can add one can make it believe a server
+nobody else would. `CertificateStoreTests` holds the station to that, and to the
+kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 
 ## The display
 

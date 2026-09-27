@@ -271,7 +271,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                  "changeAvailability",
                                                                  "changePowerLimits",
                                                                  "manageCalibration",
-                                                                 "changeHardware" }));
+                                                                 "changeHardware",
+                                                                 "manageCertificates" }));
             });
 
         }
