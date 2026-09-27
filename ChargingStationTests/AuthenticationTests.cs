@@ -246,6 +246,46 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region BasicAuthIsNotRationedLikeAGuess()
+
+        /// <summary>
+        /// A client that sends the password with every request - a script, a
+        /// probe, somebody else's back office - is let in every time.
+        /// </summary>
+        /// <remarks>
+        /// Guessing a password over Basic auth is rationed: ten attempts per
+        /// address and ten per account, then one every six seconds. The right
+        /// password drew on that ration as well, so the eleventh request of a
+        /// minute was answered 401. A password that was checked is believed
+        /// again without being checked, or rationed, again.
+        /// </remarks>
+        [Test]
+        public async Task BasicAuthIsNotRationedLikeAGuess()
+        {
+
+            using var http = Anonymous();
+
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue(
+                    "Basic",
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ChargingStation.DefaultAdminUser}:{Password}"))
+                );
+
+            var answered = new List<HttpStatusCode>();
+
+            for (var request = 0; request < 25; request++)
+            {
+                using var response = await http.GetAsync("/api/v1/auth/me");
+                answered.Add(response.StatusCode);
+            }
+
+            Assert.That(answered, Is.All.EqualTo(HttpStatusCode.OK),
+                        String.Join(", ", answered.Select(status => (Int32) status)));
+
+        }
+
+        #endregion
+
         #region TheSessionSaysWhatItMayDo()
 
         /// <summary>

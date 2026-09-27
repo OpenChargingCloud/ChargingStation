@@ -138,9 +138,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task EveryRoleIsLetInWhereItWasAndNowhereElse()
         {
 
-            // Signed in once, with a cookie from here on, as a browser is. With
-            // the password sent along with every one of some two hundred
-            // requests, the accounts started answering 401 partway through.
+            // Signed in once, with a cookie from here on, as a browser is.
             using var http  = await SignedIn();
 
             var wrong       = new List<String>();

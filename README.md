@@ -113,7 +113,7 @@ particular kind.
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
 | `RolesFromTheFileTests` | roles the configuration file adds: enforced, told to the browser, named in a refusal, and said in the log |
-| `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, and that only the administrators change it |
+| `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, that only the administrators change it, and what a start says about the keys in it |
 | `ClosedPortTests`       | a port a test holds closed: refused, nobody else can listen on it, and handed over it takes a back end - what the tests that dial nowhere and their own back ends stand on |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 

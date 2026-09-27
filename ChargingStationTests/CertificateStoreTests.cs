@@ -50,7 +50,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     public class CertificateStoreTests : AChargingStationTests
     {
 
-        #region (helpers) RootPem(Name) / AsTheAdministrator() / Send(HTTP, Method, Path, JSON)
+        #region (helpers) RootPem(Name) / IdentityPem(Name) / AsTheAdministrator() / Send(HTTP, Method, Path, JSON)
 
         /// <summary>
         /// A self-signed certificate, as the text of a PEM file base64-encoded -
@@ -67,6 +67,25 @@ namespace cloud.charging.open.ChargingStation.Tests
             using var root = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
 
             return Convert.ToBase64String(Encoding.ASCII.GetBytes(root.ExportCertificatePem()));
+
+        }
+
+        /// <summary>
+        /// A certificate this station would present, with its private key, as
+        /// the text of one PEM file base64-encoded - which is how openssl writes
+        /// a whole credential.
+        /// </summary>
+        private static String IdentityPem(String Name)
+        {
+
+            using var key       = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request         = new CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, true));
+
+            using var identity  = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
+
+            return Convert.ToBase64String(Encoding.ASCII.GetBytes(identity.ExportCertificatePem() + "\n" + key.ExportPkcs8PrivateKeyPem()));
 
         }
 
@@ -274,6 +293,52 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(store["certificates"]!.Values().SelectMany(kind => kind.Children()).Any(),
                             Is.False,
                             "nothing refused was half-imported");
+            });
+
+        }
+
+        #endregion
+
+        #region TheWarningAboutKeysSaysWhatThereIsToTake()
+
+        /// <summary>
+        /// What a station says at every start about the keys in its store:
+        /// anybody who can read the directory can take its identity - and no
+        /// contract, which only a vehicle's store keeps.
+        /// </summary>
+        [Test]
+        public async Task TheWarningAboutKeysSaysWhatThereIsToTake()
+        {
+
+            using var http          = AsTheAdministrator();
+
+            var (created, entry)    = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
+                                                     new JProperty("kind",     "tlsIdentity"),
+                                                     new JProperty("content",  IdentityPem("Our Web Interface"))
+                                                 ));
+
+            // Said where the store is read at a start, which is when a station is
+            // built: a second one on the same directory, built and not started.
+            var again               = TestStations.New(Directory, Configuration);
+
+            String[] warnings;
+
+            try
+            {
+                warnings = [.. again.Log.Recent(500).
+                                   Where (line => line.Message.Contains("can take this")).
+                                   Select(line => line.Message)];
+            }
+            finally
+            {
+                await again.DisposeAsync();
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(created,   Is.EqualTo(HttpStatusCode.Created), entry.ToString());
+                Assert.That(warnings,  Has.Length.EqualTo(1));
+                Assert.That(warnings,  Has.One.EndsWith("can take this charging station's identity."),
+                            "a station keeps no contracts, so its store has none to give away");
             });
 
         }
