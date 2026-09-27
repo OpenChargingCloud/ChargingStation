@@ -1,20 +1,21 @@
-import type { DNSConfiguration, DNSServer } from '../api/client';
-import { learnedOnly, pinsIn } from './pins';
+import type { DNSConfiguration, DNSServerEntry } from '../api/client';
+import { pinsIn, withPins } from './pins';
 
 /**
  * How long the DNS page waits for the station to look something up, and what
- * it tells the station of a name server when the list is saved.
+ * it tells the station about a name server.
  *
- * Apart from the page, because these are the parts that decide something. The
- * first was wrong in a way nobody sees until a name server does not answer: it
- * added the servers' timeouts up, as if the station asked them one after
- * another, when it asks all of them at once.
+ * Apart from the page, because these are the parts that decide when the page
+ * stops believing in the station and what the station is told - and the first
+ * was wrong in a way nobody sees until a name server does not answer: it added
+ * the servers' timeouts up, as if the station asked them one after another,
+ * when it asks all of them at once.
  */
 
 
 /**
- * Whether a name server asked over this transport shows a certificate, and so
- * can be held to one: over TLS, and over HTTPS in all its forms.
+ * Whether a name server asked over this transport shows a certificate: over
+ * TLS and over HTTPS, in all its forms, and over nothing else.
  */
 export function isEncrypted(transport: string): boolean {
 
@@ -26,49 +27,28 @@ export function isEncrypted(transport: string): boolean {
 
 
 /**
- * A name server as the station is told it when the list is saved: what its
- * entry in the configuration keeps, and none of what the station only says
- * about it - what it is held to as a page reads it, what was made of its
- * certificate, what it was last believed with.
+ * A name server as the station is told it: what its configuration keeps, in
+ * the order the file keeps it, and none of what the station only says about it
+ * - what was made of its certificate, what it was last believed with.
  *
- * What it is held to goes back with it, although the page shows none of it,
- * because the station is told the whole list and keeps what it is sent. But
- * only where it is asked over TLS or HTTPS: the station refuses a pin on a
- * server that shows no certificate, rightly, and would refuse the whole list
- * with it - so a server switched to UDP lets go of its pins when it is saved.
- * And a server given another address is another server: it keeps what its
- * entry was to learn on first use, and none of the old one's fingerprints.
- *
- * @param server         the server as the page has it now.
- * @param loadedAddress  the address it had when the station last said the list, or null for one added since.
+ * What it is held to only where it is asked over TLS or HTTPS. The station
+ * refuses a pin on a server that shows no certificate, rightly: somebody would
+ * believe it held to something it is never compared with. So a server switched
+ * to UDP lets go of its pins when it is saved - which the page says before -
+ * and keeps them in the draft until then, for whoever switches it back.
  */
-export function entryOf(server: DNSServer, loadedAddress: string | null): DNSServer {
+export function entryOf(server: DNSServerEntry): DNSServerEntry {
 
-    const entry: DNSServer = {
+    const entry: DNSServerEntry = {
         address:              server.address,
         port:                 server.port,
         transport:            server.transport,
         queryTimeoutSeconds:  server.queryTimeoutSeconds
     };
 
-    if (!isEncrypted(server.transport))
-        return entry;
-
-    const pins = pinsIn(server);
-
-    return loadedAddress !== null && sameAddress(loadedAddress, server.address)
-               ? { ...entry, ...pins }
-               : { ...entry, ...learnedOnly(pins) };
-
-}
-
-
-/** Whether two addresses name the same server: without case, and without the root's dot. */
-function sameAddress(one: string, other: string): boolean {
-
-    const plain = (address: string) => address.trim().replace(/\.$/, '').toLowerCase();
-
-    return plain(one) === plain(other);
+    return isEncrypted(server.transport)
+               ? withPins(entry, pinsIn(server))
+               : entry;
 
 }
 

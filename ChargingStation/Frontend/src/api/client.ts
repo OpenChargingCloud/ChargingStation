@@ -84,26 +84,98 @@ export interface Configuration {
 }
 
 
+/** What a certificate other than the one a server is held to comes to. */
+export type PinMismatch = 'refuse' | 'record' | 'accept';
+
+/** What a server is held to from the first time it is believed. */
+export type TrustOnFirstUse = 'root' | 'certificate';
+
 /**
- * One name server this station asks: its entry in the configuration - with
- * what it is held to, where it is reached over TLS or HTTPS - and, for reading
- * only, what the station makes of it.
+ * What one server is held to beyond what every server is held to, as the
+ * station reads it back: the certificates it may show and the roots its chain
+ * may end at - any one of them - what a mismatch comes to, and what it learns
+ * the first time it is believed. Every fingerprint is a SHA-256 one, in the
+ * 64 lower-case digits the station keeps.
  */
-export interface DNSServer extends ServerPinKeys {
+export interface ServerPins {
+    /** The first certificate and root once more, as they were read when there could be only one of each. */
+    certificate:      string | null;
+    root:             string | null;
+    certificates:     string[];
+    roots:            string[];
+    onMismatch:       PinMismatch;
+    trustOnFirstUse:  TrustOnFirstUse | null;
+}
+
+/**
+ * What a server is held to, in the keys its entry is written with: one of a
+ * kind under the singular key, several under the plural - the way the
+ * configuration file says it, and the way the station takes it back.
+ */
+export interface PinKeys {
+    certificateFingerprint?:   string;
+    certificateFingerprints?:  string[];
+    rootFingerprint?:          string;
+    rootFingerprints?:         string[];
+    onMismatch?:               PinMismatch;
+    trustOnFirstUse?:          TrustOnFirstUse;
+}
+
+/** What a server was last believed with - pinned or not, another one is noticed. */
+export interface KnownServer {
+    certificate:  string;
+    root:         string | null;
+    since:        string;
+}
+
+/** What the station made of a server's certificate, in one word. */
+export type JudgementOutcome = 'accepted' | 'recorded' | 'tolerated'
+                             | 'pinMismatch' | 'untrusted' | 'wrongName' | 'noCertificate';
+
+/** What the station made of the certificate a server showed, the last time it showed one. */
+export interface ServerJudgement {
+    server:       string;
+    service:      string;
+    at:           string;
+    /** Whether the server was used: "recorded" and "tolerated" are, although a fingerprint did not match. */
+    accepted:     boolean;
+    outcome:      JudgementOutcome;
+    certificate:  string | null;
+    root:         string | null;
+    /** The station's own root it was validated by, where this machine knows none. */
+    anchoredBy:   string | null;
+    heldTo:       Pick<ServerPins, 'certificate' | 'root' | 'certificates' | 'roots'> | null;
+    /** What it was held to from this connection on, trusted on first use. */
+    learned:      TrustOnFirstUse | null;
+    /** What it had been believed with before, where this was another certificate. */
+    previously:   KnownServer | null;
+    /** Only in the answer to a test: what was found, one step after another. */
+    steps?:       { level: 'info' | 'notice' | 'warning' | 'error'; text: string }[];
+}
+
+
+/**
+ * One name server as the station is told it: what its configuration keeps,
+ * with what it is held to where it is asked over TLS or HTTPS.
+ */
+export interface DNSServerEntry extends PinKeys {
     /** An IP address or a host name. */
     address:              string;
     port:                 number;
     transport:            string;
     queryTimeoutSeconds:  number | null;
+}
 
-    /** What its entry holds it to, or null where it says nothing about it. */
-    heldTo?:              ServerHeldTo | null;
-
-    /** What was made of its certificate the last time it showed one. */
-    judgement?:           unknown;
-
-    /** What it was last believed with. */
-    known?:               KnownServer | null;
+/**
+ * One name server this station asks, and what the station says about it: what
+ * it is held to once more, the way the NTS answer has it, what was made of its
+ * certificate last, and what it was last believed with. Those three are read
+ * and never sent back.
+ */
+export interface DNSServer extends DNSServerEntry {
+    heldTo?:     ServerPins | null;
+    judgement?:  ServerJudgement | null;
+    known?:      KnownServer | null;
 }
 
 /** What may be changed about the name resolution while the station runs. */
@@ -137,7 +209,7 @@ export interface DNSConfiguration {
 /** What a PUT to the DNS configuration may carry; everything is optional. */
 export interface DNSUpdate {
     enabled?:              boolean;
-    servers?:              DNSServer[];
+    servers?:              DNSServerEntry[];
     queryTimeoutSeconds?:  number;
     recursionDesired?:     boolean | null;
     useCache?:             boolean;
@@ -174,6 +246,8 @@ export interface DNSQueryResult {
     timedOut?:      boolean;
     answers:        DNSRecord[];
     more?:          number;
+    /** What was made of the certificate of every server this asked over TLS or HTTPS, step by step. */
+    certificates?:  ServerJudgement[];
 }
 
 
@@ -208,59 +282,14 @@ export interface NTSUpdate {
 
 /**
  * One time server as the configuration names it. Whatever is left out is the
- * usual: priority 0, the usual ports, switched on, and held to nothing beyond
- * what every server is held to.
+ * usual: priority 0, the usual ports, switched on, held to no fingerprint.
  */
-export interface NTSServerEntry extends ServerPinKeys {
+export interface NTSServerEntry extends PinKeys {
     hostname:    string;
     priority?:   number;
     ntsKEPort?:  number;
     ntpPort?:    number;
     enabled?:    boolean;
-}
-
-/**
- * What the entry of a server - a time server, or a name server reached over
- * TLS or HTTPS - says it is held to, in the keys the configuration file writes
- * it under: a pin of a kind as one fingerprint, several as a list, and a
- * mismatch or something to learn only where it is not the usual.
- */
-export interface ServerPinKeys {
-    certificateFingerprint?:   string;
-    certificateFingerprints?:  string[];
-    rootFingerprint?:          string;
-    rootFingerprints?:         string[];
-    onMismatch?:               PinMismatch;
-    trustOnFirstUse?:          TrustOnFirstUse;
-}
-
-/** What a connection to a pinned server comes to whose certificate is not one of its pins. */
-export type PinMismatch     = 'refuse' | 'record' | 'accept';
-
-/** What a server is held to from the first time it is believed, where it is held to nothing of that kind yet. */
-export type TrustOnFirstUse = 'none' | 'root' | 'certificate';
-
-/**
- * What one server is held to, beside what every server is held to: the
- * certificates it may show and the roots its chain may end at, each by its
- * SHA-256 fingerprint, what a mismatch comes to, and what it learns on first
- * use. The first certificate and the first root are also said on their own,
- * as they were before a server could be held to several.
- */
-export interface ServerHeldTo {
-    certificate?:      string | null;
-    root?:             string | null;
-    certificates?:     string[];
-    roots?:            string[];
-    onMismatch?:       PinMismatch;
-    trustOnFirstUse?:  TrustOnFirstUse;
-}
-
-/** What a server was last believed with, and since when. */
-export interface KnownServer {
-    certificate:  string | null;
-    root:         string | null;
-    since:        string;
 }
 
 /** How one synchronisation went, step by step. */
@@ -320,11 +349,11 @@ export interface NTSTimeSource {
      */
     rootCA?:        NTSRootCA | null;
 
-    /**
-     * What its entry in the configuration holds it to, or null where it says
-     * nothing about it.
-     */
-    heldTo?:        ServerHeldTo | null;
+    /** The SHA-256 fingerprint of the certificate the last key exchange showed, which a pin is written down from. */
+    certificate?:   string | null;
+    heldTo?:        ServerPins | null;
+    judgement?:     ServerJudgement | null;
+    known?:         KnownServer | null;
 }
 
 /** A root CA, by a name to call it, its subject, and its SHA-256 fingerprint. */

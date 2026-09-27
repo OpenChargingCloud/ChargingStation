@@ -1,5 +1,5 @@
 import type { NTSServerEntry, NTSTimeSource } from '../api/client';
-import { learnedOnly, pinsIn, pinsOf } from './pins';
+import { draftOf, withPins } from './pins';
 
 /**
  * The list of time servers as the NTS page edits it.
@@ -36,6 +36,12 @@ export function readable(hostname: string): string {
  * sent: an entry carrying the usual ports and priority 0 becomes an object in
  * the file where a bare name was, and the file stops reading the way somebody
  * would have written it.
+ *
+ * What it is held to goes with it. The station is told the whole list, and an
+ * entry without its pins is a server let go of them: every server's, whenever
+ * any one of them was added, changed or deleted - the ones it learned the
+ * first time it was believed included, which nobody typed and nobody would
+ * miss until the server showed another certificate and was believed with it.
  */
 export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntry {
 
@@ -46,29 +52,7 @@ export function entryOf(source: NTSTimeSource, usual: UsualPorts): NTSServerEntr
     if (source.ntpPort   !== usual.ntp)    entry.ntpPort    = source.ntpPort;
     if (!source.enabled)                   entry.enabled    = false;
 
-    return { ...entry, ...pinsOf(source.heldTo) };
-
-}
-
-
-/**
- * The entry the dialog makes of what was typed into it, for the server that
- * was at that place before - or for a new one.
- *
- * The dialog shows nothing of what a server is held to, so what it was held
- * to is carried over: a server whose priority was changed is still the server
- * that was pinned. Given another name, it is another server, and keeps only
- * what its entry was to learn - see learnedOnly.
- */
-export function editedEntry(before:  NTSServerEntry | null,
-                            typed:   NTSServerEntry): NTSServerEntry {
-
-    if (before === null)
-        return typed;
-
-    return readable(before.hostname).toLowerCase() === readable(typed.hostname).toLowerCase()
-               ? { ...typed, ...pinsIn(before) }
-               : { ...typed, ...learnedOnly(pinsIn(before)) };
+    return withPins(entry, draftOf(source.heldTo));
 
 }
 

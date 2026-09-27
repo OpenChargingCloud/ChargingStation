@@ -5,7 +5,9 @@ import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
-import { editedEntry, entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { draftOf, withPins } from './pins';
+import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, wirePinsFieldset } from './serverCertificates';
 
 /**
  * What the NTS client allows itself when the station has not been told.
@@ -380,6 +382,12 @@ export const ntsPage: Page = {
                                     <span class="fingerprint" title="SHA-256 fingerprint of the root CA">${fingerprintView(source.rootCA.fingerprint)}</span>
                                 `
                               : html`<span class="muted small">Root CA: no key exchange yet</span>`}
+                        <span class="server-certificate small">
+                            ${heldToView(draftOf(source.heldTo))}
+                            ${source.judgement || source.known && !source.rootCA
+                                  ? certificateVerdictView(source.judgement, source.known)
+                                  : ''}
+                        </span>
                     </div>
 
                     <div class="actions">
@@ -451,10 +459,11 @@ export const ntsPage: Page = {
          * Add a time server, or change or delete one, in a dialog.
          *
          * A dialog rather than fields in the row: a server has five things
-         * that can be said about it, and the list is for reading which servers
-         * there are. And the station is told the whole list when this is saved,
-         * so the dialog is also where it becomes clear that exactly one server
-         * is being changed.
+         * that can be said about it and what its certificate is held to
+         * besides, and the list is for reading which servers there are. And
+         * the station is told the whole list when this is saved, so the dialog
+         * is also where it becomes clear that exactly one server is being
+         * changed.
          *
          * @param index  the server's place in the list, or null to add one.
          */
@@ -517,6 +526,17 @@ export const ntsPage: Page = {
                         Ask this server
                         <span class="hint">Switched off, it stays in the list and is not asked.</span>
                     </label>
+
+                    ${pinsFieldset(draftOf(shown?.heldTo), {
+                          service:  'nts',
+                          shown:    shown === null
+                                        ? null
+                                        : {
+                                              name:         readable(shown.hostname),
+                                              certificate:  shown.certificate ?? shown.judgement?.certificate ?? shown.known?.certificate ?? null,
+                                              root:         shown.rootCA?.fingerprint ?? shown.judgement?.root ?? shown.known?.root ?? null
+                                          }
+                      })}
 
                     <div class="form-actions">
                         <button type="submit" class="btn primary">Save</button>
@@ -583,6 +603,16 @@ export const ntsPage: Page = {
                     return;
                 }
 
+                // What it is held to is in the dialog as well, so that it is
+                // saved as it is shown - kept where nobody touched it, which is
+                // what the entry lost before this was here.
+                const pins = readPinsFieldset(form);
+
+                if (pins.error !== undefined) {
+                    error.textContent = pins.error;
+                    return;
+                }
+
                 const entry: NTSServerEntry = { hostname };
 
                 if (priority !== 0)                                      entry.priority   = priority;
@@ -590,7 +620,7 @@ export const ntsPage: Page = {
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
 
-                void tell(withServer(list, index, editedEntry(index === null ? null : list[index] ?? null, entry)));
+                void tell(withServer(list, index, withPins(entry, pins.draft)));
 
             });
 
@@ -606,6 +636,8 @@ export const ntsPage: Page = {
                     void tell(withoutServer(list, index));
 
                 });
+
+            wirePinsFieldset(dialog);
 
             dialog.addEventListener('close',  dismiss);
             dialog.addEventListener('cancel', dismiss);

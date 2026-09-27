@@ -324,22 +324,29 @@ A PUT changes only the fields it names. A form with six checkboxes on it sends
 six checkboxes, and a save that replaced the whole section would take the name
 servers with it because the form had nothing to say about them.
 
-The time servers are one such field, sent whole whenever one of them is added,
-changed or deleted - so the NTS page sends back what each of them is held to as
-well, although it shows none of it: the certificates and roots it is pinned to,
-what a mismatch comes to, and what it learns on first use. It did not, and a pin
-typed into the file, or learned on first use, went with the next save of any
-server in the list. A server given another name in the dialog is another
-server: it keeps what its entry was to learn on first use, and none of the old
-name's fingerprints.
+A time server, and a name server asked over TLS or HTTPS, can be held to a
+certificate or a root, and the NTS and the DNS page are where that is said: a
+server's dialog takes SHA-256 fingerprints one to a line, adds the one the
+server showed last with a click, and says what a mismatch comes to and whether
+the server is held to what it is first believed with. Its row says what was
+made of its certificate the last time - believed, used although it did not
+match, or refused, and why - what it is held to, and when it showed another
+certificate than before. A lookup on the DNS page says the same of every
+certificate it met. Unlike the vehicle's, this station's node keeps no
+certificate store - the keys it dials its back ends with are in one of its own -
+so a pin is typed or taken from what the server showed, and a server is
+vouched for by the roots of the machine the station runs on.
 
-The name servers are the same kind of field, and a name server reached over TLS
-or HTTPS is held to its certificate the same way - so the DNS page sends each
-one back with what it is held to, and without what the station only says about
-it. A server switched to UDP or TCP lets go of its pins when it is saved: the
-station refuses a pin on a server that shows no certificate, and would refuse
-the whole list with it. And one given another address keeps, as on the NTS
-page, only what its entry was to learn.
+The time servers and the name servers are each one such field, sent whole at
+every save, so every server goes with what it is held to, and the pages'
+`ntsServers.ts`, `dnsServers.ts` and `pins.ts` are where that is decided and
+tested, the same as the vehicle's. A list sent without the pins of the servers
+nobody touched lets go of them, the ones learned on first use included - which
+the NTS page did until it sent them back. What a dialog shows is what is saved,
+for a server given another name as well: its pins are in front of whoever
+renames it. A name server switched to a transport that shows no certificate
+lets go of its pins when it is saved - the station would refuse them, and the
+whole list with them - and its row says so first.
 
 ### Who may change what
 

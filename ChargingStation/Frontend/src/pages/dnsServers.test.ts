@@ -1,11 +1,14 @@
 /**
- * How long the DNS page waits for the station to look something up, asked
- * directly.
+ * How long the DNS page waits for the station to look something up, and what
+ * it tells the station about a name server, asked directly.
  *
  * Run with `npm test`. What is pinned is what was wrong: the page added the
  * servers' timeouts up, as if the station asked them one after another, when
  * it asks all of them at once - and it is what a server asked again takes
- * that the page has to be willing to wait for, not what it takes once.
+ * that the page has to be willing to wait for, not what it takes once. And
+ * that a name server goes back to the station with what it is held to, where
+ * it shows a certificate to hold it to, and with nothing the station only said
+ * about it.
  */
 
 import { strict as assert }  from 'node:assert';
@@ -14,9 +17,10 @@ import { describe, it }      from 'node:test';
 
 import type { DNSConfiguration, DNSServer } from '../api/client';
 
-// The pages are written for webpack, which does not want the extension in a
-// relative import; Node does. One hook puts it back for whatever this test
-// loads - an entry reads what a server is held to from pins.ts.
+// The page's helpers are written for webpack, which does not want the
+// extension in a relative import, and they import what a server is held to
+// from pins.ts; Node wants the extension. One hook puts it back - see the
+// client's test.
 registerHooks({
     resolve(specifier, context, next) {
         return specifier.startsWith('.') && !specifier.endsWith('.ts')
@@ -25,7 +29,7 @@ registerHooks({
     }
 });
 
-const { allServersTake, entryOf, oneServerTakes } = await import('./dnsServers.ts');
+const { allServersTake, entryOf, isEncrypted, oneServerTakes } = await import('./dnsServers.ts');
 
 
 /** A name server as the station shows it, with a timeout of its own or none. */
@@ -88,60 +92,38 @@ describe('all of them', () => {
 });
 
 
-describe('a name server as the station is told it when the list is saved', () => {
+describe('a name server told to the station', () => {
 
-    const A = 'A'.repeat(64);
-    const R = 'C'.repeat(64);
+    const root = 'a'.repeat(64);
 
-    /** A name server over TLS held to a certificate and a root, as the station shows it. */
-    const pinned = (): DNSServer => ({
-        address: '192.0.2.53', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
-        certificateFingerprint: A, rootFingerprint: R, onMismatch: 'record', trustOnFirstUse: 'root',
-        heldTo:    { certificate: A, root: R, certificates: [ A ], roots: [ R ], onMismatch: 'record', trustOnFirstUse: 'root' },
-        judgement: { outcome: 'believed' },
-        known:     { certificate: A, root: R, since: '2026-09-27T08:00:00Z' }
+    /** A name server over TLS as the station shows it: held to a root, judged, and known. */
+    const overTLS = (): DNSServer => ({
+        address: '1.1.1.1', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
+        rootFingerprint: root, trustOnFirstUse: 'root',
+        heldTo:    { certificate: null, root, certificates: [], roots: [ root ], onMismatch: 'refuse', trustOnFirstUse: 'root' },
+        judgement: null,
+        known:     { certificate: 'b'.repeat(64), root, since: '2026-09-27T10:00:00.0000000+00:00' }
     });
 
-    it('keeps what it is held to, and none of what the station only says about it', () => {
+    it('goes with what it is held to, and without what the station only said about it', () => {
 
-        assert.deepEqual(entryOf(pinned(), '192.0.2.53'),
-                         { address: '192.0.2.53', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
-                           certificateFingerprint: A, rootFingerprint: R, onMismatch: 'record', trustOnFirstUse: 'root' });
-
-    });
-
-    it('lets go of its pins once it is asked over UDP, which shows no certificate, and the station would refuse the list', () => {
-
-        assert.deepEqual(entryOf({ ...pinned(), transport: 'UDP', port: 53 }, '192.0.2.53'),
-                         { address: '192.0.2.53', port: 53, transport: 'UDP', queryTimeoutSeconds: null });
+        assert.deepEqual(entryOf(overTLS()),
+                         { address: '1.1.1.1', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
+                           rootFingerprint: root, trustOnFirstUse: 'root' });
 
     });
 
-    it('keeps them over every kind of HTTPS', () => {
+    it('lets go of its pins once it is asked over a transport that shows no certificate, which the station would refuse', () => {
 
-        for (const transport of [ 'HTTPS', 'HTTPS_Binary', 'HTTPS_JSON', 'HTTPS_GET' ])
-            assert.equal(entryOf({ ...pinned(), transport }, '192.0.2.53').certificateFingerprint, A, transport);
-
-    });
-
-    it('holds a server given another address to none of the old one\'s fingerprints, and lets it learn its own', () => {
-
-        assert.deepEqual(entryOf({ ...pinned(), address: '192.0.2.54' }, '192.0.2.53'),
-                         { address: '192.0.2.54', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
-                           onMismatch: 'record', trustOnFirstUse: 'root' });
+        assert.deepEqual(entryOf({ ...overTLS(), transport: 'UDP', port: 53 }),
+                         { address: '1.1.1.1', port: 53, transport: 'UDP', queryTimeoutSeconds: null });
 
     });
 
-    it('takes a name in other letters, or with the root dot, for the same server', () => {
+    it('is asked over TLS or HTTPS in all its forms, and over nothing else, for a certificate', () => {
 
-        assert.equal(entryOf({ ...pinned(), address: 'DNS.Example.' }, 'dns.example').certificateFingerprint, A);
-
-    });
-
-    it('is what was typed for a server added on the page', () => {
-
-        assert.deepEqual(entryOf({ address: '192.0.2.99', port: 853, transport: 'TLS', queryTimeoutSeconds: 5 }, null),
-                         { address: '192.0.2.99', port: 853, transport: 'TLS', queryTimeoutSeconds: 5 });
+        assert.deepEqual([ 'TLS', 'HTTPS', 'HTTPS_Binary', 'HTTPS_JSON', 'HTTPS_GET' ].map(isEncrypted), [ true, true, true, true, true ]);
+        assert.deepEqual([ 'UDP', 'TCP', 'HTTP', 'HTTP_Binary', 'HTTP_JSON' ].map(isEncrypted),          [ false, false, false, false, false ]);
 
     });
 

@@ -11,11 +11,11 @@ import { strict as assert }  from 'node:assert';
 import { registerHooks }     from 'node:module';
 import { describe, it }      from 'node:test';
 
-import type { NTSTimeSource, ServerHeldTo } from '../api/client';
+import type { NTSTimeSource, ServerPins } from '../api/client';
 
-// The pages are written for webpack, which does not want the extension in a
-// relative import; Node does. One hook puts it back for whatever this test
-// loads - the list reads what a server is held to from pins.ts.
+// The list is written for webpack, which does not want the extension in a
+// relative import, and it imports what a server is held to from pins.ts; Node
+// wants the extension. One hook puts it back - see the client's test.
 registerHooks({
     resolve(specifier, context, next) {
         return specifier.startsWith('.') && !specifier.endsWith('.ts')
@@ -24,7 +24,7 @@ registerHooks({
     }
 });
 
-const { editedEntry, entryOf, nameTaken, readable, withServer, withoutServer } = await import('./ntsServers.ts');
+const { entryOf, nameTaken, readable, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -32,6 +32,15 @@ const usual = { ntsKE: 4460, ntp: 123 };
 /** A server as the station shows it. */
 const shown = (hostname: string, more: Partial<NTSTimeSource> = {}): NTSTimeSource =>
     ({ hostname, priority: 0, ntsKEPort: 4460, ntpPort: 123, enabled: true, ...more });
+
+/** Two fingerprints, as the station writes them. */
+const root         = 'a'.repeat(64);
+const certificate  = 'b'.repeat(64);
+const renewal      = 'c'.repeat(64);
+
+/** What the station says a server is held to. */
+const heldTo = (more: Partial<ServerPins>): ServerPins =>
+    ({ certificate: null, root: null, certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: null, ...more });
 
 
 describe('a time server turned back into its entry', () => {
@@ -50,119 +59,51 @@ describe('a time server turned back into its entry', () => {
 
     });
 
-});
+    it('keeps what it is held to - it went missing from every server whenever any one was saved', () => {
 
-
-describe('what a time server is held to, turned back into its entry', () => {
-
-    const A = 'A'.repeat(64);
-    const B = 'B'.repeat(64);
-    const R = 'C'.repeat(64);
-
-    /** What the station says a server is held to, the way it says it. */
-    const held = (more: Partial<ServerHeldTo>): ServerHeldTo =>
-        ({ certificate: null, root: null, certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: 'none', ...more });
-
-    it('is the pin the file had, told to the station again', () => {
-
-        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: held({ certificate: A, certificates: [ A ] }) }), usual),
-                         { hostname: 'ptbtime1.ptb.de', certificateFingerprint: A });
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: heldTo({ root, roots: [ root ], onMismatch: 'record' }) }), usual),
+                         { hostname: 'ptbtime1.ptb.de', rootFingerprint: root, onMismatch: 'record' });
 
     });
 
-    it('is a list where there are several of a kind, the way the file writes them', () => {
+    it('keeps a root it learned on first use, and that it learns', () => {
 
-        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: held({ certificate: A, certificates: [ A, B ], root: R, roots: [ R ] }) }), usual),
-                         { hostname: 'ptbtime1.ptb.de', certificateFingerprints: [ A, B ], rootFingerprint: R });
-
-    });
-
-    it('keeps what is to be learned on first use, and what a mismatch comes to', () => {
-
-        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: held({ onMismatch: 'record', trustOnFirstUse: 'root' }) }), usual),
-                         { hostname: 'ptbtime1.ptb.de', onMismatch: 'record', trustOnFirstUse: 'root' });
+        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: heldTo({ root, roots: [ root ], trustOnFirstUse: 'root' }) }), usual),
+                         { hostname: 'ptbtime1.ptb.de', rootFingerprint: root, trustOnFirstUse: 'root' });
 
     });
 
-    it('keeps a pin that was learned, and that it is learned', () => {
+    it('keeps several certificates as a list, the way the file writes them', () => {
 
-        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: held({ root: R, roots: [ R ], trustOnFirstUse: 'root' }) }), usual),
-                         { hostname: 'ptbtime1.ptb.de', rootFingerprint: R, trustOnFirstUse: 'root' });
-
-    });
-
-    it('reads a station that names only the first pin of each kind', () => {
-
-        // What a station said before a server could be held to several.
-        assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: { certificate: A, root: R } }), usual),
-                         { hostname: 'ptbtime1.ptb.de', certificateFingerprint: A, rootFingerprint: R });
+        assert.deepEqual(entryOf(shown('time.local.', { heldTo: heldTo({ certificate, certificates: [ certificate, renewal ] }) }), usual),
+                         { hostname: 'time.local', certificateFingerprints: [ certificate, renewal ] });
 
     });
 
-    it('leaves a server held to nothing a bare name', () => {
+    it('says nothing of pins where the station says it is held to nothing', () => {
 
         assert.deepEqual(entryOf(shown('ptbtime1.ptb.de.', { heldTo: null }), usual),
                          { hostname: 'ptbtime1.ptb.de' });
 
     });
 
-    it('survives a change to another server of the list, which is sent whole', () => {
-
-        const list = [ shown('a.example.', { heldTo: held({ certificate: A, certificates: [ A ] }) }),
-                       shown('b.example.') ].map(source => entryOf(source, usual));
-
-        assert.deepEqual(withServer(list, 1, { hostname: 'b.example', priority: 3 }),
-                         [ { hostname: 'a.example', certificateFingerprint: A }, { hostname: 'b.example', priority: 3 } ]);
-
-    });
-
 });
 
 
-describe('a time server as the dialog saves it', () => {
+describe('the list a change of one server sends', () => {
 
-    const A = 'A'.repeat(64);
-    const R = 'C'.repeat(64);
+    it('still holds every other server to what it was held to', () => {
 
-    /** A server held to a certificate and a root, set to learn its root, recorded when it does not match. */
-    const pinned = { hostname: 'ptbtime1.ptb.de', priority: 2, certificateFingerprint: A, rootFingerprint: R,
-                     onMismatch: 'record' as const, trustOnFirstUse: 'root' as const };
+        const sources  = [ shown('ptbtime1.ptb.de.', { heldTo: heldTo({ root, roots: [ root ], trustOnFirstUse: 'root' }) }),
+                           shown('ptbtime2.ptb.de.', { heldTo: heldTo({ certificate, certificates: [ certificate ] }) }) ];
+        const list     = sources.map(source => entryOf(source, usual));
 
-    it('keeps what the server is held to when only something else about it was changed', () => {
+        assert.deepEqual(withServer(list, 1, { ...list[1], priority: 1 }),
+                         [ { hostname: 'ptbtime1.ptb.de', rootFingerprint: root, trustOnFirstUse: 'root' },
+                           { hostname: 'ptbtime2.ptb.de', certificateFingerprint: certificate, priority: 1 } ]);
 
-        assert.deepEqual(editedEntry(pinned, { hostname: 'ptbtime1.ptb.de', priority: 5 }),
-                         { hostname: 'ptbtime1.ptb.de', priority: 5, certificateFingerprint: A, rootFingerprint: R,
-                           onMismatch: 'record', trustOnFirstUse: 'root' });
-
-    });
-
-    it('takes a name in other letters for the same server', () => {
-
-        assert.deepEqual(editedEntry(pinned, { hostname: 'PTBtime1.ptb.de' }),
-                         { hostname: 'PTBtime1.ptb.de', certificateFingerprint: A, rootFingerprint: R,
-                           onMismatch: 'record', trustOnFirstUse: 'root' });
-
-    });
-
-    it('holds a server given another name to none of the old one\'s fingerprints, and lets it learn its own', () => {
-
-        assert.deepEqual(editedEntry(pinned, { hostname: 'ptbtime2.ptb.de' }),
-                         { hostname: 'ptbtime2.ptb.de', onMismatch: 'record', trustOnFirstUse: 'root' });
-
-    });
-
-    it('holds a server given another name to nothing, where the old one learned nothing', () => {
-
-        assert.deepEqual(editedEntry({ hostname: 'ptbtime1.ptb.de', certificateFingerprint: A, onMismatch: 'accept' },
-                                     { hostname: 'ptbtime2.ptb.de' }),
-                         { hostname: 'ptbtime2.ptb.de' });
-
-    });
-
-    it('is what was typed for a new server', () => {
-
-        assert.deepEqual(editedEntry(null, { hostname: 'ptbtime3.ptb.de', enabled: false }),
-                         { hostname: 'ptbtime3.ptb.de', enabled: false });
+        assert.deepEqual(withoutServer(list, 1),
+                         [ { hostname: 'ptbtime1.ptb.de', rootFingerprint: root, trustOnFirstUse: 'root' } ]);
 
     });
 
