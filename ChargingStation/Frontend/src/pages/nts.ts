@@ -5,7 +5,7 @@ import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
 import { typedSinceDrawn, unsaved } from '../unsaved';
-import { entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { editedEntry, entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
 
 /**
  * What the NTS client allows itself when the station has not been told.
@@ -590,7 +590,7 @@ export const ntsPage: Page = {
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
 
-                void tell(withServer(list, index, entry));
+                void tell(withServer(list, index, editedEntry(index === null ? null : list[index] ?? null, entry)));
 
             });
 

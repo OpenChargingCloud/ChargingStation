@@ -195,14 +195,47 @@ export interface NTSUpdate {
 
 /**
  * One time server as the configuration names it. Whatever is left out is the
- * usual: priority 0, the usual ports, switched on.
+ * usual: priority 0, the usual ports, switched on, and held to nothing beyond
+ * what every server is held to.
+ *
+ * A pin of a kind is one fingerprint, several are a list - the way the file
+ * writes them - and a mismatch or something to learn is only there where it
+ * is not the usual.
  */
 export interface NTSServerEntry {
-    hostname:    string;
-    priority?:   number;
-    ntsKEPort?:  number;
-    ntpPort?:    number;
-    enabled?:    boolean;
+    hostname:                  string;
+    priority?:                 number;
+    ntsKEPort?:                number;
+    ntpPort?:                  number;
+    enabled?:                  boolean;
+    certificateFingerprint?:   string;
+    certificateFingerprints?:  string[];
+    rootFingerprint?:          string;
+    rootFingerprints?:         string[];
+    onMismatch?:               NTSPinMismatch;
+    trustOnFirstUse?:          NTSTrustOnFirstUse;
+}
+
+/** What a connection to a pinned server comes to whose certificate is not one of its pins. */
+export type NTSPinMismatch     = 'refuse' | 'record' | 'accept';
+
+/** What a server is held to from the first time it is believed, where it is held to nothing of that kind yet. */
+export type NTSTrustOnFirstUse = 'none' | 'root' | 'certificate';
+
+/**
+ * What one time server is held to, beside what every server is held to: the
+ * certificates it may show and the roots its chain may end at, each by its
+ * SHA-256 fingerprint, what a mismatch comes to, and what it learns on first
+ * use. The first certificate and the first root are also said on their own,
+ * as they were before a server could be held to several.
+ */
+export interface NTSHeldTo {
+    certificate?:      string | null;
+    root?:             string | null;
+    certificates?:     string[];
+    roots?:            string[];
+    onMismatch?:       NTSPinMismatch;
+    trustOnFirstUse?:  NTSTrustOnFirstUse;
 }
 
 /** How one synchronisation went, step by step. */
@@ -261,6 +294,12 @@ export interface NTSTimeSource {
      * or null before the first exchange.
      */
     rootCA?:        NTSRootCA | null;
+
+    /**
+     * What its entry in the configuration holds it to, or null where it says
+     * nothing about it.
+     */
+    heldTo?:        NTSHeldTo | null;
 }
 
 /** A root CA, by a name to call it, its subject, and its SHA-256 fingerprint. */

@@ -324,6 +324,15 @@ A PUT changes only the fields it names. A form with six checkboxes on it sends
 six checkboxes, and a save that replaced the whole section would take the name
 servers with it because the form had nothing to say about them.
 
+The time servers are one such field, sent whole whenever one of them is added,
+changed or deleted - so the NTS page sends back what each of them is held to as
+well, although it shows none of it: the certificates and roots it is pinned to,
+what a mismatch comes to, and what it learns on first use. It did not, and a pin
+typed into the file, or learned on first use, went with the next save of any
+server in the list. A server given another name in the dialog is another
+server: it keeps what its entry was to learn on first use, and none of the old
+name's fingerprints.
+
 ### Who may change what
 
 Every account carries roles, and a role is a user group of that name in the
