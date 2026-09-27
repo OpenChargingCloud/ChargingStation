@@ -36,7 +36,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
     /// looked at first.
     ///
     /// Which permission each of these needs is not decided here. That is the
-    /// API's business - see <see cref="Web.Permissions"/>.
+    /// API's business - see <see cref="Web.StationAccess"/>.
     /// </remarks>
     [Flags]
     public enum EVSEChange

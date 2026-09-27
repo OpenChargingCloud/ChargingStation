@@ -41,7 +41,7 @@ export const calibrationPage: Page = {
                 void load();
         });
 
-        const mayChange = auth.can('manageCalibration');
+        const mayChange = auth.can('calibration', 'edit');
 
         let cancelled = false;
         let current: CalibrationConfiguration | null = null;

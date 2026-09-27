@@ -29,6 +29,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -432,7 +433,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Configuration), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -451,7 +452,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.DNS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -468,7 +469,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.DNS), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -496,7 +497,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PostDNSQuery(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (NodeResources.DNS), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -533,7 +534,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.NTS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -548,7 +549,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.NTS), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -576,7 +577,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PostNTSSync(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
             Log.Info($"'{user.Id}' asked this station to synchronise its time.", "nts", "test", "web");
@@ -612,7 +613,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PostNTSTest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -641,7 +642,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetDisplayConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Display), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -668,7 +669,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutDisplayConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Display), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -689,7 +690,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetEVSEConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.EVSEs), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -720,16 +721,14 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutEVSEConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.EVSEs), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            var permissions = PermissionsOf(user);
-
             if (!Station.TryUpdateEVSEConfiguration(json,
-                                                    change => permissions.HasFlag(PermissionsFor(change)),
+                                                    change => Station.IsAllowed(user, PermissionsFor(change)),
                                                     out var change,
                                                     out var error,
                                                     out var forbidden))
@@ -759,14 +758,14 @@ namespace cloud.charging.open.ChargingStation
         /// The one place where the difference between a switch, a number and a
         /// claim about the hardware becomes a difference in who may do it.
         /// </remarks>
-        private static Permissions PermissionsFor(EVSEChange Change)
+        private static IReadOnlyCollection<Permission> PermissionsFor(EVSEChange Change)
         {
 
-            var permissions = Permissions.None;
+            var permissions = new List<Permission>();
 
-            if (Change.HasFlag(EVSEChange.Availability))  permissions |= Permissions.ChangeAvailability;
-            if (Change.HasFlag(EVSEChange.PowerLimits))   permissions |= Permissions.ChangePowerLimits;
-            if (Change.HasFlag(EVSEChange.Hardware))      permissions |= Permissions.ChangeHardware;
+            if (Change.HasFlag(EVSEChange.Availability))  permissions.Add(Permission.Edit(StationAccess.Availability));
+            if (Change.HasFlag(EVSEChange.PowerLimits))   permissions.Add(Permission.Edit(StationAccess.Power));
+            if (Change.HasFlag(EVSEChange.Hardware))      permissions.Add(Permission.Edit(StationAccess.EVSEs));
 
             return permissions;
 
@@ -783,7 +782,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetMessages(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Display), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -810,7 +809,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostMessage(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Display), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -831,7 +830,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostClearMessage(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Display), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -857,7 +856,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetReservations(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Session), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -884,7 +883,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostReserveNow(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Session), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -916,7 +915,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostWebPaymentSession(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Session), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -950,7 +949,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostStopSession(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Session), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -977,7 +976,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostCancelReservation(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeAvailability, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Session), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1002,7 +1001,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetRFIDConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.RFID), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1022,16 +1021,14 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutRFIDConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.RFID), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            var permissions = PermissionsOf(user);
-
             if (!Station.TryUpdateRFIDConfiguration(json,
-                                                    change => permissions.HasFlag(PermissionsFor(change)),
+                                                    change => Station.IsAllowed(user, PermissionsFor(change)),
                                                     out var change,
                                                     out var error,
                                                     out var forbidden))
@@ -1056,13 +1053,13 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// Everything a change to the card readers needs permission for.
         /// </summary>
-        private static Permissions PermissionsFor(RFIDChange Change)
+        private static IReadOnlyCollection<Permission> PermissionsFor(RFIDChange Change)
         {
 
-            var permissions = Permissions.None;
+            var permissions = new List<Permission>();
 
-            if (Change.HasFlag(RFIDChange.Availability))  permissions |= Permissions.ChangeAvailability;
-            if (Change.HasFlag(RFIDChange.Placement))     permissions |= Permissions.ChangeHardware;
+            if (Change.HasFlag(RFIDChange.Availability))  permissions.Add(Permission.Edit(StationAccess.Availability));
+            if (Change.HasFlag(RFIDChange.Placement))     permissions.Add(Permission.Edit(StationAccess.RFID));
 
             return permissions;
 
@@ -1079,7 +1076,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetV2GConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.V2G), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1104,7 +1101,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PutV2GConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.V2G), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1132,7 +1129,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetPowerConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Power), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1148,7 +1145,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutPowerConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangePowerLimits, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Power), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1180,7 +1177,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetCalibrationConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Calibration), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1196,7 +1193,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PutCalibrationConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageCalibration, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Calibration), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1235,7 +1232,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetConnectionsAndAuth(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Connections), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1308,7 +1305,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetConnectionStates(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Connections), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1331,7 +1328,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostAuthentication(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1374,7 +1371,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostUpdateAuthentication(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1412,7 +1409,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostRemoveAuthentication(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1435,7 +1432,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostConnection(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1470,7 +1467,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostUpdateConnection(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1505,7 +1502,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostRemoveConnection(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1550,7 +1547,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PostTestConnection(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run (StationAccess.Connections), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1590,7 +1587,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetClientCertificates(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Connections), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1615,7 +1612,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostClientKey(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1655,7 +1652,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostClientCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1692,7 +1689,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostRemoveClientKey(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1729,7 +1726,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetCertificates(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Certificates), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -1762,7 +1759,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1837,7 +1834,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> GetCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Certificates), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             var entry = Station.Certificates.Get(HandleOf(Request));
@@ -1864,7 +1861,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PatchCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -1929,7 +1926,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> DeleteCertificate(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!Station.Certificates.Remove(HandleOf(Request), out var error))
@@ -1959,7 +1956,7 @@ namespace cloud.charging.open.ChargingStation
         private Task<HTTPResponse> PostCertificateReload(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageCertificates, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             Station.Certificates.Reload();
@@ -2457,6 +2454,11 @@ namespace cloud.charging.open.ChargingStation
         /// the permission they are short of and the roles that carry it. The
         /// difference between the last two matters to a browser: 401 means sign
         /// in again, 403 means signing in again will not help.
+        ///
+        /// What the account may do is the node's to answer - see
+        /// <see cref="protocols.WWCP.Node.WWCPNode.IsAllowed(IUser, IEnumerable{Permission})"/> -
+        /// so that a role in the configuration file means here what it means
+        /// on every other node.
         /// </remarks>
         /// <param name="Request">The request.</param>
         /// <param name="Required">What this request needs permission to do.</param>
@@ -2464,7 +2466,25 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="User">Who is behind it.</param>
         /// <param name="Refused">The response to send instead.</param>
         private Boolean TryAuthorize(HTTPRequest                             Request,
-                                     Permissions                             Required,
+                                     Permission                              Required,
+                                     Boolean                                 StateChanging,
+                                     [NotNullWhen(true)]  out IUser?         User,
+                                     [NotNullWhen(false)] out HTTPResponse?  Refused)
+
+            => TryAuthorize(Request, [ Required ], StateChanging, out User, out Refused);
+
+
+        /// <summary>
+        /// Who is behind the request, when they are allowed to do all of this -
+        /// or the response that says why not.
+        /// </summary>
+        /// <remarks>
+        /// All of it or nothing: a change that is several kinds at once needs
+        /// every one of them, each carried by whichever role of the account
+        /// carries it.
+        /// </remarks>
+        private Boolean TryAuthorize(HTTPRequest                             Request,
+                                     IReadOnlyCollection<Permission>         Required,
                                      Boolean                                 StateChanging,
                                      [NotNullWhen(true)]  out IUser?         User,
                                      [NotNullWhen(false)] out HTTPResponse?  Refused)
@@ -2481,9 +2501,7 @@ namespace cloud.charging.open.ChargingStation
             if (!TryGetUser(Request, out User, out Refused))
                 return false;
 
-            var permissions = PermissionsOf(User);
-
-            if (!permissions.HasFlag(Required))
+            if (!Station.IsAllowed(User, Required))
             {
                 Refused  = RefusePermission(Request, User, Required, null);
                 User     = null;
@@ -2511,20 +2529,21 @@ namespace cloud.charging.open.ChargingStation
         /// and both leave the same line in the log.
         /// </remarks>
         /// <param name="Because">What it was about this particular request, when the route alone does not say.</param>
-        private HTTPResponse RefusePermission(HTTPRequest  Request,
-                                              IUser        User,
-                                              Permissions  Required,
-                                              String?      Because)
+        private HTTPResponse RefusePermission(HTTPRequest                      Request,
+                                              IUser                            User,
+                                              IReadOnlyCollection<Permission>  Required,
+                                              String?                          Because)
         {
 
-            // HasFlag with more than one flag asks for all of them, which is
-            // what a role has to carry to do a change that was several kinds at
-            // once. Nobody is named who could only do half of it.
-            var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
-                                       Select(role => role.Name);
+            // Only roles that could do all of it on their own - what a role has
+            // to carry to do a change that was several kinds at once. Nobody is
+            // named who could only do half of it, and the administrators can
+            // always do all of it, so the sentence never runs out of roles.
+            var allowed = Station.Access.RolesAllowing(Required).
+                                         Select(role => role.Name);
 
             Log.Warning(
-                $"'{User.Id}' was refused {Required} on {Request.HTTPMethod} {Request.Path}; " +
+                $"'{User.Id}' was refused {String.Join(", ", Required)} on {Request.HTTPMethod} {Request.Path}; " +
                 $"signed in as {String.Join(", ", RolesOf(User).Select(role => role.Name))}." +
                 (Because is null ? "" : $" {Because}"),
                 "web", "auth"
@@ -2638,7 +2657,7 @@ namespace cloud.charging.open.ChargingStation
             => new (
                    new JProperty("username",     User.Id.ToString()),
                    new JProperty("roles",        new JArray(RolesOf(User).Select(role => role.Name))),
-                   new JProperty("permissions",  new JArray(PermissionsOf(User).Names()))
+                   new JProperty("permissions",  new JArray(Station.PermissionsOf(User).Select(permission => permission.ToString())))
                );
 
         #endregion
@@ -2668,10 +2687,11 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) RolesOf(User) / PermissionsOf(User)
+        #region (private) RolesOf(User)
 
         /// <summary>
-        /// The roles this account holds: one per group of that name it is in.
+        /// The roles this account holds: those of the node's roles whose groups
+        /// it is in - see <see cref="protocols.WWCP.Node.WWCPNode.RolesOf(IUser)"/>.
         /// </summary>
         /// <remarks>
         /// Asked of the groups on every request rather than remembered at
@@ -2679,23 +2699,9 @@ namespace cloud.charging.open.ChargingStation
         /// their next request instead of at their next sign-in. A role revoked
         /// that still works until a browser is closed is not revoked.
         /// </remarks>
-        private IEnumerable<UserRole> RolesOf(IUser User)
+        private IReadOnlyList<Role> RolesOf(IUser User)
 
-              // IsMember compares the account by identification, which is what
-              // makes this safe to ask with whatever instance authenticated the
-              // request: a cookie brings one rebuilt from what the cookie holds
-              // rather than the one the membership was made with. It compared by
-              // reference until 2026-09-18, and the same account then came out as
-              // systemadmin through Basic auth and as nobody through a cookie.
-            => UserRole.All.Where(role => ExtAPI.IsMember(User, role.GroupId));
-
-        /// <summary>
-        /// Everything those roles add up to, or nothing at all when the account
-        /// is in none of the groups.
-        /// </summary>
-        private Permissions PermissionsOf(IUser User)
-
-            => RolesOf(User).PermissionsOf();
+            => Station.RolesOf(User);
 
         #endregion
 

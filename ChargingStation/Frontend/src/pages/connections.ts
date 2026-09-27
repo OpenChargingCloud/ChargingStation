@@ -50,12 +50,12 @@ export const connectionsPage: Page = {
                 void load();
         });
 
-        const mayManage = auth.can('changeNetworkSettings');
+        const mayManage = auth.can('connections', 'edit');
 
         // Its own permission: a test makes this station open a connection to a
         // host and show it a credential, which is more than reading a page and
         // less than changing what the station does.
-        const mayTest   = auth.can('runDiagnostics');
+        const mayTest   = auth.can('connections', 'run');
 
         let cancelled = false;
         let store: StationConnections | null = null;

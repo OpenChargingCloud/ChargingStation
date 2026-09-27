@@ -27,7 +27,6 @@ using NUnit.Framework;
 
 #endregion
 
-using cloud.charging.open.ChargingStation.Web;
 
 namespace cloud.charging.open.ChargingStation.Tests
 {
@@ -101,7 +100,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                foreach (var role in UserRole.All)
+                Assert.That(Station.Roles, Is.EqualTo(new[] { "viewer", "cpo", "installer", "systemadmin" }),
+                            "the node's two roles and the station's two, in the order a sentence names them");
+
+                foreach (var role in Station.Access.Roles)
                     Assert.That(Station.ExtAPI.TryGetUserGroup(role.GroupId, out _), Is.True,
                                 $"The '{role.Name}' role has no user group, so nobody can ever hold it.");
 
@@ -263,16 +265,18 @@ namespace cloud.charging.open.ChargingStation.Tests
             var roles        = me["roles"]?.      Values<String>().ToArray() ?? [];
             var permissions  = me["permissions"]?.Values<String>().ToArray() ?? [];
 
+            // Every operation on every resource, spelled out: the node's four and
+            // the station's nine - what a page asks "dns:edit" of, rather than
+            // having to know that "*" means that too.
+            var resources = new[] { "configuration", "dns", "nts", "certificates",
+                                    "evses", "rfid", "availability", "power", "calibration",
+                                    "display", "session", "connections", "v2g" };
+
             Assert.Multiple(() => {
                 Assert.That(roles,       Is.EquivalentTo(new[] { "systemadmin" }));
-                Assert.That(permissions, Is.EquivalentTo(new[] { "readConfiguration",
-                                                                 "changeNetworkSettings",
-                                                                 "runDiagnostics",
-                                                                 "changeAvailability",
-                                                                 "changePowerLimits",
-                                                                 "manageCalibration",
-                                                                 "changeHardware",
-                                                                 "manageCertificates" }));
+                Assert.That(permissions, Is.EquivalentTo(resources.SelectMany(resource => new[] { $"{resource}:read",
+                                                                                                  $"{resource}:edit",
+                                                                                                  $"{resource}:run" })));
             });
 
         }

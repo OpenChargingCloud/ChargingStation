@@ -34,21 +34,26 @@ export interface LogPage {
 }
 
 /**
- * What somebody signed in to this station may do.
+ * What a permission is about: the node's four resources, and the station's
+ * nine - see StationAccess.
+ */
+export type Resource = 'configuration' | 'dns' | 'nts' | 'certificates'
+                     | 'evses' | 'rfid' | 'availability' | 'power' | 'calibration'
+                     | 'display' | 'session' | 'connections' | 'v2g';
+
+/** How a resource may be touched. */
+export type Operation = 'read' | 'edit' | 'run';
+
+/**
+ * What somebody signed in to this station may do: an operation on a resource,
+ * written "dns:edit".
  *
  * A copy of what the station enforces, not the enforcement: it is here so a
  * page can grey out what this person may not do instead of offering it and
  * letting them find out by being refused. Every request is checked again on
  * arrival, so editing this list in a browser buys a button that answers 403.
  */
-export type Permission = 'readConfiguration'
-                       | 'changeNetworkSettings'
-                       | 'runDiagnostics'
-                       | 'changeAvailability'
-                       | 'changePowerLimits'
-                       | 'manageCalibration'
-                       | 'changeHardware'
-                       | 'manageCertificates';
+export type Permission = `${Resource}:${Operation}`;
 
 /** Who is signed in to the web interface. */
 export interface Me {

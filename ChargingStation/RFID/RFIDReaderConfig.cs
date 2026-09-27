@@ -134,7 +134,7 @@ namespace cloud.charging.open.ChargingStation.RFID
         /// <remarks>
         /// The same split as the EVSEs: where a reader sits is a statement
         /// about the installation, and switching it off is not. See
-        /// <see cref="Web.Permissions"/>.
+        /// <see cref="Web.StationAccess"/>.
         /// </remarks>
         public Boolean SamePlacementAs(RFIDReaderConfig Other)
 

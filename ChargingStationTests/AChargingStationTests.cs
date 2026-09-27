@@ -24,7 +24,9 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 #endregion
 
@@ -266,6 +268,38 @@ namespace cloud.charging.open.ChargingStation.Tests
             => new (new JObject(Properties).ToString(),
                     Encoding.UTF8,
                     "application/json");
+
+        #endregion
+
+        #region (protected) Become(Role, Holding)
+
+        /// <summary>
+        /// The one account of this station, in the given role and no other -
+        /// which takes effect at its next request, because the groups are asked
+        /// at every one.
+        /// </summary>
+        /// <param name="Role">The role to take on.</param>
+        /// <param name="Holding">The role it holds now.</param>
+        /// <returns>The role it holds afterwards.</returns>
+        protected async Task<String> Become(String Role, String Holding)
+        {
+
+            if (Holding == Role)
+                return Role;
+
+            var user = Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser), out var stored) && stored is User account
+                           ? account
+                           : throw new InvalidOperationException("The account this station made is not there.");
+
+            var join  = Station.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role),    out var to)   && to   is UserGroup joined ? joined : throw new InvalidOperationException($"There is no group '{Role}'.");
+            var leave = Station.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Holding), out var from) && from is UserGroup left   ? left   : throw new InvalidOperationException($"There is no group '{Holding}'.");
+
+            Assert.That((await Station.ExtAPI.AddUserToUserGroup     (user, Role    == "systemadmin" ? User2UserGroupEdgeLabel.IsAdmin : User2UserGroupEdgeLabel.IsMember, join )).IsSuccess, Is.True, $"joining {Role}");
+            Assert.That((await Station.ExtAPI.RemoveUserFromUserGroup(user, Holding == "systemadmin" ? User2UserGroupEdgeLabel.IsAdmin : User2UserGroupEdgeLabel.IsMember, leave)).IsSuccess, Is.True, $"leaving {Holding}");
+
+            return Role;
+
+        }
 
         #endregion
 

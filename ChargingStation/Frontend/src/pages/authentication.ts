@@ -41,7 +41,7 @@ export const authenticationPage: Page = {
                 void load();
         });
 
-        const mayManage = auth.can('changeNetworkSettings');
+        const mayManage = auth.can('connections', 'edit');
 
         let cancelled = false;
         let store: StationConnections | null = null;

@@ -43,7 +43,7 @@ export const powerPage: Page = {
                 void load();
         });
 
-        const mayChange = auth.can('changePowerLimits');
+        const mayChange = auth.can('power', 'edit');
 
         let cancelled = false;
         let current: PowerConfiguration | null = null;

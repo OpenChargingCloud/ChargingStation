@@ -59,8 +59,8 @@ namespace cloud.charging.open.ChargingStation
     /// one - it says so loudly, and a restart makes it true.
     ///
     /// Nothing here decides who may call it. That is the API's business, and it
-    /// asks before it calls: see the permissions in
-    /// <see cref="Web.UserRole"/>. The EVSEs are the one place where it cannot
+    /// asks before it calls: see the roles and resources in
+    /// <see cref="Web.StationAccess"/>. The EVSEs are the one place where it cannot
     /// ask beforehand - the same request is a correction or a claim about the
     /// hardware depending on what this station currently has - so there the API
     /// hands in what it may do and is asked back, still without this file

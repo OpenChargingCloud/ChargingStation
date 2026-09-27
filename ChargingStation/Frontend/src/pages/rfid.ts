@@ -41,8 +41,8 @@ export const rfidPage: Page = {
                 void load();
         });
 
-        const mayPlace  = auth.can('changeHardware');
-        const maySwitch = auth.can('changeAvailability');
+        const mayPlace  = auth.can('rfid', 'edit');
+        const maySwitch = auth.can('availability', 'edit');
 
         let cancelled = false;
         let configuration: RFIDConfiguration | null = null;

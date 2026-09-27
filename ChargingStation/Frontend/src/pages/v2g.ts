@@ -40,7 +40,7 @@ export const v2gPage: Page = {
                 void load();
         });
 
-        const mayChange = auth.can('changeNetworkSettings');
+        const mayChange = auth.can('v2g', 'edit');
 
         let cancelled = false;
         let current: V2GConfiguration | null = null;

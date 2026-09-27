@@ -52,7 +52,7 @@ export interface PinsContext {
  */
 export async function storeOffers(service: 'nts' | 'dns'): Promise<StoreOffers | null> {
 
-    if (!auth.can('readConfiguration'))
+    if (!auth.can('certificates', 'read'))
         return null;
 
     try

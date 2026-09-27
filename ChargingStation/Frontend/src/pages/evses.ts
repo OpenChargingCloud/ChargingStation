@@ -48,9 +48,9 @@ export const evsesPage: Page = {
                 void load();
         });
 
-        const mayChangeHardware     = auth.can('changeHardware');
-        const mayChangeLimits       = auth.can('changePowerLimits');
-        const mayChangeAvailability = auth.can('changeAvailability');
+        const mayChangeHardware     = auth.can('evses', 'edit');
+        const mayChangeLimits       = auth.can('power', 'edit');
+        const mayChangeAvailability = auth.can('availability', 'edit');
         const mayChangeAnything     = mayChangeHardware || mayChangeLimits || mayChangeAvailability;
 
         let cancelled     = false;

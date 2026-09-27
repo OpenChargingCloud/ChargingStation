@@ -43,7 +43,7 @@ export const clientKeysPage: Page = {
                 void load();
         });
 
-        const mayManage = auth.can('changeNetworkSettings');
+        const mayManage = auth.can('connections', 'edit');
 
         let cancelled = false;
         let store: StationCertificates | null = null;

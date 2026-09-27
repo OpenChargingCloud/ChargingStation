@@ -375,7 +375,12 @@ namespace cloud.charging.open.ChargingStation
                    HTTPRootPath:      HTTPRootPath,
                    ExtAPI:            ExtAPI,
                    AccountsPath:      AccountsPath,
-                   Roles:             UserRole.All.Select(role => role.Name),
+                   // What a charging station adds to what every node has - its
+                   // resources, and the operator's and the installer's roles as
+                   // data - so that a role means here what it means on every node,
+                   // and the configuration file may add one. See StationAccess.
+                   Resources:         StationAccess.Resources,
+                   RoleDefinitions:   StationAccess.Roles,
                    ConfigFile:        ConfigFile,
                    DNSClient:         DNSClient,
                    NTSClient:         NTSClient,

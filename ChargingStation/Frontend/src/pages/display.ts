@@ -43,7 +43,7 @@ export const displayPage: Page = {
                 void load();
         });
 
-        const mayChange = auth.can('changeAvailability');
+        const mayChange = auth.can('display', 'edit');
 
         let cancelled = false;
         let current: DisplayConfiguration | null = null;

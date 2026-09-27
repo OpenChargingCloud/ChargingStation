@@ -379,7 +379,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
         /// switches is an EVSE taken out of service, a list that differs only
         /// in its numbers is a correction, and a list that differs in anything
         /// else is a claim about what is bolted to the wall. Only the last one
-        /// needs the hardware permission. See <see cref="Web.Permissions"/>.
+        /// needs "evses:edit". See <see cref="Web.StationAccess"/>.
         /// </remarks>
         public Boolean SameHardwareAs(EVSEConfig Other)
 

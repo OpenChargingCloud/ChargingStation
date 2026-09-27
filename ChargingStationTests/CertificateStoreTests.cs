@@ -30,7 +30,6 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
-using cloud.charging.open.ChargingStation.Web;
 
 #endregion
 
@@ -287,15 +286,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             // The same account from here on, as an installer: which groups it is
             // in is asked on every request, so this takes effect at the next one.
-            Assert.That(Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser), out var stored) &&
-                        stored is User account,                                                        Is.True);
-            Assert.That(Station.ExtAPI.TryGetUserGroup(UserRole.Installer.GroupId,   out var installers) && installers is UserGroup, Is.True);
-            Assert.That(Station.ExtAPI.TryGetUserGroup(UserRole.SystemAdmin.GroupId, out var admins)     && admins     is UserGroup, Is.True);
-
-            var user = (User) stored!;
-
-            Assert.That((await Station.ExtAPI.AddUserToUserGroup     (user, User2UserGroupEdgeLabel.IsMember, (UserGroup) installers!)).IsSuccess, Is.True);
-            Assert.That((await Station.ExtAPI.RemoveUserFromUserGroup(user, User2UserGroupEdgeLabel.IsAdmin,  (UserGroup) admins!    )).IsSuccess, Is.True);
+            await Become("installer", "systemadmin");
 
             var path                = $"api/v1/certificates/{kept["id"]}";
 

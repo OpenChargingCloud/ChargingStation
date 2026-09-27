@@ -41,10 +41,10 @@ namespace cloud.charging.open.ChargingStation.EVSEs
     /// the cable is rated for.
     ///
     /// The shape and the limit are deliberately two different kinds of fact.
-    /// What plug is fitted is a statement about the installation and takes the
-    /// hardware permission; what it may deliver is a number arrived at from the
-    /// fuse behind it, gets corrected, and takes the power-limit permission.
-    /// See <see cref="Web.Permissions"/>.
+    /// What plug is fitted is a statement about the installation and takes
+    /// "evses:edit"; what it may deliver is a number arrived at from the fuse
+    /// behind it, gets corrected, and takes "power:edit". See
+    /// <see cref="Web.StationAccess"/>.
     /// </remarks>
     /// <param name="Id">Which one it is, counting from 1 within its EVSE.</param>
     /// <param name="Type">What can be plugged into it, in OCPP 2.1's vocabulary.</param>

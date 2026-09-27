@@ -111,6 +111,8 @@ particular kind.
 | `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
+| `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
+| `RolesFromTheFileTests` | roles the configuration file adds: enforced, told to the browser, named in a refusal, and said in the log |
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, and that only the administrators change it |
 | `ClosedPortTests`       | a port a test holds closed: refused, nobody else can listen on it, and handed over it takes a back end - what the tests that dial nowhere and their own back ends stand on |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
@@ -150,7 +152,7 @@ is handed something else.
 | `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
 | `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
-| `Web/UserRoles.cs`        | the roles a station knows - `viewer`, `cpo`, `installer`, `systemadmin` - and what each of them may do; the node makes their groups |
+| `Web/StationAccess.cs`    | the resources a station adds to the node's, and its two roles as data - `cpo` and `installer`, beside the node's `viewer` and `systemadmin` |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
@@ -162,8 +164,9 @@ The log, the configuration file, name resolution and the time are the node's,
 and so are their pages' JSON: `WWCPNode.cs`, `WWCPNode.Clock.cs`,
 `WWCPNode.Diagnostics.cs`, `Logging/` and `Configuration/` in WWCP_Node. What
 this repository adds to them is what a charging station is: its own sections
-of the same file, read from the document the node has already read; the roles
-its accounts know - which the node makes a group of at every start; the
+of the same file, read from the document the node has already read; its
+resources and its roles, which the node puts together with its own and the
+file's, makes a group of at every start and answers for; the
 display's port and the local app server's, taken in `OnListening` before the
 station calls itself started; the kinds of certificate it keeps in the node's store -
 TLS's four, and the three roots Plug & Charge checks a vehicle against; and its
@@ -364,20 +367,38 @@ HTTPExt API - so putting somebody in the `cpo` group is what makes them one.
 Membership is asked on every request rather than remembered at sign-in: a role
 taken away takes effect on the next request, not at the next sign-in.
 
-The permissions below stay on this side. The HTTPExt API knows users, groups
-and organizations, and has no opinion about what "may change what the station
-is made of" means; it answers who somebody is, and the station answers what
-that lets them do.
+A role is a list of permissions, each an operation on a resource and written
+`dns:edit` - the same on every node, so that a role means here what it means
+on a vehicle. The operations are three: `read`, `edit` for what stays changed,
+and `run` for what is done now - a test, a message on the screen, a session.
+The resources are the node's - `configuration`, `dns`, `nts`, `certificates` -
+and the station's nine, in `Web/StationAccess.cs`:
+
+| | |
+|---|---|
+| `evses`        | read, the EVSEs; edited, what is installed - EVSEs, connectors, meters, labels |
+| `rfid`         | read, the card readers; edited, which readers sit where |
+| `availability` | edited, an EVSE or a card reader taken out of service and back |
+| `power`        | what the grid connection and each EVSE and cable may draw and deliver |
+| `calibration`  | the calibration certificates |
+| `display`      | edited, when the screen is dim; run, a message put on it |
+| `session`      | read, the reservations; run, an outlet held, a session paid at the screen started, one stopped |
+| `connections`  | where the station dials, with what credentials and keys, and where each connection stands; run, a test |
+| `v2g`          | the wire below the charging cable |
+
+Asked of the node, which answers from the roles it put together at the start:
+its own two, the station's two, and whatever the configuration file adds.
 
 | role | may |
 |---|---|
-| `viewer`      | read the configuration |
-| `cpo`         | that, plus change DNS and NTS, run their tests, and take an EVSE or a card reader out of service |
-| `installer`   | that, plus the power limits and the calibration certificates |
-| `systemadmin` | that, plus change what the station is made of, and what is in its certificate store |
+| `viewer`      | `*:read` - look at everything, and change nothing |
+| `cpo`         | that, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability` and `display` edited, `display` and `session` run |
+| `installer`   | that, plus `power:edit` and `calibration:edit` |
+| `systemadmin` | everything, and nothing the file can take away - the certificate store included, which nobody else may edit |
 
-The two steps above the operator are different in kind, and that is the whole
-reason there are two of them.
+The three about the same EVSE are kept apart, because they are different kinds
+of statement for different people, and that is the whole reason there are two
+steps above the operator.
 
 Taking something out of service is the **operator's**: something is wrong with
 an outlet, or somebody is working on it, and the person who finds that out is
@@ -399,31 +420,41 @@ does not change the wall, it changes what every vehicle and every back end is
 told about it. The network settings are reversible and they complain; a wrong
 connector does neither.
 
-`PUT /configuration/evses` therefore needs **whichever** of three permissions
-the request turns out to call for, because the request cannot say: the whole
-list is sent either way, and taking an EVSE out of service, correcting a
-cable's limit and inventing a socket are the same document. So nothing beyond
-reading gets in at the door, the station compares what it was sent with what it
-has, and the answer decides - under the same lock that then applies the change,
-so nothing moves between the question and the answer. One save can be more than
-one kind of change at once, and then all of them are needed. An installer who
-changes a plug type gets
+`PUT /configuration/evses` therefore needs **whichever** of `availability:edit`,
+`power:edit` and `evses:edit` the request turns out to call for, because the
+request cannot say: the whole list is sent either way, and taking an EVSE out of
+service, correcting a cable's limit and inventing a socket are the same
+document. So nothing beyond `evses:read` gets in at the door, the station
+compares what it was sent with what it has, and the answer decides - under the
+same lock that then applies the change, so nothing moves between the question
+and the answer. One save can be more than one kind of change at once, and then
+all of them are needed. The card readers are the same with `availability:edit`
+and `rfid:edit`. An installer who changes a plug type gets
 
     403  This changes the equipment of this station. This needs the
          systemadmin role.
 
 and the page says the same thing before the button is pressed, by making the
-same comparison in the browser.
+same comparison in the browser. A refusal names every role that could do all of
+it, the ones the file adds included.
 
-A group whose name is none of these four grants **nothing**, rather than
-something, and is never taken for one of them because it looks similar: a
-connector type this station has never heard of is still a socket somebody can
-plug a car into, but a role it has never heard of is a role it cannot enforce.
+The configuration file may add roles, or say differently what one of them may
+do - but not what `systemadmin` may do:
 
-The browser is told its own permissions so a page can grey out what it may not
-do. That is a copy of what the station enforces, not the enforcement: every
-request is checked again on arrival, so editing the list in a browser buys a
-button that answers 403.
+```json
+"roles": { "support": [ "dns:read", "nts:read" ] }
+```
+
+A role there that names a resource this station does not have stops the start,
+because a typo in `dns` would otherwise be a role that quietly grants nothing,
+and what the file added or changed is said in the log at every start, tagged
+`security`. A group whose name is no role grants **nothing**, rather than
+something, and is never taken for one because it looks similar.
+
+The browser is told its own permissions, spelled out resource by resource, so a
+page can grey out what it may not do. That is a copy of what the station
+enforces, not the enforcement: every request is checked again on arrival, so
+editing the list in a browser buys a button that answers 403.
 
 ### DNS
 
@@ -680,9 +711,9 @@ and the DNS page offer, in a server's dialog, the ones kept for it. Copying a
 file into the directory is a way to install one as well: the store reads the
 directory at every start, and "Re-read the directory" does it at once.
 
-Reading the store is reading the configuration. Changing it - importing,
-switching on and off, saying what a certificate is for, deleting - is the
-administrators' alone, as on the vehicle: a root is a decision about whom this
+Reading the store is `certificates:read`. Changing it - importing, switching
+on and off, saying what a certificate is for, deleting - is `certificates:edit`,
+the administrators' alone, as on the vehicle: a root is a decision about whom this
 station believes, and somebody who can add one can make it believe a server
 nobody else would. `CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
