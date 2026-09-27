@@ -286,6 +286,49 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region GuessingAtTheSignInFormIsRationed()
+
+        /// <summary>
+        /// The sign-in form of the web interface lets ten guesses a minute
+        /// through, and no more - not even the right password after them.
+        /// </summary>
+        /// <remarks>
+        /// It verified every password it was sent, as fast as they came:
+        /// fifteen wrong ones in three seconds, each answered "Invalid
+        /// password!", while guessing over Basic auth was rationed. It draws on
+        /// the same ration now, and once that is spent it answers 429 with a
+        /// sentence the sign-in page shows.
+        /// </remarks>
+        [Test]
+        public async Task GuessingAtTheSignInFormIsRationed()
+        {
+
+            using var http = Anonymous();
+
+            var guesses = new List<HttpStatusCode>();
+
+            for (var guess = 1; guess <= 10; guess++)
+            {
+                using var response = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, $"Not-The-Password-{guess}"));
+                guesses.Add(response.StatusCode);
+            }
+
+            using var right  = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
+            var said         = await right.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(guesses,           Is.All.EqualTo(HttpStatusCode.Unauthorized),
+                            String.Join(", ", guesses.Select(status => (Int32) status)));
+                Assert.That(right.StatusCode,  Is.EqualTo(HttpStatusCode.TooManyRequests),
+                            "after ten guesses the right password waits like any other: " + said);
+                Assert.That(said,              Does.Contain("\"description\""),
+                            "what the sign-in page shows");
+            });
+
+        }
+
+        #endregion
+
         #region TheSessionSaysWhatItMayDo()
 
         /// <summary>
