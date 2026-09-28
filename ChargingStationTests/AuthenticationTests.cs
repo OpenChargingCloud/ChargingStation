@@ -177,6 +177,38 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AnUnknownLoginIsAnsweredAsAWrongPassword()
+
+        /// <summary>
+        /// Whether an account exists is not told at the sign-in form to somebody
+        /// who does not know its password: a login nobody has is answered as a
+        /// wrong password is, word for word.
+        /// </summary>
+        /// <remarks>
+        /// It was 404 "Unknown login!" for the one and 401 "Invalid password!"
+        /// for the other - and the first at once, the second after a hash.
+        /// </remarks>
+        [Test]
+        public async Task AnUnknownLoginIsAnsweredAsAWrongPassword()
+        {
+
+            using var http     = Anonymous();
+
+            using var unknown  = await http.PostAsync(SignInPath, SignInBody("somebody-else",                  "Not-The-Password-1"));
+            using var wrong    = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, "Not-The-Password-1"));
+
+            var unknownSaid    = await unknown.Content.ReadAsStringAsync();
+            var wrongSaid      = await wrong.  Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(unknown.StatusCode,  Is.EqualTo(wrong.StatusCode),  $"{(Int32) unknown.StatusCode} {unknownSaid} / {(Int32) wrong.StatusCode} {wrongSaid}");
+                Assert.That(unknownSaid,         Is.EqualTo(wrongSaid),         "the same words");
+            });
+
+        }
+
+        #endregion
+
         #region TheGeneratedPasswordSignsIn()
 
         /// <summary>
