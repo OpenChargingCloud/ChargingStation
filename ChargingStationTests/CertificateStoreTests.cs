@@ -157,6 +157,20 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(store["credentials"]!.Values<String>(),           Is.EqualTo(new[] { "tlsIdentity" }));
                 Assert.That(store["recognised"]!.Values<String>(),            Is.EqualTo(new[] { "tlsServer" }),
                             "a server certificate is recognised, neither believed nor presented");
+
+                // What the page's usage fields are drawn from, for a station:
+                // a root and a server certificate told the services a station
+                // has, and nothing else - not a vehicle's roots, and not an
+                // identity, since a station names no listener one could be
+                // shown on.
+                Assert.That(store["usages"]!.Values<String>(),                                 Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer");
+                Assert.That(store["kinds"]!["tlsRoot"]!["hasUsages"]!.Value<Boolean>(),        Is.True);
+                Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),           Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer a root");
+                Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),         Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(store["kinds"]!["v2gRoot"]!["hasUsages"]!.Value<Boolean>(),        Is.False);
+                Assert.That(store["kinds"]!["tlsIdentity"]!["hasUsages"]!.Value<Boolean>(),    Is.False,
+                            "a station names no listener an identity could be told of, so a page offers it nothing - not the services a root vouches for");
+                Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),       Is.False);
                 Assert.That(Path.GetFullPath(store["directory"]!.Value<String>()!).StartsWith(Path.GetFullPath(Directory), StringComparison.OrdinalIgnoreCase),
                             Is.True,
                             "the store lives beside the configuration file of this station");
@@ -165,134 +179,6 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(said.ToString(),                                  Does.Contain("v2gRoot").And.Not.Contain("contract,"));
                 Assert.That(Station.Certificates.Entries,                     Is.Empty, "a kind this station does not keep was kept");
 
-            });
-
-        }
-
-        #endregion
-
-        #region ARootIsUploadedForTheUsesItIsFor()
-
-        [Test]
-        public async Task ARootIsUploadedForTheUsesItIsFor()
-        {
-
-            using var http          = AsTheAdministrator();
-
-            var (created, entry)    = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                     new JProperty("kind",     "tlsRoot"),
-                                                     new JProperty("content",  RootPem("Our Clocks' Root")),
-                                                     new JProperty("usages",   new JArray("nts"))
-                                                 ));
-
-            var (_, store)          = await Send(http, HttpMethod.Get, "api/v1/certificates");
-
-            Assert.Multiple(() => {
-
-                Assert.That(created,                                                                 Is.EqualTo(HttpStatusCode.Created), entry.ToString());
-                Assert.That(entry["usages"]!.Values<String>(),                                       Is.EqualTo(new[] { "nts" }));
-
-                Assert.That(store["usages"]!.Values<String>(),                                       Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer");
-                Assert.That(store["kinds"]!["tlsRoot"]!["hasUsages"]!.Value<Boolean>(),              Is.True);
-                Assert.That(store["kinds"]!["v2gRoot"]!["hasUsages"]!.Value<Boolean>(),              Is.False);
-                Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),                 Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer a root");
-                Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),               Is.EqualTo(new[] { "dns", "nts" }));
-                Assert.That(store["kinds"]!["tlsIdentity"]!["hasUsages"]!.Value<Boolean>(),          Is.False,
-                            "a station names no listener an identity could be told of, so a page offers it nothing - not the services a root vouches for");
-                Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),             Is.False);
-                Assert.That(store["certificates"]!["tlsRoot"]![0]!["usages"]!.Values<String>(),      Is.EqualTo(new[] { "nts" }));
-                Assert.That(store["certificates"]!["v2gRoot"]!.Children().Any(),                     Is.False);
-
-            });
-
-        }
-
-        #endregion
-
-        #region WhatARootIsForIsChangedAndTakenBackToEveryUse()
-
-        [Test]
-        public async Task WhatARootIsForIsChangedAndTakenBackToEveryUse()
-        {
-
-            using var http          = AsTheAdministrator();
-
-            var (_, entry)          = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                     new JProperty("kind",     "tlsRoot"),
-                                                     new JProperty("content",  RootPem("Our Resolvers' Root")),
-                                                     new JProperty("usages",   new JArray("dns"))
-                                                 ));
-
-            var path                = $"api/v1/certificates/{entry["id"]}";
-
-            var (both,  forBoth)    = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("usages", new JArray("nts", "dns"))));
-            var (label, relabel)    = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("label",  "Our Root")));
-            var (every, forAll)     = await Send(http, HttpMethod.Patch, path, new JObject(new JProperty("usages", JValue.CreateNull())));
-
-            Assert.Multiple(() => {
-                Assert.That(both,                                      Is.EqualTo(HttpStatusCode.OK), forBoth.ToString());
-                Assert.That(forBoth["usages"]!.Values<String>(),       Is.EqualTo(new[] { "dns", "nts" }));
-                Assert.That(label,                                     Is.EqualTo(HttpStatusCode.OK), relabel.ToString());
-                Assert.That(relabel["usages"]!.Values<String>(),       Is.EqualTo(new[] { "dns", "nts" }), "a PATCH without them leaves them alone");
-                Assert.That(every,                                     Is.EqualTo(HttpStatusCode.OK), forAll.ToString());
-                Assert.That(forAll["usages"]!.Type,                    Is.EqualTo(JTokenType.Null),    "null is every use again");
-                Assert.That(Station.Log.Recent(200, Tag: "security").Any(line => line.Message.Contains("is now for every use")),
-                            Is.True,
-                            "a change of what a root vouches for is a matter of security, and said as one");
-            });
-
-        }
-
-        #endregion
-
-        #region WhatIsNotAUsageIsRefusedWhereItIsTyped()
-
-        [Test]
-        public async Task WhatIsNotAUsageIsRefusedWhereItIsTyped()
-        {
-
-            using var http              = AsTheAdministrator();
-
-            var (unknown,  said)        = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                         new JProperty("kind",     "tlsRoot"),
-                                                         new JProperty("content",  RootPem("Some Root")),
-                                                         new JProperty("usages",   new JArray("ntp"))
-                                                     ));
-
-            var (onV2G,    v2gSaid)     = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                         new JProperty("kind",     "v2gRoot"),
-                                                         new JProperty("content",  RootPem("A V2G Root")),
-                                                         new JProperty("usages",   new JArray("nts"))
-                                                     ));
-
-            var (notAList, listSaid)    = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                         new JProperty("kind",     "tlsRoot"),
-                                                         new JProperty("content",  RootPem("Another Root")),
-                                                         new JProperty("usages",   "dns")
-                                                     ));
-
-            // Refused before the file is read, so a root's file does for an
-            // identity here: what is wrong is what it was to be told.
-            var (identity, idSaid)      = await Send(http, HttpMethod.Post, "api/v1/certificates", new JObject(
-                                                         new JProperty("kind",     "tlsIdentity"),
-                                                         new JProperty("content",  RootPem("Not An Identity")),
-                                                         new JProperty("usages",   new JArray("dns"))
-                                                     ));
-
-            var (_, store)              = await Send(http, HttpMethod.Get, "api/v1/certificates");
-
-            Assert.Multiple(() => {
-                Assert.That(unknown,                       Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(said.ToString(),               Does.Contain("'ntp' is not a usage this charging station knows").And.Contain("dns, nts"));
-                Assert.That(onV2G,                         Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(v2gSaid.ToString(),            Does.Contain("only a TLS root and a server certificate"));
-                Assert.That(notAList,                      Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(listSaid.ToString(),           Does.Contain("has to be a list of usages"));
-                Assert.That(identity,                      Is.EqualTo(HttpStatusCode.BadRequest));
-                Assert.That(idSaid.ToString(),             Does.Contain("names none"), "an identity is told listeners, and a station has none");
-                Assert.That(store["certificates"]!.Values().SelectMany(kind => kind.Children()).Any(),
-                            Is.False,
-                            "nothing refused was half-imported");
             });
 
         }

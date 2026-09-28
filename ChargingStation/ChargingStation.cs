@@ -808,13 +808,8 @@ namespace cloud.charging.open.ChargingStation
             // recognised as one and does not start a reconnect on the way out.
             await HangUp();
 
-            // Before the servers, and that order is the whole point: every
-            // browser with the Logs page open holds a request that is waiting
-            // for the next log entry rather than for its socket, and the HTTP
-            // server waits for every request it started. Closing the sockets
-            // does not wake those, so they are ended here first - whoever owns
-            // the server, because the streams are this station's.
-            API.CloseEventStreams();
+            // The event streams of the JSON API are not ended here: the node
+            // ends them itself before it asks this, as for every kind of node.
 
             if (kioskServer is not null)
                 await kioskServer.Stop();

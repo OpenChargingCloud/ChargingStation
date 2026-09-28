@@ -96,25 +96,27 @@ They start real stations and talk to them over HTTP the way the browser does.
 What the node below does on its own - the file's sections, the log, the time
 servers, the certificate store, the accounts' roles and the ports - is tested
 once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
-particular kind.
+particular kind. And what every node has to answer over HTTP alike is
+WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
+which `ChargingStationConformance` runs against a station - see
+[WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
 | | |
 |---|---|
-| `WebInterfaceTests`     | the stub, the hashed bundle, deep links, a real 404 for a missing asset - and the display's own page out of the same bundle |
-| `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
-| `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
+| `ChargingStationConformance` | what every node has to answer, asked of a station: the sign-in, the configuration, name resolution and the time servers, the log and its stream, stopping with browsers watching, the certificate store and the web interface |
+| `WebInterfaceTests`     | the display's own page out of the same bundle as the web interface, and that it is not the web interface |
+| `AuthenticationTests`   | what the station's roles may do, and what the display's port must never serve |
+| `ConfigurationAPITests` | the station's own sections, and both OCPP nodes |
 | `DNSConfigurationTests` | a station that stops over a name server its file writes the way the log does, and says so in a sentence |
-| `LearnedPinsTests`      | a root a time server or a name server learned while the NTS or the DNS page was open, kept by that page's next save of something else |
-| `EventLogTests`         | the snapshot, the filters, and the live stream |
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
 | `ClockTests`            | what "legal time" needs before the station will say it |
-| `ShutdownTests`         | a station that is told to stop stops - with a browser on the Logs page, or an app on the WebSocket |
+| `ShutdownTests`         | a station that is told to stop stops - without a display, or with an app on the WebSocket |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
 | `RolesFromTheFileTests` | roles the configuration file adds: enforced, told to the browser, named in a refusal, and said in the log |
-| `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what a root is for, that only the administrators change it, and what a start says about the keys in it |
+| `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `ClosedPortTests`       | a port a test holds closed: refused, nobody else can listen on it, and handed over it takes a back end - what the tests that dial nowhere and their own back ends stand on |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 

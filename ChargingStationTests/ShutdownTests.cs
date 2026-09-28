@@ -26,6 +26,8 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -115,23 +117,6 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region StopsWithNobodyWatching()
-
-        [Test]
-        public async Task StopsWithNobodyWatching()
-        {
-
-            var (station, _) = await StartOne();
-
-            var elapsed = await TimeTheStop(station);
-
-            Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                        $"An idle station took {elapsed.TotalSeconds:F1} s to stop.");
-
-        }
-
-        #endregion
-
         #region StopsWithoutADisplay()
 
         /// <summary>
@@ -158,109 +143,6 @@ namespace cloud.charging.open.ChargingStation.Tests
                             $"A station without a display took {elapsed.TotalSeconds:F1} s to stop.");
 
             }
-
-        }
-
-        #endregion
-
-        #region StopsWithABrowserOnTheLogsPage()
-
-        /// <summary>
-        /// The regression test. One open event stream, which is what a browser
-        /// showing the Logs page is, and then a stop.
-        /// </summary>
-        [Test]
-        public async Task StopsWithABrowserOnTheLogsPage()
-        {
-
-            var (station, http) = await StartOne();
-
-            using (http)
-            {
-
-                // Settled, not merely opened: a handler that is still writing
-                // is ended by its socket closing, and this test would then pass
-                // against a station that cannot shut down at all.
-                using var stream = await EventStream.OpenAndSettle(station, http);
-
-                // And now left alone, which is what a browser sitting on the
-                // Logs page is when the station is told to stop.
-                var elapsed = await TimeTheStop(station);
-
-                Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                            $"A station with one open event stream took {elapsed.TotalSeconds:F1} s to stop. " +
-                            "The streams are not being ended before the servers are.");
-
-            }
-
-        }
-
-        #endregion
-
-        #region StopsWithSeveralBrowsersOnTheLogsPage()
-
-        /// <summary>
-        /// Several of them, because ending the streams has to end all of them -
-        /// one cancellation token that only the first stream observed would
-        /// pass the test above and hang a real station.
-        /// </summary>
-        [Test]
-        public async Task StopsWithSeveralBrowsersOnTheLogsPage()
-        {
-
-            var (station, first) = await StartOne();
-
-            var browsers = new List<HttpClient> { first };
-            var streams  = new List<EventStream>();
-
-            try
-            {
-
-                streams.Add(await EventStream.OpenAndSettle(station, first));
-
-                for (var i = 0; i < 3; i++)
-                {
-                    var another = await SignIn(station);
-                    browsers.Add(another);
-                    streams.Add(await EventStream.OpenAndSettle(station, another));
-                }
-
-                var elapsed = await TimeTheStop(station);
-
-                Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                            $"A station with {streams.Count} open event streams took {elapsed.TotalSeconds:F1} s to stop.");
-
-            }
-            finally
-            {
-                foreach (var stream  in streams)   stream. Dispose();
-                foreach (var browser in browsers)  browser.Dispose();
-            }
-
-        }
-
-        #endregion
-
-        #region StoppingTwiceIsHarmless()
-
-        /// <summary>
-        /// DisposeAsync stops as well, and a station inside a using block that
-        /// was also stopped by hand is an ordinary thing to write.
-        /// </summary>
-        [Test]
-        public async Task StoppingTwiceIsHarmless()
-        {
-
-            var (station, http) = await StartOne();
-
-            http.Dispose();
-
-            await station.Stop();
-
-            Assert.DoesNotThrowAsync(async () => {
-                await station.Stop();
-                await station.DisposeAsync();
-            });
 
         }
 
