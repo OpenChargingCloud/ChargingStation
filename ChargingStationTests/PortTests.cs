@@ -24,6 +24,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -216,7 +217,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                     LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+                                                     LocalAppPort: IPPort.Parse(TestPorts.Free()));
 
             await first.Start();
 
@@ -248,7 +249,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                     LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+                                                     LocalAppPort: IPPort.Parse(TestPorts.Free()));
 
             await first.Start();
 
@@ -285,7 +286,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void TheLocalAppServerIsNeitherTheWebInterfaceNorTheDisplay()
         {
 
-            var port = IPPort.Parse(TestStations.FreePort());
+            var port = IPPort.Parse(TestPorts.Free());
 
             Assert.Multiple(() => {
 
@@ -297,6 +298,34 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                         KioskPort:     port,
                                                                         LocalAppPort:  port));
 
+            });
+
+        }
+
+        #endregion
+
+        #region The ports a test gives a station
+
+        /// <summary>
+        /// A test station's web interface and display are given ports that this
+        /// test run hands out to nobody else.
+        /// </summary>
+        /// <remarks>
+        /// The operating system hands the same free port out twice. On Debian it
+        /// stopped a station's setup, which was told that its display and its web
+        /// interface would both listen on 127.0.0.1:36729. The ports come from
+        /// the kit's TestPorts, which remembers every one it hands out, and a
+        /// port it has handed out cannot be claimed again.
+        /// </remarks>
+        [Test]
+        public async Task AStationIsGivenPortsNobodyElseInTheRunIsGiven()
+        {
+
+            await using var station = TestStations.New(Path.Combine(directory, "given"), TestStations.Offline);
+
+            Assert.Multiple(() => {
+                Assert.That(TestPorts.TryClaim(station.HTTPPort.ToUInt16()),          Is.False, "The web interface's port could still be claimed by somebody else.");
+                Assert.That(TestPorts.TryClaim(station.KioskPort!.Value.ToUInt16()),  Is.False, "The display's port could still be claimed by somebody else.");
             });
 
         }

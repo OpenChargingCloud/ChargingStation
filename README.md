@@ -93,10 +93,12 @@ dotnet test libs/ChargingStation/ChargingStationTests
 ```
 
 They start real stations and talk to them over HTTP the way the browser does.
-What the node below does on its own - the file's sections, the log, the time
-servers, the certificate store, the accounts' roles and the ports - is tested
-once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
-particular kind. And what every node has to answer over HTTP alike is
+What the node below does on its own - the file's sections, the log, the clock
+and the time servers, name resolution, the certificate store, the accounts'
+roles and the ports - is tested in WWCP_Node's own `WWCP_Node_Tests`, against
+a node of no particular kind, and so are the two helpers these tests take
+their ports from: `TestPorts`, which hands no port out twice in a test run,
+and `ClosedPort`. And what every node has to answer over HTTP alike is
 WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
 which `ChargingStationConformance` runs against a station - see
 [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
@@ -107,17 +109,13 @@ which `ChargingStationConformance` runs against a station - see
 | `WebInterfaceTests`     | the display's own page out of the same bundle as the web interface, and that it is not the web interface |
 | `AuthenticationTests`   | what the station's roles may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | the station's own sections, and both OCPP nodes |
-| `DNSConfigurationTests` | a station that stops over a name server its file writes the way the log does, and says so in a sentence |
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
-| `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
-| `ClockTests`            | what "legal time" needs before the station will say it |
 | `ShutdownTests`         | a station that is told to stop stops - without a display, or with an app on the WebSocket |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
-| `PortTests`             | what a station says when one of its ports is taken, and that it lets go of the others |
+| `PortTests`             | what a station says when one of its ports is taken, that it lets go of the others, and that the ports a test gives it are given to nobody else in the run |
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
-| `RolesFromTheFileTests` | roles the configuration file adds: enforced, told to the browser, named in a refusal, and said in the log |
+| `RolesFromTheFileTests` | roles the configuration file adds, where only a station can say it: kept out of the station's own routes, and named in a refusal among the station's roles |
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
-| `ClosedPortTests`       | a port a test holds closed: refused, nobody else can listen on it, and handed over it takes a back end - what the tests that dial nowhere and their own back ends stand on |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 
 Two of them are about the station having more than one door. The display is a

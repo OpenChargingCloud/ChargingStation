@@ -166,7 +166,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var station = TestStations.New(directory, TestStations.Offline,
-                                           LocalAppPort: IPPort.Parse(TestStations.FreePort()));
+                                           LocalAppPort: IPPort.Parse(TestPorts.Free()));
 
             await station.Start();
 

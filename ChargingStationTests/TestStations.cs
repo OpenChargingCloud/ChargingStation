@@ -17,9 +17,6 @@
 
 #region Usings
 
-using System.Net;
-using System.Net.Sockets;
-
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
@@ -28,6 +25,7 @@ using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using cloud.charging.open.ChargingStation.Configuration;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 using cloud.charging.open.ChargingStation.Web;
 
 #endregion
@@ -49,7 +47,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <remarks>
         /// Both ports are asked of the operating system rather than left at
         /// 2348 and 2349, so that these tests neither fight with each other nor
-        /// with a station somebody has running while they work.
+        /// with a station somebody has running while they work - through the
+        /// kit's TestPorts, which hands no port out twice in a test run.
         ///
         /// Not started, and that is often the point: it is <c>Start()</c> that
         /// puts a timer on the network to check the clock, so a station that
@@ -85,8 +84,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             return new ChargingStation(
                        DNSClient:        Resolver(),
-                       HTTPPort:         HTTPPort  ?? IPPort.Parse(FreePort()),
-                       KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(FreePort())) : null,
+                       HTTPPort:         HTTPPort  ?? IPPort.Parse(TestPorts.Free()),
+                       KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(TestPorts.Free())) : null,
                        NoKiosk:          !WithDisplay,
                        LocalAppPort:     LocalAppPort,
                        AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
@@ -167,43 +166,6 @@ namespace cloud.charging.open.ChargingStation.Tests
                        new JProperty("enabled", false)
                    ))
                );
-
-        #endregion
-
-        #region FreePort()
-
-        /// <summary>
-        /// A TCP port nobody was listening on a moment ago.
-        /// </summary>
-        /// <remarks>
-        /// There is a gap between letting the port go and binding it again, and
-        /// nothing here can close it; what it buys is that the gap is
-        /// milliseconds wide instead of the whole test run.
-        ///
-        /// Only for the ports a station opens itself - its web interface, its
-        /// display, its local app - where a port somebody else took in the gap
-        /// ends the start with a sentence that says so. A port nothing may
-        /// answer on, and one a back end of the test's own is started on, is a
-        /// <see cref="ClosedPort"/>: there somebody else in the gap was
-        /// answered as the back end, and the test believed it.
-        /// </remarks>
-        public static UInt16 FreePort()
-        {
-
-            var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
-
-            listener.Start();
-
-            try
-            {
-                return (UInt16) ((IPEndPoint) listener.LocalEndpoint).Port;
-            }
-            finally
-            {
-                listener.Stop();
-            }
-
-        }
 
         #endregion
 

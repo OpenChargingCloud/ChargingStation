@@ -38,6 +38,13 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// every node - so the file can add one the station never heard of: a
     /// support desk that may look at the name and time servers and nothing
     /// else, and one that may change the name servers as well.
+    ///
+    /// What every node does with such roles - enforced, told to the browser,
+    /// named in a refusal, said in the log - is WWCP_Node's conformance suite,
+    /// NodeConformanceTests.Roles. What stays here is what only a station has
+    /// to say: that a role the file adds is kept out of the station's own
+    /// routes as well, and a refusal that names the station's own roles among
+    /// the file's, in their order.
     /// </remarks>
     public class RolesFromTheFileTests : AChargingStationTests
     {
@@ -109,23 +116,6 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(refused.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(said,               Is.EqualTo("This needs the cpo or installer or dnsdesk or systemadmin role."));
-            });
-
-        }
-
-        #endregion
-
-        #region WhatTheFileAddsIsSaidInTheLog()
-
-        [Test]
-        public void WhatTheFileAddsIsSaidInTheLog()
-        {
-
-            var said = Station.Log.Recent(500, Tag: "security").Select(entry => entry.Message).ToArray();
-
-            Assert.Multiple(() => {
-                Assert.That(said, Has.Some.Contains("adds the role 'support'"));
-                Assert.That(said, Has.Some.Contains("adds the role 'dnsdesk'"));
             });
 
         }

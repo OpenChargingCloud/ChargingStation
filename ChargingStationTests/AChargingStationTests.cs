@@ -28,6 +28,8 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -140,7 +142,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Directory  = TestStations.TemporaryDirectory("tests");
 
             Station    = TestStations.New(Directory, Configuration, Clock: Clock,
-                                          LocalAppPort: WithLocalApp ? IPPort.Parse(TestStations.FreePort()) : null);
+                                          LocalAppPort: WithLocalApp ? IPPort.Parse(TestPorts.Free()) : null);
 
             BaseURL    = Station.WebInterfaceURL.ToString();
 
