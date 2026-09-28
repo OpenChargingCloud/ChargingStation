@@ -150,7 +150,7 @@ is handed something else.
 | | |
 |---|---|
 | `ChargingStation.cs`      | the station: a `WWCPNode` with its own sections of the file, the JSON API, the display and the OCPP nodes on top |
-| `HTTPAPI/CSHTTPAPI.cs`    | the JSON API at `/api`: sign-in, status, configuration, log, event stream |
+| `HTTPAPI/CSHTTPAPI.cs`    | what the station adds to the JSON API every node answers at `/api` - its EVSEs, connections, power, reservations, sessions and messages; the rest, sign-in, status, log and the event stream among it, is WWCP_Node's `NodeHTTPAPI` |
 | `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
 | `Web/StationAccess.cs`    | the resources a station adds to the node's, and its two roles as data - `cpo` and `installer`, beside the node's `viewer` and `systemadmin` |
@@ -1585,8 +1585,8 @@ every entry it sends and at every heartbeat, whether whoever opened it would
 still be let in. Once the session it was opened with has ended - signed out,
 expired, or taken back with the account's others - the stream ends too, without
 the entry, and the browser's next try is answered with a 401. One opened with
-an API key ends the same way once the key is revoked or has run out. One opened
-with Basic auth has neither, and is held to its account instead.
+an API key ends the same way once the key is revoked or has run out, and one
+opened with Basic auth once its password has changed.
 
 A program that reads commands on the same console hands the log a way to write
 around the line being typed, so that an entry arriving mid-word neither lands
