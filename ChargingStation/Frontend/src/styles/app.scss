@@ -708,7 +708,9 @@ input, textarea, select {
 
 .evse-list {
     display:                grid;
-    grid-template-columns:  repeat(auto-fill, minmax(24rem, 1fr));
+    // Cards at least 24rem wide, but never wider than the page, which on a
+    // phone can be narrower than one card.
+    grid-template-columns:  repeat(auto-fill, minmax(min(24rem, 100%), 1fr));
     gap:                    1rem;
     align-items:            start;
 }
@@ -1244,7 +1246,8 @@ table.records {
 
 .reader-list {
     display:                grid;
-    grid-template-columns:  repeat(auto-fill, minmax(22rem, 1fr));
+    // At least 22rem, and never wider than the page - as the EVSEs above.
+    grid-template-columns:  repeat(auto-fill, minmax(min(22rem, 100%), 1fr));
     gap:                    1rem;
     align-items:            start;
 }
@@ -1278,7 +1281,8 @@ table.records {
 
 .certificates {
     display:                grid;
-    grid-template-columns:  repeat(auto-fill, minmax(26rem, 1fr));
+    // At least 26rem, and never wider than the page - as the EVSEs above.
+    grid-template-columns:  repeat(auto-fill, minmax(min(26rem, 100%), 1fr));
     gap:                    1rem;
     align-items:            start;
 }
@@ -1628,8 +1632,13 @@ textarea.mono {
 
 @media (max-width: 52rem) {
 
+    // No wider than the window, whatever is in it. A column of 1fr is at least
+    // as wide as the widest thing in it that cannot get any narrower, and the
+    // strip can be that thing: the energy meter's menu, its entries in one
+    // row, made the meter's frame 722 pixels wide on a phone 390 pixels
+    // across, which showed the left of that and cut off the rest.
     .shell {
-        grid-template-columns:  1fr;
+        grid-template-columns:  minmax(0, 1fr);
         grid-template-rows:     auto 1fr;
     }
 
@@ -1639,17 +1648,25 @@ textarea.mono {
         align-items:     center;
         flex-wrap:       wrap;
         gap:             0.5rem;
-        padding:         0 0.75rem;
+        // The same gutter as the page below it.
+        padding:         0 1rem;
 
         .brand {
             border-bottom: none;
             padding:       0.6rem 0.5rem 0.6rem 0;
         }
 
+        // Beside the brand where all its entries fit there, on a line of its
+        // own where they do not, and over as many lines as it takes on a
+        // phone, where not even a line of its own is enough. It had what the
+        // brand and the sign-out button left over instead: on a phone 390
+        // pixels across, 199 pixels for 234 pixels of entries, the rest
+        // scrolled out of sight inside it.
         .menu {
-            display:  flex;
-            flex:     1;
-            margin:   0;
+            display:    flex;
+            flex:       1 1 auto;
+            flex-wrap:  wrap;
+            margin:     0;
 
             a {
                 padding: 0.5rem 0.8rem;
@@ -1660,9 +1677,12 @@ textarea.mono {
             }
         }
 
+        // Allowed to be narrower than a long user id, which is then cut off
+        // rather than pushing the sign-out button past the edge.
         .sidebar-foot {
             flex-direction:  row;
             align-items:     center;
+            min-width:       0;
             border-top:      none;
             padding:         0.4rem 0;
 
@@ -1671,6 +1691,11 @@ textarea.mono {
             }
         }
 
+    }
+
+    // The heading in line with the cards below it.
+    .page-head {
+        padding: 1.1rem 1rem 0.9rem;
     }
 
     .content-body {
