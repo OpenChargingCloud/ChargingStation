@@ -271,6 +271,39 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region The time on the display
+
+        /// <summary>
+        /// The display is told the station's clock and what it is worth, as the
+        /// web interface is.
+        /// </summary>
+        /// <remarks>
+        /// A station that shows a time somebody may later be billed against
+        /// says in the same breath whether that time has been checked, against
+        /// whom, and how long ago - so the display is told the whole of what
+        /// api/v1/clock says, not a time of its own. The clock of these tests
+        /// stands still, so the two answers are of the same moment and have to
+        /// be equal down to the last field.
+        /// </remarks>
+        [Test]
+        public async Task TheDisplayIsToldTheClockTheWebInterfaceIsTold()
+        {
+
+            using var atTheDisplay  = AtTheDisplay();
+            using var http          = await SignedIn();
+
+            var shown  = JObject.Parse(await atTheDisplay.GetStringAsync("/api/kiosk"))["clock"];
+            var clock  = JObject.Parse(await http.GetStringAsync("api/v1/clock"));
+
+            Assert.That(shown, Is.Not.Null, "The display is not told the time at all.");
+
+            Assert.That(JToken.DeepEquals(shown, clock), Is.True,
+                        $"The display is told {shown}, where the web interface is told {clock}.");
+
+        }
+
+        #endregion
+
         #region A payment code is always on offer
 
         /// <summary>
