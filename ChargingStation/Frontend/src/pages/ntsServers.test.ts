@@ -8,6 +8,7 @@
  */
 
 import { strict as assert }  from 'node:assert';
+import { readFileSync }      from 'node:fs';
 import { registerHooks }     from 'node:module';
 import { describe, it }      from 'node:test';
 
@@ -24,7 +25,7 @@ registerHooks({
     }
 });
 
-const { entryOf, nameTaken, readable, withServer, withoutServer } = await import('./ntsServers.ts');
+const { entryOf, nameTaken, readable, sentOf, withServer, withoutServer } = await import('./ntsServers.ts');
 
 
 const usual = { ntsKE: 4460, ntp: 123 };
@@ -90,6 +91,40 @@ describe('a time server turned back into its entry', () => {
 });
 
 
+describe('a time server sent back', () => {
+
+    it('goes with what the page showed it held to, so that a root it learned while the page was open is kept', () => {
+
+        // What was measured: ptbtime1.ptb.de learned its root on first use
+        // after the page was loaded, and the save of another server's
+        // priority took it out of the file and out of effect. The entry says
+        // what it is held to as the page shows it; beside it, what the page
+        // showed, from which the station can tell that the root was
+        // not taken away here.
+        assert.deepEqual(sentOf(shown('ptbtime1.ptb.de.', { heldTo: heldTo({ trustOnFirstUse: 'root' }) }), usual),
+                         { hostname: 'ptbtime1.ptb.de', trustOnFirstUse: 'root', pinsAsShown: { trustOnFirstUse: 'root' } });
+
+    });
+
+    it('says a server shown held to nothing was shown so', () => {
+
+        assert.deepEqual(sentOf(shown('ptbtime2.ptb.de.', { heldTo: null }), usual),
+                         { hostname: 'ptbtime2.ptb.de', pinsAsShown: {} });
+
+    });
+
+    it('is what the NTS page sends every server of its list as', () => {
+
+        const page = readFileSync(new URL('./nts.ts', import.meta.url), 'utf-8');
+
+        assert.match(page, /\.map\(source => sentOf\(source, usual\)\)/,
+                     'the NTS page sends its list without what it showed each server held to');
+
+    });
+
+});
+
+
 describe('the list a change of one server sends', () => {
 
     it('still holds every other server to what it was held to', () => {
@@ -104,6 +139,22 @@ describe('the list a change of one server sends', () => {
 
         assert.deepEqual(withoutServer(list, 1),
                          [ { hostname: 'ptbtime1.ptb.de', rootFingerprint: root, trustOnFirstUse: 'root' } ]);
+
+    });
+
+});
+
+
+describe('the entry the dialog saves', () => {
+
+    // Asked of the page's source, as Node has no browser to open it in, and
+    // the views it draws with cannot be loaded here.
+    const page = readFileSync(new URL('./nts.ts', import.meta.url), 'utf-8');
+
+    it('goes with what the dialog showed the server held to, where it edits one the page loaded', () => {
+
+        assert.match(page, /if \(shown !== null\)\s+entry\.pinsAsShown = asShown\(shown\.heldTo\);/,
+                     'the NTS dialog saves a server without what it showed it held to');
 
     });
 

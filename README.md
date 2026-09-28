@@ -104,6 +104,7 @@ particular kind.
 | `AuthenticationTests`   | who gets in, what they may do, and what the display's port must never serve |
 | `ConfigurationAPITests` | what the station says it is, both OCPP nodes, and changing the name and time servers |
 | `DNSConfigurationTests` | a station that stops over a name server its file writes the way the log does, and says so in a sentence |
+| `LearnedPinsTests`      | a root a time server or a name server learned while the NTS or the DNS page was open, kept by that page's next save of something else |
 | `EventLogTests`         | the snapshot, the filters, and the live stream |
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ConsoleLogTests`       | the console handed to whoever types on it, entry by entry |
@@ -359,6 +360,13 @@ for a server given another name as well: its pins are in front of whoever
 renames it. A name server switched to a transport that shows no certificate
 lets go of its pins when it is saved - the station would refuse them, and the
 whole list with them - and its row says so first.
+
+What a server learns on first use is written into its entry at the first key
+exchange or handshake after a save, mostly with the NTS or DNS page still open,
+which then does not show it. So the pages send every server back with what they
+showed it held to as well, under `pinsAsShown`: the node changes only what was
+changed on the page, so that their next save keeps what was learned in between,
+and still takes away a pin that was shown and removed there.
 
 ### Who may change what
 

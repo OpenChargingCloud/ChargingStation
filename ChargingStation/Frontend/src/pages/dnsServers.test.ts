@@ -12,6 +12,7 @@
  */
 
 import { strict as assert }  from 'node:assert';
+import { readFileSync }      from 'node:fs';
 import { registerHooks }     from 'node:module';
 import { describe, it }      from 'node:test';
 
@@ -29,7 +30,7 @@ registerHooks({
     }
 });
 
-const { allServersTake, entryOf, isEncrypted, oneServerTakes } = await import('./dnsServers.ts');
+const { allServersTake, entryOf, isEncrypted, oneServerTakes, sentOf } = await import('./dnsServers.ts');
 
 
 /** A name server as the station shows it, with a timeout of its own or none. */
@@ -124,6 +125,47 @@ describe('a name server told to the station', () => {
 
         assert.deepEqual([ 'TLS', 'HTTPS', 'HTTPS_Binary', 'HTTPS_JSON', 'HTTPS_GET' ].map(isEncrypted), [ true, true, true, true, true ]);
         assert.deepEqual([ 'UDP', 'TCP', 'HTTP', 'HTTP_Binary', 'HTTP_JSON' ].map(isEncrypted),          [ false, false, false, false, false ]);
+
+    });
+
+    it('goes back with what the page showed it held to, so that a root it learned while the page was open is kept', () => {
+
+        // 1.1.1.1 over TLS, still to learn its root when the page was loaded.
+        const learning: DNSServer = {
+            address: '1.1.1.1', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
+            trustOnFirstUse: 'root',
+            heldTo:    { certificate: null, root: null, certificates: [], roots: [], onMismatch: 'refuse', trustOnFirstUse: 'root' },
+            judgement: null,
+            known:     null
+        };
+
+        assert.deepEqual(sentOf(learning),
+                         { address: '1.1.1.1', port: 853, transport: 'TLS', queryTimeoutSeconds: null,
+                           trustOnFirstUse: 'root', pinsAsShown: { trustOnFirstUse: 'root' } });
+
+    });
+
+    it('says a server shown held to nothing was shown so, and says nothing of one added on the page', () => {
+
+        assert.deepEqual(sentOf({ ...server(2), heldTo: null }),
+                         { address: '192.0.2.1', port: 53, transport: 'UDP', queryTimeoutSeconds: 2, pinsAsShown: {} });
+
+        assert.deepEqual(sentOf(server(2)),
+                         { address: '192.0.2.1', port: 53, transport: 'UDP', queryTimeoutSeconds: 2 },
+                         'the station has nothing of a server added on the page');
+
+    });
+
+    it('is what the DNS page saves - and compares without what it showed, which is never a change', () => {
+
+        // Asked of the page's source, as Node has no browser to open it in.
+        const page = readFileSync(new URL('./dns.ts', import.meta.url), 'utf-8');
+
+        assert.match(page, /servers:\s+servers\.filter\(.*\)\.map\(sentOf\),/,
+                     'the DNS page sends its name servers as it has them, pins on UDP and all, or without what it showed');
+
+        assert.match(page, /JSON\.stringify\(servers\.map\(entryOf\)\)/,
+                     'the DNS page says whether its name servers were changed from what it would not send');
 
     });
 
