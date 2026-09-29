@@ -45,7 +45,6 @@ export type Status = NodeStatus;
 export interface Configuration extends NodeConfiguration {
     station:     Record<string, unknown>;
     ocpp:        Record<string, unknown>[];
-    assemblies:  Record<string, unknown>[];
 }
 
 /**
