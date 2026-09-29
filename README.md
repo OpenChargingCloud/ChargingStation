@@ -161,7 +161,7 @@ is handed something else.
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
-| `Frontend/`               | the npm project: `src/pages/` are the station's own pages, and `src/main.ts` says what its menu has and who may see each entry; the menu around them, the sign-in and the Logs page are WWCP_Node's |
+| `Frontend/`               | the npm project: `src/pages/` are the station's own pages, and `src/main.ts` says what its menu has and who may see each entry, and what the certificate store says in the station's words; the menu around them, the sign-in, the Logs page and the pages of the name servers, the time servers and the certificate store are WWCP_Node's |
 
 The log, the configuration file, name resolution and the time are the node's,
 and so are their pages' JSON: `WWCPNode.cs`, `WWCPNode.Clock.cs`,

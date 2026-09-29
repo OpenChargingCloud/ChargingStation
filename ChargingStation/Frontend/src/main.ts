@@ -5,6 +5,8 @@ import './styles/app.scss';
 import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
+import { toURL } from '@node/basePath';
+import { html } from '@node/html';
 import { nodeMenu, startNode } from '@node/start';
 
 import { configurationPage }   from './pages/configuration';
@@ -16,7 +18,6 @@ import { rfidPage }            from './pages/rfid';
 import { authenticationPage }  from './pages/authentication';
 import { connectionsPage }     from './pages/connections';
 import { clientKeysPage }      from './pages/clientKeys';
-import { certificatesPage }    from './pages/certificates';
 import { calibrationPage }     from './pages/calibration';
 
 // What a charging station has pages for beside what every node has: the
@@ -25,9 +26,9 @@ import { calibrationPage }     from './pages/calibration';
 // with, and what it is calibrated under. Each entry is shown to whoever may
 // read what its page reads, as CSHTTPAPI asks it - the three pages about
 // dialling out all read the connections. The sign-in, the log, the name
-// servers, the time servers, the frame, "/" - the first page of the menu
-// somebody may open - and following the log while somebody is signed in are
-// every node's; see WWCP_Node's start.ts.
+// servers, the time servers, the certificate store, the frame, "/" - the
+// first page of the menu somebody may open - and following the log while
+// somebody is signed in are every node's; see WWCP_Node's start.ts.
 startNode({
 
     name:  'Charging Station',
@@ -51,6 +52,29 @@ startNode({
         nodeMenu.logs
     ],
 
+    // The certificate store in the station's words where every node's do not
+    // say enough: that three of the roots are Plug & Charge's, what a vehicle,
+    // a contract and an OEM's provisioning chain to, and that the keys the
+    // station dials its back ends with are on a page of their own, made here
+    // and never imported.
+    certificates: {
+        hints: {
+            believes:     html`
+                Trust anchors. Every switched-on root of a kind is believed at once. A TLS root vouches for
+                the time servers and the name servers it is kept for, beside the roots of the machine this
+                station runs on. The V2G, Mobility Operator and OEM roots are kept for Plug &amp; Charge:
+                what a vehicle's certificate, a contract and an OEM provisioning certificate chain to.
+            `,
+            presents:     html`
+                A TLS identity, with its private key: what this station would show a server that asks for
+                one, or a browser at its web interface. The keys it dials its back ends with are not here
+                but on the <a href="${toURL('/configuration/client-keys')}">Client keys</a> page, because
+                they are made on this station and never imported.
+            `,
+            unencrypted:  html`can take the identity this station presents in TLS.`
+        }
+    },
+
     pages: {
         '/configuration':                 configurationPage,
         '/configuration/v2g':             v2gPage,
@@ -61,7 +85,6 @@ startNode({
         '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
         '/configuration/client-keys':     clientKeysPage,
-        '/configuration/certificates':    certificatesPage,
         '/configuration/calibration':     calibrationPage
     }
 
