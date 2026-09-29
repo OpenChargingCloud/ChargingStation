@@ -105,23 +105,25 @@ export const powerPage: Page = {
 
                         <h2><i class="fa-solid fa-plug"></i> What the EVSEs could draw</h2>
 
-                        <table class="records">
-                            <thead>
-                                <tr><th>EVSE</th><th class="right">Maximum power</th></tr>
-                            </thead>
-                            <tbody>
-                                ${configuration.evses.map(evse => html`
-                                    <tr>
-                                        <td>EVSE ${evse.id}</td>
-                                        <td class="right">${evse.maxPower_kW} kW</td>
+                        <div class="table-scroll">
+                            <table class="records">
+                                <thead>
+                                    <tr><th>EVSE</th><th class="right">Maximum power</th></tr>
+                                </thead>
+                                <tbody>
+                                    ${configuration.evses.map(evse => html`
+                                        <tr>
+                                            <td>EVSE ${evse.id}</td>
+                                            <td class="right">${evse.maxPower_kW} kW</td>
+                                        </tr>
+                                    `)}
+                                    <tr class="total">
+                                        <td>All of them at once</td>
+                                        <td class="right">${total} kW</td>
                                     </tr>
-                                `)}
-                                <tr class="total">
-                                    <td>All of them at once</td>
-                                    <td class="right">${total} kW</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
 
                         <p class="hint">
                             ${uplink === null
