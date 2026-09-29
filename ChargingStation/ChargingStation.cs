@@ -134,6 +134,30 @@ namespace cloud.charging.open.ChargingStation
         public const String  DefaultOrganization          = "ChargingStation";
 
         /// <summary>
+        /// What a charging station is to the node below it: what it calls
+        /// itself in everything it says, the tag of its own entries, its
+        /// product, the one organization of its accounts and what its log
+        /// files are called. Known before one is made, for what -h shows.
+        /// </summary>
+        /// <remarks>
+        /// Every name as it was before there was a node below: the entries
+        /// about the station itself are tagged "station", the Server header
+        /// says "OpenChargingCloud ChargingStation", and a day's log file is
+        /// "station-2026-09-25.log" - so that a log directory kept since then
+        /// goes on under the same names, and nothing reading one has to learn a
+        /// second. The organization is written into the accounts at the first
+        /// start and read back at every start after it, and must never change
+        /// at all.
+        /// </remarks>
+        public static readonly NodeKind  ChargingStationKind  = new (
+                                                                    Name:           "charging station",
+                                                                    Tag:            "station",
+                                                                    Product:        "ChargingStation",
+                                                                    Organization:   DefaultOrganization,
+                                                                    LogFilePrefix:  "station"
+                                                                );
+
+        /// <summary>
         /// Who is charging where, as far as the display is concerned. See
         /// ChargingStation.Kiosk.cs for what drives this and what does not.
         /// </summary>
@@ -318,6 +342,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="LocalAppPort">The TCP port the local app server listens on, or null for no such server - which is the default. See LocalAppHTTPAPI.</param>
         /// <param name="LocalAppHostname">The address the local app server listens on; the loopback address by default, and never the web interface's or the display's by implication.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
+        /// <param name="CertificatesPath">The directory the certificate store lives in between starts; what the configuration file says, or "certificates" beside it, by default.</param>
         /// <param name="V2G">What to offer a vehicle on the wire below the charging cable; nothing by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
@@ -344,6 +369,7 @@ namespace cloud.charging.open.ChargingStation
                                IPPort?                               LocalAppPort              = null,
                                IIPAddress?                           LocalAppHostname          = null,
                                IStaticContentSource?                 Frontend                  = null,
+                               String?                               CertificatesPath          = null,
                                V2GOptions?                           V2G                       = null,
                                EventLog?                             Log                       = null,
                                Boolean                               LogToConsole              = true,
@@ -352,21 +378,7 @@ namespace cloud.charging.open.ChargingStation
                                Boolean                               BridgeDebugLog            = true,
                                TimeProvider?                         TimeProvider              = null)
 
-            // Every name as it was before there was a node below: the entries
-            // about the station itself are tagged "station", the Server header
-            // says "OpenChargingCloud ChargingStation", and a day's log file is
-            // "station-2026-09-25.log" - so that a log directory kept since then
-            // goes on under the same names, and nothing reading one has to
-            // learn a second. The organization is written into the accounts at
-            // the first start and read back at every start after it, and must
-            // never change at all.
-            : base(Kind:              new NodeKind(
-                                          Name:           "charging station",
-                                          Tag:            "station",
-                                          Product:        "ChargingStation",
-                                          Organization:   DefaultOrganization,
-                                          LogFilePrefix:  "station"
-                                      ),
+            : base(Kind:              ChargingStationKind,
                    Version:           typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
                    HTTPPort:          HTTPPort ?? DefaultHTTPPort,
                    HTTPHostname:      HTTPHostname,
@@ -385,6 +397,7 @@ namespace cloud.charging.open.ChargingStation
                    DNSClient:         DNSClient,
                    NTSClient:         NTSClient,
                    Frontend:          Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
+                   CertificatesPath:  CertificatesPath,
 
                    // TLS's four and the three roots a vehicle's certificates chain
                    // to, and none of what only a vehicle holds - its own

@@ -43,9 +43,9 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// <remarks>
     /// The store is WWCP_Node's, the same one a vehicle keeps, and its own tests
     /// are in WWCP_Node; what is asked here is what this station makes of it -
-    /// the kinds it keeps and the ones it does not, and that the roots it
-    /// believes are the administrators' to change. The three about usages are
-    /// the vehicle's own, asked of the station.
+    /// the kinds it keeps and the ones it does not, where it is, and that the
+    /// roots it believes are the administrators' to change. The three about
+    /// usages are the vehicle's own, asked of the station.
     /// </remarks>
     public class CertificateStoreTests : AChargingStationTests
     {
@@ -276,6 +276,42 @@ namespace cloud.charging.open.ChargingStation.Tests
                             "the store was changed by somebody who may not change it");
                 Assert.That(Station.Certificates.Entries.Single().IsActive, Is.True);
             });
+
+        }
+
+        #endregion
+
+        #region TheStoreIsWhereTheCommandLineSaysAndItsKindsAreKnownBeforehand()
+
+        /// <summary>
+        /// Where --certificates puts the store, rather than beside the
+        /// configuration file - and what -h names before there is a station to
+        /// ask: the kind of node, and the kinds of certificate --import-certificate
+        /// takes, which are the station's own once there is one.
+        /// </summary>
+        [Test]
+        public async Task TheStoreIsWhereTheCommandLineSaysAndItsKindsAreKnownBeforehand()
+        {
+
+            var directory  = TestStations.TemporaryDirectory("store-elsewhere");
+            var elsewhere  = Path.Combine(directory, "not", "beside", "the", "file");
+
+            try
+            {
+
+                await using var station = TestStations.New(directory, WithDisplay: false, CertificatesPath: elsewhere);
+
+                Assert.Multiple(() => {
+                    Assert.That(station.Certificates.Directory,  Is.EqualTo(elsewhere));
+                    Assert.That(station.Kind,                    Is.SameAs(ChargingStation.ChargingStationKind));
+                    Assert.That(station.Certificates.Kinds,      Is.EqualTo(ChargingStation.StoredCertificateKinds));
+                });
+
+            }
+            finally
+            {
+                TestStations.Remove(directory);
+            }
 
         }
 
