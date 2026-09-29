@@ -832,9 +832,9 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// What this charging station is made of, as the Configuration page of
-        /// the web interface reads it: what the node below says of itself, and
-        /// on top the station, its link below the cable, its OCPP nodes and the
-        /// assemblies it was built from.
+        /// the web interface reads it: what the node below says of itself - the
+        /// repositories it was built from among it, each with its commit - and
+        /// on top the station, its link below the cable and its OCPP nodes.
         /// </summary>
         public override JObject ConfigurationJSON()
         {
@@ -888,33 +888,7 @@ namespace cloud.charging.open.ChargingStation
 
                      )));
 
-            json.Add(new JProperty("assemblies", new JArray(
-                         AssemblyJSON<HTTPServer>                            ("Hermod"),
-                         AssemblyJSON<NTSClient>                             ("Norn"),
-                         AssemblyJSON<WWCPNode>                              ("WWCP Node"),
-                         AssemblyJSON<OCPPv1_6.   TestChargePointNode>       ("OCPP 1.6"),
-                         AssemblyJSON<OCPPv2_1.CS.TestChargingStationNode>   ("OCPP 2.1")
-                     )));
-
             return json;
-
-        }
-
-        #endregion
-
-
-        #region (private static) AssemblyJSON<T>(Name)
-
-        private static JObject AssemblyJSON<T>(String Name)
-        {
-
-            var assembly = typeof(T).Assembly.GetName();
-
-            return new JObject(
-                       new JProperty("name",      Name),
-                       new JProperty("assembly",  assembly.Name),
-                       new JProperty("version",   assembly.Version?.ToString(3))
-                   );
 
         }
 
