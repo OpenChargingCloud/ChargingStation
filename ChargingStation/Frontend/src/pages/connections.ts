@@ -2,7 +2,7 @@ import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, 
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '../shell';
+import { shell } from '@node/shell';
 import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';

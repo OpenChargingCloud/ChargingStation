@@ -5,87 +5,67 @@ import './styles/app.scss';
 import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
-import { auth } from './auth';
-import { html, must, render } from '@node/html';
-import { logs } from '@node/logs/store';
-import { Router } from '@node/router';
+import { nodeMenu, startNode } from '@node/start';
 
-import { configurationPage } from './pages/configuration';
-import { dnsPage }           from './pages/dns';
-import { calibrationPage }   from './pages/calibration';
-import { certificatesPage }  from './pages/certificates';
-import { clientKeysPage }    from './pages/clientKeys';
-import { authenticationPage } from './pages/authentication';
-import { connectionsPage }    from './pages/connections';
-import { evsesPage }         from './pages/evses';
-import { displayPage }       from './pages/display';
-import { powerPage }         from './pages/power';
-import { rfidPage }          from './pages/rfid';
-import { ntsPage }           from './pages/nts';
-import { v2gPage }           from './pages/v2g';
-import { loginPage }         from './pages/login';
-import { logsPage }          from './pages/logs';
-import { notFoundPage }      from './pages/notFound';
-import { fromURL } from '@node/basePath';
+import { configurationPage }   from './pages/configuration';
+import { dnsPage }             from './pages/dns';
+import { ntsPage }             from './pages/nts';
+import { v2gPage }             from './pages/v2g';
+import { powerPage }           from './pages/power';
+import { displayPage }         from './pages/display';
+import { evsesPage }           from './pages/evses';
+import { rfidPage }            from './pages/rfid';
+import { authenticationPage }  from './pages/authentication';
+import { connectionsPage }     from './pages/connections';
+import { clientKeysPage }      from './pages/clientKeys';
+import { certificatesPage }    from './pages/certificates';
+import { calibrationPage }     from './pages/calibration';
 
+// What a charging station has pages for beside what every node has: the
+// vehicle below the cable, what it may draw, the screen on its front, its
+// EVSEs and card readers, the back ends it dials and what it proves itself
+// with, and what it is calibrated under. Each entry is shown to whoever may
+// read what its page reads, as CSHTTPAPI asks it - the three pages about
+// dialling out all read the connections. The sign-in, the log, the frame,
+// "/" - the first page of the menu somebody may open - and following the log
+// while somebody is signed in are every node's; see WWCP_Node's start.ts.
+startNode({
 
-const root = document.getElementById('app');
+    name:  'Charging Station',
+    icon:  'fa-charging-station',
 
-if (root === null)
-    throw new Error("The '#app' element is missing!");
-
-render(root, html`<div id="page" class="page"></div>`);
-
-const router = new Router({
-    routes: [
-        // "/" is the configuration, and is a route of its own rather than a
-        // redirect to /configuration: the sign-in remembers where somebody was
-        // going, and for the first visit that is "/" - which would otherwise be
-        // a page that exists on the way in and not on the way back.
-        { path: '/',               page: configurationPage,  guard: auth.requireSignIn },
-        { path: '/configuration',  page: configurationPage,  guard: auth.requireSignIn },
-        { path: '/configuration/dns',   page: dnsPage,       guard: auth.requireSignIn },
-        { path: '/configuration/nts',   page: ntsPage,       guard: auth.requireSignIn },
-        { path: '/configuration/v2g',   page: v2gPage,       guard: auth.requireSignIn },
-        { path: '/configuration/power', page: powerPage,     guard: auth.requireSignIn },
-        { path: '/configuration/display', page: displayPage, guard: auth.requireSignIn },
-        { path: '/configuration/evses', page: evsesPage,     guard: auth.requireSignIn },
-        { path: '/configuration/rfid',  page: rfidPage,      guard: auth.requireSignIn },
-        { path: '/configuration/authentication', page: authenticationPage, guard: auth.requireSignIn },
-        { path: '/configuration/connections', page: connectionsPage,   guard: auth.requireSignIn },
-        { path: '/configuration/client-keys',  page: clientKeysPage,   guard: auth.requireSignIn },
-        { path: '/configuration/certificates', page: certificatesPage, guard: auth.requireSignIn },
-        { path: '/configuration/calibration', page: calibrationPage, guard: auth.requireSignIn },
-        { path: '/logs',           page: logsPage,           guard: auth.requireSignIn },
-        { path: '/login',          page: loginPage }
+    menu: [
+        nodeMenu.configuration([
+            nodeMenu.dns,
+            nodeMenu.nts,
+            { path: '/configuration/v2g',             label: 'V2G',              icon: 'fa-car-side',        permission: [ 'v2g:read' ]          },
+            { path: '/configuration/power',           label: 'Grid connection',  icon: 'fa-bolt',            permission: [ 'power:read' ]        },
+            { path: '/configuration/display',         label: 'Display',          icon: 'fa-desktop',         permission: [ 'display:read' ]      },
+            { path: '/configuration/evses',           label: 'EVSEs',            icon: 'fa-plug',            permission: [ 'evses:read' ]        },
+            { path: '/configuration/rfid',            label: 'RFID',             icon: 'fa-id-card',         permission: [ 'rfid:read' ]         },
+            { path: '/configuration/authentication',  label: 'Authentication',   icon: 'fa-user-lock',       permission: [ 'connections:read' ]  },
+            { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
+            { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
+            nodeMenu.certificates,
+            { path: '/configuration/calibration',     label: 'Calibration',      icon: 'fa-scale-balanced',  permission: [ 'calibration:read' ]  }
+        ]),
+        nodeMenu.logs
     ],
-    outlet:       must<HTMLElement>(root, '#page'),
-    notFound:     notFoundPage,
-    titleSuffix:  ' · Charging Station'
-});
 
-// Signed in: follow the station's log from now on, whichever page is open -
-// so that opening the Logs page shows what happened while somebody was
-// reading the configuration, and not an empty list.
-// Signed out - by the button, or because the session expired and a request
-// came back with 401: close the stream, forget the log, show the sign-in.
-auth.onChange(user => {
-
-    if (user !== null) {
-        logs.start();
-        return;
+    pages: {
+        '/configuration':                 configurationPage,
+        '/configuration/dns':             dnsPage,
+        '/configuration/nts':             ntsPage,
+        '/configuration/v2g':             v2gPage,
+        '/configuration/power':           powerPage,
+        '/configuration/display':         displayPage,
+        '/configuration/evses':           evsesPage,
+        '/configuration/rfid':            rfidPage,
+        '/configuration/authentication':  authenticationPage,
+        '/configuration/connections':     connectionsPage,
+        '/configuration/client-keys':     clientKeysPage,
+        '/configuration/certificates':    certificatesPage,
+        '/configuration/calibration':     calibrationPage
     }
 
-    logs.stop();
-
-    if (fromURL(location.pathname) !== '/login')
-        router.navigate(auth.requireSignIn(new URL(location.href)) ?? '/login', true);
-
 });
-
-// Find out who is signed in before the first page renders, so that a reload on
-// a deep URL does not flash the sign-in page on its way back to where it was.
-void (async () => {
-    await auth.refresh();
-    router.start();
-})();

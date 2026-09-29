@@ -2,7 +2,7 @@ import { api, type Connector, type EVSE, type EVSEConfiguration } from '../api/c
 import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '../shell';
+import { shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { unsaved } from '@node/unsaved';
 
