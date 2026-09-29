@@ -263,7 +263,12 @@ export const clientKeysPage: Page = {
 
         }
 
-        /** Say beside the list what is worth knowing about the key chosen from it. */
+        /**
+         * Say beside the list what is worth knowing about the key chosen from
+         * it - when it is chosen, and after the page was drawn anew with a key
+         * chosen and not made yet put back: the remark was drawn for the key
+         * the list was drawn with.
+         */
         function remarkOnTheKey(): void {
 
             const algorithm = content.querySelector<HTMLSelectElement>('#algorithm');
@@ -272,18 +277,6 @@ export const clientKeysPage: Page = {
             if (algorithm !== null && remark !== null)
                 remark.textContent = store?.algorithms.find(one => one.id === algorithm.value)?.remark ?? '';
 
-        }
-
-        /**
-         * Draw anew after something was done here, keeping what is typed into
-         * every form but the one saved - Saved, or null after a removal. A key
-         * chosen and not made yet is put back with the rest, and the remark
-         * beside it has to follow it again: it was drawn for the key the list
-         * was drawn with.
-         */
-        function drawAnew(Saved: string | null): void {
-            keepDrafts(content, Saved, draw);
-            remarkOnTheKey();
         }
 
         function wire(): void {
@@ -343,7 +336,7 @@ export const clientKeysPage: Page = {
                 justMade  = { id: made.id, csr: made.csr };
                 store     = made.certificates;
 
-                drawAnew('create-form');
+                keepDrafts(content, 'create-form', draw);
 
                 must<HTMLElement>(content, '#create-note').textContent =
                     'Made. The request is below, waiting to be collected.';
@@ -372,7 +365,8 @@ export const clientKeysPage: Page = {
                 store     = taken.certificates;
                 justMade  = null;
 
-                drawAnew('import-form');
+                keepDrafts(content, 'import-form', draw);
+                remarkOnTheKey();
 
                 must<HTMLElement>(content, '#import-note').textContent =
                     taken.warnings.length > 0
@@ -402,7 +396,8 @@ export const clientKeysPage: Page = {
                 if (justMade?.id === id)
                     justMade = null;
 
-                drawAnew(null);
+                keepDrafts(content, null, draw);
+                remarkOnTheKey();
             }
             catch (problem)
             {

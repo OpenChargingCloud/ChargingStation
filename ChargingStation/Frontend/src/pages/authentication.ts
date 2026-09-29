@@ -339,13 +339,11 @@ export const authenticationPage: Page = {
         }
 
         /**
-         * Draw anew after something was done here, keeping what is typed into
-         * every form but the one saved - Saved, or null after a removal. A kind
-         * picked and not saved yet is put back with the rest, and the fields
-         * have to follow it again: they were drawn for the kind the node has.
+         * The same in every form, after the page was drawn anew: a kind picked
+         * and not saved yet is put back with the rest of what was typed, and
+         * the fields were drawn for the kind the node has.
          */
-        function drawAnew(Saved: string | null): void {
-            keepDrafts(content, Saved, draw);
+        function followKinds(): void {
             content.querySelectorAll<HTMLSelectElement>('[data-kind]').forEach(followKind);
         }
 
@@ -441,7 +439,8 @@ export const authenticationPage: Page = {
 
                 store = made.connections;
 
-                drawAnew('add-form');
+                keepDrafts(content, 'add-form', draw);
+                followKinds();
 
                 must<HTMLElement>(content, '#add-note').textContent = 'Written down.';
             }
@@ -475,7 +474,8 @@ export const authenticationPage: Page = {
 
                 // The form saved is the one drawn for this record, known by
                 // its data-id: it has no id of its own.
-                drawAnew(id);
+                keepDrafts(content, id, draw);
+                followKinds();
 
                 must<HTMLElement>(content, `[data-note="${id}"]`).textContent = 'Saved.';
             }
@@ -502,7 +502,8 @@ export const authenticationPage: Page = {
 
                 opened.delete(id);
 
-                drawAnew(null);
+                keepDrafts(content, null, draw);
+                followKinds();
             }
             catch (problem)
             {
