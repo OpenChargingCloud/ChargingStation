@@ -2,7 +2,7 @@ import { api, type Configuration } from '../api/client';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
-import { errorMessage, formatSince, formatValue, humanizeKey } from '../ui';
+import { errorMessage, formatSince, formatValue, humanizeKey } from '@node/ui';
 
 /**
  * What this charging station is made of - read-only for now: it answers "what

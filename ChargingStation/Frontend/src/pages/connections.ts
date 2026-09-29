@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
-import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '../ui';
+import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
 

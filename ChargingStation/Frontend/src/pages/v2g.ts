@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
-import { errorMessage, field, whileSaving } from '../ui';
+import { errorMessage, field, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
