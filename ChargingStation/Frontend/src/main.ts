@@ -8,8 +8,6 @@ import '@fortawesome/fontawesome-free/css/solid.css';
 import { nodeMenu, startNode } from '@node/start';
 
 import { configurationPage }   from './pages/configuration';
-import { dnsPage }             from './pages/dns';
-import { ntsPage }             from './pages/nts';
 import { v2gPage }             from './pages/v2g';
 import { powerPage }           from './pages/power';
 import { displayPage }         from './pages/display';
@@ -26,9 +24,10 @@ import { calibrationPage }     from './pages/calibration';
 // EVSEs and card readers, the back ends it dials and what it proves itself
 // with, and what it is calibrated under. Each entry is shown to whoever may
 // read what its page reads, as CSHTTPAPI asks it - the three pages about
-// dialling out all read the connections. The sign-in, the log, the frame,
-// "/" - the first page of the menu somebody may open - and following the log
-// while somebody is signed in are every node's; see WWCP_Node's start.ts.
+// dialling out all read the connections. The sign-in, the log, the name
+// servers, the time servers, the frame, "/" - the first page of the menu
+// somebody may open - and following the log while somebody is signed in are
+// every node's; see WWCP_Node's start.ts.
 startNode({
 
     name:  'Charging Station',
@@ -54,8 +53,6 @@ startNode({
 
     pages: {
         '/configuration':                 configurationPage,
-        '/configuration/dns':             dnsPage,
-        '/configuration/nts':             ntsPage,
         '/configuration/v2g':             v2gPage,
         '/configuration/power':           powerPage,
         '/configuration/display':         displayPage,
