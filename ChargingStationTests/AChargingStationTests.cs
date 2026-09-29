@@ -141,8 +141,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Directory  = TestStations.TemporaryDirectory("tests");
 
-            Station    = TestStations.New(Directory, Configuration, Clock: Clock,
-                                          LocalAppPort: WithLocalApp ? IPPort.Parse(TestPorts.Free()) : null);
+            // Made again, on fresh ports, where another test run on this
+            // machine took one of them before the station could bind it.
+            Station    = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Directory, Configuration, Clock: Clock,
+                                                                                    LocalAppPort: WithLocalApp ? IPPort.Parse(TestPorts.Free()) : null));
 
             BaseURL    = Station.WebInterfaceURL.ToString();
 
@@ -151,12 +153,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             LocalAppURL = Station.LocalAppURL?.ToString() ?? "";
 
-            await Station.Start();
-
             // After Start(), and not before: the account is made where the
             // accounts are read, which is asynchronous and therefore not the
-            // constructor's work. Null would mean there were accounts already,
-            // and this directory was made for this test a moment ago.
+            // constructor's work. Null would mean there were accounts already:
+            // this directory was made for this test a moment ago, and a start
+            // that lost its port took the accounts it made with it.
             Password   = Station.GeneratedPassword
                              ?? throw new InvalidOperationException("The station did not make up a password for its first start!");
 

@@ -100,6 +100,39 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region Started(Station, Directory)
+
+        /// <summary>
+        /// A station that was told what it needs before its start, started - and
+        /// where another test run on this machine took one of its ports before
+        /// it could bind it, made again from its directory, on fresh ports, and
+        /// started again.
+        /// </summary>
+        /// <remarks>
+        /// For a fixture that makes its station in its SetUp and leaves the
+        /// start to the test, which writes down connections, credentials or keys
+        /// first. All of that is kept in the station's directory, and a station
+        /// made from there reads it back, as a station started again would; its
+        /// configuration file is read as it was written. The station given is
+        /// the one started first, so that unless a port was taken, a test starts
+        /// the station it told what to do.
+        /// </remarks>
+        /// <param name="Station">The station, made by <see cref="New"/> in the given directory with nothing else of its own, and not started.</param>
+        /// <param name="Directory">Its directory.</param>
+        public static Task<ChargingStation> Started(ChargingStation  Station,
+                                                    String           Directory)
+        {
+
+            var attempt = 0;
+
+            return TestPorts.StartedOnFreshPorts(() => attempt++ == 0
+                                                           ? Station
+                                                           : New(Directory));
+
+        }
+
+        #endregion
+
         #region (private) Resolver()
 
         /// <summary>

@@ -152,6 +152,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region (private) Start()
+
+        /// <summary>
+        /// This test's station, started with what the test wrote down for it -
+        /// and made again from its directory, on fresh ports, where another test
+        /// run on this machine took one of them before it could bind it.
+        /// </summary>
+        private async Task Start()
+
+            => station = await TestStations.Started(station!, directory);
+
+        #endregion
+
 
         #region AStationComesUpAlthoughNothingAnswers()
 
@@ -172,7 +185,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               true, null, null, out var id, out var error),
                         Is.True, error);
 
-            Assert.That(async () => await station.Start(), Throws.Nothing,
+            Assert.That(async () => await Start(), Throws.Nothing,
                         "A back end that does not answer stopped the station from starting.");
 
             Assert.Multiple(() => {
@@ -216,7 +229,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                              true, null, null, out var used, out error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             Assert.Multiple(() => {
 
@@ -282,7 +295,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                  true, null, null, out var controller, out error),
                             Is.True, error);
 
-                await station.Start();
+                await Start();
 
                 Assert.Multiple(() => {
 
@@ -344,7 +357,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station.Connections.Reload();
 
-            await station.Start();
+            await Start();
 
             Assert.That(station.DialledConnections[id!], Does.Contain("no secret set"),
                         "A connection with nothing to prove itself with was dialled anyway.");
@@ -379,7 +392,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                             true, null, key, out var id, out error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             Assert.That(station.DialledConnections[id!], Does.Contain("Not dialled"),
                         "A connection was dialled although it has no certificate it could show.");
@@ -414,7 +427,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.EqualTo(Version == "OCPP1.6" ? OCPPVersion.OCPP1_6 : OCPPVersion.OCPP2_1),
                         "The version asked for was not the version written down.");
 
-            await station.Start();
+            await Start();
 
             Assert.That(station.DialledConnections[id!], Does.Contain("could not be reached"),
                         $"An {Version} connection never reached a node that would try it.");
@@ -495,7 +508,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               false, null, null, out _, out var error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             var result = await TestOf("Kept ready");
 
@@ -556,7 +569,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 false, null, null, out _, out var error),
                             Is.True, error);
 
-                await station.Start();
+                await Start();
 
                 var result = await TestOf("Answers");
 
@@ -599,9 +612,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AHalfFilledFormIsRefusedInTheSameWordsAsWritingItDown()
         {
 
-            await station!.Start();
+            await Start();
 
-            var result = await station.TestConnection("Half filled in", "", "CSMS");
+            var result = await station!.TestConnection("Half filled in", "", "CSMS");
 
             Assert.Multiple(() => {
                 Assert.That(result.Value<Boolean>("ok"), Is.False);
@@ -642,7 +655,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station.Connections.Reload();
 
-            await station.Start();
+            await Start();
 
             var result = await TestOf("CSMS");
 
@@ -680,9 +693,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task SomethingNeverWrittenDownCanBeTested()
         {
 
-            await station!.Start();
+            await Start();
 
-            var result = await station.TestConnection("Not saved anywhere",
+            var result = await station!.TestConnection("Not saved anywhere",
                                                       NowhereInParticular(),
                                                       "CSMS",
                                                       "OCPP1.6");
@@ -717,7 +730,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task NothingConfiguredIsNotAnError()
         {
 
-            Assert.That(async () => await station!.Start(), Throws.Nothing);
+            Assert.That(async () => await Start(), Throws.Nothing);
 
             Assert.That(station!.DialledConnections, Is.Empty,
                         "A station with no connections configured recorded one anyway.");

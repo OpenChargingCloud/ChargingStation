@@ -304,7 +304,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             true, null, null, out var id, out var error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             using var http = await SignedIn();
 
@@ -369,7 +369,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             Is.True, error);
 
                 var took     = System.Diagnostics.Stopwatch.StartNew();
-                var starting = station.Start();
+                var starting = Start();
 
                 Assert.That(await Task.WhenAny(starting, Task.Delay(TimeSpan.FromSeconds(30))), Is.SameAs(starting),
                             "The station had not started 30 s after it was told to, waiting for a back end that never answers.");
@@ -418,7 +418,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task OnlySomebodyWhoMayReadTheConfigurationIsTold()
         {
 
-            await station!.Start();
+            await Start();
 
             using var http = Anonymous();
 
@@ -428,6 +428,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+
+        #region (private) Start()
+
+        /// <summary>
+        /// This test's station, started with what the test wrote down for it -
+        /// and made again from its directory, on fresh ports, where another test
+        /// run on this machine took one of them before it could bind it.
+        /// </summary>
+        private async Task Start()
+
+            => station = await TestStations.Started(station!, directory);
+
+        #endregion
 
         #region (private) Connected(Port)
 
@@ -446,7 +459,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             true, null, null, out var connection, out var error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             Assert.That(station.DialledConnections[connection!], Does.StartWith("Connected"),
                         "The station did not get connected to begin with.");

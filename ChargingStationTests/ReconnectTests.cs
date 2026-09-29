@@ -236,7 +236,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.True, error);
 
             var took = System.Diagnostics.Stopwatch.StartNew();
-            await station.Start();
+            await Start();
             took.Stop();
 
             Assert.Multiple(() => {
@@ -348,6 +348,19 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region (private) Start()
+
+        /// <summary>
+        /// This test's station, started with what the test wrote down for it -
+        /// and made again from its directory, on fresh ports, where another test
+        /// run on this machine took one of them before it could bind it.
+        /// </summary>
+        private async Task Start()
+
+            => station = await TestStations.Started(station!, directory);
+
+        #endregion
+
         #region (private) Connected(Port)
 
         /// <summary>
@@ -365,7 +378,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             true, null, null, out var connection, out var error),
                         Is.True, error);
 
-            await station.Start();
+            await Start();
 
             Assert.That(station.DialledConnections[connection!], Does.Contain("Connected"),
                         "The station did not get connected to begin with.");

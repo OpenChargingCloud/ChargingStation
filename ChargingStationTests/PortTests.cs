@@ -45,6 +45,12 @@ namespace cloud.charging.open.ChargingStation.Tests
     ///
     /// It is the most ordinary way for a station not to start, and it happened
     /// twice in one afternoon of working on this.
+    ///
+    /// The first station of a test is started through the kit's
+    /// TestPorts.StartedOnFreshPorts: where another test run on this machine
+    /// took one of its ports before it could bind it, it is made again on fresh
+    /// ones. The second is made with the port the first came up on, and started
+    /// as it is - its start is the one meant to fail.
     /// </remarks>
     [TestFixture]
     public class PortTests
@@ -82,9 +88,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task APortSomethingElseIsOnIsSaidInASentence()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline);
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       HTTPPort: first.HTTPPort);
@@ -123,9 +127,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AndNotInWhateverLanguageTheMachineIsSetTo()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline);
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       HTTPPort: first.HTTPPort);
@@ -152,9 +154,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheDisplaysPortIsSaidToBeTheDisplays()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline);
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       KioskPort: first.KioskPort);
@@ -182,9 +182,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheWebInterfaceLetsGoWhenTheDisplayCannotStart()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline);
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       KioskPort: first.KioskPort);
@@ -216,10 +214,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheLocalAppServersPortIsSaidToBeItsOwn()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                     LocalAppPort: IPPort.Parse(TestPorts.Free()));
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
+                                                                                               LocalAppPort: IPPort.Parse(TestPorts.Free())));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);
@@ -248,10 +244,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheWebInterfaceAndTheDisplayLetGoWhenTheLocalAppServerCannotStart()
         {
 
-            await using var first = TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                     LocalAppPort: IPPort.Parse(TestPorts.Free()));
-
-            await first.Start();
+            await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
+                                                                                               LocalAppPort: IPPort.Parse(TestPorts.Free())));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);

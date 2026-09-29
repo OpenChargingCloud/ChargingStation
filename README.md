@@ -99,10 +99,12 @@ What the node below does on its own - the file's sections, the log, the clock
 and the time servers, name resolution, the certificate store, the accounts'
 roles and the ports - is tested in WWCP_Node's own `WWCP_Node_Tests`, against
 a node of no particular kind, and so are the two helpers these tests take
-their ports from: `TestPorts`, which hands no port out twice in a test run,
-and `ClosedPort`. And what every node has to answer over HTTP alike is
-WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
-which `ChargingStationConformance` runs against a station - see
+their ports from: `TestPorts`, which hands no port out twice in a test run and
+starts a station again on fresh ports where another test run on the machine
+took one before the station could bind it, and `ClosedPort`. And what every
+node has to answer over HTTP alike is WWCP_Node's conformance suite,
+`NodeConformanceTests` in `WWCP_Node_TestKit`, which
+`ChargingStationConformance` runs against a station - see
 [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
 | | |

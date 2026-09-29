@@ -165,10 +165,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task StopsWithAnAppOnTheWebSocket()
         {
 
-            var station = TestStations.New(directory, TestStations.Offline,
-                                           LocalAppPort: IPPort.Parse(TestPorts.Free()));
-
-            await station.Start();
+            var station = await TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, TestStations.Offline,
+                                                                                     LocalAppPort: IPPort.Parse(TestPorts.Free())));
 
             using var app = new ClientWebSocket();
 
@@ -218,9 +216,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             // Offline: nothing here should wait on a network while it is
             // trying to measure how long stopping takes.
-            var station = TestStations.New(directory, TestStations.Offline, WithDisplay);
-
-            await station.Start();
+            var station = await TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, TestStations.Offline, WithDisplay));
 
             return (station, await SignIn(station));
 
