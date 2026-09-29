@@ -38,12 +38,14 @@ export type Status = NodeStatus;
 
 /**
  * What the station is made of: every node's sections, and its own. Only the
- * shape the Configuration page relies on is named; the rest is rendered from
- * whatever the station sends, so that a new section on the server needs no
- * change here.
+ * shape the Configuration page relies on is named; the fields of each section
+ * are rendered from whatever the station sends, and which sections there are
+ * is the page's to say.
  */
 export interface Configuration extends NodeConfiguration {
     station:     Record<string, unknown>;
+    /** The link below the cable, as V2GLink.ToJSON() says it - or { enabled: false } where there is none. */
+    v2g:         Record<string, unknown>;
     ocpp:        Record<string, unknown>[];
 }
 

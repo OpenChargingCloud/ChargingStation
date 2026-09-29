@@ -1,6 +1,6 @@
-import { api } from '../api/client';
+import { api, type Configuration, type Status } from '../api/client';
 import { card, librariesCard } from '@node/cards';
-import { html, must, render } from '@node/html';
+import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, formatSince, formatValue } from '@node/ui';
@@ -48,33 +48,7 @@ export const configurationPage: Page = {
                 if (cancelled)
                     return;
 
-                render(content, html`
-
-                    <div class="cards">
-
-                        ${card('Station',       'fa-charging-station', configuration.station, html`
-                            <div class="kv">
-                                <span class="k">Uptime</span>
-                                <span class="v">${status.uptime} <span class="muted">(started ${formatSince(status.startedAt)})</span></span>
-                            </div>
-                        `)}
-
-                        ${card('HTTP server',   'fa-server',           configuration.http)}
-                        ${card('Accounts',      'fa-user-lock',        configuration.web)}
-                        ${card('Event log',     'fa-list-ul',          configuration.log)}
-                        ${card('Time',          'fa-clock',            configuration.time)}
-
-                        ${configuration.ocpp.map(node => card(
-                            `OCPP ${formatValue(node.version)} - ${formatValue(node.role)}`,
-                            'fa-plug',
-                            node
-                        ))}
-
-                        ${librariesCard(configuration.assemblies)}
-
-                    </div>
-
-                `);
+                render(content, configurationCards(configuration, status));
 
             }
             catch (problem)
@@ -98,3 +72,42 @@ export const configurationPage: Page = {
     }
 
 };
+
+
+/**
+ * The cards, one for each section the station sends: the station, what every
+ * node says of itself, the link below the cable and the OCPP nodes above it,
+ * and what it was all built from.
+ */
+export function configurationCards(configuration: Configuration, status: Status): HTMLFragment {
+
+    return html`
+
+        <div class="cards">
+
+            ${card('Station',       'fa-charging-station', configuration.station, html`
+                <div class="kv">
+                    <span class="k">Uptime</span>
+                    <span class="v">${status.uptime} <span class="muted">(started ${formatSince(status.startedAt)})</span></span>
+                </div>
+            `)}
+
+            ${card('HTTP server',   'fa-server',           configuration.http)}
+            ${card('Accounts',      'fa-user-lock',        configuration.web)}
+            ${card('Event log',     'fa-list-ul',          configuration.log)}
+            ${card('Time',          'fa-clock',            configuration.time)}
+            ${card('V2G',           'fa-car-side',         configuration.v2g)}
+
+            ${configuration.ocpp.map(node => card(
+                `OCPP ${formatValue(node.version)} - ${formatValue(node.role)}`,
+                'fa-plug',
+                node
+            ))}
+
+            ${librariesCard(configuration.assemblies)}
+
+        </div>
+
+    `;
+
+}

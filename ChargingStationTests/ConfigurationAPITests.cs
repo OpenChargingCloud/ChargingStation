@@ -38,9 +38,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region TheConfigurationNamesEverySection()
 
         /// <summary>
-        /// The Configuration page renders whatever the station sends rather
-        /// than a list of its own, so a section going missing is not a broken
-        /// page - it is a page that quietly stops mentioning something.
+        /// The Configuration page has a card for each of these and draws in
+        /// it whatever the station sends, so a section going missing is a
+        /// card that quietly says nothing - or, for the two lists, a page
+        /// that says it could not load the configuration.
         /// </summary>
         [Test]
         public async Task TheConfigurationNamesEverySection()
