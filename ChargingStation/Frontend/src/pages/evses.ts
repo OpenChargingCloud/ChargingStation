@@ -62,6 +62,19 @@ export const evsesPage: Page = {
         /** Whether the draft differs from what was last saved. */
         let dirty = false;
 
+        /**
+         * What is typed into an EVSE's field for another type of cable and not
+         * added yet. Kept here rather than only in the field, because the page
+         * draws itself anew from the draft - a cable removed from another EVSE
+         * is enough - and the field is made anew with it, empty. Kept by the
+         * EVSE rather than by its place or its number, which change when an
+         * EVSE before it is removed.
+         */
+        const anotherType = new WeakMap<EVSE, string>();
+
+        /** Whether another type of cable is typed somewhere and not added yet. */
+        const anotherTypeTyped = (): boolean => draft.some(evse => (anotherType.get(evse) ?? '') !== '');
+
 
         function renumber(): void {
             draft.forEach((evse, index) => {
@@ -238,6 +251,7 @@ export const evsesPage: Page = {
                                           ? html`
                                               <div class="add-connector">
                                                   <input type="text" data-custom="${index}" list="connector-types"
+                                                         value="${anotherType.get(evse) ?? ''}"
                                                          placeholder="another type, e.g. cCCS2"
                                                          maxlength="${current.maxConnectorTypeLength}"
                                                          ${evse.connectors.length >= current.maxConnectors ? html`disabled` : ''} />
@@ -322,6 +336,12 @@ export const evsesPage: Page = {
 
                 const input = event.target as HTMLInputElement;
 
+                const custom = input.dataset.custom;
+                if (custom !== undefined) {
+                    anotherType.set(draft[Number(custom)], input.value);
+                    return;
+                }
+
                 const connectorType = input.dataset.connectorType;
                 if (connectorType !== undefined) {
                     draft[Number(connectorType)].connectors[Number(input.dataset.position)].type = input.value.trim();
@@ -378,6 +398,7 @@ export const evsesPage: Page = {
                         // somebody has said anything about this cable.
                         evse.connectors = [...evse.connectors,
                                            { id: evse.connectors.length + 1, type, maxPower_kW: evse.maxPower_kW }];
+                        anotherType.delete(evse);
                         touched();
                     }
 
@@ -471,8 +492,19 @@ export const evsesPage: Page = {
             try
             {
                 configuration = await whileSaving(content, note, () => api.evses.save(draft));
+
+                // Another type typed and not added was not saved, and stays
+                // with its EVSE: the station answers with the list as it was
+                // sent, in the same order.
+                const typed   = draft.map(evse => anotherType.get(evse));
+
                 draft         = clone(configuration.evses);
                 dirty         = false;
+
+                draft.forEach((evse, index) => {
+                    if (typed[index])
+                        anotherType.set(evse, typed[index]);
+                });
 
                 draw();
 
@@ -510,7 +542,9 @@ export const evsesPage: Page = {
 
         }
 
-        const release = unsaved.heldBy(() => dirty);
+        // The draft is in the flag; another type typed and not added yet is in
+        // no flag, and leaving the page throws it away just the same.
+        const release = unsaved.heldBy(() => dirty || anotherTypeTyped());
 
         void load();
 
