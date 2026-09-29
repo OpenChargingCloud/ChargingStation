@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
-import { errorMessage, field, whileSaving } from '@node/ui';
+import { errorMessage, field, numberField, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
@@ -367,17 +367,20 @@ export const v2gPage: Page = {
                               slac:       field(form, 'slac'),
 
                               // The bus. An emptied group or interface is "the
-                              // default", which travels as null; the numbers
-                              // are always sent, because the form always has
-                              // them and a station that read half a pair of
-                              // thermal limits would refuse the whole save.
+                              // default", which travels as null. An emptied
+                              // number travels as null as well, which the
+                              // station reads as not said and keeps what it
+                              // has - where Number("") had made an emptied
+                              // warning 0 °C, and the station took it. The two
+                              // thermal limits go together or not at all: half
+                              // a pair is refused, the whole save with it.
                               t1sTransport:  field(form, 't1sTransport'),
                               t1sBus:        field(form, 't1sBus')       === '' ? null : field(form, 't1sBus'),
                               t1sInterface:  field(form, 't1sInterface') === '' ? null : field(form, 't1sInterface'),
                               t1sName:       field(form, 't1sName')      === '' ? null : field(form, 't1sName'),
-                              t1sCycleMs:    Number(field(form, 't1sCycleMs')),
-                              t1sWarningC:   Number(field(form, 't1sWarningC')),
-                              t1sOverloadC:  Number(field(form, 't1sOverloadC'))
+                              t1sCycleMs:    numberField(form, 't1sCycleMs'),
+                              t1sWarningC:   numberField(form, 't1sWarningC'),
+                              t1sOverloadC:  numberField(form, 't1sOverloadC')
                           };
 
             try

@@ -4,7 +4,7 @@ import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
-import { unsaved } from '@node/unsaved';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
  * The calibration certificates this charging station runs under.
@@ -312,6 +312,13 @@ export const calibrationPage: Page = {
                 draft   = loaded.certificates.map(certificate => ({ ...certificate }));
                 dirty   = false;
 
+                // A certificate half written into the add form goes with the
+                // rest, as it does with "Discard changes": Reload has asked
+                // before it came here, and the first load finds nothing typed.
+                newId          = '';
+                newDescription = '';
+                newPEM         = '';
+
                 draw();
             }
             catch (problem)
@@ -324,7 +331,11 @@ export const calibrationPage: Page = {
 
         }
 
-        const release = unsaved.heldBy(() => dirty);
+        // The list is in the flag; a certificate typed into the add form and
+        // not yet added is in no flag. Drawn again with what was kept of it,
+        // what was typed is what the page drew, so what was kept is asked too.
+        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content) ||
+                                             newId !== '' || newDescription !== '' || newPEM !== '');
 
         void load();
 

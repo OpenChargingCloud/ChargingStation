@@ -4,7 +4,7 @@ import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
-import { unsaved } from '@node/unsaved';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
  * The card readers this charging station has, and where they sit.
@@ -377,6 +377,13 @@ export const rfidPage: Page = {
                 draft         = loaded.readers.map(reader => ({ ...reader }));
                 dirty         = false;
 
+                // A reader half written into the add form goes with the rest,
+                // as it does with "Discard changes": Reload has asked before it
+                // came here, and the first load finds nothing typed.
+                newId    = '';
+                newKind  = '';
+                newWhere = '';
+
                 draw();
             }
             catch (problem)
@@ -389,7 +396,11 @@ export const rfidPage: Page = {
 
         }
 
-        const release = unsaved.heldBy(() => dirty);
+        // The list is in the flag; a reader typed into the add form and not
+        // yet added is in no flag. Drawn again with what was kept of it, what
+        // was typed is what the page drew, so what was kept is asked too.
+        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content) ||
+                                             newId !== '' || newKind !== '' || newWhere !== '');
 
         void load();
 
