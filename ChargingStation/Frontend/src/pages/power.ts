@@ -1,5 +1,6 @@
 import { api, type PowerConfiguration } from '../api/client';
 import { auth } from '../auth';
+import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
@@ -142,7 +143,7 @@ export const powerPage: Page = {
                         </p>
 
                         <p class="hint">
-                            The limit of each cable is on the <a href="/configuration/evses">EVSEs</a> page.
+                            The limit of each cable is on the <a href="${toURL('/configuration/evses')}">EVSEs</a> page.
                         </p>
 
                     </section>

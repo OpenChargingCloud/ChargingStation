@@ -1,5 +1,6 @@
 import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
+import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
@@ -102,7 +103,7 @@ export const v2gPage: Page = {
                                               Nothing is up below the charging cable.
                                               ${c.enabled
                                                     ? html`It is switched on, so something stopped it - look for "15118" in the
-                                                           <a href="/logs">log</a>.`
+                                                           <a href="${toURL('/logs')}">log</a>.`
                                                     : html`It is switched off.`}
                                           </p>`
                                     : html`
@@ -152,7 +153,7 @@ export const v2gPage: Page = {
 
                         <p class="hint">
                             Every SDP request that arrives and every answer that goes out is written to the
-                            <a href="/logs">log</a> under the tags <code>15118</code> and <code>sdp</code>,
+                            <a href="${toURL('/logs')}">log</a> under the tags <code>15118</code> and <code>sdp</code>,
                             as is a frame that could not be read at all.
                         </p>
 
@@ -566,7 +567,7 @@ function coupler(bus: T1SBusStatus) {
                     `}
 
             <p class="hint">
-                Every reading is in the <a href="/logs">log</a> under the tags <code>15118</code>,
+                Every reading is in the <a href="${toURL('/logs')}">log</a> under the tags <code>15118</code>,
                 <code>t1s</code> and <code>thermal</code>, and a pin past its limit is written there
                 as a critical line. This page shows what the last cycle said; reload it for the next.
             </p>
