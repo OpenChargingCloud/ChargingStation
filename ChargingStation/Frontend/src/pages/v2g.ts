@@ -1,10 +1,10 @@
 import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render } from '../html';
-import type { Page } from '../router';
+import { html, must, render } from '@node/html';
+import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { errorMessage, field, whileSaving } from '../ui';
-import { typedSinceDrawn, unsaved } from '../unsaved';
+import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
  * What this charging station offers a vehicle on the wire below the cable.

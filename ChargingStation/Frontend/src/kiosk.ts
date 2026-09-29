@@ -15,8 +15,8 @@ import { bundleIn,
          whatIsHappening,
          type DisplayMessage } from './kiosk-rules';
 
-import { config } from './config';
-import { html, HTMLFragment, must, raw, render } from './html';
+import { config } from '@node/config';
+import { html, HTMLFragment, must, raw, render } from '@node/html';
 
 import './styles/kiosk.scss';
 

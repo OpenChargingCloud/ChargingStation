@@ -1,10 +1,10 @@
 import { api, type Connector, type EVSE, type EVSEConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render } from '../html';
-import type { Page } from '../router';
+import { html, must, render } from '@node/html';
+import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { errorMessage, whileSaving } from '../ui';
-import { unsaved } from '../unsaved';
+import { unsaved } from '@node/unsaved';
 
 /**
  * The EVSEs of this charging station: the places a vehicle can be plugged in.

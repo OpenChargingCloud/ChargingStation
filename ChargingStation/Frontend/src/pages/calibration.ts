@@ -1,10 +1,10 @@
 import { api, type CalibrationCertificate, type CalibrationConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render } from '../html';
-import type { Page } from '../router';
+import { html, must, render } from '@node/html';
+import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { errorMessage, whileSaving } from '../ui';
-import { unsaved } from '../unsaved';
+import { unsaved } from '@node/unsaved';
 
 /**
  * The calibration certificates this charging station runs under.
