@@ -2,7 +2,7 @@ import { api, type DisplayConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -61,10 +61,7 @@ export const displayPage: Page = {
             render(content, html`
 
                 ${mayChange ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the
-                        display's hours but not change them. That needs the operator role or better.
-                    </div>
+                    <div class="notice">${mayButNot("look at the display's hours", 'change them')}</div>
                 `}
 
                 <div class="cards">

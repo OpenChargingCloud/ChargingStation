@@ -2,7 +2,7 @@ import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, 
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
@@ -95,11 +95,7 @@ export const connectionsPage: Page = {
             render(content, html`
 
                 ${mayManage ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the
-                        connections but not change them. That needs the role that changes how this station
-                        reaches the outside world.
-                    </div>
+                    <div class="notice">${mayButNot('look at the connections', 'change them')}</div>
                 `}
 
                 <section class="card">

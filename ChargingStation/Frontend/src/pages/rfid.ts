@@ -2,7 +2,7 @@ import { api, type RFIDConfiguration, type RFIDReader } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -107,18 +107,13 @@ export const rfidPage: Page = {
             render(content, html`
 
                 ${mayPlace || maySwitch ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the readers
-                        but not change them. Switching one off needs the CPO role; saying where one is bolted
-                        needs the system administrator role.
-                    </div>
+                    <div class="notice">${mayButNot('look at the readers', 'change them')}</div>
                 `}
 
                 ${maySwitch && !mayPlace ? html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may switch these readers
-                        on and off. Which readers this station has and where they sit describes hardware somebody
-                        installed, so changing that needs the system administrator role.
+                        ${mayButNot('switch these readers on and off', 'say where one is installed')}
+                        Which readers this station has and where they sit describes hardware somebody installed.
                     </div>
                 `: ''}
 
@@ -223,7 +218,7 @@ export const rfidPage: Page = {
                     ${dirty && kind.placement && !mayPlace
                           ? html`<span class="form-error">
                                      This changes which readers this station has and where they sit, which needs
-                                     the system administrator role.
+                                     a role that may say where one is installed.
                                  </span>`
                           : html`<span class="hint">Saved to ${current.file}, and in effect at once.</span>`}
                 </div>

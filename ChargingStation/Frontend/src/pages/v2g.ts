@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, numberField, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -80,11 +80,7 @@ export const v2gPage: Page = {
             render(content, html`
 
                 ${mayChange ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at what this
-                        station offers below the cable but not change it. That needs the installer or the
-                        system administrator role.
-                    </div>
+                    <div class="notice">${mayButNot('look at what this station offers below the cable', 'change it')}</div>
                 `}
 
                 <div class="cards">

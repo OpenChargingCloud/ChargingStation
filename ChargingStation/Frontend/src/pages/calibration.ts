@@ -2,7 +2,7 @@ import { api, type CalibrationCertificate, type CalibrationConfiguration } from 
 import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -67,11 +67,7 @@ export const calibrationPage: Page = {
             render(content, html`
 
                 ${mayChange ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the
-                        certificates but not change them. That needs the installer or the system
-                        administrator role.
-                    </div>
+                    <div class="notice">${mayButNot('look at the certificates', 'change them')}</div>
                 `}
 
                 <div class="certificates">

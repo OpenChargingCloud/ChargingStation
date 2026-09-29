@@ -2,7 +2,7 @@ import { api, type StationCertificates, type StationKey } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatTimestamp, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -63,11 +63,7 @@ export const clientKeysPage: Page = {
             render(content, html`
 
                 ${mayManage ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the
-                        certificates but not make or replace them. That needs the role that changes how this
-                        station reaches the outside world.
-                    </div>
+                    <div class="notice">${mayButNot('look at the certificates', 'make or replace them')}</div>
                 `}
 
                 <div class="cards">

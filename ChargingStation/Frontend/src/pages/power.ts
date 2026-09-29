@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -62,11 +62,7 @@ export const powerPage: Page = {
             render(content, html`
 
                 ${mayChange ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at what this
-                        station may draw but not change it. That needs the installer or the system
-                        administrator role.
-                    </div>
+                    <div class="notice">${mayButNot('look at what this station may draw', 'change it')}</div>
                 `}
 
                 <div class="cards">

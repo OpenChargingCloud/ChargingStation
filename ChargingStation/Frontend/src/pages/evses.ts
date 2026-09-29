@@ -2,7 +2,7 @@ import { api, type Connector, type EVSE, type EVSEConfiguration } from '../api/c
 import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { unsaved } from '@node/unsaved';
 
@@ -150,19 +150,14 @@ export const evsesPage: Page = {
             render(content, html`
 
                 ${mayChangeAnything ? '' : html`
-                    <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the EVSEs
-                        but not change them. Taking one out of service and correcting what a cable may deliver
-                        need the installer role; changing what is fitted needs the system administrator role.
-                    </div>
+                    <div class="notice">${mayButNot('look at the EVSEs', 'change them')}</div>
                 `}
 
                 ${mayChangeAnything && !mayChangeHardware ? html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may take these EVSEs
-                        out of service and correct what they and their cables may deliver. How many of them
-                        there are and what shape of plug is fitted describes hardware somebody installed, so
-                        changing that needs the system administrator role.
+                        ${mayButNot(mayChangeShortOfWhatIsFitted(mayChangeAvailability, mayChangeLimits), 'change what is fitted')}
+                        How many EVSEs there are and what shape of plug is fitted describes hardware somebody
+                        installed.
                     </div>
                 `: ''}
 
@@ -301,7 +296,7 @@ export const evsesPage: Page = {
                     ${dirty && kind.hardware && !mayChangeHardware
                           ? html`<span class="form-error">
                                      This changes what the station is made of, not only what it may deliver or
-                                     whether it is in service - which needs the system administrator role.
+                                     whether it is in service - which needs a role that may change what is fitted.
                                  </span>`
                           : html`<span class="hint">
                                      Saved to ${current.file}, and in effect at once - the OCPP nodes are rebuilt from it.
@@ -525,6 +520,23 @@ export const evsesPage: Page = {
 
 };
 
+
+/**
+ * What somebody who may not change what is fitted may do to these EVSEs, as
+ * the page says it: only what they may. The station's operator may take an
+ * EVSE out of service and not correct what its cable may deliver - and was told
+ * it could, while the fields for it stayed disabled.
+ */
+export function mayChangeShortOfWhatIsFitted(Availability: boolean, Limits: boolean): string {
+
+    if (Availability && Limits)
+        return 'take these EVSEs out of service and correct what they and their cables may deliver';
+
+    return Availability
+               ? 'take these EVSEs out of service'
+               : 'correct what these EVSEs and their cables may deliver';
+
+}
 
 /** A copy to edit, so that discarding changes has something to go back to. */
 function clone(evses: EVSE[]): EVSE[] {
