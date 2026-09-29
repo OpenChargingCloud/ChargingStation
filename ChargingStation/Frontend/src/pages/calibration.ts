@@ -1,5 +1,6 @@
 import { api, type CalibrationCertificate, type CalibrationConfiguration } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -180,7 +181,7 @@ export const calibrationPage: Page = {
                 if (remove) {
                     draft.splice(Number(remove.dataset.remove), 1);
                     dirty = true;
-                    draw();
+                    keepDrafts(content, null, draw);
                 }
 
             });
@@ -245,19 +246,21 @@ export const calibrationPage: Page = {
                     newPEM         = '';
                     dirty          = true;
 
-                    draw();
+                    keepDrafts(content, 'add-form', draw);
 
                 });
 
             }
 
+            // What is half written into the add form is discarded with the
+            // rest, so that form is named: drawn empty, and not put back.
             must<HTMLButtonElement>(content, '#revert').addEventListener('click', () => {
                 draft          = current!.certificates.map(certificate => ({ ...certificate }));
                 newId          = '';
                 newDescription = '';
                 newPEM         = '';
                 dirty          = false;
-                draw();
+                keepDrafts(content, 'add-form', draw);
             });
 
             must<HTMLButtonElement>(content, '#save').addEventListener('click', () => void save());
@@ -284,7 +287,7 @@ export const calibrationPage: Page = {
                 draft = current.certificates.map(certificate => ({ ...certificate }));
                 dirty = false;
 
-                draw();
+                keepDrafts(content, null, draw);
 
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
             }

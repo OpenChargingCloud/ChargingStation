@@ -1,5 +1,6 @@
 import { api, type RFIDConfiguration, type RFIDReader } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -240,7 +241,7 @@ export const rfidPage: Page = {
                 if (input.dataset.enabled !== undefined) {
                     draft[Number(input.dataset.enabled)].enabled = input.checked;
                     dirty = true;
-                    draw();
+                    keepDrafts(content, null, draw);
                 }
 
             });
@@ -252,7 +253,7 @@ export const rfidPage: Page = {
                 if (remove) {
                     draft.splice(Number(remove.dataset.remove), 1);
                     dirty = true;
-                    draw();
+                    keepDrafts(content, null, draw);
                 }
 
             });
@@ -308,19 +309,21 @@ export const rfidPage: Page = {
                     newWhere = '';
                     dirty    = true;
 
-                    draw();
+                    keepDrafts(content, 'add-form', draw);
 
                 });
 
             }
 
+            // What is half written into the add form is discarded with the
+            // rest, so that form is named: drawn empty, and not put back.
             must<HTMLButtonElement>(content, '#revert').addEventListener('click', () => {
                 draft    = configuration!.readers.map(reader => ({ ...reader }));
                 newId    = '';
                 newKind  = '';
                 newWhere = '';
                 dirty    = false;
-                draw();
+                keepDrafts(content, 'add-form', draw);
             });
 
             must<HTMLButtonElement>(content, '#save').addEventListener('click', () => void save());
@@ -348,7 +351,7 @@ export const rfidPage: Page = {
                 draft = configuration.readers.map(reader => ({ ...reader }));
                 dirty = false;
 
-                draw();
+                keepDrafts(content, null, draw);
 
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
             }

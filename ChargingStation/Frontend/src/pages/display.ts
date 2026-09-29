@@ -1,5 +1,6 @@
 import { api, type DisplayConfiguration } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -202,7 +203,7 @@ export const displayPage: Page = {
             {
                 current = await whileSaving(content, note, () => api.display.save(update));
 
-                draw();
+                keepDrafts(content, 'display-form', draw);
 
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
             }

@@ -1,6 +1,7 @@
 import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -384,7 +385,7 @@ export const v2gPage: Page = {
             {
                 current = await whileSaving(content, note, () => api.v2g.save(update));
 
-                draw();
+                keepDrafts(content, 'v2g-form', draw);
 
                 must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
             }

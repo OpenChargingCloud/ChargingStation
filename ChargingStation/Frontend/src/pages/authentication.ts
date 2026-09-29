@@ -1,5 +1,6 @@
 import { api, type LoginToSave, type StationConnections, type StationLogin } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -267,7 +268,7 @@ export const authenticationPage: Page = {
 
                         <summary>Change them</summary>
 
-                        <form class="form-stack" data-edit="${entry.id}" data-kind-form="${entry.id}">
+                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}" data-kind-form="${entry.id}">
 
                             <label>What they are for
                                 <input type="text" name="description" maxlength="${state.maxDescriptionLength}"
@@ -322,29 +323,39 @@ export const authenticationPage: Page = {
 
         }
 
+        /** Show the fields of the kind a form's list says, and call its secret by that kind's name. */
+        function followKind(Select: HTMLSelectElement): void {
+
+            const id     = Select.closest('form')?.dataset.kindForm ?? '';
+            const totp   = content.querySelector<HTMLElement>(`[data-totp="${id}"]`);
+            const title  = content.querySelector<HTMLElement>(`[data-secret-title="${id}"]`);
+
+            if (totp !== null)
+                totp.hidden = Select.value !== 'totp';
+
+            if (title !== null)
+                title.textContent = Select.value === 'totp' ? 'Shared secret' : 'Password';
+
+        }
+
+        /**
+         * Draw anew after something was done here, keeping what is typed into
+         * every form but the one saved - Saved, or null after a removal. A kind
+         * picked and not saved yet is put back with the rest, and the fields
+         * have to follow it again: they were drawn for the kind the node has.
+         */
+        function drawAnew(Saved: string | null): void {
+            keepDrafts(content, Saved, draw);
+            content.querySelectorAll<HTMLSelectElement>('[data-kind]').forEach(followKind);
+        }
+
         function wire(): void {
 
             // Which fields are shown follows what kind it is, and it follows it
             // straight away rather than after a save: somebody who picks TOTP
             // and sees no shared secret field concludes the page is broken.
             content.querySelectorAll<HTMLSelectElement>('[data-kind]').forEach(select => {
-
-                const form = select.closest('form');
-
-                select.addEventListener('change', () => {
-
-                    const id     = form?.dataset.kindForm ?? '';
-                    const totp   = content.querySelector<HTMLElement>(`[data-totp="${id}"]`);
-                    const title  = content.querySelector<HTMLElement>(`[data-secret-title="${id}"]`);
-
-                    if (totp !== null)
-                        totp.hidden = select.value !== 'totp';
-
-                    if (title !== null)
-                        title.textContent = select.value === 'totp' ? 'Shared secret' : 'Password';
-
-                });
-
+                select.addEventListener('change', () => followKind(select));
             });
 
             // A details element that was open stays open across a redraw.
@@ -430,7 +441,7 @@ export const authenticationPage: Page = {
 
                 store = made.connections;
 
-                draw();
+                drawAnew('add-form');
 
                 must<HTMLElement>(content, '#add-note').textContent = 'Written down.';
             }
@@ -462,7 +473,9 @@ export const authenticationPage: Page = {
                 // about to change something else here.
                 opened.add(id);
 
-                draw();
+                // The form saved is the one drawn for this record, known by
+                // its data-id: it has no id of its own.
+                drawAnew(id);
 
                 must<HTMLElement>(content, `[data-note="${id}"]`).textContent = 'Saved.';
             }
@@ -489,7 +502,7 @@ export const authenticationPage: Page = {
 
                 opened.delete(id);
 
-                draw();
+                drawAnew(null);
             }
             catch (problem)
             {

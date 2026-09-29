@@ -1,5 +1,6 @@
 import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
@@ -301,7 +302,7 @@ export const connectionsPage: Page = {
 
                         <summary>Change it</summary>
 
-                        <form class="form-stack" data-edit="${entry.id}">
+                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}">
 
                             ${theFields(entry.id, entry, state)}
 
@@ -545,7 +546,7 @@ export const connectionsPage: Page = {
 
                 store = made.connections;
 
-                draw();
+                keepDrafts(content, 'add-form', draw);
 
                 must<HTMLElement>(content, '#add-note').textContent = 'Written down.';
             }
@@ -575,7 +576,9 @@ export const connectionsPage: Page = {
 
                 opened.add(id);
 
-                draw();
+                // The form saved is the one drawn for this connection, known by
+                // its data-id: it has no id of its own.
+                keepDrafts(content, id, draw);
 
                 must<HTMLElement>(content, `[data-note="${id}"]`).textContent = 'Saved.';
             }
@@ -602,7 +605,7 @@ export const connectionsPage: Page = {
 
                 opened.delete(id);
 
-                draw();
+                keepDrafts(content, null, draw);
             }
             catch (problem)
             {
