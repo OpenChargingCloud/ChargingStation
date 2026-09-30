@@ -90,11 +90,14 @@ module.exports = (env, argv) => {
                 filename: 'assets/[name].[contenthash].css'
             }),
             new HtmlWebpackPlugin({
-                template:  './src/index.html',
+                // The page is the node's, as every kind's is; the build stops
+                // where the station does not say what it is.
+                template:  path.resolve(__dirname, '../../../WWCP_Node/Frontend/src/index.html'),
                 filename:  'index.html',
                 chunks:    ['main'],
                 favicon:   './src/favicon.svg',
                 title:     'Charging Station',
+                description: 'The web interface of an OpenChargingCloud charging station, served by the Hermod HTTP/1.1 server',
                 version:   appVersion
             }),
             new HtmlWebpackPlugin({
