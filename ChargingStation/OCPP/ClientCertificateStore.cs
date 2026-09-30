@@ -347,7 +347,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             }
             catch (Exception e)
             {
-                Error = $"A {algorithm.Name} key could not be generated: {e.Message}";
+                Error = $"No {algorithm.Name} key could be generated: {e.Message}";
                 return false;
             }
 
