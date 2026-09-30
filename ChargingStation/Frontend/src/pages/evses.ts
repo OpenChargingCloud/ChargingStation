@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
-import { errorMessage, whileSaving } from '@node/ui';
+import { errorMessage, numberFrom, whileSaving } from '@node/ui';
 import { unsaved } from '@node/unsaved';
 
 /**
@@ -350,9 +350,14 @@ export const evsesPage: Page = {
                     return;
                 }
 
+                // What a field for power says is read with numberFrom: emptied,
+                // it is NaN, which goes as null - not said, and a cable that
+                // says nothing may deliver as much as its EVSE. Number() made
+                // it 0 kW, which the station refused, and which a drawing anew
+                // put back into the field (found by the local controller).
                 const connectorPower = input.dataset.connectorPower;
                 if (connectorPower !== undefined) {
-                    draft[Number(connectorPower)].connectors[Number(input.dataset.position)].maxPower_kW = Number(input.value);
+                    draft[Number(connectorPower)].connectors[Number(input.dataset.position)].maxPower_kW = numberFrom(input.value);
                     dirty = true;
                     enableActions();
                     return;
@@ -367,7 +372,7 @@ export const evsesPage: Page = {
                 const evse = draft[index];
 
                 if (field === 'maxPower_kW')
-                    evse.maxPower_kW = Number(input.value);
+                    evse.maxPower_kW = numberFrom(input.value);
                 else if (field === 'operative')
                     evse.operative = input.checked;
                 else if (field === 'physicalReference' || field === 'meterType' || field === 'meterSerialNumber')
