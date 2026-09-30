@@ -46,20 +46,18 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// the station makes (found by the local controller).
         /// </summary>
         /// <remarks>
-        /// The sources are found above where the tests run, and are asked to be
-        /// the station's: built with an artifacts path, the directory of the
-        /// builds holds a ChargingStation and a ChargingStationTests of its own,
-        /// with no source in them, and the rule would find nothing there and
-        /// pass.
+        /// The sources are found above where the tests run by the station's
+        /// project files. Named by their directories, a build with an artifacts
+        /// path took the directory of its builds for them, which holds a
+        /// ChargingStation and a ChargingStationTests of its own with no source
+        /// in them, and the test was red there.
         /// </remarks>
         [Test]
         public void NoTextOfTheStationPutsAnArticleBeforeAName()
         {
 
-            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "ChargingStation", "ChargingStationTests");
-
-            Assert.That(File.Exists(Path.Combine(repository, "ChargingStation", "ChargingStation.csproj")), Is.True,
-                        $"'{repository}' is not where the station's sources are");
+            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "ChargingStation/ChargingStation.csproj",
+                                                                                   "ChargingStationTests/ChargingStationTests.csproj");
 
             Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(repository, "ChargingStation"),
                                                           Path.Combine(repository, "ChargingStationTests")),
