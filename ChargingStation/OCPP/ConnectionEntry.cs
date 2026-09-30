@@ -537,6 +537,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region (internal) Copy()
+
+        /// <summary>
+        /// This connection as it is now, in an entry of its own: what the store
+        /// puts back where a change of it could not be written. Its warnings
+        /// are not copied; the store works them out whenever it is asked.
+        /// </summary>
+        internal ConnectionEntry Copy()
+
+            => new (Id, Description, URL, ConnectionType, CreatedAt) {
+                   OCPPVersion       = OCPPVersion,
+                   AutoConnect       = AutoConnect,
+                   AuthenticationId  = AuthenticationId,
+                   CertificateId     = CertificateId
+               };
+
+        #endregion
+
         #region (override) ToString()
 
         public override String ToString()

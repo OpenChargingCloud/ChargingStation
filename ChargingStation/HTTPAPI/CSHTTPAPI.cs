@@ -201,8 +201,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.TryUpdateDisplayConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.TryUpdateDisplayConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON())
@@ -257,12 +257,13 @@ namespace cloud.charging.open.ChargingStation
                                                     change => Station.IsAllowed(user, PermissionsFor(change)),
                                                     out var change,
                                                     out var error,
-                                                    out var forbidden))
+                                                    out var forbidden,
+                                                    out var notSaved))
             {
                 return Task.FromResult(
                            forbidden
                                ? RefusePermission(Request, user, PermissionsFor(change), error)
-                               : ErrorJSON(Request, HTTPStatusCode.BadRequest, error)
+                               : NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved)
                        );
             }
 
@@ -557,12 +558,13 @@ namespace cloud.charging.open.ChargingStation
                                                     change => Station.IsAllowed(user, PermissionsFor(change)),
                                                     out var change,
                                                     out var error,
-                                                    out var forbidden))
+                                                    out var forbidden,
+                                                    out var notSaved))
             {
                 return Task.FromResult(
                            forbidden
                                ? RefusePermission(Request, user, PermissionsFor(change), error)
-                               : ErrorJSON(Request, HTTPStatusCode.BadRequest, error)
+                               : NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved)
                        );
             }
 
@@ -635,10 +637,10 @@ namespace cloud.charging.open.ChargingStation
 
             Log.Info($"'{user.Id}' is changing what this station offers below the charging cable.", "15118", "config", "web");
 
-            var (success, error) = await Station.UpdateV2GConfiguration(json, Request.CancellationToken);
+            var (success, error, notSaved) = await Station.UpdateV2GConfiguration(json, Request.CancellationToken);
 
             if (!success)
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, error ?? "The V2G configuration could not be changed.");
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error ?? "The V2G configuration could not be changed.", notSaved);
 
             return JSONResponse(Request, HTTPStatusCode.OK, Station.V2GConfigurationJSON());
 
@@ -677,8 +679,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.TryUpdatePowerConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.TryUpdatePowerConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.PowerConfigurationJSON())
@@ -725,8 +727,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.TryUpdateCalibrationConfiguration(json, out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.TryUpdateCalibrationConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.CalibrationConfigurationJSON())
@@ -866,13 +868,14 @@ namespace cloud.charging.open.ChargingStation
                                                            json.Value<String>("secret"),
                                                            out var id,
                                                            out var error,
+                                                           out var notSaved,
                                                            json.Value<Double?> ("validitySeconds"),
                                                            json.Value<UInt32?>("length"),
                                                            json.Value<String> ("alphabet"),
                                                            json.Value<String> ("hashAlgorithm"),
                                                            json.Value<Boolean?>("tlsChannelBinding")))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -909,13 +912,14 @@ namespace cloud.charging.open.ChargingStation
                                                               json.Value<String>("login"),
                                                               json.Value<String>("secret"),
                                                               out var error,
+                                                              out var notSaved,
                                                               json.Value<Double?> ("validitySeconds"),
                                                               json.Value<UInt32?>("length"),
                                                               json.Value<String> ("alphabet"),
                                                               json.Value<String> ("hashAlgorithm"),
                                                               json.Value<Boolean?>("tlsChannelBinding")))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -941,8 +945,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.Connections.TryRemoveAuthentication(json.Value<String>("id"), out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.Connections.TryRemoveAuthentication(json.Value<String>("id"), out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
@@ -972,9 +976,10 @@ namespace cloud.charging.open.ChargingStation
                                                        json.Value<String>("certificateId"),
                                                        out var id,
                                                        out var error,
+                                                       out var notSaved,
                                                        json.Value<String>("ocppVersion")))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -1007,9 +1012,10 @@ namespace cloud.charging.open.ChargingStation
                                                           json.Value<String>("authenticationId"),
                                                           json.Value<String>("certificateId"),
                                                           out var error,
+                                                          out var notSaved,
                                                           json.Value<String>("ocppVersion")))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -1034,8 +1040,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.Connections.TryRemoveConnection(json.Value<String>("id"), out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.Connections.TryRemoveConnection(json.Value<String>("id"), out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
@@ -1148,9 +1154,10 @@ namespace cloud.charging.open.ChargingStation
                                                          json.Value<String>("algorithm"),
                                                          out var id,
                                                          out var csr,
-                                                         out var error))
+                                                         out var error,
+                                                         out var notSaved))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -1187,9 +1194,10 @@ namespace cloud.charging.open.ChargingStation
             if (!Station.ClientCertificates.TryAddCertificate(json.Value<String>("pem") ?? "",
                                                               out var id,
                                                               out var warnings,
-                                                              out var error))
+                                                              out var error,
+                                                              out var notSaved))
             {
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
             }
 
             return Task.FromResult(
@@ -1221,8 +1229,8 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            if (!Station.ClientCertificates.TryRemove(json.Value<String>("id") ?? "", out var error))
-                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, error));
+            if (!Station.ClientCertificates.TryRemove(json.Value<String>("id") ?? "", out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.ClientCertificates.ToJSON())

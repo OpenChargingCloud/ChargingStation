@@ -256,7 +256,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryCreateKey  (Subject, Algorithm, out Id, out CSR, out Error)
+        #region TryCreateKey  (Subject, Algorithm, out Id, out CSR, out Error [, out NotSaved])
 
         /// <summary>
         /// A new key, and the signing request to be handed to whoever issues
@@ -280,11 +280,31 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                     [NotNullWhen(true)]  out String?  Id,
                                     [NotNullWhen(true)]  out String?  CSR,
                                     [NotNullWhen(false)] out String?  Error)
+
+            => TryCreateKey(Subject, Algorithm, out Id, out CSR, out Error, out _);
+
+        /// <summary>
+        /// A new key and its signing request - and whether a refusal was the
+        /// files' rather than the request's.
+        /// </summary>
+        /// <param name="Subject">Who this station says it is - plain text is read as a common name, a full distinguished name is taken as written.</param>
+        /// <param name="Algorithm">Which kind of key, or null for the usual one.</param>
+        /// <param name="Id">What the new key is called here.</param>
+        /// <param name="CSR">Its signing request, as PEM.</param>
+        /// <param name="Error">Why there is none.</param>
+        /// <param name="NotSaved">True where its files could not be written: nothing about the request was wrong, and nothing of the key is kept.</param>
+        public Boolean TryCreateKey(String                            Subject,
+                                    String?                           Algorithm,
+                                    [NotNullWhen(true)]  out String?  Id,
+                                    [NotNullWhen(true)]  out String?  CSR,
+                                    [NotNullWhen(false)] out String?  Error,
+                                    out Boolean                       NotSaved)
         {
 
-            Id     = null;
-            CSR    = null;
-            Error  = null;
+            Id        = null;
+            CSR       = null;
+            Error     = null;
+            NotSaved  = false;
 
             #region What was asked for
 
@@ -415,8 +435,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 }
                 catch (Exception e)
                 {
-                    Error = $"The key could not be written to '{Path}': {e.Message}";
+
+                    // What was written of it goes again: a key without its
+                    // description is one every start would complain about, and
+                    // keep.
+                    foreach (var extension in new[] { "key.pem", "csr.pem", "json" })
+                    {
+                        try
+                        {
+                            File.Delete(FilePath(id, extension));
+                        }
+                        catch
+                        { }
+                    }
+
+                    Error     = $"The key could not be written to '{Path}': {e.Message}";
+                    NotSaved  = true;
                     return false;
+
                 }
 
                 #endregion
@@ -482,7 +518,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryAddCertificate(PEM, out Id, out Warnings, out Error)
+        #region TryAddCertificate(PEM, out Id, out Warnings, out Error [, out NotSaved])
 
         /// <summary>
         /// Take a certificate that came back from a certificate authority,
@@ -506,11 +542,29 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                          [NotNullWhen(true)]  out String?  Id,
                                          out IReadOnlyList<String>         Warnings,
                                          [NotNullWhen(false)] out String?  Error)
+
+            => TryAddCertificate(PEM, out Id, out Warnings, out Error, out _);
+
+        /// <summary>
+        /// Take a certificate that came back from a certificate authority - and
+        /// say whether a refusal was the file's rather than the certificate's.
+        /// </summary>
+        /// <param name="PEM">The certificate, and any intermediates, as PEM.</param>
+        /// <param name="Id">The key it belongs to.</param>
+        /// <param name="Warnings">What is said about it without refusing it.</param>
+        /// <param name="Error">Why it was not taken.</param>
+        /// <param name="NotSaved">True where its file could not be written: nothing about the certificate was wrong, and the key keeps the certificate it had, if any.</param>
+        public Boolean TryAddCertificate(String                            PEM,
+                                         [NotNullWhen(true)]  out String?  Id,
+                                         out IReadOnlyList<String>         Warnings,
+                                         [NotNullWhen(false)] out String?  Error,
+                                         out Boolean                       NotSaved)
         {
 
             Id        = null;
             Warnings  = [];
             Error     = null;
+            NotSaved  = false;
 
             #region What was uploaded
 
@@ -593,13 +647,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 #region Written down
 
+                // To a file of its own first, and moved over the one the key may
+                // have already: written in place, a certificate that did not fit
+                // on the disk took the one before it with it.
+                var certificateFile  = FilePath(leafId, "cert.pem");
+                var temporary        = certificateFile + ".tmp";
+
                 try
                 {
 
                     CreateDirectory();
 
                     File.WriteAllText(
-                        FilePath(leafId, "cert.pem"),
+                        temporary,
                         String.Join(
                             Environment.NewLine,
                             new[] { leaf }.Concat(intermediates).
@@ -607,11 +667,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         ) + Environment.NewLine
                     );
 
+                    File.Move(temporary, certificateFile, overwrite: true);
+
                 }
                 catch (Exception e)
                 {
-                    Error = $"The certificate could not be written to '{Path}': {e.Message}";
+
+                    try
+                    {
+                        if (File.Exists(temporary))
+                            File.Delete(temporary);
+                    }
+                    catch
+                    { }
+
+                    Error     = $"The certificate could not be written to '{Path}': {e.Message}";
+                    NotSaved  = true;
                     return false;
+
                 }
 
                 #endregion
@@ -652,7 +725,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryRemove     (Id, out Error)
+        #region TryRemove     (Id, out Error [, out NotSaved])
 
         /// <summary>
         /// Take a key and whatever belongs to it away, for good.
@@ -665,9 +738,33 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </remarks>
         public Boolean TryRemove(String                            Id,
                                  [NotNullWhen(false)] out String?  Error)
+
+            => TryRemove(Id, out Error, out _);
+
+        /// <summary>
+        /// Take a key and whatever belongs to it away - and say whether a
+        /// refusal was its files' rather than the request's.
+        /// </summary>
+        /// <remarks>
+        /// Every file of it is taken aside first, and only then deleted, so
+        /// that one which cannot be taken aside - held open, or on a disk gone
+        /// read-only - leaves every one of them where it was. Deleted one after
+        /// the other, the key went while its description stayed: still listed,
+        /// and gone at the next start.
+        /// </remarks>
+        /// <param name="Id">The key.</param>
+        /// <param name="Error">Why it is still here.</param>
+        /// <param name="NotSaved">True where its files could not be taken away: nothing about the request was wrong, and the key stays, whole.</param>
+        public Boolean TryRemove(String                            Id,
+                                 [NotNullWhen(false)] out String?  Error,
+                                 out Boolean                       NotSaved)
         {
 
-            Error = null;
+            Error     = null;
+            NotSaved  = false;
+
+            var leftOver  = new List<String>();
+            var stuck     = (String?) null;
 
             lock (updateLock)
             {
@@ -685,6 +782,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
+                var aside = new List<(String File, String Aside)>();
+
                 foreach (var extension in new[] { "key.pem", "csr.pem", "cert.pem", "json" })
                 {
 
@@ -693,21 +792,66 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     try
                     {
                         if (File.Exists(path))
-                            File.Delete(path);
+                        {
+                            File.Move(path, path + ".removed", overwrite: true);
+                            aside.Add((path, path + ".removed"));
+                        }
                     }
                     catch (Exception e)
                     {
-                        Error = $"'{path}' could not be removed: {e.Message}";
-                        return false;
+
+                        foreach (var (file, removed) in aside)
+                        {
+                            try
+                            {
+                                File.Move(removed, file);
+                            }
+                            catch
+                            {
+                                leftOver.Add(removed);
+                            }
+                        }
+
+                        stuck = $"'{path}' could not be removed: {e.Message}";
+
+                        break;
+
                     }
 
                 }
 
-                entry.Dispose();
+                if (stuck is null)
+                {
 
-                entries.Remove(Id);
-                publicKeys.Remove(Id);
+                    foreach (var (_, removed) in aside)
+                    {
+                        try
+                        {
+                            File.Delete(removed);
+                        }
+                        catch
+                        {
+                            leftOver.Add(removed);
+                        }
+                    }
 
+                    entry.Dispose();
+
+                    entries.Remove(Id);
+                    publicKeys.Remove(Id);
+
+                }
+
+            }
+
+            foreach (var removed in leftOver)
+                OnNotice?.Invoke(LogLevel.Warning, $"'{removed}' could not be {(stuck is not null ? "put back" : "deleted")}, and is left over.");
+
+            if (stuck is not null)
+            {
+                Error     = stuck;
+                NotSaved  = true;
+                return false;
             }
 
             OnNotice?.Invoke(LogLevel.Notice, $"The key '{Id}' and everything belonging to it were removed.");

@@ -543,6 +543,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region (internal) Copy()
+
+        /// <summary>
+        /// These credentials as they are now, in an entry of their own: what
+        /// the store puts back where a change of them could not be written.
+        /// </summary>
+        internal AuthenticationEntry Copy()
+
+            => (AuthenticationEntry) MemberwiseClone();
+
+        #endregion
+
         #region (override) ToString()
 
         public override String ToString()

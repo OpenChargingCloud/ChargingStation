@@ -211,7 +211,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private) Read(FileName) / Save()
+        #region (private) Read(FileName) / TrySaveAuthentications(out Error) / TrySaveConnections(out Error)
 
         /// <summary>
         /// Called under the lock.
@@ -237,36 +237,100 @@ namespace cloud.charging.open.ChargingStation.OCPP
         }
 
         /// <summary>
-        /// Both files, written out. Called under the lock.
+        /// The credentials, written out. Called under the lock, once a change
+        /// of them is made, and before it is said to be.
+        /// </summary>
+        /// <remarks>
+        /// They hold the secrets, so they are written the way the private keys
+        /// next door are - and the mode goes on at creation, not afterwards.
+        /// </remarks>
+        private Boolean TrySaveAuthentications([NotNullWhen(false)] out String? Error)
+
+            => TrySave(AuthenticationsFileName,
+                       new JArray(authentications.Values.
+                                      OrderBy(entry => entry.CreatedAt).
+                                      Select (entry => entry.ToJSON(IncludeSecrets: true))),
+                       true,
+                       out Error);
+
+        /// <summary>
+        /// The connections, written out. Called under the lock, once a change
+        /// of them is made, and before it is said to be.
+        /// </summary>
+        private Boolean TrySaveConnections([NotNullWhen(false)] out String? Error)
+
+            => TrySave(ConnectionsFileName,
+                       new JArray(connections.Values.
+                                      OrderBy(entry => entry.CreatedAt).
+                                      Select (entry => entry.ToJSON())),
+                       false,
+                       out Error);
+
+        /// <summary>
+        /// One of the two files, written whole: to a file of its own first, and
+        /// moved over the old one, so that it is the old one or the new one and
+        /// never half of each.
         /// </summary>
         /// <remarks>
         /// Whole files rather than one record at a time: there are a handful
         /// of these, and a rewrite that either happened or did not is easier
         /// to reason about than a directory half-way through being changed.
+        /// Only the file that was changed is written. Where it cannot be, the
+        /// caller puts the change back: both files were written in place, and
+        /// one that could not be threw out of a change already made - the page
+        /// was answered 500 by the web server, and the station went on with
+        /// what it had not kept until it was started again.
         /// </remarks>
-        private void Save()
+        /// <param name="FileName">Which of the two.</param>
+        /// <param name="Entries">What it is to hold.</param>
+        /// <param name="OwnerOnly">Whether only its owner may read it.</param>
+        /// <param name="Error">Why it was not written.</param>
+        private Boolean TrySave(String                            FileName,
+                                JArray                            Entries,
+                                Boolean                           OwnerOnly,
+                                [NotNullWhen(false)] out String?  Error)
         {
 
-            Directory.CreateDirectory(Path);
+            var file       = System.IO.Path.Combine(Path, FileName);
+            var temporary  = file + ".tmp";
 
-            // The credentials hold the secrets, so they are written the way
-            // the private keys next door are - and the mode goes on at
-            // creation, not afterwards.
-            OwnerOnlyFile.Write(
-                System.IO.Path.Combine(Path, AuthenticationsFileName),
-                new JArray(authentications.Values.
-                               OrderBy(entry => entry.CreatedAt).
-                               Select (entry => entry.ToJSON(IncludeSecrets: true))).
-                    ToString(Formatting.Indented)
-            );
+            try
+            {
 
-            File.WriteAllText(
-                System.IO.Path.Combine(Path, ConnectionsFileName),
-                new JArray(connections.Values.
-                               OrderBy(entry => entry.CreatedAt).
-                               Select (entry => entry.ToJSON())).
-                    ToString(Formatting.Indented)
-            );
+                Directory.CreateDirectory(Path);
+
+                // Made anew, so that the mode goes on at its creation: one left
+                // over from before would keep the mode it was made with.
+                File.Delete(temporary);
+
+                if (OwnerOnly)
+                    OwnerOnlyFile.Write(temporary, Entries.ToString(Formatting.Indented));
+
+                else
+                    File.WriteAllText(temporary, Entries.ToString(Formatting.Indented));
+
+                File.Move(temporary, file, overwrite: true);
+
+                Error = null;
+                return true;
+
+            }
+            catch (Exception e)
+            {
+
+                // What holds the secrets is not left lying about beside them.
+                try
+                {
+                    if (File.Exists(temporary))
+                        File.Delete(temporary);
+                }
+                catch
+                { }
+
+                Error = $"'{file}' could not be written: {e.Message}";
+                return false;
+
+            }
 
         }
 
@@ -284,7 +348,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #endregion
 
 
-        #region TryAddAuthentication   (Description, Kind, Login, Secret, ..., out Id, out Error)
+        #region TryAddAuthentication   (Description, Kind, Login, Secret, ..., out Id, out Error [, out NotSaved])
 
         /// <summary>
         /// Write down one set of credentials.
@@ -300,9 +364,31 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                             String?                          Alphabet            = null,
                                             String?                          HashAlgorithm       = null,
                                             Boolean?                         TLSChannelBinding   = null)
+
+            => TryAddAuthentication(Description, Kind, Login, Secret, out Id, out Error, out _,
+                                    ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
+
+        /// <summary>
+        /// Write down one set of credentials - and say whether a refusal was
+        /// the file's rather than theirs.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about them was wrong, and they were not taken.</param>
+        public Boolean TryAddAuthentication(String?                          Description,
+                                            String?                          Kind,
+                                            String?                          Login,
+                                            String?                          Secret,
+                                            [NotNullWhen(true)]  out String? Id,
+                                            [NotNullWhen(false)] out String? Error,
+                                            out Boolean                      NotSaved,
+                                            Double?                          ValiditySeconds     = null,
+                                            UInt32?                          Length              = null,
+                                            String?                          Alphabet            = null,
+                                            String?                          HashAlgorithm       = null,
+                                            Boolean?                         TLSChannelBinding   = null)
         {
 
-            Id = null;
+            Id        = null;
+            NotSaved  = false;
 
             if (!TryParseKind(Kind, out var kind, out Error))
                 return false;
@@ -333,7 +419,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 authentications[entry.Id] = entry;
 
-                Save();
+                if (!TrySaveAuthentications(out Error))
+                {
+                    authentications.Remove(entry.Id);
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Credentials written down: {entry}.");
 
@@ -346,7 +437,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryUpdateAuthentication(Id, Description, Kind, Login, Secret, ..., out Error)
+        #region TryUpdateAuthentication(Id, Description, Kind, Login, Secret, ..., out Error [, out NotSaved])
 
         /// <summary>
         /// Change one set of credentials.
@@ -368,7 +459,30 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                                String?                          Alphabet            = null,
                                                String?                          HashAlgorithm       = null,
                                                Boolean?                         TLSChannelBinding   = null)
+
+            => TryUpdateAuthentication(Id, Description, Kind, Login, Secret, out Error, out _,
+                                       ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
+
+        /// <summary>
+        /// Change one set of credentials - and say whether a refusal was the
+        /// file's rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the change was wrong, and they stay as they were.</param>
+        public Boolean TryUpdateAuthentication(String?                          Id,
+                                               String?                          Description,
+                                               String?                          Kind,
+                                               String?                          Login,
+                                               String?                          Secret,
+                                               [NotNullWhen(false)] out String? Error,
+                                               out Boolean                      NotSaved,
+                                               Double?                          ValiditySeconds     = null,
+                                               UInt32?                          Length              = null,
+                                               String?                          Alphabet            = null,
+                                               String?                          HashAlgorithm       = null,
+                                               Boolean?                         TLSChannelBinding   = null)
         {
+
+            NotSaved = false;
 
             if (!TryParseKind(Kind, out var kind, out Error))
                 return false;
@@ -395,13 +509,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
+                var was = entry.Copy();
+
                 entry.Description  = Description!.Trim();
                 entry.Login        = Login!.Trim();
                 entry.Kind         = kind;
 
                 Apply(entry, Secret, ValiditySeconds, Length, Alphabet, HashAlgorithm, TLSChannelBinding);
 
-                Save();
+                if (!TrySaveAuthentications(out Error))
+                {
+                    authentications[Id] = was;
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Credentials changed: {entry}.");
 
@@ -505,7 +626,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryRemoveAuthentication(Id, out Error)
+        #region TryRemoveAuthentication(Id, out Error [, out NotSaved])
 
         /// <summary>
         /// Take one set of credentials away, for good.
@@ -518,7 +639,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </remarks>
         public Boolean TryRemoveAuthentication(String?                          Id,
                                                [NotNullWhen(false)] out String? Error)
+
+            => TryRemoveAuthentication(Id, out Error, out _);
+
+        /// <summary>
+        /// Take one set of credentials away - and say whether a refusal was
+        /// the file's rather than the request's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the credentials could not be written: nothing about the request was wrong, and they stay.</param>
+        public Boolean TryRemoveAuthentication(String?                          Id,
+                                               [NotNullWhen(false)] out String? Error,
+                                               out Boolean                      NotSaved)
         {
+
+            NotSaved = false;
 
             lock (updateLock)
             {
@@ -542,7 +676,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 authentications.Remove(Id);
 
-                Save();
+                if (!TrySaveAuthentications(out Error))
+                {
+                    authentications[Id] = entry;
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Credentials removed: {entry}.");
 
@@ -556,7 +695,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #endregion
 
 
-        #region TryAddConnection   (Description, URL, ConnectionType, ..., out Id, out Error)
+        #region TryAddConnection   (Description, URL, ConnectionType, ..., out Id, out Error [, out NotSaved])
 
         /// <summary>
         /// Write down one connection.
@@ -570,9 +709,29 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
                                         String?                          OCPPVersion   = null)
+
+            => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
+                                out Id, out Error, out _, OCPPVersion);
+
+        /// <summary>
+        /// Write down one connection - and say whether a refusal was the
+        /// file's rather than the connection's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
+        public Boolean TryAddConnection(String?                          Description,
+                                        String?                          URL,
+                                        String?                          ConnectionType,
+                                        Boolean?                         AutoConnect,
+                                        String?                          AuthenticationId,
+                                        String?                          CertificateId,
+                                        [NotNullWhen(true)]  out String? Id,
+                                        [NotNullWhen(false)] out String? Error,
+                                        out Boolean                      NotSaved,
+                                        String?                          OCPPVersion   = null)
         {
 
-            Id = null;
+            Id        = null;
+            NotSaved  = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error))
@@ -599,7 +758,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 connections[entry.Id] = entry;
 
-                Save();
+                if (!TrySaveConnections(out Error))
+                {
+                    connections.Remove(entry.Id);
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Connection written down: {entry}.");
 
@@ -612,7 +776,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryUpdateConnection(Id, Description, URL, ConnectionType, ..., out Error)
+        #region TryUpdateConnection(Id, Description, URL, ConnectionType, ..., out Error [, out NotSaved])
 
         /// <summary>
         /// Change one connection.
@@ -626,7 +790,28 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
                                            String?                          OCPPVersion   = null)
+
+            => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
+                                   out Error, out _, OCPPVersion);
+
+        /// <summary>
+        /// Change one connection - and say whether a refusal was the file's
+        /// rather than the change's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the connections could not be written: nothing about the change was wrong, and the connection stays as it was.</param>
+        public Boolean TryUpdateConnection(String?                          Id,
+                                           String?                          Description,
+                                           String?                          URL,
+                                           String?                          ConnectionType,
+                                           Boolean?                         AutoConnect,
+                                           String?                          AuthenticationId,
+                                           String?                          CertificateId,
+                                           [NotNullWhen(false)] out String? Error,
+                                           out Boolean                      NotSaved,
+                                           String?                          OCPPVersion   = null)
         {
+
+            NotSaved = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error))
@@ -644,6 +829,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (!CheckReferences(AuthenticationId, CertificateId, out var authenticationId, out var certificateId, out Error))
                     return false;
 
+                var was = entry.Copy();
+
                 entry.Description         = Description!.Trim();
                 entry.URL                 = url;
                 entry.ConnectionType      = type;
@@ -652,7 +839,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
 
-                Save();
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = was;
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Connection changed: {entry}.");
 
@@ -665,7 +857,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryRemoveConnection(Id, out Error)
+        #region TryRemoveConnection(Id, out Error [, out NotSaved])
 
         /// <summary>
         /// Take one connection away, for good.
@@ -677,7 +869,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </remarks>
         public Boolean TryRemoveConnection(String?                          Id,
                                            [NotNullWhen(false)] out String? Error)
+
+            => TryRemoveConnection(Id, out Error, out _);
+
+        /// <summary>
+        /// Take one connection away - and say whether a refusal was the file's
+        /// rather than the request's.
+        /// </summary>
+        /// <param name="NotSaved">True where the file of the connections could not be written: nothing about the request was wrong, and the connection stays.</param>
+        public Boolean TryRemoveConnection(String?                          Id,
+                                           [NotNullWhen(false)] out String? Error,
+                                           out Boolean                      NotSaved)
         {
+
+            NotSaved = false;
 
             lock (updateLock)
             {
@@ -690,7 +895,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 connections.Remove(Id);
 
-                Save();
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = entry;
+                    NotSaved = true;
+                    return false;
+                }
 
                 OnNotice?.Invoke(LogLevel.Info, $"Connection removed: {entry}.");
 

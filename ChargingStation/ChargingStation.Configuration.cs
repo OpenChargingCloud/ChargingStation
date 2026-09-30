@@ -146,20 +146,22 @@ namespace cloud.charging.open.ChargingStation
         /// hands out - is read while the sockets are being opened, so there is
         /// no such thing as changing one of them on a running link.
         /// </remarks>
-        public async Task<(Boolean Success, String? Error)> UpdateV2GConfiguration(JObject            JSON,
-                                                                                   CancellationToken  CancellationToken   = default)
+        /// <returns>Whether it was changed; why not; and whether that was the configuration file's doing - it could not be read or written, nothing about the change was wrong, and nothing was changed.</returns>
+        public async Task<(Boolean Success, String? Error, Boolean NotSaved)> UpdateV2GConfiguration(JObject            JSON,
+                                                                                                     CancellationToken  CancellationToken   = default)
         {
 
             if (!V2GConfiguration.TryParse(JSON, out var configuration, out var error))
-                return (false, error);
+                return (false, error, false);
 
             await reconfigureLock.WaitAsync(CancellationToken);
 
             try
             {
 
+                // Everything this refuses is the file's: read, merged, written.
                 if (!ConfigFile.TryMergeSection(V2GConfiguration.SectionName, configuration.ToJSON(), out error))
-                    return (false, error);
+                    return (false, error, true);
 
                 V2GOptions = configuration.Apply(V2GOptions);
 
@@ -167,7 +169,7 @@ namespace cloud.charging.open.ChargingStation
 
                 Log.Notice($"V2G configuration changed: {configuration}.", "15118", "config");
 
-                return (true, null);
+                return (true, null, false);
 
             }
             finally
@@ -265,7 +267,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region DisplayConfigurationJSON() / TryUpdateDisplayConfiguration(JSON, out Error)
+        #region DisplayConfigurationJSON() / TryUpdateDisplayConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
         /// The quiet hours the display keeps, as the web interface reads them.
@@ -308,7 +310,22 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public Boolean TryUpdateDisplayConfiguration(JObject                           JSON,
                                                      [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdateDisplayConfiguration(JSON, out Error, out _);
+
+        /// <summary>
+        /// Change the quiet hours the display keeps - and say whether a refusal
+        /// was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">What the page sent, in the shape of the "display" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateDisplayConfiguration(JObject                           JSON,
+                                                     [NotNullWhen(false)] out String?  Error,
+                                                     out Boolean                       NotSaved)
         {
+
+            NotSaved = false;
 
             if (!DisplayConfiguration.TryParse(JSON, out var wanted, out Error))
                 return false;
@@ -321,11 +338,13 @@ namespace cloud.charging.open.ChargingStation
                 if (wanted == Display)
                     return true;
 
+                // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          DisplayConfiguration.SectionName,
                          wanted.ToJSON(),
                          out Error))
                 {
+                    NotSaved = true;
                     return false;
                 }
 
@@ -350,7 +369,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region TryUpdatePowerConfiguration(JSON, out Error)
+        #region TryUpdatePowerConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
         /// Change what this station may draw from the grid.
@@ -365,9 +384,23 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public Boolean TryUpdatePowerConfiguration(JObject                           JSON,
                                                    [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdatePowerConfiguration(JSON, out Error, out _);
+
+        /// <summary>
+        /// Change what this station may draw from the grid - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">What the page sent, in the shape of the "power" section.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdatePowerConfiguration(JObject                           JSON,
+                                                   [NotNullWhen(false)] out String?  Error,
+                                                   out Boolean                       NotSaved)
         {
 
-            Error = null;
+            Error     = null;
+            NotSaved  = false;
 
             if (!JSON.ContainsKey("uplinkPowerLimit_kW"))
                 return true;
@@ -391,11 +424,13 @@ namespace cloud.charging.open.ChargingStation
 
                 var configuration = new PowerConfiguration(uplink);
 
+                // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          PowerConfiguration.SectionName,
                          configuration.ToJSON(),
                          out Error))
                 {
+                    NotSaved = true;
                     return false;
                 }
 
@@ -501,7 +536,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region TryUpdateCalibrationConfiguration(JSON, out Error)
+        #region TryUpdateCalibrationConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
         /// Replace the calibration certificates of this station, all of them at
@@ -520,9 +555,23 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public Boolean TryUpdateCalibrationConfiguration(JObject                           JSON,
                                                          [NotNullWhen(false)] out String?  Error)
+
+            => TryUpdateCalibrationConfiguration(JSON, out Error, out _);
+
+        /// <summary>
+        /// Replace the calibration certificates of this station - and say
+        /// whether a refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">What the page sent: the whole list, as "certificates".</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateCalibrationConfiguration(JObject                           JSON,
+                                                         [NotNullWhen(false)] out String?  Error,
+                                                         out Boolean                       NotSaved)
         {
 
-            Error = null;
+            Error     = null;
+            NotSaved  = false;
 
             if (JSON["certificates"] is not JArray array)
             {
@@ -544,11 +593,13 @@ namespace cloud.charging.open.ChargingStation
                     return true;
                 }
 
+                // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          StationConfiguration.CalibrationSectionName,
                          new JArray(certificates.Select(certificate => certificate.ToJSON())),
                          out Error))
                 {
+                    NotSaved = true;
                     return false;
                 }
 
@@ -692,7 +743,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region TryUpdateEVSEConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden)
+        #region TryUpdateEVSEConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden [, out NotSaved])
 
         /// <summary>
         /// Replace the EVSEs of this charging station, all of them at once.
@@ -726,11 +777,31 @@ namespace cloud.charging.open.ChargingStation
                                                   out EVSEChange                    Change,
                                                   [NotNullWhen(false)] out String?  Error,
                                                   out Boolean                       Forbidden)
+
+            => TryUpdateEVSEConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden, out _);
+
+        /// <summary>
+        /// Replace the EVSEs of this charging station - and say whether a
+        /// refusal was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">The new list.</param>
+        /// <param name="IsAllowed">Asked with the kind of change this turns out to be.</param>
+        /// <param name="Change">What kind of change it was.</param>
+        /// <param name="Error">What is wrong with it, or what stood in the way.</param>
+        /// <param name="Forbidden">Whether the answer to <paramref name="IsAllowed"/> was no.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateEVSEConfiguration(JObject                           JSON,
+                                                  Func<EVSEChange, Boolean>         IsAllowed,
+                                                  out EVSEChange                    Change,
+                                                  [NotNullWhen(false)] out String?  Error,
+                                                  out Boolean                       Forbidden,
+                                                  out Boolean                       NotSaved)
         {
 
             Change     = EVSEChange.None;
             Error      = null;
             Forbidden  = false;
+            NotSaved   = false;
 
             if (JSON["evses"] is not JArray array)
             {
@@ -758,11 +829,13 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
+                // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          StationConfiguration.EVSEsSectionName,
                          new JArray(evses.Select(evse => evse.ToJSON())),
                          out Error))
                 {
+                    NotSaved = true;
                     return false;
                 }
 
@@ -923,7 +996,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region TryUpdateRFIDConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden)
+        #region TryUpdateRFIDConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden [, out NotSaved])
 
         /// <summary>
         /// Replace the card readers of this station, all of them at once.
@@ -944,11 +1017,31 @@ namespace cloud.charging.open.ChargingStation
                                                   out RFIDChange                    Change,
                                                   [NotNullWhen(false)] out String?  Error,
                                                   out Boolean                       Forbidden)
+
+            => TryUpdateRFIDConfiguration(JSON, IsAllowed, out Change, out Error, out Forbidden, out _);
+
+        /// <summary>
+        /// Replace the card readers of this station - and say whether a refusal
+        /// was the file's rather than the change's.
+        /// </summary>
+        /// <param name="JSON">The new list.</param>
+        /// <param name="IsAllowed">Asked with the kind of change this turns out to be.</param>
+        /// <param name="Change">What kind of change it was.</param>
+        /// <param name="Error">What is wrong with it, or what stood in the way.</param>
+        /// <param name="Forbidden">Whether the answer to <paramref name="IsAllowed"/> was no.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateRFIDConfiguration(JObject                           JSON,
+                                                  Func<RFIDChange, Boolean>         IsAllowed,
+                                                  out RFIDChange                    Change,
+                                                  [NotNullWhen(false)] out String?  Error,
+                                                  out Boolean                       Forbidden,
+                                                  out Boolean                       NotSaved)
         {
 
             Change     = RFIDChange.None;
             Error      = null;
             Forbidden  = false;
+            NotSaved   = false;
 
             if (JSON["readers"] is not JArray array)
             {
@@ -988,11 +1081,13 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
+                // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          StationConfiguration.RFIDSectionName,
                          new JArray(readers.Select(reader => reader.ToJSON())),
                          out Error))
                 {
+                    NotSaved = true;
                     return false;
                 }
 
