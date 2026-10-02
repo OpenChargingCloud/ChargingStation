@@ -136,7 +136,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private) Resolver()
+        #region Resolver()
 
         /// <summary>
         /// A name resolver with its servers written down, rather than one that
@@ -169,7 +169,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// has nowhere to arrive.
         /// </para>
         /// </remarks>
-        private static DNSClient Resolver()
+        public static DNSClient Resolver()
 
             => new ([
                    new DNSServerConfig(IPv4Address.Parse("192.0.2.53"),  IPPort.DNS),

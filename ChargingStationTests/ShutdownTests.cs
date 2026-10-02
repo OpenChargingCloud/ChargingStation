@@ -17,7 +17,9 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Net.WebSockets;
 
 using Newtonsoft.Json.Linq;
@@ -26,6 +28,8 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
@@ -206,6 +210,90 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region AStepThatFailsDoesNotKeepTheOthersFromBeingTaken()
+
+        /// <summary>
+        /// A station whose stopping fails at its first step - its link below
+        /// the cable will not end - takes the others all the same: the app on
+        /// the WebSocket of its local app server is told that it is going, and
+        /// neither the display nor the local app server listens any more,
+        /// beside the web interface, which the node stops. What failed reaches
+        /// whoever stopped the station, and the log says which step it was.
+        /// </summary>
+        /// <remarks>
+        /// A stop that fails has stopped all the same and is not begun again:
+        /// a second Stop() - the one that letting go of the station does - does
+        /// nothing. So whatever a failed step kept the station from doing would
+        /// stay undone for as long as the process runs.
+        /// </remarks>
+        [Test]
+        public async Task AStepThatFailsDoesNotKeepTheOthersFromBeingTaken()
+        {
+
+            File.WriteAllText(Path.Combine(directory, "configuration.json"), TestStations.Offline.ToString());
+
+            var station   = await TestPorts.StartedOnFreshPorts(() => new AStationWhoseV2GLinkWillNotEnd(directory, IPPort.Parse(TestPorts.Free())));
+
+            var warnings  = new ConcurrentQueue<String>();
+
+            station.Log.OnLogged += entry => {
+                if (entry.Level == LogLevel.Warning)
+                    warnings.Enqueue(entry.Message);
+            };
+
+            var ports     = new (String What, UInt16 Port)[] {
+                                ("the web interface",     PortOf(station.WebInterfaceURL.ToString())),
+                                ("the display",           PortOf(station.KioskURL!.Value.ToString())),
+                                ("the local app server",  PortOf(station.LocalAppURL!.Value.ToString()))
+                            };
+
+            using var app = new ClientWebSocket();
+
+            await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
+                                   CancellationToken.None);
+
+            var told      = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
+
+            var stopping  = station.Stop();
+
+            if (await Task.WhenAny(stopping, Task.Delay(MustStopWithin)) != stopping)
+            {
+                // Left running, for the reason TimeTheStop gives.
+                aStopWasLeftRunning = true;
+                Assert.Fail($"A station whose V2G link would not end took more than {MustStopWithin.TotalSeconds:F0} s to stop.");
+            }
+
+            Assert.That(async () => await stopping,
+                        Throws.InstanceOf<IOException>().With.Message.EqualTo(AStationWhoseV2GLinkWillNotEnd.Why),
+                        "What failed did not reach whoever stopped the station.");
+
+            var goodbye   = await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))) == told && told.IsCompletedSuccessfully
+                                ? told.Result.MessageType
+                                : (WebSocketMessageType?) null;
+
+            var listening = ports.Where (port => Listening(port.Port)).
+                                  Select(port => $"{port.What} on port {port.Port}").
+                                  ToArray();
+
+            Assert.Multiple(() => {
+
+                Assert.That(goodbye,    Is.EqualTo(WebSocketMessageType.Close),
+                            "The app on the WebSocket was not told that the station is going.");
+
+                Assert.That(listening,  Is.Empty,
+                            "Still listening once the station had stopped: " + String.Join(", ", listening));
+
+                Assert.That(warnings,   Has.Some.Matches<String>(warning => warning.Contains("ending the V2G link") &&
+                                                                            warning.Contains(AStationWhoseV2GLinkWillNotEnd.Why)),
+                            "The log does not say which step failed. Its warnings: " + String.Join(" | ", warnings));
+
+            });
+
+        }
+
+        #endregion
+
+
         #region (private) StartOne(WithDisplay = true)
 
         /// <summary>
@@ -287,6 +375,72 @@ namespace cloud.charging.open.ChargingStation.Tests
             aStopWasLeftRunning = true;
 
             return MustStopWithin + TimeSpan.FromSeconds(1);
+
+        }
+
+        #endregion
+
+        #region (private static) PortOf(URL)
+
+        private static UInt16 PortOf(String URL)
+
+            => (UInt16) new Uri(URL).Port;
+
+        #endregion
+
+        #region (private static) Listening(Port)
+
+        /// <summary>
+        /// Whether anything on this machine listens on the given TCP port.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the operating system's table of listeners rather than tried
+        /// with a connection: on Windows, a connection to a closed port on the
+        /// loopback is refused only after some two seconds of retries.
+        /// </remarks>
+        private static Boolean Listening(UInt16 Port)
+
+            => IPGlobalProperties.GetIPGlobalProperties().
+                   GetActiveTcpListeners().
+                   Any(listener => listener.Port == Port);
+
+        #endregion
+
+
+        #region (private class) AStationWhoseV2GLinkWillNotEnd
+
+        /// <summary>
+        /// A station as TestStations.New makes one, with a display and a local
+        /// app server, whose link below the cable will not end.
+        /// </summary>
+        /// <remarks>
+        /// A link that is there and fails to end needs the network interfaces
+        /// of a charging station, which no test run has. So the step that ends
+        /// it fails instead: what this station has to get right is what comes
+        /// after that step, not the link.
+        /// </remarks>
+        private sealed class AStationWhoseV2GLinkWillNotEnd(String  Directory,
+                                                            IPPort  LocalAppPort)
+
+            : ChargingStation(DNSClient:       TestStations.Resolver(),
+                              HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                              KioskPort:       IPPort.Parse(TestPorts.Free()),
+                              LocalAppPort:    LocalAppPort,
+                              AccountsPath:    Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
+                              ConfigFile:      new WWCPConfigFile(Path.Combine(Directory, "configuration.json")),
+                              LogToConsole:    false,
+                              BridgeDebugLog:  false)
+
+        {
+
+            /// <summary>
+            /// What ending it says.
+            /// </summary>
+            public const String Why = "The V2G link would not end.";
+
+            protected override Task EndTheV2GLink()
+
+                => Task.FromException(new IOException(Why));
 
         }
 

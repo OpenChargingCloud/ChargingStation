@@ -19,6 +19,7 @@
 
 using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 
 using Newtonsoft.Json.Linq;
 
@@ -808,33 +809,85 @@ namespace cloud.charging.open.ChargingStation
         /// End what this station holds open beyond the web interface, before
         /// the server stops.
         /// </summary>
+        /// <remarks>
+        /// Every step is taken, even where one before it failed, and what
+        /// failed first is thrown on once all of them were. A stop that fails
+        /// has stopped all the same and is not begun again - a second Stop()
+        /// does nothing - so whatever a failed step kept this from doing would
+        /// stay undone for as long as the process runs: the display's and the
+        /// local app's ports bound, an app on the WebSocket never told. Each
+        /// step that fails is logged with what it was, which the exception
+        /// thrown on does not say.
+        /// </remarks>
         protected override async Task OnStopping()
         {
 
-            if (V2G is not null)
+            ExceptionDispatchInfo? failed = null;
+
+            async Task Take(String Step, Func<Task> Doing)
             {
-                await V2G.DisposeAsync();
-                V2G = null;
+                try
+                {
+                    await Doing();
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"Stopping, {Step} failed: {e.Message}", Kind.Tag);
+                    failed ??= ExceptionDispatchInfo.Capture(e);
+                }
             }
+
+            await Take("ending the V2G link", EndTheV2GLink);
 
             // Before the servers, so that a close this station asked for is
             // recognised as one and does not start a reconnect on the way out.
-            await HangUp();
+            await Take("hanging up the OCPP connections", HangUp);
 
             // The event streams of the JSON API are not ended here: the node
             // ends them itself before it asks this, as for every kind of node.
 
             if (kioskServer is not null)
-                await kioskServer.Stop();
+                await Take("stopping the display's server", () => kioskServer.Stop());
 
             // Each app on the WebSocket told with a close frame that the station
             // is going, rather than left to find out from a broken connection -
             // then the server, which would close their sockets anyway.
             if (LocalAppAPI is not null)
-                await LocalAppAPI.CloseWebSockets();
+                await Take("telling the apps on the WebSocket", LocalAppAPI.CloseWebSockets);
 
             if (localAppServer is not null)
-                await localAppServer.Stop();
+                await Take("stopping the local app server", () => localAppServer.Stop());
+
+            failed?.Throw();
+
+        }
+
+        #endregion
+
+        #region (protected virtual) EndTheV2GLink()
+
+        /// <summary>
+        /// End the link below the cable, where there is one - the first thing
+        /// a station does when it stops.
+        /// </summary>
+        /// <remarks>
+        /// Let go of even where ending it fails: the station is stopping, and
+        /// a link it could not end is not one it can use again.
+        /// </remarks>
+        protected virtual async Task EndTheV2GLink()
+        {
+
+            if (V2G is null)
+                return;
+
+            try
+            {
+                await V2G.DisposeAsync();
+            }
+            finally
+            {
+                V2G = null;
+            }
 
         }
 
