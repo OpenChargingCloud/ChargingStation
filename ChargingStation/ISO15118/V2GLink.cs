@@ -19,6 +19,7 @@
 
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.ExceptionServices;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Text;
@@ -101,6 +102,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         private readonly EventLog                 log;
         private readonly CancellationTokenSource  shutdown = new();
+        private readonly ISlacTransport?          givenSlacTransport;
 
         private          ISlacTransport?          slacTransport;
         private          EvseSlacListener?        slacListener;
@@ -217,13 +219,15 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #region Constructor(s)
 
-        private V2GLink(V2GOptions    Options,
-                        EventLog      Log,
-                        TimeProvider  Clock)
+        private V2GLink(V2GOptions       Options,
+                        EventLog         Log,
+                        TimeProvider     Clock,
+                        ISlacTransport?  SlacTransport)
         {
-            this.Options  = Options;
-            this.log      = Log;
-            this.clock    = Clock;
+            this.Options             = Options;
+            this.log                 = Log;
+            this.clock               = Clock;
+            this.givenSlacTransport  = SlacTransport;
         }
 
         #endregion
@@ -241,16 +245,18 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// piece that does not come up says why, at a level somebody will see.
         /// </remarks>
         /// <param name="Clock">The station's own clock, which the session state machines time their steps by - so that a test which moves it moves them.</param>
+        /// <param name="SlacTransport">A medium for SLAC to listen on instead of the one the options name. The link takes it over: it starts it, and ends it with the rest of itself.</param>
         public static async Task<V2GLink?> TryStart(V2GOptions         Options,
                                                     EventLog           Log,
                                                     TimeProvider?      Clock               = null,
-                                                    CancellationToken  CancellationToken   = default)
+                                                    CancellationToken  CancellationToken   = default,
+                                                    ISlacTransport?    SlacTransport       = null)
         {
 
             if (!Options.Enabled)
                 return null;
 
-            var link = new V2GLink(Options, Log, Clock ?? TimeProvider.System);
+            var link = new V2GLink(Options, Log, Clock ?? TimeProvider.System, SlacTransport);
 
             link.FindInterface();
 
@@ -896,7 +902,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         private async Task StartSLACListener(CancellationToken CancellationToken)
         {
 
-            slacTransport = OpenSlacTransport();
+            slacTransport = givenSlacTransport ?? OpenSlacTransport();
 
             if (slacTransport is null)
                 return;
@@ -1307,42 +1313,72 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// <summary>
         /// Stop listening on all three, in the reverse order of starting them.
         /// </summary>
+        /// <remarks>
+        /// Every part is ended, even where one before it failed to end, and
+        /// what failed first is thrown on once all of them were. The station
+        /// lets go of a link that failed to end and does not ask again, so a
+        /// part this left open would stay open for as long as the process
+        /// runs: the V2G port bound, SDP still pointing vehicles at it. Each
+        /// part that fails is logged with what it was, which the exception
+        /// thrown on does not say.
+        /// </remarks>
         public async ValueTask DisposeAsync()
         {
 
-            await shutdown.CancelAsync();
+            ExceptionDispatchInfo? failed = null;
+
+            async Task End(String Part, Func<Task> Ending)
+            {
+                try
+                {
+                    await Ending();
+                }
+                catch (Exception e)
+                {
+                    log.Warning($"Ending the V2G link, {Part} failed: {e.Message}", "15118");
+                    failed ??= ExceptionDispatchInfo.Capture(e);
+                }
+            }
+
+            await End("cancelling what still runs", shutdown.CancelAsync);
 
             // The bus first: a coordinator that stops beaconing is what its
             // nodes expect of a station going down, and they find out by
             // themselves.
-            if (coordinator is not null)
-                await coordinator.DisposeAsync();
+            if (coordinator   is { } bus)
+                await End("the T1S coordinator",  () => bus.     DisposeAsync().AsTask());
 
-            if (t1sTransport is not null)
-                await t1sTransport.DisposeAsync();
+            if (t1sTransport  is { } t1s)
+                await End("the T1S medium",       () => t1s.     DisposeAsync().AsTask());
 
-            if (slacListener is not null)
-                await slacListener.DisposeAsync();
+            if (slacListener  is { } slac)
+                await End("the SLAC listener",    () => slac.    DisposeAsync().AsTask());
 
-            if (slacTransport is not null)
-                await slacTransport.DisposeAsync();
+            if (slacTransport is { } medium)
+                await End("the SLAC medium",      () => medium.  DisposeAsync().AsTask());
 
-            if (sdpServer is not null)
-                await sdpServer.DisposeAsync();
+            if (sdpServer     is { } sdp)
+                await End("the SDP server",       () => sdp.     DisposeAsync().AsTask());
 
-            v2gListener?.Dispose();
+            if (v2gListener   is { } endpoint)
+                await End("the V2G endpoint",     () => {
+                                                      endpoint.Dispose();
+                                                      return Task.CompletedTask;
+                                                  });
 
-            if (acceptLoop is not null)
-            {
-                try
-                {
-                    await acceptLoop;
-                }
-                catch (OperationCanceledException)
-                { }
-            }
+            if (acceptLoop    is { } accepting)
+                await End("the V2G accept loop",  async () => {
+                                                      try
+                                                      {
+                                                          await accepting;
+                                                      }
+                                                      catch (OperationCanceledException)
+                                                      { }
+                                                  });
 
             shutdown.Dispose();
+
+            failed?.Throw();
 
         }
 

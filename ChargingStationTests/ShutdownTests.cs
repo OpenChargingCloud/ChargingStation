@@ -414,10 +414,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// app server, whose link below the cable will not end.
         /// </summary>
         /// <remarks>
-        /// A link that is there and fails to end needs the network interfaces
-        /// of a charging station, which no test run has. So the step that ends
-        /// it fails instead: what this station has to get right is what comes
-        /// after that step, not the link.
+        /// Whether a link ends all of its own parts when one of them fails is
+        /// what V2GLinkEndingTests asks. Here the step that ends it fails
+        /// instead: what this station has to get right is what comes after
+        /// that step, not the link.
         /// </remarks>
         private sealed class AStationWhoseV2GLinkWillNotEnd(String  Directory,
                                                             IPPort  LocalAppPort)
