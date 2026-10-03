@@ -159,6 +159,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = null;
 
+            // Last: the station may still write while it is let go of.
+            console.Dispose();
+
             TestStations.Remove(directory);
 
         }
