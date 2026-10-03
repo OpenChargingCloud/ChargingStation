@@ -93,7 +93,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       HTTPPort: first.HTTPPort);
 
-            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
+            var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start()))!;
 
             Assert.Multiple(() => {
 
@@ -132,7 +132,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       HTTPPort: first.HTTPPort);
 
-            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
+            var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start()))!;
 
             Assert.That(problem.Message, Does.Not.Contain("Socketadresse"),
                         "The operating system's own words made it into the sentence.");
@@ -159,7 +159,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       KioskPort: first.KioskPort);
 
-            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
+            var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start()))!;
 
             Assert.Multiple(() => {
                 Assert.That(problem.Whose,   Is.EqualTo(ChargingStation.DisplayPort));
@@ -187,7 +187,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       KioskPort: first.KioskPort);
 
-            Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start());
+            await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start());
 
             var listener = new TcpListener(System.Net.IPAddress.Loopback, second.HTTPPort.ToUInt16());
 
@@ -220,7 +220,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);
 
-            var problem = Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start())!;
+            var problem = (await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start()))!;
 
             Assert.Multiple(() => {
                 Assert.That(problem.Whose,   Is.EqualTo(ChargingStation.AppPort));
@@ -250,7 +250,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);
 
-            Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start());
+            await Assert.ThrowsAsync<PortUnavailableException>(async () => await second.Start());
 
             foreach (var (port, what) in new[] { (second.HTTPPort, "web interface"), (second.KioskPort!.Value, "display") })
             {
