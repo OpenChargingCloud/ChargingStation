@@ -16,7 +16,8 @@ import { bundleIn,
          type DisplayMessage } from './kiosk-rules';
 
 import { config } from '@node/config';
-import { html, HTMLFragment, must, raw, render } from '@node/html';
+import { HTMLFragment, must, raw } from '@node/html';
+import { html, nothing, render, repeat } from '@node/view';
 
 import './styles/kiosk.scss';
 
@@ -381,16 +382,15 @@ let offline     = false;
 /**
  * What the screen is currently showing, as a string.
  *
- * The page is drawn by replacing all of it, which is fine for a screen that
- * changes when something happens and wrong for one that is rebuilt every two
- * seconds whether or not anything did: every redraw throws away the elements
- * that were there, and with them anything the browser was keeping in them -
- * the caret, the focus, and on a touch screen the keyboard that was open.
+ * The page is drawn by comparing (WWCP_Node's view.ts, on lit-html): a draw
+ * changes only what differs, and keeps the elements, the caret, the focus and
+ * on a touch screen the keyboard that is open. It used to be drawn by
+ * replacing all of it, and every redraw threw those away.
  *
- * So a poll that brings back what is already on screen draws nothing. The
- * timestamp is left out of the comparison on purpose: it is the one field that
- * differs every single time, and comparing it would make this test always say
- * "changed" and do nothing at all.
+ * A poll that brings back what is already on screen still draws nothing -
+ * there is nothing to compare. The timestamp is left out of the comparison on
+ * purpose: it is the one field that differs every single time, and comparing
+ * it would make this test always say "changed".
  */
 let shown: string | null = null;
 
@@ -532,7 +532,7 @@ function draw(): void {
         <header class="kiosk-head">
             ${current.station.logo
                   ? html`<img class="kiosk-logo" src="${current.station.logo}" alt="${current.station.name ?? ''}" />`
-                  : ''}
+                  : nothing}
             <h1>${current.station.name ?? 'Charging Station'}</h1>
 
             ${current.holds
@@ -542,13 +542,13 @@ function draw(): void {
                               ${words.keptFree(current.holds.count, current.holds.minutesLeft)}
                           </span>
                           ${anyCardReader()
-                                ? html`<button type="button" class="kiosk-btn release" id="release-hold">${words.cancelReservation}</button>`
-                                : ''}
+                                ? html`<button type="button" class="kiosk-btn release" id="release-hold" @click=${releaseTheHold}>${words.cancelReservation}</button>`
+                                : nothing}
                       </div>
                     `
-                  : ''}
+                  : nothing}
 
-            ${offline ? html`<span class="kiosk-offline">${words.noConnection}</span>` : ''}
+            ${offline ? html`<span class="kiosk-offline">${words.noConnection}</span>` : nothing}
 
             ${clockCorner(current)}
 
@@ -557,7 +557,7 @@ function draw(): void {
         ${messageBand(current.messages ?? [], 'station')}
 
         <main class="kiosk-evses">
-            ${current.evses.map(evse => evseCard(evse))}
+            ${repeat(current.evses, evse => evse.id, evse => evseCard(evse))}
         </main>
 
         ${current.rfid
@@ -565,19 +565,21 @@ function draw(): void {
                   <footer class="kiosk-foot">
                       <button type="button" class="kiosk-rfid ${readerClass(current.rfid)}"
                               data-reader="${current.rfid.id}"
-                              ${current.rfid.fake && current.rfid.ready ? '' : html`disabled`}>
+                              ?disabled=${!(current.rfid.fake && current.rfid.ready)}
+                              @click=${() => holdACard(null)}>
                           <i class="kiosk-rfid-icon"></i>
                           <span>${readerWords(current.rfid, words.holdYourCard)}</span>
                       </button>
                   </footer>
                 `
-              : ''}
+              : nothing}
 
-        ${dialogFor ? cardDialog(current) : ''}
+        ${dialogFor ? cardDialog(current) : nothing}
 
     `);
 
-    wire();
+    applyColumns();
+    tick();
 
 }
 
@@ -639,16 +641,18 @@ function qrCodeStillGood(QRCode: { url: string; expiresAt: string }): boolean {
  * polls - the difference between two local readings, never an absolute one, so
  * that a screen whose own clock is wrong still shows the station's time.
  *
- * The digits are written in place by a ticking timer rather than by redrawing
- * the page, which would throw away the caret of anybody typing a card number
- * once a second.
+ * The digits, and how long ago the clock was checked, are written in place by
+ * the ticker - tick() - rather than drawn: the two elements are drawn empty,
+ * and what is in them is the ticker's alone. A draw that wrote into them as
+ * well would be writing into what the ticker had just written over, which
+ * takes the page's own markers in them away.
  */
 function clockCorner(Current: KioskState) {
 
     const clock = Current.clock;
 
     if (clock === undefined)
-        return '';
+        return nothing;
 
     const why = clock.why === 'notClaimed'   ? words.notClaimed
               : clock.why === 'ntsOff'       ? words.ntsOff
@@ -672,7 +676,7 @@ function clockCorner(Current: KioskState) {
 
     return html`
         <div class="kiosk-clock ${clock.legal ? 'legal' : 'unverified'}">
-            <span class="kiosk-time" id="clock">${clockText()}</span>
+            <span class="kiosk-time" id="clock"></span>
             <span class="kiosk-time-note">
                 ${clock.legal && clock.authority
                       ? html`${words.legalTime(clock.authority)}`
@@ -681,10 +685,10 @@ function clockCorner(Current: KioskState) {
                             // is the same sentence twice, and a line that says
                             // one thing twice reads as a line nobody wrote.
                             ? html`${words.timeNotYetChecked}`
-                            : html`${words.timeUnverified}${why ? html` · ${why}` : ''}`}
+                            : html`${words.timeUnverified}${why ? html` · ${why}` : nothing}`}
                 ${against !== null && clock.nts.checkedAt !== null
-                      ? html`<br />${against} <span id="clock-age">${ageText()}</span>`
-                      : ''}
+                      ? html`<br />${against} <span id="clock-age"></span>`
+                      : nothing}
             </span>
         </div>
     `;
@@ -821,7 +825,7 @@ function messageBand(Messages: DisplayMessage[], Where: string) {
     const showing = messagesToShow(Messages);
 
     return showing.length === 0
-               ? ''
+               ? nothing
                : html`
                    <div class="kiosk-messages ${Where}">
                        ${showing.map(message => html`
@@ -845,7 +849,7 @@ function evseCard(EVSE: KioskEVSE) {
                           <div class="kiosk-power">
                               <span class="now">${EVSE.currentPower_kW.toFixed(1)}</span>
                               <span class="of">/ ${EVSE.maxPower_kW} kW</span>
-                              ${EVSE.powerIsSimulated ? html`<span class="kiosk-sim" title="This station has no energy meter; the figure is simulated.">${words.simulated}</span>` : ''}
+                              ${EVSE.powerIsSimulated ? html`<span class="kiosk-sim" title="This station has no energy meter; the figure is simulated.">${words.simulated}</span>` : nothing}
                           </div>
                         `
                       : html`<div class="kiosk-power"><span class="of">${words.upTo(EVSE.maxPower_kW)}</span></div>`;
@@ -867,7 +871,7 @@ function evseCard(EVSE: KioskEVSE) {
 
             ${EVSE.closing && !offline
                   ? html`<div class="kiosk-closing">${words.outOfServiceAfter}</div>`
-                  : ''}
+                  : nothing}
 
             ${power}
 
@@ -876,7 +880,7 @@ function evseCard(EVSE: KioskEVSE) {
                     <span class="kiosk-connector">${nameOfCable(connector.type)}${
                         cableLimitWorthSaying(connector.maxPower_kW, EVSE.maxPower_kW)
                             ? html` <span class="kw">${connector.maxPower_kW} kW</span>`
-                            : ''
+                            : nothing
                     }</span>
                 `)}
             </div>
@@ -889,14 +893,15 @@ function evseCard(EVSE: KioskEVSE) {
                           <span>${words.heldFor(EVSE.reservation.minutesLeft)}</span>
                           ${readerFor(EVSE)
                                 ? html`
-                                    <button type="button" class="kiosk-btn release" data-release="${EVSE.id}">
+                                    <button type="button" class="kiosk-btn release" data-release="${EVSE.id}"
+                                            @click=${() => releaseOutlet(EVSE.id)}>
                                         ${words.cancelReservation}
                                     </button>
                                   `
-                                : ''}
+                                : nothing}
                       </div>
                     `
-                  : ''}
+                  : nothing}
 
             ${EVSE.session
                   ? html`
@@ -906,21 +911,22 @@ function evseCard(EVSE: KioskEVSE) {
                                 ? EVSE.session.provider.logo
                                       ? html`<img class="kiosk-emp-logo" src="${EVSE.session.provider.logo}" alt="${EVSE.session.provider.name}" />`
                                       : html`<span class="kiosk-emp">${EVSE.session.provider.name}</span>`
-                                : ''}
+                                : nothing}
                       </div>
                     `
-                  : ''}
+                  : nothing}
 
             ${EVSE.rfid
                   ? html`
                       <button type="button" class="kiosk-rfid small ${readerClass(EVSE.rfid)}"
                               data-reader="${EVSE.rfid.id}" data-evse="${EVSE.id}"
-                              ${EVSE.rfid.fake && EVSE.rfid.ready ? '' : html`disabled`}>
+                              ?disabled=${!(EVSE.rfid.fake && EVSE.rfid.ready)}
+                              @click=${() => holdACard(EVSE.id)}>
                           <i class="kiosk-rfid-icon"></i>
                           <span>${readerWords(EVSE.rfid, words.card)}</span>
                       </button>
                     `
-                  : ''}
+                  : nothing}
 
         </div>
 
@@ -931,7 +937,7 @@ function evseCard(EVSE: KioskEVSE) {
                           <span class="kiosk-qr-hint">${words.scanToCharge}</span>
                       </div>
                     `
-                  : ''}
+                  : nothing}
 
         </section>
         </div>
@@ -947,21 +953,27 @@ function cardDialog(Current: KioskState) {
     const releasing = dialogFor!.mode === 'release';
 
     return html`
-        <div class="kiosk-modal" id="modal">
+        <div class="kiosk-modal" id="modal"
+             @click=${(event: Event) => { if (event.target === event.currentTarget) close(); }}>
             <div class="kiosk-dialog" role="dialog" aria-modal="true"
                  aria-label="${releasing ? words.cancelTheHold : words.presentACard}">
 
                 <h2>${releasing ? words.cancelTheHold : words.presentACard}</h2>
 
                 <p class="kiosk-dialog-hint">
-                    ${releasing ? html`${words.onlyTheRightCard}` : ''}
+                    ${releasing ? html`${words.onlyTheRightCard}` : nothing}
                     ${words.testReader(reader.id)}
                 </p>
 
                 <label>
                     ${words.cardUID}
                     <input type="text" id="uid" value="${dialogUID}" placeholder="04A22B3C4D5E6F"
-                           autocomplete="off" spellcheck="false" />
+                           autocomplete="off" spellcheck="false"
+                           @input=${(event: Event) => { dialogUID = (event.target as HTMLInputElement).value; }}
+                           @keydown=${(event: KeyboardEvent) => {
+                               if (event.key === 'Enter')  void present();
+                               if (event.key === 'Escape') close();
+                           }} />
                 </label>
 
                 ${forEVSE === null && !releasing
@@ -975,15 +987,15 @@ function cardDialog(Current: KioskState) {
                               </select>
                           </label>
                         `
-                      : ''}
+                      : nothing}
 
                 <div class="kiosk-dialog-note">${dialogNote}</div>
 
                 <div class="kiosk-dialog-actions">
-                    <button type="button" id="dialog-cancel" class="kiosk-btn" ${sending ? html`disabled` : ''}>
+                    <button type="button" id="dialog-cancel" class="kiosk-btn" ?disabled=${sending} @click=${close}>
                         ${words.back}
                     </button>
-                    <button type="button" id="dialog-ok"     class="kiosk-btn primary" ${sending ? html`disabled` : ''}>
+                    <button type="button" id="dialog-ok"     class="kiosk-btn primary" ?disabled=${sending} @click=${() => void present()}>
                         ${sending ? words.sending : releasing ? words.cancelTheHold : words.present}
                     </button>
                 </div>
@@ -995,102 +1007,68 @@ function cardDialog(Current: KioskState) {
 }
 
 
-function wire(): void {
+/**
+ * A card held against a reader: the one beside this outlet, or - for null -
+ * the station's own, which asks which outlet the card is for.
+ */
+function holdACard(EVSEId: number | null): void {
 
-    applyColumns();
+    if (state === null)
+        return;
 
-    root.querySelectorAll<HTMLButtonElement>('[data-reader]').forEach(button => {
-        button.addEventListener('click', () => {
+    const reader = EVSEId !== null
+                       ? state.evses.find(evse => evse.id === EVSEId)?.rfid
+                       : state.rfid;
 
-            if (button.disabled || state === null)
-                return;
+    if (!reader?.fake || !reader.ready)
+        return;
 
-            const reader = button.dataset.evse
-                               ? state.evses.find(evse => evse.id === Number(button.dataset.evse))?.rfid
-                               : state.rfid;
+    openTheDialog({ reader, evse: EVSEId, mode: 'present' });
 
-            if (!reader?.fake)
-                return;
+}
 
-            dialogFor  = { reader, evse: button.dataset.evse ? Number(button.dataset.evse) : null, mode: 'present' };
-            dialogUID  = '';
-            dialogNote = '';
+/** The hold over the whole station let go. */
+function releaseTheHold(): void {
 
-            draw();
+    const reader = anyCardReader();
 
-            root.querySelector<HTMLInputElement>('#uid')?.focus();
+    if (!reader)
+        return;
 
-        });
-    });
+    // No outlet: this is the hold that names none, and the station finds the
+    // one this card can speak for.
+    openTheDialog({ reader, evse: null, mode: 'release' });
 
-    root.querySelector<HTMLButtonElement>('#release-hold')?.addEventListener('click', () => {
+}
 
-        const reader = anyCardReader();
+/** A held outlet let go. */
+function releaseOutlet(EVSEId: number): void {
 
-        if (!reader)
-            return;
+    if (state === null)
+        return;
 
-        // No outlet: this is the hold that names none, and the station finds
-        // the one this card can speak for.
-        dialogFor  = { reader, evse: null, mode: 'release' };
-        dialogUID  = '';
-        dialogNote = '';
+    const evse    = state.evses.find(candidate => candidate.id === EVSEId);
+    const reader  = evse ? readerFor(evse) : null;
 
-        draw();
+    if (!reader)
+        return;
 
-        root.querySelector<HTMLInputElement>('#uid')?.focus();
+    // Always for this one outlet, even at a reader that serves the whole
+    // housing: the button is on the card of the outlet being let go, so there
+    // is nothing to ask.
+    openTheDialog({ reader, evse: EVSEId, mode: 'release' });
 
-    });
+}
 
-    root.querySelectorAll<HTMLButtonElement>('[data-release]').forEach(button => {
-        button.addEventListener('click', () => {
+function openTheDialog(For: NonNullable<typeof dialogFor>): void {
 
-            if (state === null)
-                return;
+    dialogFor  = For;
+    dialogUID  = '';
+    dialogNote = '';
 
-            const evseId  = Number(button.dataset.release);
-            const evse    = state.evses.find(candidate => candidate.id === evseId);
-            const reader  = evse ? readerFor(evse) : null;
+    draw();
 
-            if (!reader)
-                return;
-
-            // Always for this one outlet, even at a reader that serves the
-            // whole housing: the button is on the card of the outlet being let
-            // go, so there is nothing to ask.
-            dialogFor  = { reader, evse: evseId, mode: 'release' };
-            dialogUID  = '';
-            dialogNote = '';
-
-            draw();
-
-            root.querySelector<HTMLInputElement>('#uid')?.focus();
-
-        });
-    });
-
-    const uid = root.querySelector<HTMLInputElement>('#uid');
-
-    if (uid) {
-
-        // Kept outside the template, so that the next poll redrawing the page
-        // does not empty the field somebody is typing into.
-        uid.addEventListener('input', () => { dialogUID = uid.value; });
-
-        uid.addEventListener('keydown', event => {
-            if (event.key === 'Enter')  void present();
-            if (event.key === 'Escape') close();
-        });
-
-    }
-
-    root.querySelector<HTMLButtonElement>('#dialog-ok')?.addEventListener('click', () => void present());
-    root.querySelector<HTMLButtonElement>('#dialog-cancel')?.addEventListener('click', close);
-
-    root.querySelector<HTMLElement>('#modal')?.addEventListener('click', event => {
-        if (event.target === event.currentTarget)
-            close();
-    });
+    root.querySelector<HTMLInputElement>('#uid')?.focus();
 
 }
 
@@ -1112,8 +1090,8 @@ async function present(): Promise<void> {
     const which = root.querySelector<HTMLSelectElement>('#which-evse');
     const where = dialogFor.mode === 'release' ? '/kiosk/reservation/cancel' : '/kiosk/rfid';
 
-    // Read before the redraw below takes the elements away, and held rather
-    // than read again afterwards: this card is on its way to that outlet.
+    // Read now and held rather than read again afterwards: this card is on
+    // its way to that outlet, whatever is chosen while it is.
     const what  = {
                       reader:  dialogFor.reader.id,
                       evse:    dialogFor.evse ?? (which ? Number(which.value) : undefined),
@@ -1322,11 +1300,12 @@ setInterval(() => void poll(), pollEvery);
 // on the other, and nothing else about the page has to change for that.
 window.addEventListener('resize', applyColumns);
 
-// The digits only. Written straight into the element rather than through a
-// redraw, because a page that rebuilt itself once a second would take the
-// keyboard away from anybody typing a card number - which is the whole reason
-// this display stopped redrawing itself in the first place.
-setInterval(() => {
+/**
+ * The digits only, and how long ago they were checked: written straight into
+ * the two elements the page draws empty for them - see clockCorner - once a
+ * second, and after every draw, which may have just made them.
+ */
+function tick(): void {
 
     const digits = document.querySelector<HTMLElement>('#clock');
 
@@ -1338,7 +1317,9 @@ setInterval(() => {
     if (age !== null)
         age.textContent = ageText();
 
-}, 1000);
+}
+
+setInterval(tick, 1000);
 
 // The cycle turns on its own clock rather than on the poll's: how long a line
 // stays readable has nothing to do with how often this station is asked what it
