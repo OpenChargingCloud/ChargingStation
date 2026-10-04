@@ -6,7 +6,7 @@ import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
 import { toURL } from '@node/basePath';
-import { html } from '@node/html';
+import { html } from '@node/view';
 import { nodeMenu, startNode } from '@node/start';
 
 import { configurationPage }   from './pages/configuration';

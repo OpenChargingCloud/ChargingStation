@@ -1,9 +1,9 @@
 import { api, type PowerConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
-import { html as stringHTML, must } from '@node/html';
+import { must } from '@node/html';
 import type { Page } from '@node/router';
-import { mayButNot, shell } from '@node/shell';
+import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, nothing, render } from '@node/view';
@@ -33,17 +33,10 @@ export const powerPage: Page = {
             active:    '/configuration/power',
             title:     'Grid connection',
             subtitle:  'What this charging station may draw, and what it could deliver.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => reload())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        // Reload throws a draft away just as thoroughly as "Discard changes"
-        // does, and from the opposite corner of the screen, so it asks first.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void reload();
-        });
 
         const mayChange = auth.can('power', 'edit');
 

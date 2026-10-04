@@ -3,12 +3,13 @@
  * stand-in station: a limit saved says what the station took and keeps the
  * field, and its focus, as a browser takes the focus away while the page is
  * held still; one refused keeps what is typed, and why; Reload puts back what
- * the station has.
+ * the station has, asking once first where something typed would be lost, and
+ * not at all where nothing would.
  *
  * Run with `npm test`.
  */
 
-import { asked, field, open, refused, submit, until, type Asked } from '../../test/station.ts';
+import { asked, field, open, refused, said, submit, until, type Asked } from '../../test/station.ts';
 import { chromeTakesTheFocus } from '@node/../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
@@ -112,7 +113,7 @@ describe('the Grid connection page', () => {
 
     });
 
-    it('puts back what the station has on Reload', async () => {
+    it('puts back what the station has on Reload, once it has asked whether what is typed may go', async () => {
 
         const root = await opened();
 
@@ -122,6 +123,20 @@ describe('the Grid connection page', () => {
         await until(() => asked.filter(one => one.method === 'GET' && one.path === '/configuration/power').length === 2,
                     'Reload did not ask the station');
         await until(() => limit(root).value === '55', 'Reload kept what was typed');
+
+        assert.equal(said.length, 1, 'Reload did not ask once whether what is typed may go');
+
+    });
+
+    it('reloads without a question where nothing typed would be lost', async () => {
+
+        const root = await opened();
+
+        root.querySelector<HTMLButtonElement>('#reload')!.click();
+        await until(() => asked.filter(one => one.method === 'GET' && one.path === '/configuration/power').length === 2,
+                    'Reload did not ask the station');
+
+        assert.deepEqual(said, [], 'Reload asked where nothing typed would be lost');
 
     });
 

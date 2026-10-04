@@ -1,8 +1,8 @@
 import { api, type RFIDConfiguration, type RFIDReader } from '../api/client';
 import { auth } from '../auth';
-import { html as stringHTML, must } from '@node/html';
+import { must } from '@node/html';
 import type { Page } from '@node/router';
-import { mayButNot, shell } from '@node/shell';
+import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, field, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, live, nothing, render, repeat } from '@node/view';
@@ -30,17 +30,10 @@ export const rfidPage: Page = {
             active:    '/configuration/rfid',
             title:     'RFID',
             subtitle:  'The card readers this charging station has, and where they sit.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => reload())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        // Reload throws a draft away just as thoroughly as "Discard changes"
-        // does, and from the opposite corner of the screen, so it asks first.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void reload();
-        });
 
         const mayPlace  = auth.can('rfid', 'edit');
         const maySwitch = auth.can('availability', 'edit');

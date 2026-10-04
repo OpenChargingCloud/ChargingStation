@@ -16,8 +16,8 @@ import { bundleIn,
          type DisplayMessage } from './kiosk-rules';
 
 import { config } from '@node/config';
-import { HTMLFragment, must, raw } from '@node/html';
-import { html, nothing, render, repeat } from '@node/view';
+import { must } from '@node/html';
+import { html, nothing, render, repeat, unsafeHTML } from '@node/view';
 
 import './styles/kiosk.scss';
 
@@ -1170,7 +1170,7 @@ function qrSVG(URL: string) {
     qr.addData(URL);
     qr.make();
 
-    // raw(), because createSvgTag returns markup rather than text. What went
+    // unsafeHTML(), because createSvgTag returns markup rather than text. What went
     // into it is a URL this station generated from its own template and its
     // own secret - nothing a visitor typed reaches this function.
     //
@@ -1185,7 +1185,7 @@ function qrSVG(URL: string) {
     // and not the next, and whoever put the station up never finds out.
     const cellSize = 4;
 
-    const svg = raw(qr.createSvgTag({ cellSize, margin: cellSize * 4, scalable: true }));
+    const svg = unsafeHTML(qr.createSvgTag({ cellSize, margin: cellSize * 4, scalable: true }));
 
     // One code per URL, and the URLs change every half minute or so. Kept
     // small rather than cleared on a timer: an entry costs a few hundred bytes
@@ -1210,7 +1210,7 @@ function qrSVG(URL: string) {
 let cycle = 0;
 
 /** The codes already drawn, so that the same URL is not encoded twice. */
-const drawnQRCodes = new Map<string, HTMLFragment>();
+const drawnQRCodes = new Map<string, ReturnType<typeof unsafeHTML>>();
 
 
 /**

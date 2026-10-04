@@ -1,9 +1,9 @@
 import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
-import { html as stringHTML, must } from '@node/html';
+import { must } from '@node/html';
 import type { Page } from '@node/router';
-import { mayButNot, shell } from '@node/shell';
+import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, field, numberField, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, nothing, render, type TemplateResult } from '@node/view';
@@ -32,15 +32,10 @@ export const v2gPage: Page = {
             active:    '/configuration/v2g',
             title:     'V2G',
             subtitle:  'SLAC, SDP and the endpoint they lead to - what is offered below the charging cable.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => reload())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void reload();
-        });
 
         const mayChange = auth.can('v2g', 'edit');
 

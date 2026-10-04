@@ -1,8 +1,7 @@
 import { api, type Configuration, type Status } from '../api/client';
 import { cardView, librariesCardView } from '@node/cardViews';
-import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatSince, formatValue } from '@node/ui';
 import { html, render, type TemplateResult } from '@node/view';
 
@@ -26,13 +25,10 @@ export const configurationPage: Page = {
             active:    '/configuration',
             title:     'Configuration',
             subtitle:  'What this charging station is made of.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => load())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        must<HTMLButtonElement>(root, '#reload').
-            addEventListener('click', () => void load());
 
         let cancelled = false;
 
