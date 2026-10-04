@@ -1,11 +1,11 @@
 import { api, type CalibrationCertificate, type CalibrationConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
-import { errorMessage, whileSaving } from '@node/ui';
+import { errorMessage, field, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
  * The calibration certificates this charging station runs under.
@@ -30,7 +30,7 @@ export const calibrationPage: Page = {
             active:    '/configuration/calibration',
             title:     'Calibration',
             subtitle:  'The calibration certificates this charging station runs under.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -39,7 +39,7 @@ export const calibrationPage: Page = {
         // does, and from the opposite corner of the screen, so it asks first.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayChange = auth.can('calibration', 'edit');
@@ -52,11 +52,6 @@ export const calibrationPage: Page = {
 
         let dirty = false;
 
-        /** Kept outside the template, so a redraw does not empty the form. */
-        let newId          = '';
-        let newDescription = '';
-        let newPEM         = '';
-
 
         function draw(): void {
 
@@ -67,7 +62,7 @@ export const calibrationPage: Page = {
 
             render(content, html`
 
-                ${mayChange ? '' : html`
+                ${mayChange ? nothing : html`
                     <div class="notice">${mayButNot('look at the certificates', 'change them')}</div>
                 `}
 
@@ -75,18 +70,19 @@ export const calibrationPage: Page = {
 
                     ${draft.length === 0
                           ? html`<div class="notice">No calibration certificates are configured.</div>`
-                          : ''}
+                          : nothing}
 
-                    ${draft.map((certificate, index) => html`
+                    ${repeat(draft, certificate => certificate.id, (certificate, index) => html`
                         <section class="card certificate ${certificate.expired ? 'expired' : certificate.notYetValid ? 'not-yet' : ''}">
 
                             <h2>
                                 <i class="fa-solid fa-certificate"></i> ${certificate.id}
                                 <button type="button" class="btn small danger" data-remove="${index}"
-                                        ${mayChange ? '' : html`disabled`}>Remove</button>
+                                        ?disabled=${!mayChange}
+                                        @click=${() => remove(index)}>Remove</button>
                             </h2>
 
-                            ${certificate.description ? html`<p class="description">${certificate.description}</p>` : ''}
+                            ${certificate.description ? html`<p class="description">${certificate.description}</p>` : nothing}
 
                             <dl class="kv">
                                 <dt>Subject</dt>        <dd class="mono">${certificate.subject}</dd>
@@ -110,10 +106,10 @@ export const calibrationPage: Page = {
 
                             <h2><i class="fa-solid fa-plus"></i> Add a certificate</h2>
 
-                            <form id="add-form" class="form-stack">
+                            <form id="add-form" class="form-stack" @submit=${add}>
 
                                 <label>Name
-                                    <input type="text" name="id" value="${newId}"
+                                    <input type="text" name="id"
                                            maxlength="${configuration.limits.maxIdLength}"
                                            placeholder="e.g. meter-evse-1" />
                                     <span class="hint">
@@ -123,14 +119,14 @@ export const calibrationPage: Page = {
                                 </label>
 
                                 <label>Description
-                                    <input type="text" name="description" value="${newDescription}"
+                                    <input type="text" name="description"
                                            maxlength="${configuration.limits.maxDescriptionLength}"
                                            placeholder="optional" />
                                 </label>
 
                                 <label>Certificate
                                     <textarea name="pem" rows="8" class="mono"
-                                              placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----">${newPEM}</textarea>
+                                              placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
                                     <span class="hint">
                                         In PEM. Everything else is read out of it, so there is nothing more to
                                         type.
@@ -139,7 +135,7 @@ export const calibrationPage: Page = {
 
                                 <div class="form-actions">
                                     <button type="submit" class="btn"
-                                            ${draft.length >= configuration.limits.maxCertificates ? html`disabled` : ''}>
+                                            ?disabled=${draft.length >= configuration.limits.maxCertificates}>
                                         Add
                                     </button>
                                     <span id="add-error" class="form-error" role="alert"></span>
@@ -148,13 +144,15 @@ export const calibrationPage: Page = {
                             </form>
 
                         </section>
-                    ` : ''}
+                    ` : nothing}
 
                 </div>
 
                 <div class="evse-actions">
-                    <button type="button" id="save" class="btn primary" ${dirty && mayChange ? '' : html`disabled`}>Save</button>
-                    <button type="button" id="revert" class="btn" ${dirty ? '' : html`disabled`}>Discard changes</button>
+                    <button type="button" id="save" class="btn primary" ?disabled=${!(dirty && mayChange)}
+                            @click=${() => void save()}>Save</button>
+                    <button type="button" id="revert" class="btn" ?disabled=${!dirty}
+                            @click=${revert}>Discard changes</button>
                     <span id="form-note"  class="form-notice" role="status"></span>
                     <span id="form-error" class="form-error"  role="alert"></span>
                     <span class="hint">
@@ -166,105 +164,71 @@ export const calibrationPage: Page = {
 
             `);
 
-            wire();
+        }
+
+        function remove(index: number): void {
+            draft.splice(index, 1);
+            dirty = true;
+            draw();
+        }
+
+        function add(event: SubmitEvent): void {
+
+            event.preventDefault();
+
+            const form  = event.currentTarget as HTMLFormElement;
+            const error = must<HTMLElement>(content, '#add-error');
+            const id    = field(form, 'id');
+            const pem   = field(form, 'pem');
+            const said  = field(form, 'description');
+
+            if (id === '' || pem === '') {
+                error.textContent = 'A certificate needs a name and its PEM.';
+                return;
+            }
+
+            if (draft.some(certificate => certificate.id.toLowerCase() === id.toLowerCase())) {
+                error.textContent = `There is already a certificate called '${id}'.`;
+                return;
+            }
+
+            error.textContent = '';
+
+            // Everything but what was typed is left empty on purpose: the
+            // station reads it out of the PEM and sends the whole certificate
+            // back, which is what then goes on screen. A page that guessed at
+            // the subject here would be showing its own guess until the next
+            // reload.
+            draft.push({
+                id,
+                description:       said === '' ? null : said,
+                pem,
+                subject:           '(read from the certificate when it is saved)',
+                issuer:            '',
+                serialNumber:      '',
+                notBefore:         '',
+                notAfter:          '',
+                thumbprintSHA256:  '',
+                expired:           false,
+                notYetValid:       false,
+                daysLeft:          0
+            });
+
+            dirty = true;
+
+            draw();
+
+            // In the list now, so no longer typed: the form is empty again.
+            form.reset();
 
         }
 
-        function wire(): void {
-
-            const list = must<HTMLElement>(content, '.certificates');
-
-            list.addEventListener('click', event => {
-
-                const remove = (event.target as HTMLElement).closest<HTMLElement>('[data-remove]');
-
-                if (remove) {
-                    draft.splice(Number(remove.dataset.remove), 1);
-                    dirty = true;
-                    keepDrafts(content, null, draw);
-                }
-
-            });
-
-            const form = content.querySelector<HTMLFormElement>('#add-form');
-
-            if (form) {
-
-                // Kept as they are typed rather than read at submit time, so
-                // that a redraw - another certificate removed, say - does not
-                // empty a half-written form.
-                form.addEventListener('input', event => {
-
-                    const field = event.target as HTMLInputElement | HTMLTextAreaElement;
-
-                    if (field.name === 'id')                newId          = field.value;
-                    else if (field.name === 'description')  newDescription = field.value;
-                    else if (field.name === 'pem')          newPEM         = field.value;
-
-                });
-
-                form.addEventListener('submit', event => {
-
-                    event.preventDefault();
-
-                    const error = must<HTMLElement>(content, '#add-error');
-                    const id    = newId.trim();
-                    const pem   = newPEM.trim();
-
-                    if (id === '' || pem === '') {
-                        error.textContent = 'A certificate needs a name and its PEM.';
-                        return;
-                    }
-
-                    if (draft.some(certificate => certificate.id.toLowerCase() === id.toLowerCase())) {
-                        error.textContent = `There is already a certificate called '${id}'.`;
-                        return;
-                    }
-
-                    // Everything but what was typed is left empty on purpose:
-                    // the station reads it out of the PEM and sends the whole
-                    // certificate back, which is what then goes on screen. A
-                    // page that guessed at the subject here would be showing
-                    // its own guess until the next reload.
-                    draft.push({
-                        id,
-                        description:       newDescription.trim() === '' ? null : newDescription.trim(),
-                        pem,
-                        subject:           '(read from the certificate when it is saved)',
-                        issuer:            '',
-                        serialNumber:      '',
-                        notBefore:         '',
-                        notAfter:          '',
-                        thumbprintSHA256:  '',
-                        expired:           false,
-                        notYetValid:       false,
-                        daysLeft:          0
-                    });
-
-                    newId          = '';
-                    newDescription = '';
-                    newPEM         = '';
-                    dirty          = true;
-
-                    keepDrafts(content, 'add-form', draw);
-
-                });
-
-            }
-
-            // What is half written into the add form is discarded with the
-            // rest, so that form is named: drawn empty, and not put back.
-            must<HTMLButtonElement>(content, '#revert').addEventListener('click', () => {
-                draft          = current!.certificates.map(certificate => ({ ...certificate }));
-                newId          = '';
-                newDescription = '';
-                newPEM         = '';
-                dirty          = false;
-                keepDrafts(content, 'add-form', draw);
-            });
-
-            must<HTMLButtonElement>(content, '#save').addEventListener('click', () => void save());
-
+        // What is half written into the add form is discarded with the rest.
+        function revert(): void {
+            draft = current!.certificates.map(certificate => ({ ...certificate }));
+            dirty = false;
+            draw();
+            content.querySelector<HTMLFormElement>('#add-form')?.reset();
         }
 
         async function save(): Promise<void> {
@@ -284,16 +248,20 @@ export const calibrationPage: Page = {
                                   pem:          certificate.pem
                               }))));
 
+                if (cancelled)
+                    return;
+
                 draft = current.certificates.map(certificate => ({ ...certificate }));
                 dirty = false;
 
-                keepDrafts(content, null, draw);
+                draw();
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
@@ -311,13 +279,6 @@ export const calibrationPage: Page = {
                 draft   = loaded.certificates.map(certificate => ({ ...certificate }));
                 dirty   = false;
 
-                // A certificate half written into the add form goes with the
-                // rest, as it does with "Discard changes": Reload has asked
-                // before it came here, and the first load finds nothing typed.
-                newId          = '';
-                newDescription = '';
-                newPEM         = '';
-
                 draw();
             }
             catch (problem)
@@ -330,11 +291,20 @@ export const calibrationPage: Page = {
 
         }
 
+        /**
+         * Loaded anew - Reload - is what the station has. A certificate half
+         * written into the add form goes with the rest, as it does with
+         * "Discard changes": Reload has asked before it came here.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
+        }
+
         // The list is in the flag; a certificate typed into the add form and
-        // not yet added is in no flag. Drawn again with what was kept of it,
-        // what was typed is what the page drew, so what was kept is asked too.
-        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content) ||
-                                             newId !== '' || newDescription !== '' || newPEM !== '');
+        // not yet added is in no flag, but in the form.
+        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content));
 
         void load();
 
@@ -351,7 +321,7 @@ function day(timestamp: string): string {
 }
 
 /** What its validity means today, when that is worth a word. */
-function validity(Certificate: CalibrationCertificate, WarningDays: number) {
+function validity(Certificate: CalibrationCertificate, WarningDays: number): TemplateResult | typeof nothing {
 
     if (Certificate.notAfter === '')
         return html`<span class="chip">not saved yet</span>`;
@@ -365,6 +335,6 @@ function validity(Certificate: CalibrationCertificate, WarningDays: number) {
     if (Certificate.daysLeft <= WarningDays)
         return html`<span class="chip warn">${Certificate.daysLeft} day(s) left</span>`;
 
-    return '';
+    return nothing;
 
 }

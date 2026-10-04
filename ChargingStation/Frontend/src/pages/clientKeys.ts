@@ -1,11 +1,11 @@
 import { api, type StationCertificates, type StationKey } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render, type HTMLFragment } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatTimestamp, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
  * The keys and certificates this station dials a back end with - its client
@@ -32,7 +32,7 @@ export const clientKeysPage: Page = {
             active:    '/configuration/client-keys',
             title:     'Client keys',
             subtitle:  'What this charging station says it is when it dials a back end.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -41,7 +41,7 @@ export const clientKeysPage: Page = {
         // anything else, and from the opposite corner of the screen.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayManage = auth.can('connections', 'edit');
@@ -52,6 +52,12 @@ export const clientKeysPage: Page = {
         /** The request that was just made, put in front of somebody straight away. */
         let justMade: { id: string; csr: string } | null = null;
 
+        /**
+         * The kind of key chosen in the form, while it is not the one the
+         * station suggests: what the remark beside the list is about.
+         */
+        let picked: string | null = null;
+
 
         function draw(): void {
 
@@ -59,11 +65,11 @@ export const clientKeysPage: Page = {
                 return;
 
             const certificates = store;
-            const chosen       = certificates.algorithms.find(one => one.id === certificates.defaultAlgorithm);
+            const chosen       = certificates.algorithms.find(one => one.id === (picked ?? certificates.defaultAlgorithm));
 
             render(content, html`
 
-                ${mayManage ? '' : html`
+                ${mayManage ? nothing : html`
                     <div class="notice">${mayButNot('look at the certificates', 'make or replace them')}</div>
                 `}
 
@@ -73,12 +79,12 @@ export const clientKeysPage: Page = {
 
                         <h2><i class="fa-solid fa-key"></i> Make a signing request</h2>
 
-                        <form id="create-form" class="form-stack">
+                        <form id="create-form" class="form-stack" @submit=${create}>
 
                             <label>Subject
                                 <input type="text" name="subject" maxlength="${certificates.maxSubjectLength}"
                                        placeholder="cs001.example.org"
-                                       ${mayManage ? '' : html`disabled`} />
+                                       ?disabled=${!mayManage} />
                                 <span class="hint">
                                     What a back end recognises this station by. Plain text is read as a common
                                     name; a full distinguished name is taken as written. A station is not
@@ -87,15 +93,16 @@ export const clientKeysPage: Page = {
                             </label>
 
                             <label>Key
-                                <select name="algorithm" id="algorithm" ${mayManage ? '' : html`disabled`}>
+                                <select name="algorithm" id="algorithm" ?disabled=${!mayManage}
+                                        @change=${(event: Event) => pick((event.target as HTMLSelectElement).value)}>
                                     ${certificates.algorithms.map(algorithm => html`
                                         <option value="${algorithm.id}"
-                                                ${algorithm.id === certificates.defaultAlgorithm ? html`selected` : ''}>
+                                                ?selected=${algorithm.id === certificates.defaultAlgorithm}>
                                             ${algorithm.name}
                                         </option>
                                     `)}
                                 </select>
-                                <span class="hint" id="algorithm-remark">${chosen?.remark ?? ''}</span>
+                                <span class="hint" id="algorithm-remark">${chosen?.remark ?? nothing}</span>
                             </label>
 
                             <div class="notice">
@@ -108,7 +115,7 @@ export const clientKeysPage: Page = {
                             </div>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                                <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                     Make a key and a request
                                 </button>
                                 <span id="create-note"  class="form-notice" role="status"></span>
@@ -132,24 +139,24 @@ export const clientKeysPage: Page = {
                                 it holds the public half of the key and nothing else - and it stays here until
                                 the answer comes back.
                             </p>
-                            <textarea id="just-made" class="mono" rows="10" readonly>${justMade.csr}</textarea>
+                            <textarea id="just-made" class="mono" rows="10" readonly .defaultValue=${justMade.csr}></textarea>
                             <div class="form-actions">
-                                <button type="button" id="copy-csr" class="btn small">Copy</button>
+                                <button type="button" id="copy-csr" class="btn small" @click=${copy}>Copy</button>
                                 <span id="copy-note" class="form-notice" role="status"></span>
                             </div>
                         </section>
-                    ` : ''}
+                    ` : nothing}
 
                     <section class="card">
 
                         <h2><i class="fa-solid fa-file-import"></i> Bring a certificate in</h2>
 
-                        <form id="import-form" class="form-stack">
+                        <form id="import-form" class="form-stack" @submit=${bringIn}>
 
                             <label>The certificate, and any intermediates
                                 <textarea name="pem" class="mono" rows="8"
                                           placeholder="-----BEGIN CERTIFICATE-----"
-                                          ${mayManage ? '' : html`disabled`}></textarea>
+                                          ?disabled=${!mayManage}></textarea>
                                 <span class="hint">
                                     PEM, this station's own certificate first. It is matched to the key whose
                                     request it answers, so nothing has to be said about which one it is for.
@@ -157,7 +164,7 @@ export const clientKeysPage: Page = {
                             </label>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                                <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                     Bring it in
                                 </button>
                                 <span id="import-note"  class="form-notice" role="status"></span>
@@ -166,7 +173,7 @@ export const clientKeysPage: Page = {
 
                             <span class="hint">
                                 ${certificates.canImportPrivateKeys
-                                      ? ''
+                                      ? nothing
                                       : html`
                                             A private key cannot be brought in, only a certificate. The key is
                                             made on this station and never leaves it - one that arrived from
@@ -196,24 +203,22 @@ export const clientKeysPage: Page = {
                                     for a certificate.
                                 </p>
                             `
-                          : html`<div class="cards">${certificates.entries.map(entryCard)}</div>`}
+                          : html`<div class="cards">${repeat(certificates.entries, entry => entry.id, entryCard)}</div>`}
 
                 </section>
 
             `);
 
-            wire();
-
         }
 
-        function entryCard(entry: StationKey): HTMLFragment {
+        function entryCard(entry: StationKey): TemplateResult {
 
             return html`
                 <div class="card ${entry.inUse ? 'in-use' : ''}">
 
                     <div class="key-head">
                         <strong>${entry.subject || entry.id}</strong>
-                        ${entry.inUse ? html`<span class="chip on">in use</span>` : ''}
+                        ${entry.inUse ? html`<span class="chip on">in use</span>` : nothing}
                         ${entry.certificate === undefined
                               ? html`<span class="chip">request out</span>`
                               : entry.certificate.expired
@@ -233,7 +238,7 @@ export const clientKeysPage: Page = {
                                                     &ndash; ${formatTimestamp(entry.certificate.notAfter)}</dd>
                             <dt>Fingerprint</dt><dd><code>${entry.certificate.thumbprintSHA256}</code></dd>
                             <dt>Sent along</dt> <dd>${entry.certificate.intermediates} intermediate(s)</dd>
-                        ` : ''}
+                        ` : nothing}
                     </dl>
 
                     ${(entry.warnings ?? []).map(warning => html`<div class="notice">${warning}</div>`)}
@@ -241,13 +246,14 @@ export const clientKeysPage: Page = {
                     ${entry.csr !== undefined ? html`
                         <details>
                             <summary>The signing request, waiting to be collected</summary>
-                            <textarea class="mono" rows="8" readonly data-csr="${entry.id}">${entry.csr}</textarea>
+                            <textarea class="mono" rows="8" readonly data-csr="${entry.id}" .defaultValue=${entry.csr}></textarea>
                         </details>
-                    ` : ''}
+                    ` : nothing}
 
                     <div class="form-actions">
                         <button type="button" class="btn small" data-remove="${entry.id}"
-                                ${mayManage && !entry.inUse ? '' : html`disabled`}>
+                                ?disabled=${!(mayManage && !entry.inUse)}
+                                @click=${() => void remove(entry.id)}>
                             Remove
                         </button>
                         ${entry.inUse
@@ -255,7 +261,7 @@ export const clientKeysPage: Page = {
                                          The one this station dials with. Bring another in before removing it,
                                          or it comes back from its next restart unable to connect.
                                      </span>`
-                              : ''}
+                              : nothing}
                     </div>
 
                 </div>
@@ -265,60 +271,31 @@ export const clientKeysPage: Page = {
 
         /**
          * Say beside the list what is worth knowing about the key chosen from
-         * it - when it is chosen, and after the page was drawn anew with a key
-         * chosen and not made yet put back: the remark was drawn for the key
-         * the list was drawn with.
+         * it: the remark is drawn for the kind chosen, not for the one the
+         * station suggests.
          */
-        function remarkOnTheKey(): void {
-
-            const algorithm = content.querySelector<HTMLSelectElement>('#algorithm');
-            const remark    = content.querySelector<HTMLElement>('#algorithm-remark');
-
-            if (algorithm !== null && remark !== null)
-                remark.textContent = store?.algorithms.find(one => one.id === algorithm.value)?.remark ?? '';
-
+        function pick(algorithm: string): void {
+            picked = store !== null && algorithm === store.defaultAlgorithm ? null : algorithm;
+            draw();
         }
 
-        function wire(): void {
-
-            content.querySelector<HTMLSelectElement>('#algorithm')?.addEventListener('change', remarkOnTheKey);
-
-            must<HTMLFormElement>(content, '#create-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void create();
-            });
-
-            must<HTMLFormElement>(content, '#import-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void bringIn();
-            });
-
-            content.querySelector('#copy-csr')?.addEventListener('click', () => {
-                const box = content.querySelector<HTMLTextAreaElement>('#just-made');
-                if (box === null)
-                    return;
-                box.select();
-                void navigator.clipboard?.writeText(box.value).then(
-                    () => { must<HTMLElement>(content, '#copy-note').textContent = 'Copied.'; },
-                    () => { must<HTMLElement>(content, '#copy-note').textContent = 'Select it and copy it by hand.'; }
-                );
-            });
-
-            content.addEventListener('click', event => {
-
-                const button = (event.target as Element | null)?.closest<HTMLElement>('[data-remove]');
-
-                if (button && !(button as HTMLButtonElement).disabled)
-                    void remove(button.dataset.remove ?? '');
-
-            });
-
+        function copy(): void {
+            const box = content.querySelector<HTMLTextAreaElement>('#just-made');
+            if (box === null)
+                return;
+            box.select();
+            void navigator.clipboard?.writeText(box.value).then(
+                () => { must<HTMLElement>(content, '#copy-note').textContent = 'Copied.'; },
+                () => { must<HTMLElement>(content, '#copy-note').textContent = 'Select it and copy it by hand.'; }
+            );
         }
 
 
-        async function create(): Promise<void> {
+        async function create(event: SubmitEvent): Promise<void> {
 
-            const form  = must<HTMLFormElement>(content, '#create-form');
+            event.preventDefault();
+
+            const form  = event.currentTarget as HTMLFormElement;
             const note  = must<HTMLElement>(content, '#create-note');
 
             note.textContent = '';
@@ -333,24 +310,34 @@ export const clientKeysPage: Page = {
             {
                 const made = await whileSaving(content, note, () => api.clientKeys.create(subject, algorithm));
 
+                if (cancelled)
+                    return;
+
                 justMade  = { id: made.id, csr: made.csr };
                 store     = made.certificates;
+                picked    = null;
 
-                keepDrafts(content, 'create-form', draw);
+                draw();
 
-                must<HTMLElement>(content, '#create-note').textContent =
-                    'Made. The request is below, waiting to be collected.';
+                // Made, so no longer typed: the form is empty again, the kind
+                // of key back at the one the station suggests.
+                form.reset();
+
+                note.textContent = 'Made. The request is below, waiting to be collected.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
             }
 
         }
 
-        async function bringIn(): Promise<void> {
+        async function bringIn(event: SubmitEvent): Promise<void> {
 
-            const form = must<HTMLFormElement>(content, '#import-form');
+            event.preventDefault();
+
+            const form = event.currentTarget as HTMLFormElement;
             const note = must<HTMLElement>(content, '#import-note');
 
             note.textContent = '';
@@ -362,20 +349,25 @@ export const clientKeysPage: Page = {
             {
                 const taken = await whileSaving(content, note, () => api.clientKeys.add(pem));
 
+                if (cancelled)
+                    return;
+
                 store     = taken.certificates;
                 justMade  = null;
 
-                keepDrafts(content, 'import-form', draw);
-                remarkOnTheKey();
+                draw();
 
-                must<HTMLElement>(content, '#import-note').textContent =
-                    taken.warnings.length > 0
-                        ? `Taken in. ${taken.warnings.join(' ')}`
-                        : 'Taken in.';
+                // Taken in, so no longer typed.
+                form.reset();
+
+                note.textContent = taken.warnings.length > 0
+                                       ? `Taken in. ${taken.warnings.join(' ')}`
+                                       : 'Taken in.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#import-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#import-error').textContent = errorMessage(problem);
             }
 
         }
@@ -393,15 +385,18 @@ export const clientKeysPage: Page = {
             {
                 store = await whileSaving(content, note, () => api.clientKeys.remove(id));
 
+                if (cancelled)
+                    return;
+
                 if (justMade?.id === id)
                     justMade = null;
 
-                keepDrafts(content, null, draw);
-                remarkOnTheKey();
+                draw();
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#create-error').textContent = errorMessage(problem);
             }
 
         }
@@ -426,6 +421,17 @@ export const clientKeysPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the forms too, which
+         * a draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+            picked = null;
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         // A half-typed subject or a certificate pasted but not yet brought in

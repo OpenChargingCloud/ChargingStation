@@ -1,11 +1,11 @@
 import { api, type RFIDConfiguration, type RFIDReader } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
-import { errorMessage, whileSaving } from '@node/ui';
+import { errorMessage, field, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, live, nothing, render, repeat } from '@node/view';
 
 /**
  * The card readers this charging station has, and where they sit.
@@ -30,7 +30,7 @@ export const rfidPage: Page = {
             active:    '/configuration/rfid',
             title:     'RFID',
             subtitle:  'The card readers this charging station has, and where they sit.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -39,7 +39,7 @@ export const rfidPage: Page = {
         // does, and from the opposite corner of the screen, so it asks first.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayPlace  = auth.can('rfid', 'edit');
@@ -50,11 +50,6 @@ export const rfidPage: Page = {
 
         let draft: RFIDReader[] = [];
         let dirty = false;
-
-        /** Kept outside the template, so a redraw does not empty the form. */
-        let newId    = '';
-        let newKind  = '';
-        let newWhere = '';
 
 
         /** What the draft amounts to - the same comparison the station makes. */
@@ -107,7 +102,7 @@ export const rfidPage: Page = {
 
             render(content, html`
 
-                ${mayPlace || maySwitch ? '' : html`
+                ${mayPlace || maySwitch ? nothing : html`
                     <div class="notice">${mayButNot('look at the readers', 'change them')}</div>
                 `}
 
@@ -116,21 +111,22 @@ export const rfidPage: Page = {
                         ${mayButNot('switch these readers on and off', 'say where one is installed')}
                         Which readers this station has and where they sit describes hardware somebody installed.
                     </div>
-                `: ''}
+                `: nothing}
 
                 <div class="reader-list" id="readers">
 
                     ${draft.length === 0
                           ? html`<div class="notice">This station has no RFID readers.</div>`
-                          : ''}
+                          : nothing}
 
-                    ${draft.map((reader, index) => html`
+                    ${repeat(draft, reader => reader.id, (reader, index) => html`
                         <section class="card reader ${reader.enabled ? '' : 'off'}">
 
                             <h2>
                                 <i class="fa-solid fa-id-card"></i> ${reader.id}
                                 <button type="button" class="btn small danger" data-remove="${index}"
-                                        ${mayPlace ? '' : html`disabled`}>Remove</button>
+                                        ?disabled=${!mayPlace}
+                                        @click=${() => remove(index)}>Remove</button>
                             </h2>
 
                             <div class="kv">
@@ -142,7 +138,8 @@ export const rfidPage: Page = {
 
                             <label class="checkbox">
                                 <input type="checkbox" data-enabled="${index}"
-                                       ${reader.enabled ? html`checked` : ''} ${maySwitch ? '' : html`disabled`} />
+                                       .checked=${live(reader.enabled)} ?disabled=${!maySwitch}
+                                       @change=${(event: Event) => switched(index, (event.target as HTMLInputElement).checked)} />
                                 Switched on
                                 <span class="hint">A reader that is switched off is not read and is not shown on the display.</span>
                             </label>
@@ -157,7 +154,7 @@ export const rfidPage: Page = {
                                                    This station has no driver for this kind of reader. It is configured,
                                                    it is shown, and it will read nothing.
                                                </div>`
-                                        : ''}
+                                        : nothing}
 
                         </section>
                     `)}
@@ -169,14 +166,14 @@ export const rfidPage: Page = {
 
                         <h2><i class="fa-solid fa-plus"></i> Add a reader</h2>
 
-                        <form id="add-form" class="form-stack">
+                        <form id="add-form" class="form-stack" @submit=${add}>
 
                             <label>Name
-                                <input type="text" name="id" value="${newId}" placeholder="e.g. reader-a" />
+                                <input type="text" name="id" placeholder="e.g. reader-a" />
                             </label>
 
                             <label>Kind
-                                <input type="text" name="kind" list="reader-kinds" value="${newKind}"
+                                <input type="text" name="kind" list="reader-kinds"
                                        placeholder="e.g. ${current.fakeKind}" />
                                 <datalist id="reader-kinds">
                                     ${current.kinds.map(candidate => html`<option value="${candidate}"></option>`)}
@@ -191,7 +188,7 @@ export const rfidPage: Page = {
                                 <select name="where">
                                     <option value="">the whole station</option>
                                     ${current.evses.map(evse => html`
-                                        <option value="${evse.id}" ${String(evse.id) === newWhere ? html`selected` : ''}>
+                                        <option value="${evse.id}">
                                             EVSE ${evse.id}${evse.label ? ` (${evse.label})` : ''}
                                         </option>
                                     `)}
@@ -201,18 +198,20 @@ export const rfidPage: Page = {
 
                             <div class="form-actions">
                                 <button type="submit" class="btn"
-                                        ${draft.length >= current.maxReaders ? html`disabled` : ''}>Add</button>
+                                        ?disabled=${draft.length >= current.maxReaders}>Add</button>
                                 <span id="add-error" class="form-error" role="alert"></span>
                             </div>
 
                         </form>
 
                     </section>
-                ` : ''}
+                ` : nothing}
 
                 <div class="evse-actions">
-                    <button type="button" id="save" class="btn primary" ${dirty && maySaveDraft() ? '' : html`disabled`}>Save</button>
-                    <button type="button" id="revert" class="btn" ${dirty ? '' : html`disabled`}>Discard changes</button>
+                    <button type="button" id="save" class="btn primary" ?disabled=${!(dirty && maySaveDraft())}
+                            @click=${() => void save()}>Save</button>
+                    <button type="button" id="revert" class="btn" ?disabled=${!dirty}
+                            @click=${revert}>Discard changes</button>
                     <span id="form-note"  class="form-notice" role="status"></span>
                     <span id="form-error" class="form-error"  role="alert"></span>
 
@@ -226,108 +225,67 @@ export const rfidPage: Page = {
 
             `);
 
-            wire();
+        }
+
+        function switched(index: number, on: boolean): void {
+            draft[index].enabled = on;
+            dirty = true;
+            draw();
+        }
+
+        function remove(index: number): void {
+            draft.splice(index, 1);
+            dirty = true;
+            draw();
+        }
+
+        function add(event: SubmitEvent): void {
+
+            event.preventDefault();
+
+            const form   = event.currentTarget as HTMLFormElement;
+            const error  = must<HTMLElement>(content, '#add-error');
+            const id     = field(form, 'id');
+            const kind   = field(form, 'kind');
+            const place  = field(form, 'where');
+            const evse   = place === '' ? null : Number(place);
+
+            if (id === '' || kind === '') {
+                error.textContent = 'A reader needs a name and a kind.';
+                return;
+            }
+
+            if (draft.some(reader => reader.id.toLowerCase() === id.toLowerCase())) {
+                error.textContent = `There is already a reader called '${id}'.`;
+                return;
+            }
+
+            if (draft.some(reader => reader.evse === evse)) {
+                error.textContent = evse === null
+                                        ? 'This station already has a reader for the whole housing.'
+                                        : `EVSE ${evse} already has a reader.`;
+                return;
+            }
+
+            error.textContent = '';
+
+            draft.push({ id, kind, evse, enabled: true });
+
+            dirty = true;
+
+            draw();
+
+            // In the list now, so no longer typed: the form is empty again.
+            form.reset();
 
         }
 
-        function wire(): void {
-
-            const list = must<HTMLElement>(content, '#readers');
-
-            list.addEventListener('change', event => {
-
-                const input = event.target as HTMLInputElement;
-
-                if (input.dataset.enabled !== undefined) {
-                    draft[Number(input.dataset.enabled)].enabled = input.checked;
-                    dirty = true;
-                    keepDrafts(content, null, draw);
-                }
-
-            });
-
-            list.addEventListener('click', event => {
-
-                const remove = (event.target as HTMLElement).closest<HTMLElement>('[data-remove]');
-
-                if (remove) {
-                    draft.splice(Number(remove.dataset.remove), 1);
-                    dirty = true;
-                    keepDrafts(content, null, draw);
-                }
-
-            });
-
-            const form = content.querySelector<HTMLFormElement>('#add-form');
-
-            if (form) {
-
-                form.addEventListener('input', event => {
-
-                    const field = event.target as HTMLInputElement;
-
-                    if (field.name === 'id')         newId    = field.value;
-                    else if (field.name === 'kind')  newKind  = field.value;
-
-                });
-
-                form.addEventListener('change', event => {
-                    const field = event.target as HTMLSelectElement;
-                    if (field.name === 'where')  newWhere = field.value;
-                });
-
-                form.addEventListener('submit', event => {
-
-                    event.preventDefault();
-
-                    const error = must<HTMLElement>(content, '#add-error');
-                    const id    = newId.trim();
-                    const kind  = newKind.trim();
-                    const evse  = newWhere === '' ? null : Number(newWhere);
-
-                    if (id === '' || kind === '') {
-                        error.textContent = 'A reader needs a name and a kind.';
-                        return;
-                    }
-
-                    if (draft.some(reader => reader.id.toLowerCase() === id.toLowerCase())) {
-                        error.textContent = `There is already a reader called '${id}'.`;
-                        return;
-                    }
-
-                    if (draft.some(reader => reader.evse === evse)) {
-                        error.textContent = evse === null
-                                                ? 'This station already has a reader for the whole housing.'
-                                                : `EVSE ${evse} already has a reader.`;
-                        return;
-                    }
-
-                    draft.push({ id, kind, evse, enabled: true });
-
-                    newId    = '';
-                    newKind  = '';
-                    newWhere = '';
-                    dirty    = true;
-
-                    keepDrafts(content, 'add-form', draw);
-
-                });
-
-            }
-
-            // What is half written into the add form is discarded with the
-            // rest, so that form is named: drawn empty, and not put back.
-            must<HTMLButtonElement>(content, '#revert').addEventListener('click', () => {
-                draft    = configuration!.readers.map(reader => ({ ...reader }));
-                newId    = '';
-                newKind  = '';
-                newWhere = '';
-                dirty    = false;
-                keepDrafts(content, 'add-form', draw);
-            });
-
-            must<HTMLButtonElement>(content, '#save').addEventListener('click', () => void save());
-
+        // What is half written into the add form is discarded with the rest.
+        function revert(): void {
+            draft = configuration!.readers.map(reader => ({ ...reader }));
+            dirty = false;
+            draw();
+            content.querySelector<HTMLFormElement>('#add-form')?.reset();
         }
 
         async function save(): Promise<void> {
@@ -348,16 +306,20 @@ export const rfidPage: Page = {
                                         enabled:  reader.enabled
                                     }))));
 
+                if (cancelled)
+                    return;
+
                 draft = configuration.readers.map(reader => ({ ...reader }));
                 dirty = false;
 
-                keepDrafts(content, null, draw);
+                draw();
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
+                note.textContent = 'Saved, and in effect.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
@@ -375,13 +337,6 @@ export const rfidPage: Page = {
                 draft         = loaded.readers.map(reader => ({ ...reader }));
                 dirty         = false;
 
-                // A reader half written into the add form goes with the rest,
-                // as it does with "Discard changes": Reload has asked before it
-                // came here, and the first load finds nothing typed.
-                newId    = '';
-                newKind  = '';
-                newWhere = '';
-
                 draw();
             }
             catch (problem)
@@ -394,11 +349,20 @@ export const rfidPage: Page = {
 
         }
 
+        /**
+         * Loaded anew - Reload - is what the station has. A reader half
+         * written into the add form goes with the rest, as it does with
+         * "Discard changes": Reload has asked before it came here.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
+        }
+
         // The list is in the flag; a reader typed into the add form and not
-        // yet added is in no flag. Drawn again with what was kept of it, what
-        // was typed is what the page drew, so what was kept is asked too.
-        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content) ||
-                                             newId !== '' || newKind !== '' || newWhere !== '');
+        // yet added is in no flag, but in the form.
+        const release = unsaved.heldBy(() => dirty || anyFormTypedSinceDrawn(content));
 
         void load();
 
