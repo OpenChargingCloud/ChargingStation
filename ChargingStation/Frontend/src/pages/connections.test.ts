@@ -10,7 +10,7 @@
  * Run with `npm test`.
  */
 
-import { field, left, open, refused, submit, until, type Asked } from '../../test/station.ts';
+import { field, leave, open, refused, submit, until, type Asked } from '../../test/station.ts';
 import { chromeTakesTheFocus } from '@node/../test/dom.ts';
 
 import { strict as assert }     from 'node:assert';
@@ -111,7 +111,7 @@ describe('the Connections page', () => {
 
     // It asks where the connections stand every five seconds, for as long as
     // it is open.
-    after(left);
+    after(leave);
 
     it('keeps a connection half written, and its focus, while another is saved', async () => {
 
