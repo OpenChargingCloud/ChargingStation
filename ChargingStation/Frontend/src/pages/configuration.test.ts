@@ -9,11 +9,16 @@
  * those of ChargingStation.ConfigurationJSON(), in its order.
  */
 
+import '@node/../test/dom.ts';
+
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
 import type { Configuration, Status } from '../api/client';
-import { configurationCards } from './configuration.ts';
+import type { TemplateResult } from '@node/view';
+
+const { render }              = await import('@node/view.ts');
+const { configurationCards }  = await import('./configuration.ts');
 
 
 /** Every section the station sends, each with a field that says which it is. */
@@ -39,10 +44,24 @@ const status: Status = {
     log:        { entries: 0, capacity: 10000, lastId: 0, tags: [] }
 };
 
+/** The cards, drawn into a document. */
+function drawn(cards: TemplateResult): HTMLElement {
+    const root = document.createElement('div');
+    render(root, cards);
+    return root;
+}
+
 /** The card under a heading, or nothing where there is none. */
-function cardTitled(drawn: string, title: string): string | undefined {
-    return drawn.split('<section class="card">').
-                 find(card => new RegExp(`<h2><i class="[^"]*"></i> ${title}</h2>`).test(card));
+function cardTitled(root: HTMLElement, title: string): HTMLElement | undefined {
+    return [...root.querySelectorAll<HTMLElement>('section.card')].
+               find(card => card.querySelector('h2')?.textContent?.trim() === title);
+}
+
+/** What a card says of one field, by the field's heading. */
+function valueOf(card: HTMLElement, key: string): string | undefined {
+    return [...card.querySelectorAll('.kv')].
+               find(line => line.querySelector('.k')?.textContent?.trim() === key)?.
+               querySelector('.v')?.textContent?.trim();
 }
 
 
@@ -50,8 +69,8 @@ describe('the cards of the Configuration page', () => {
 
     it('draws every section the station sends', () => {
 
-        const drawn    = configurationCards(configuration, status).value;
-        const missing  = Object.keys(configuration).filter(section => !drawn.includes(`in the ${section} section`));
+        const text     = drawn(configurationCards(configuration, status)).textContent ?? '';
+        const missing  = Object.keys(configuration).filter(section => !text.includes(`in the ${section} section`));
 
         assert.deepEqual(missing, [], `Sections without a card: ${missing.join(', ')}.`);
 
@@ -60,10 +79,10 @@ describe('the cards of the Configuration page', () => {
     it('says of a station that offers a vehicle nothing below the cable that it does not', () => {
 
         // What a station started without --v2g sends: its link is off.
-        const v2g = cardTitled(configurationCards({ ...configuration, v2g: { enabled: false } }, status).value, 'V2G');
+        const v2g = cardTitled(drawn(configurationCards({ ...configuration, v2g: { enabled: false } }, status)), 'V2G');
 
         assert.ok(v2g !== undefined, 'There is no V2G card.');
-        assert.match(v2g, /<span class="k">Enabled<\/span>\s*<span class="v">no<\/span>/);
+        assert.equal(valueOf(v2g, 'Enabled'), 'no');
 
     });
 

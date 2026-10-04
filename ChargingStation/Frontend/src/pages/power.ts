@@ -1,12 +1,12 @@
 import { api, type PowerConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render } from '@node/view';
 
 /**
  * What this charging station may draw from the grid.
@@ -33,7 +33,7 @@ export const powerPage: Page = {
             active:    '/configuration/power',
             title:     'Grid connection',
             subtitle:  'What this charging station may draw, and what it could deliver.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -42,7 +42,7 @@ export const powerPage: Page = {
         // does, and from the opposite corner of the screen, so it asks first.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayChange = auth.can('power', 'edit');
@@ -62,7 +62,7 @@ export const powerPage: Page = {
 
             render(content, html`
 
-                ${mayChange ? '' : html`
+                ${mayChange ? nothing : html`
                     <div class="notice">${mayButNot('look at what this station may draw', 'change it')}</div>
                 `}
 
@@ -72,13 +72,13 @@ export const powerPage: Page = {
 
                         <h2><i class="fa-solid fa-bolt"></i> Uplink power limit</h2>
 
-                        <form id="power-form" class="form-stack">
+                        <form id="power-form" class="form-stack" @submit=${save}>
 
                             <label>Maximum power in kW
                                 <input type="number" name="uplinkPowerLimit_kW"
                                        min="0.1" max="${configuration.limits.maxUplinkPowerLimit_kW}" step="0.1"
                                        value="${uplink ?? ''}" placeholder="not configured"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">
                                     What the connection behind the meter allows. Leave it empty to take the
                                     limit away again - this station then does not know what it may draw.
@@ -86,7 +86,7 @@ export const powerPage: Page = {
                             </label>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayChange ? '' : html`disabled`}>Save</button>
+                                <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
                                 <span id="form-note"  class="form-notice" role="status"></span>
                                 <span id="form-error" class="form-error"  role="alert"></span>
                             </div>
@@ -151,22 +151,13 @@ export const powerPage: Page = {
 
             `);
 
-            wire();
-
         }
 
-        function wire(): void {
+        async function save(event: SubmitEvent): Promise<void> {
 
-            must<HTMLFormElement>(content, '#power-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void save();
-            });
+            event.preventDefault();
 
-        }
-
-        async function save(): Promise<void> {
-
-            const form   = must<HTMLFormElement>(content, '#power-form');
+            const form   = event.currentTarget as HTMLFormElement;
             const note   = must<HTMLElement>(content, '#form-note');
 
             note.textContent  = '';
@@ -183,17 +174,30 @@ export const powerPage: Page = {
                 current = await whileSaving(content, note, () =>
                               api.power.save({ uplinkPowerLimit_kW: typed === '' ? null : Number(typed) }));
 
-                keepDrafts(content, 'power-form', draw);
+                if (cancelled)
+                    return;
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
+                draw();
+
+                // A draw leaves a form as it is typed into; the one saved goes
+                // back to what it says now - the station's answer.
+                form.reset();
+
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
 
+        /**
+         * The page as the station has it now, drawn over the page as it is -
+         * what is typed into the form kept, as a draw keeps it. Reload empties
+         * it itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -214,6 +218,16 @@ export const powerPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the form too, which
+         * a draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#power-form')));

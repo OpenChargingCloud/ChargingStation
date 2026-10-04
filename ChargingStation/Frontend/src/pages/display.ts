@@ -1,11 +1,11 @@
 import { api, type DisplayConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render } from '@node/view';
 
 /**
  * The screen on the front of the station, at night.
@@ -32,7 +32,7 @@ export const displayPage: Page = {
             active:    '/configuration/display',
             title:     'Display',
             subtitle:  'The screen on the front of the station, and the hours it keeps.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -41,7 +41,7 @@ export const displayPage: Page = {
         // does, and from the opposite corner of the screen, so it asks first.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayChange = auth.can('display', 'edit');
@@ -61,7 +61,7 @@ export const displayPage: Page = {
 
             render(content, html`
 
-                ${mayChange ? '' : html`
+                ${mayChange ? nothing : html`
                     <div class="notice">${mayButNot("look at the display's hours", 'change them')}</div>
                 `}
 
@@ -86,17 +86,17 @@ export const displayPage: Page = {
                                     `}
                         </p>
 
-                        <form id="display-form" class="form-stack">
+                        <form id="display-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(); }}>
 
                             <label>Dim from
                                 <input type="time" name="dimFrom" value="${configuration.dimFrom ?? ''}"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">In this station's own local time.</span>
                             </label>
 
                             <label>Until
                                 <input type="time" name="dimUntil" value="${configuration.dimUntil ?? ''}"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">
                                     Earlier than the start is the ordinary case: the hours cross midnight.
                                 </span>
@@ -107,7 +107,7 @@ export const displayPage: Page = {
                                        min="${Math.round(configuration.limits.darkestDimTo * 100)}" max="100"
                                        value="${configuration.dimTo === null ? '' : percent}"
                                        placeholder="${Math.round(configuration.limits.defaultDimTo * 100)}"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">
                                     Per cent of full. Never below
                                     ${Math.round(configuration.limits.darkestDimTo * 100)} %: a dark display is one
@@ -117,9 +117,10 @@ export const displayPage: Page = {
                             </label>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayChange ? '' : html`disabled`}>Save</button>
+                                <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
                                 <button type="button" id="no-quiet-hours" class="btn"
-                                        ${mayChange && dims ? '' : html`disabled`}>Keep no quiet hours</button>
+                                        ?disabled=${!(mayChange && dims)}
+                                        @click=${() => void save(true)}>Keep no quiet hours</button>
                                 <span id="form-note"  class="form-notice" role="status"></span>
                                 <span id="form-error" class="form-error"  role="alert"></span>
                             </div>
@@ -159,19 +160,6 @@ export const displayPage: Page = {
 
             `);
 
-            wire();
-
-        }
-
-        function wire(): void {
-
-            must<HTMLFormElement>(content, '#display-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void save();
-            });
-
-            must<HTMLButtonElement>(content, '#no-quiet-hours').addEventListener('click', () => void save(true));
-
         }
 
         async function save(TurnOff = false): Promise<void> {
@@ -203,17 +191,30 @@ export const displayPage: Page = {
             {
                 current = await whileSaving(content, note, () => api.display.save(update));
 
-                keepDrafts(content, 'display-form', draw);
+                if (cancelled)
+                    return;
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
+                draw();
+
+                // A draw leaves a form as it is typed into; the one saved goes
+                // back to what it says now - the station's answer.
+                form.reset();
+
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
             }
 
         }
 
+        /**
+         * The page as the station has it now, drawn over the page as it is -
+         * what is typed into the form kept, as a draw keeps it. Reload empties
+         * it itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -234,6 +235,16 @@ export const displayPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the form too, which
+         * a draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#display-form')));

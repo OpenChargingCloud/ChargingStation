@@ -1,9 +1,10 @@
 import { api, type Configuration, type Status } from '../api/client';
-import { card, librariesCard } from '@node/cards';
-import { html, must, render, type HTMLFragment } from '@node/html';
+import { cardView, librariesCardView } from '@node/cardViews';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, formatSince, formatValue } from '@node/ui';
+import { html, render, type TemplateResult } from '@node/view';
 
 /**
  * What this charging station is made of - read-only for now: it answers "what
@@ -25,7 +26,7 @@ export const configurationPage: Page = {
             active:    '/configuration',
             title:     'Configuration',
             subtitle:  'What this charging station is made of.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -79,32 +80,32 @@ export const configurationPage: Page = {
  * node says of itself, the link below the cable and the OCPP nodes above it,
  * and what it was all built from.
  */
-export function configurationCards(configuration: Configuration, status: Status): HTMLFragment {
+export function configurationCards(configuration: Configuration, status: Status): TemplateResult {
 
     return html`
 
         <div class="cards">
 
-            ${card('Station',       'fa-charging-station', configuration.station, html`
+            ${cardView('Station',       'fa-charging-station', configuration.station, html`
                 <div class="kv">
                     <span class="k">Uptime</span>
                     <span class="v">${status.uptime} <span class="muted">(started ${formatSince(status.startedAt)})</span></span>
                 </div>
             `)}
 
-            ${card('HTTP server',   'fa-server',           configuration.http)}
-            ${card('Accounts',      'fa-user-lock',        configuration.web)}
-            ${card('Event log',     'fa-list-ul',          configuration.log)}
-            ${card('Time',          'fa-clock',            configuration.time)}
-            ${card('V2G',           'fa-car-side',         configuration.v2g)}
+            ${cardView('HTTP server',   'fa-server',           configuration.http)}
+            ${cardView('Accounts',      'fa-user-lock',        configuration.web)}
+            ${cardView('Event log',     'fa-list-ul',          configuration.log)}
+            ${cardView('Time',          'fa-clock',            configuration.time)}
+            ${cardView('V2G',           'fa-car-side',         configuration.v2g)}
 
-            ${configuration.ocpp.map(node => card(
+            ${configuration.ocpp.map(node => cardView(
                 `OCPP ${formatValue(node.version)} - ${formatValue(node.role)}`,
                 'fa-plug',
                 node
             ))}
 
-            ${librariesCard(configuration.assemblies)}
+            ${librariesCardView(configuration.assemblies)}
 
         </div>
 
