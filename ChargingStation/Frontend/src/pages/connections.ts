@@ -1,11 +1,11 @@
 import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render, type HTMLFragment } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
 
 /**
@@ -41,14 +41,14 @@ export const connectionsPage: Page = {
             active:    '/configuration/connections',
             title:     'Connections',
             subtitle:  'Where this charging station dials, and what it proves itself with.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayManage = auth.can('connections', 'edit');
@@ -63,12 +63,25 @@ export const connectionsPage: Page = {
 
         // Where the connections stand, and the station's clock when it said
         // so - kept apart from the store, because they are asked again on
-        // their own and drawn again on their own, without the forms.
+        // their own. Drawn with the rest of the page: a draw leaves what is
+        // typed into the forms where it is.
         let states:     Record<string, ConnectionState> = {};
         let timestamp   = '';
         let notAnswered: string | null = null;
 
         const opened = new Set<string>();
+
+        /**
+         * The connections as the station has them now. Whatever the store
+         * came with is the newest there is of where they stand: it was
+         * loaded, or written, a moment ago.
+         */
+        function took(State: StationConnections): void {
+            store        = State;
+            states       = State.states ?? {};
+            timestamp    = State.timestamp ?? timestamp;
+            notAnswered  = null;
+        }
 
         /** What the one authentication control calls each choice. */
         function chosenOf(entry: StationConnection | null): string {
@@ -87,15 +100,9 @@ export const connectionsPage: Page = {
 
             const state = store;
 
-            // Whatever the store came with is the newest there is: it was
-            // loaded, or written, a moment ago.
-            states       = state.states ?? {};
-            timestamp    = state.timestamp ?? timestamp;
-            notAnswered  = null;
-
             render(content, html`
 
-                ${mayManage ? '' : html`
+                ${mayManage ? nothing : html`
                     <div class="notice">${mayButNot('look at the connections', 'change them')}</div>
                 `}
 
@@ -103,14 +110,14 @@ export const connectionsPage: Page = {
 
                     <h2><i class="fa-solid fa-plus"></i> Write down a connection</h2>
 
-                    <form id="add-form" class="form-stack">
+                    <form id="add-form" class="form-stack" @submit=${add}>
                         ${theFields('add', null, state)}
                         <div class="form-actions">
-                            <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                            <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                 Write it down
                             </button>
                             <button type="button" class="btn small" data-test="add"
-                                    ${mayTest ? '' : html`disabled`}>
+                                    ?disabled=${!mayTest} @click=${testThisForm}>
                                 <i class="fa-solid fa-plug-circle-check"></i> Test it
                             </button>
                             <span id="add-note"  class="form-notice" role="status"></span>
@@ -130,7 +137,10 @@ export const connectionsPage: Page = {
 
                     <p class="hint">Newest first. Written to ${state.directory}.</p>
 
-                    <p class="hint" id="states-note" role="status"></p>
+                    <p class="hint" id="states-note" role="status">${notAnswered === null
+                        ? nothing
+                        : `Where the connections stand is as it was at ${formatTime(timestamp)}: ` +
+                          `asking again did not work (${notAnswered}).`}</p>
 
                     ${state.connections.length === 0
                           ? Object.keys(states).length === 0
@@ -140,7 +150,7 @@ export const connectionsPage: Page = {
                                       </p>
                                   `
                                 : html`<p class="hint">Nothing written down any more.</p>`
-                          : html`<div class="cards">${state.connections.map(entry => entryCard(entry, state))}</div>`}
+                          : html`<div class="cards">${repeat(state.connections, entry => entry.id, entry => entryCard(entry, state))}</div>`}
 
                     <div id="no-longer-written-down">${noLongerWrittenDownView()}</div>
 
@@ -148,12 +158,10 @@ export const connectionsPage: Page = {
 
             `);
 
-            wire();
-
         }
 
         /** The same fields whether it is new or being changed, so the two cannot drift apart. */
-        function theFields(id: string, entry: StationConnection | null, state: StationConnections): HTMLFragment {
+        function theFields(id: string, entry: StationConnection | null, state: StationConnections): TemplateResult {
 
             const chosen = chosenOf(entry);
 
@@ -162,13 +170,13 @@ export const connectionsPage: Page = {
                 <label>What it is
                     <input type="text" name="description" maxlength="${state.maxDescriptionLength}"
                            placeholder="CSMS, main" value="${entry?.description ?? ''}"
-                           ${mayManage ? '' : html`disabled`} />
+                           ?disabled=${!mayManage} />
                 </label>
 
                 <label>Where it goes
                     <input type="text" name="url" class="mono"
                            placeholder="wss://csms.example.org/cs001" value="${entry?.url ?? ''}"
-                           ${mayManage ? '' : html`disabled`} />
+                           ?disabled=${!mayManage} />
                     <span class="hint">
                         Write the scheme. <code>wss://</code> is encrypted and <code>ws://</code> is not, and
                         this station will not decide that for you - everything below depends on which it is.
@@ -178,9 +186,9 @@ export const connectionsPage: Page = {
                 <div class="form-row">
 
                     <label>What is at the other end
-                        <select name="connectionType" ${mayManage ? '' : html`disabled`}>
+                        <select name="connectionType" ?disabled=${!mayManage}>
                             ${state.connectionTypes.map(one => html`
-                                <option value="${one}" ${one === (entry?.connectionType ?? 'CSMS') ? html`selected` : ''}>
+                                <option value="${one}" ?selected=${one === (entry?.connectionType ?? 'CSMS')}>
                                     ${one === 'CSMS'       ? 'Charging station management system'
                                       : one === 'CSMSBackup' ? 'Management system, spare'
                                       : 'Local controller'}
@@ -194,9 +202,9 @@ export const connectionsPage: Page = {
                     </label>
 
                     <label>Which OCPP
-                        <select name="ocppVersion" ${mayManage ? '' : html`disabled`}>
+                        <select name="ocppVersion" ?disabled=${!mayManage}>
                             ${state.ocppVersions.map(one => html`
-                                <option value="${one}" ${one === (entry?.ocppVersion ?? 'OCPP2.1') ? html`selected` : ''}>
+                                <option value="${one}" ?selected=${one === (entry?.ocppVersion ?? 'OCPP2.1')}>
                                     ${one}
                                 </option>
                             `)}
@@ -211,8 +219,8 @@ export const connectionsPage: Page = {
 
                 <label class="checkbox">
                     <input type="checkbox" name="autoConnect"
-                           ${(entry?.autoConnect ?? false) ? html`checked` : ''}
-                           ${mayManage ? '' : html`disabled`} />
+                           ?checked=${entry?.autoConnect ?? false}
+                           ?disabled=${!mayManage} />
                     Connect by itself, and again after a drop
                     <span class="hint">
                         This is what decides whether the connection is used at all. Off, it stays written
@@ -222,26 +230,26 @@ export const connectionsPage: Page = {
                 </label>
 
                 <label>How it proves itself
-                    <select name="proves" ${mayManage ? '' : html`disabled`}>
+                    <select name="proves" ?disabled=${!mayManage}>
 
-                        <option value="" ${chosen === '' ? html`selected` : ''}>
+                        <option value="" ?selected=${chosen === ''}>
                             Nothing - the back end must not ask
                         </option>
 
-                        ${state.authentications.length === 0 ? '' : html`
+                        ${state.authentications.length === 0 ? nothing : html`
                             <optgroup label="Credentials">
                                 ${state.authentications.map(one => html`
-                                    <option value="auth:${one.id}" ${chosen === `auth:${one.id}` ? html`selected` : ''}>
+                                    <option value="auth:${one.id}" ?selected=${chosen === `auth:${one.id}`}>
                                         ${one.description} (${one.kind === 'basic' ? 'HTTP Basic' : 'HTTP TOTP'})${one.hasSecret ? '' : ' - no secret set'}
                                     </option>
                                 `)}
                             </optgroup>
                         `}
 
-                        ${state.certificates.length === 0 ? '' : html`
+                        ${state.certificates.length === 0 ? nothing : html`
                             <optgroup label="TLS client certificates">
                                 ${state.certificates.map(one => html`
-                                    <option value="cert:${one.id}" ${chosen === `cert:${one.id}` ? html`selected` : ''}>
+                                    <option value="cert:${one.id}" ?selected=${chosen === `cert:${one.id}`}>
                                         ${one.subject || one.id} (${one.algorithm})${one.hasCertificate ? '' : ' - request still out'}
                                     </option>
                                 `)}
@@ -259,7 +267,7 @@ export const connectionsPage: Page = {
 
         }
 
-        function entryCard(entry: StationConnection, state: StationConnections): HTMLFragment {
+        function entryCard(entry: StationConnection, state: StationConnections): TemplateResult {
 
             const credentials = state.authentications.find(one => one.id === entry.authenticationId);
             const certificate = state.certificates.   find(one => one.id === entry.certificateId);
@@ -298,24 +306,26 @@ export const connectionsPage: Page = {
 
                     ${(entry.warnings ?? []).map(warning => html`<div class="notice">${warning}</div>`)}
 
-                    <details ${opened.has(entry.id) ? html`open` : ''} data-details="${entry.id}">
+                    <details ?open=${opened.has(entry.id)} data-details="${entry.id}"
+                             @toggle=${(event: Event) => toggled(entry.id, (event.target as HTMLDetailsElement).open)}>
 
                         <summary>Change it</summary>
 
-                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}">
+                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}"
+                              @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(entry.id, event.currentTarget as HTMLFormElement); }}>
 
                             ${theFields(entry.id, entry, state)}
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                                <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                     Save
                                 </button>
                                 <button type="button" class="btn small" data-remove="${entry.id}"
-                                        ${mayManage ? '' : html`disabled`}>
+                                        ?disabled=${!mayManage} @click=${() => void remove(entry.id)}>
                                     Remove
                                 </button>
                                 <button type="button" class="btn small" data-test="${entry.id}"
-                                        ${mayTest ? '' : html`disabled`}>
+                                        ?disabled=${!mayTest} @click=${testThisForm}>
                                     <i class="fa-solid fa-plug-circle-check"></i> Test it
                                 </button>
                                 <span class="form-notice" data-note="${entry.id}"  role="status"></span>
@@ -332,15 +342,15 @@ export const connectionsPage: Page = {
         }
 
         /** Where one connection stands, as a chip, since when, and what the station said. */
-        function stateView(entry: StationConnection): HTMLFragment {
+        function stateView(entry: StationConnection): TemplateResult | typeof nothing {
 
             const line = stateLine(entry, states[entry.id], timestamp);
 
-            return line === null ? html`` : lineView(line);
+            return line === null ? nothing : lineView(line);
 
         }
 
-        function lineView(line: StateLine): HTMLFragment {
+        function lineView(line: StateLine): TemplateResult {
 
             return html`
                 <div class="state-head">
@@ -358,12 +368,12 @@ export const connectionsPage: Page = {
          * them up at its next start, and until then it may well be on a back
          * end this page no longer mentions.
          */
-        function noLongerWrittenDownView(): HTMLFragment {
+        function noLongerWrittenDownView(): TemplateResult | typeof nothing {
 
             const left = noLongerWrittenDown(store?.connections ?? [], states);
 
             if (left.length === 0)
-                return html``;
+                return nothing;
 
             return html`
                 <div class="notice">
@@ -373,47 +383,12 @@ export const connectionsPage: Page = {
                         return html`
                             <div class="removed-state">
                                 <strong>${state.description}</strong> <code>${state.url}</code>
-                                ${line === null ? '' : lineView(line)}
+                                ${line === null ? nothing : lineView(line)}
                             </div>
                         `;
                     })}
                 </div>
             `;
-
-        }
-
-        /**
-         * Draw where the connections stand again, and nothing else.
-         *
-         * Only the lines that say so: the forms beside them may hold something
-         * somebody is typing, and a page that redrew them every few seconds
-         * would be a page nobody could write anything down on.
-         */
-        function drawStates(): void {
-
-            if (store === null)
-                return;
-
-            const connections = store.connections;
-
-            content.querySelectorAll<HTMLElement>('[data-state]').forEach(element => {
-                const entry = connections.find(connection => connection.id === element.dataset.state);
-                if (entry !== undefined)
-                    render(element, stateView(entry));
-            });
-
-            const left = content.querySelector<HTMLElement>('#no-longer-written-down');
-
-            if (left !== null)
-                render(left, noLongerWrittenDownView());
-
-            const note = content.querySelector<HTMLElement>('#states-note');
-
-            if (note !== null)
-                note.textContent = notAnswered === null
-                                       ? ''
-                                       : `Where the connections stand is as it was at ${formatTime(timestamp)}: ` +
-                                         `asking again did not work (${notAnswered}).`;
 
         }
 
@@ -454,54 +429,24 @@ export const connectionsPage: Page = {
                 asking = false;
             }
 
+            // The whole page, which leaves what is typed into its forms where
+            // it is: only what differs is drawn.
             if (!cancelled)
-                drawStates();
+                draw();
 
         }
 
-        function wire(): void {
+        /** A details element that was open stays open across a redraw. */
+        function toggled(id: string, open: boolean): void {
+            if (open)
+                opened.add(id);
+            else
+                opened.delete(id);
+        }
 
-            content.querySelectorAll<HTMLDetailsElement>('[data-details]').forEach(details => {
-                details.addEventListener('toggle', () => {
-                    const id = details.dataset.details ?? '';
-                    if (details.open)
-                        opened.add(id);
-                    else
-                        opened.delete(id);
-                });
-            });
-
-            must<HTMLFormElement>(content, '#add-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void add();
-            });
-
-            content.querySelectorAll<HTMLFormElement>('[data-edit]').forEach(form => {
-                form.addEventListener('submit', event => {
-                    event.preventDefault();
-                    void save(form.dataset.edit ?? '', form);
-                });
-            });
-
-            content.addEventListener('click', event => {
-
-                const target = event.target as Element | null;
-
-                const removing = target?.closest<HTMLButtonElement>('[data-remove]');
-
-                if (removing && !removing.disabled)
-                {
-                    void remove(removing.dataset.remove ?? '');
-                    return;
-                }
-
-                const testing = target?.closest<HTMLButtonElement>('[data-test]');
-
-                if (testing && !testing.disabled)
-                    void test(testing.closest('form'));
-
-            });
-
+        /** Test what the form the button is in says. */
+        function testThisForm(event: Event): void {
+            void test((event.currentTarget as HTMLElement).closest('form'));
         }
 
         /**
@@ -530,9 +475,11 @@ export const connectionsPage: Page = {
         }
 
 
-        async function add(): Promise<void> {
+        async function add(event: SubmitEvent): Promise<void> {
 
-            const form = must<HTMLFormElement>(content, '#add-form');
+            event.preventDefault();
+
+            const form = event.currentTarget as HTMLFormElement;
             const note = must<HTMLElement>(content, '#add-note');
 
             note.textContent = '';
@@ -544,23 +491,27 @@ export const connectionsPage: Page = {
             {
                 const made = await whileSaving(content, note, () => api.connections.add(written));
 
-                store = made.connections;
+                if (cancelled)
+                    return;
 
-                keepDrafts(content, 'add-form', draw);
+                took(made.connections);
 
-                must<HTMLElement>(content, '#add-note').textContent = 'Written down.';
+                draw();
+
+                // Written down, so no longer typed: the form is empty again.
+                form.reset();
+
+                note.textContent = 'Written down.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#add-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#add-error').textContent = errorMessage(problem);
             }
 
         }
 
         async function save(id: string, form: HTMLFormElement): Promise<void> {
-
-            if (id === '')
-                return;
 
             const note  = must<HTMLElement>(content, `[data-note="${id}"]`);
             const error = must<HTMLElement>(content, `[data-error="${id}"]`);
@@ -572,27 +523,30 @@ export const connectionsPage: Page = {
 
             try
             {
-                store = await whileSaving(content, note, () => api.connections.update(written));
+                took(await whileSaving(content, note, () => api.connections.update(written)));
+
+                if (cancelled)
+                    return;
 
                 opened.add(id);
 
-                // The form saved is the one drawn for this connection, known by
-                // its data-id: it has no id of its own.
-                keepDrafts(content, id, draw);
+                draw();
 
-                must<HTMLElement>(content, `[data-note="${id}"]`).textContent = 'Saved.';
+                // A draw leaves a form as it is typed into; the one saved goes
+                // back to what it says now - the station's answer.
+                form.reset();
+
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
             }
 
         }
 
         async function remove(id: string): Promise<void> {
-
-            if (id === '')
-                return;
 
             const error = must<HTMLElement>(content, `[data-error="${id}"]`);
             const note  = must<HTMLElement>(content, `[data-note="${id}"]`);
@@ -601,15 +555,19 @@ export const connectionsPage: Page = {
 
             try
             {
-                store = await whileSaving(content, note, () => api.connections.remove(id));
+                took(await whileSaving(content, note, () => api.connections.remove(id)));
+
+                if (cancelled)
+                    return;
 
                 opened.delete(id);
 
-                keepDrafts(content, null, draw);
+                draw();
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
             }
 
         }
@@ -638,16 +596,21 @@ export const connectionsPage: Page = {
 
             dialog.className = 'test-dialog';
 
-            render(dialog, html`
+            /**
+             * The dialog, saying what is being tried and then what came of it:
+             * drawn as a whole each time, so that what it said while waiting
+             * goes when the answer comes.
+             */
+            const drawDialog = (Steps: TemplateResult, Waiting: boolean): void => render(dialog, html`
                 <h2>Testing ${entry.description || 'this connection'}</h2>
                 <p class="hint"><code>${entry.url || 'no URL given'}</code></p>
-                <div class="test-steps" id="test-steps">
-                    <div class="loading">Connecting, and staying connected for two seconds ...</div>
-                </div>
+                <div class="test-steps" id="test-steps">${Steps}</div>
                 <div class="form-actions">
-                    <button type="button" class="btn" id="test-close" disabled>Close</button>
+                    <button type="button" class="btn" id="test-close" ?disabled=${Waiting} @click=${dismiss}>Close</button>
                 </div>
             `);
+
+            drawDialog(html`<div class="loading">Connecting, and staying connected for two seconds ...</div>`, true);
 
             document.body.appendChild(dialog);
             dialog.showModal();
@@ -663,18 +626,14 @@ export const connectionsPage: Page = {
              * after every test. Calling this twice is harmless, which is what
              * lets it be wired to everything that might end the dialog.
              */
-            const dismiss = (): void => {
+            function dismiss(): void {
                 dialog.close();
                 dialog.remove();
-            };
+            }
 
             // Whichever of these the browser actually delivers.
             dialog.addEventListener('close',  dismiss);
             dialog.addEventListener('cancel', dismiss);
-
-            const close = must<HTMLButtonElement>(dialog, '#test-close');
-
-            close.addEventListener('click', dismiss);
 
             let result: ConnectionTest;
 
@@ -684,15 +643,14 @@ export const connectionsPage: Page = {
             }
             catch (problem)
             {
-                render(must<HTMLElement>(dialog, '#test-steps'), html`
+                drawDialog(html`
                     <div class="error-box">The test could not be run: ${errorMessage(problem)}</div>
-                `);
-                close.disabled = false;
-                close.focus();
+                `, false);
+                must<HTMLButtonElement>(dialog, '#test-close').focus();
                 return;
             }
 
-            render(must<HTMLElement>(dialog, '#test-steps'), html`
+            drawDialog(html`
                 <div class="${result.ok ? 'notice' : 'error-box'}">
                     ${result.ok
                           ? html`The connection can be made. ${result.runtime_ms} ms altogether.`
@@ -706,13 +664,17 @@ export const connectionsPage: Page = {
                         </li>
                     `)}
                 </ol>
-            `);
+            `, false);
 
-            close.disabled = false;
-            close.focus();
+            must<HTMLButtonElement>(dialog, '#test-close').focus();
 
         }
 
+        /**
+         * The page as the station has it now, drawn over the page as it is -
+         * what is typed into its forms kept, as a draw keeps it. Reload empties
+         * them itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -722,7 +684,7 @@ export const connectionsPage: Page = {
                 if (cancelled)
                     return;
 
-                store = loaded;
+                took(loaded);
                 draw();
             }
             catch (problem)
@@ -733,6 +695,16 @@ export const connectionsPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the forms too, which
+         * a draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         const release = unsaved.heldBy(() => anyFormTypedSinceDrawn(content));

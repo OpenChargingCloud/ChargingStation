@@ -1,11 +1,11 @@
 import { api, type LoginToSave, type StationConnections, type StationLogin } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render, type HTMLFragment } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatTimestamp, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
  * The credentials this station proves itself with.
@@ -32,14 +32,14 @@ export const authenticationPage: Page = {
             active:    '/configuration/authentication',
             title:     'Authentication',
             subtitle:  'How this charging station proves who it is when it dials a back end.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayManage = auth.can('connections', 'edit');
@@ -49,6 +49,15 @@ export const authenticationPage: Page = {
 
         /** Which records have their details open, so a redraw does not close them. */
         const opened = new Set<string>();
+
+        /**
+         * The kind picked in a form and not saved yet, by the form - "add", or
+         * the id of the record. Which fields are shown follows it, and it
+         * follows it straight away rather than after a save: somebody who
+         * picks TOTP and sees no shared secret field concludes the page is
+         * broken.
+         */
+        const picked = new Map<string, StationLogin['kind']>();
 
 
         function draw(): void {
@@ -60,7 +69,7 @@ export const authenticationPage: Page = {
 
             render(content, html`
 
-                ${mayManage ? '' : html`
+                ${mayManage ? nothing : html`
                     <div class="notice">${mayButNot('look at the credentials', 'change them')}</div>
                 `}
 
@@ -68,11 +77,11 @@ export const authenticationPage: Page = {
 
                     <h2><i class="fa-solid fa-user-plus"></i> Write down a set of credentials</h2>
 
-                    <form id="add-form" class="form-stack" data-kind-form="add">
+                    <form id="add-form" class="form-stack" data-kind-form="add" @submit=${add}>
 
                         <label>What they are for
                             <input type="text" name="description" maxlength="${state.maxDescriptionLength}"
-                                   placeholder="CSMS login" ${mayManage ? '' : html`disabled`} />
+                                   placeholder="CSMS login" ?disabled=${!mayManage} />
                             <span class="hint">
                                 The one field worth taking seriously. Six logins on a page a year from now are
                                 told apart by this and nothing else.
@@ -80,7 +89,8 @@ export const authenticationPage: Page = {
                         </label>
 
                         <label>How
-                            <select name="kind" data-kind ${mayManage ? '' : html`disabled`}>
+                            <select name="kind" data-kind ?disabled=${!mayManage}
+                                    @change=${(event: Event) => pick('add', (event.target as HTMLSelectElement).value)}>
                                 <option value="basic">HTTP Basic - a name and a password</option>
                                 <option value="totp">HTTP TOTP - a secret that never travels</option>
                             </select>
@@ -88,7 +98,7 @@ export const authenticationPage: Page = {
 
                         <label>Login
                             <input type="text" name="login" placeholder="cs001"
-                                   ${mayManage ? '' : html`disabled`} />
+                                   ?disabled=${!mayManage} />
                             <span class="hint">
                                 A role rather than a person: it is what the other end calls this station.
                             </span>
@@ -99,7 +109,7 @@ export const authenticationPage: Page = {
                         ${totpFields('add', null, state)}
 
                         <div class="form-actions">
-                            <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                            <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                 Write them down
                             </button>
                             <span id="add-note"  class="form-notice" role="status"></span>
@@ -125,14 +135,22 @@ export const authenticationPage: Page = {
                                     nothing, or one it shows a client certificate to.
                                 </p>
                             `
-                          : html`<div class="cards">${state.authentications.map(entry => entryCard(entry, state))}</div>`}
+                          : html`<div class="cards">${repeat(state.authentications, entry => entry.id, entry => entryCard(entry, state))}</div>`}
 
                 </section>
 
             `);
 
-            wire();
+        }
 
+        /** The kind a form shows the fields of: the one picked in it, or the one the station has. */
+        function kindIn(id: string, entry: StationLogin | null): StationLogin['kind'] {
+            return picked.get(id) ?? entry?.kind ?? 'basic';
+        }
+
+        function pick(id: string, kind: string): void {
+            picked.set(id, kind === 'totp' ? 'totp' : 'basic');
+            draw();
         }
 
         /**
@@ -142,16 +160,16 @@ export const authenticationPage: Page = {
          * cannot show it back, and pretending otherwise with a row of dots
          * would suggest that it could.
          */
-        function secretField(id: string, entry: StationLogin | null): HTMLFragment {
+        function secretField(id: string, entry: StationLogin | null): TemplateResult {
 
-            const isTOTP = (entry?.kind ?? 'basic') === 'totp';
+            const isTOTP = kindIn(id, entry) === 'totp';
 
             return html`
                 <label data-secret-label="${id}">
                     <span data-secret-title="${id}">${isTOTP ? 'Shared secret' : 'Password'}</span>
                     <input type="password" name="secret" autocomplete="new-password"
                            placeholder="${entry === null ? '' : 'unchanged'}"
-                           ${mayManage ? '' : html`disabled`} />
+                           ?disabled=${!mayManage} />
                     <span class="hint">
                         ${entry === null
                               ? html`
@@ -174,17 +192,17 @@ export const authenticationPage: Page = {
         }
 
         /** What a time-based password is made of - shown only when that is what it is. */
-        function totpFields(id: string, entry: StationLogin | null, state: StationConnections): HTMLFragment {
+        function totpFields(id: string, entry: StationLogin | null, state: StationConnections): TemplateResult {
 
-            const on = (entry?.kind ?? 'basic') === 'totp';
+            const on = kindIn(id, entry) === 'totp';
 
             return html`
-                <div data-totp="${id}" class="form-stack" ${on ? '' : html`hidden`}>
+                <div data-totp="${id}" class="form-stack" ?hidden=${!on}>
 
                     <label class="checkbox">
                         <input type="checkbox" name="tlsChannelBinding"
-                               ${(entry?.tlsChannelBinding ?? true) ? html`checked` : ''}
-                               ${mayManage ? '' : html`disabled`} />
+                               ?checked=${entry?.tlsChannelBinding ?? true}
+                               ?disabled=${!mayManage} />
                         Bind the password to the TLS session
                     </label>
 
@@ -201,7 +219,7 @@ export const authenticationPage: Page = {
                             <input type="number" name="validitySeconds" min="5" max="3600"
                                    placeholder="${state.totpDefaults.validitySeconds}"
                                    value="${entry?.validitySeconds ?? ''}"
-                                   ${mayManage ? '' : html`disabled`} />
+                                   ?disabled=${!mayManage} />
                             <span class="hint">seconds</span>
                         </label>
 
@@ -209,14 +227,14 @@ export const authenticationPage: Page = {
                             <input type="number" name="length" min="4" max="64"
                                    placeholder="${state.totpDefaults.length}"
                                    value="${entry?.length ?? ''}"
-                                   ${mayManage ? '' : html`disabled`} />
+                                   ?disabled=${!mayManage} />
                             <span class="hint">characters</span>
                         </label>
 
                         <label>HMAC
-                            <select name="hashAlgorithm" ${mayManage ? '' : html`disabled`}>
+                            <select name="hashAlgorithm" ?disabled=${!mayManage}>
                                 ${['SHA256', 'SHA384', 'SHA512'].map(one => html`
-                                    <option value="${one}" ${one === (entry?.hashAlgorithm ?? 'SHA256') ? html`selected` : ''}>
+                                    <option value="${one}" ?selected=${one === (entry?.hashAlgorithm ?? 'SHA256')}>
                                         ${one}
                                     </option>
                                 `)}
@@ -229,7 +247,7 @@ export const authenticationPage: Page = {
                         <input type="text" name="alphabet" class="mono"
                                placeholder="${state.totpDefaults.alphabet}"
                                value="${entry?.alphabet ?? ''}"
-                               ${mayManage ? '' : html`disabled`} />
+                               ?disabled=${!mayManage} />
                         <span class="hint">
                             Left empty, the default. Both ends have to agree on every one of these, so
                             changing any of them here means changing them at the back end too.
@@ -241,7 +259,7 @@ export const authenticationPage: Page = {
 
         }
 
-        function entryCard(entry: StationLogin, state: StationConnections): HTMLFragment {
+        function entryCard(entry: StationLogin, state: StationConnections): TemplateResult {
 
             const usedBy = state.connections.filter(one => one.authenticationId === entry.id);
 
@@ -251,7 +269,7 @@ export const authenticationPage: Page = {
                     <div class="key-head">
                         <strong>${entry.description}</strong>
                         <span class="chip">${entry.kind === 'basic' ? 'HTTP Basic' : 'HTTP TOTP'}</span>
-                        ${entry.hasSecret ? '' : html`<span class="chip warn">no secret</span>`}
+                        ${entry.hasSecret ? nothing : html`<span class="chip warn">no secret</span>`}
                     </div>
 
                     <dl class="kv">
@@ -264,23 +282,26 @@ export const authenticationPage: Page = {
                         </dd>
                     </dl>
 
-                    <details ${opened.has(entry.id) ? html`open` : ''} data-details="${entry.id}">
+                    <details ?open=${opened.has(entry.id)} data-details="${entry.id}"
+                             @toggle=${(event: Event) => toggled(entry.id, (event.target as HTMLDetailsElement).open)}>
 
                         <summary>Change them</summary>
 
-                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}" data-kind-form="${entry.id}">
+                        <form class="form-stack" data-id="${entry.id}" data-edit="${entry.id}" data-kind-form="${entry.id}"
+                              @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(entry.id, event.currentTarget as HTMLFormElement); }}>
 
                             <label>What they are for
                                 <input type="text" name="description" maxlength="${state.maxDescriptionLength}"
-                                       value="${entry.description}" ${mayManage ? '' : html`disabled`} />
+                                       value="${entry.description}" ?disabled=${!mayManage} />
                             </label>
 
                             <label>How
-                                <select name="kind" data-kind ${mayManage ? '' : html`disabled`}>
-                                    <option value="basic" ${entry.kind === 'basic' ? html`selected` : ''}>
+                                <select name="kind" data-kind ?disabled=${!mayManage}
+                                        @change=${(event: Event) => pick(entry.id, (event.target as HTMLSelectElement).value)}>
+                                    <option value="basic" ?selected=${entry.kind === 'basic'}>
                                         HTTP Basic - a name and a password
                                     </option>
-                                    <option value="totp"  ${entry.kind === 'totp'  ? html`selected` : ''}>
+                                    <option value="totp"  ?selected=${entry.kind === 'totp'}>
                                         HTTP TOTP - a secret that never travels
                                     </option>
                                 </select>
@@ -288,7 +309,7 @@ export const authenticationPage: Page = {
 
                             <label>Login
                                 <input type="text" name="login" value="${entry.login}"
-                                       ${mayManage ? '' : html`disabled`} />
+                                       ?disabled=${!mayManage} />
                             </label>
 
                             ${secretField(entry.id, entry)}
@@ -296,11 +317,12 @@ export const authenticationPage: Page = {
                             ${totpFields(entry.id, entry, state)}
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayManage ? '' : html`disabled`}>
+                                <button type="submit" class="btn primary" ?disabled=${!mayManage}>
                                     Save
                                 </button>
                                 <button type="button" class="btn small" data-remove="${entry.id}"
-                                        ${mayManage ? '' : html`disabled`}>
+                                        ?disabled=${!mayManage}
+                                        @click=${() => void remove(entry.id)}>
                                     Remove
                                 </button>
                                 <span class="form-notice" data-note="${entry.id}"  role="status"></span>
@@ -312,7 +334,7 @@ export const authenticationPage: Page = {
                                     ${usedBy.length === 1 ? 'One connection uses' : `${usedBy.length} connections use`}
                                     these, so they cannot be removed until those point somewhere else.
                                 </span>
-                            ` : ''}
+                            ` : nothing}
 
                         </form>
 
@@ -323,71 +345,12 @@ export const authenticationPage: Page = {
 
         }
 
-        /** Show the fields of the kind a form's list says, and call its secret by that kind's name. */
-        function followKind(Select: HTMLSelectElement): void {
-
-            const id     = Select.closest('form')?.dataset.kindForm ?? '';
-            const totp   = content.querySelector<HTMLElement>(`[data-totp="${id}"]`);
-            const title  = content.querySelector<HTMLElement>(`[data-secret-title="${id}"]`);
-
-            if (totp !== null)
-                totp.hidden = Select.value !== 'totp';
-
-            if (title !== null)
-                title.textContent = Select.value === 'totp' ? 'Shared secret' : 'Password';
-
-        }
-
-        /**
-         * The same in every form, after the page was drawn anew: a kind picked
-         * and not saved yet is put back with the rest of what was typed, and
-         * the fields were drawn for the kind the node has.
-         */
-        function followKinds(): void {
-            content.querySelectorAll<HTMLSelectElement>('[data-kind]').forEach(followKind);
-        }
-
-        function wire(): void {
-
-            // Which fields are shown follows what kind it is, and it follows it
-            // straight away rather than after a save: somebody who picks TOTP
-            // and sees no shared secret field concludes the page is broken.
-            content.querySelectorAll<HTMLSelectElement>('[data-kind]').forEach(select => {
-                select.addEventListener('change', () => followKind(select));
-            });
-
-            // A details element that was open stays open across a redraw.
-            content.querySelectorAll<HTMLDetailsElement>('[data-details]').forEach(details => {
-                details.addEventListener('toggle', () => {
-                    const id = details.dataset.details ?? '';
-                    if (details.open)
-                        opened.add(id);
-                    else
-                        opened.delete(id);
-                });
-            });
-
-            must<HTMLFormElement>(content, '#add-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void add();
-            });
-
-            content.querySelectorAll<HTMLFormElement>('[data-edit]').forEach(form => {
-                form.addEventListener('submit', event => {
-                    event.preventDefault();
-                    void save(form.dataset.edit ?? '', form);
-                });
-            });
-
-            content.addEventListener('click', event => {
-
-                const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-remove]');
-
-                if (button && !button.disabled)
-                    void remove(button.dataset.remove ?? '');
-
-            });
-
+        /** A details element that was open stays open across a redraw. */
+        function toggled(id: string, open: boolean): void {
+            if (open)
+                opened.add(id);
+            else
+                opened.delete(id);
         }
 
         /** What a form says, in the shape the station takes. */
@@ -423,9 +386,11 @@ export const authenticationPage: Page = {
         }
 
 
-        async function add(): Promise<void> {
+        async function add(event: SubmitEvent): Promise<void> {
 
-            const form = must<HTMLFormElement>(content, '#add-form');
+            event.preventDefault();
+
+            const form = event.currentTarget as HTMLFormElement;
             const note = must<HTMLElement>(content, '#add-note');
 
             note.textContent = '';
@@ -437,24 +402,28 @@ export const authenticationPage: Page = {
             {
                 const made = await whileSaving(content, note, () => api.authentications.add(written));
 
+                if (cancelled)
+                    return;
+
                 store = made.connections;
+                picked.delete('add');
 
-                keepDrafts(content, 'add-form', draw);
-                followKinds();
+                draw();
 
-                must<HTMLElement>(content, '#add-note').textContent = 'Written down.';
+                // Written down, so no longer typed: the form is empty again.
+                form.reset();
+
+                note.textContent = 'Written down.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#add-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#add-error').textContent = errorMessage(problem);
             }
 
         }
 
         async function save(id: string, form: HTMLFormElement): Promise<void> {
-
-            if (id === '')
-                return;
 
             const note  = must<HTMLElement>(content, `[data-note="${id}"]`);
             const error = must<HTMLElement>(content, `[data-error="${id}"]`);
@@ -468,28 +437,32 @@ export const authenticationPage: Page = {
             {
                 store = await whileSaving(content, note, () => api.authentications.update(written));
 
+                if (cancelled)
+                    return;
+
                 // Stays open, because somebody who just saved is frequently
                 // about to change something else here.
                 opened.add(id);
+                picked.delete(id);
 
-                // The form saved is the one drawn for this record, known by
-                // its data-id: it has no id of its own.
-                keepDrafts(content, id, draw);
-                followKinds();
+                draw();
 
-                must<HTMLElement>(content, `[data-note="${id}"]`).textContent = 'Saved.';
+                // A draw leaves a form as it is typed into; the one saved goes
+                // back to what it says now - the station's answer, and no
+                // secret, which is never shown back.
+                form.reset();
+
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
             }
 
         }
 
         async function remove(id: string): Promise<void> {
-
-            if (id === '')
-                return;
 
             const error = must<HTMLElement>(content, `[data-error="${id}"]`);
             const note  = must<HTMLElement>(content, `[data-note="${id}"]`);
@@ -500,18 +473,27 @@ export const authenticationPage: Page = {
             {
                 store = await whileSaving(content, note, () => api.authentications.remove(id));
 
-                opened.delete(id);
+                if (cancelled)
+                    return;
 
-                keepDrafts(content, null, draw);
-                followKinds();
+                opened.delete(id);
+                picked.delete(id);
+
+                draw();
             }
             catch (problem)
             {
-                error.textContent = errorMessage(problem);
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
             }
 
         }
 
+        /**
+         * The page as the station has it now, drawn over the page as it is -
+         * what is typed into its forms kept, as a draw keeps it. Reload empties
+         * them itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -532,6 +514,18 @@ export const authenticationPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the forms too, which
+         * a draw on its own would leave as typed: the kinds picked and not
+         * saved go with them.
+         */
+        async function reload(): Promise<void> {
+            picked.clear();
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         // A half-typed password is work like any other, and losing one is worse

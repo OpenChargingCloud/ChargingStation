@@ -1,10 +1,11 @@
 import { api, type Connector, type EVSE, type EVSEConfiguration } from '../api/client';
 import { auth } from '../auth';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, numberFrom, whileSaving } from '@node/ui';
 import { unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat } from '@node/view';
 
 /**
  * The EVSEs of this charging station: the places a vehicle can be plugged in.
@@ -36,7 +37,7 @@ export const evsesPage: Page = {
             active:    '/configuration/evses',
             title:     'EVSEs',
             subtitle:  'The places a vehicle can be plugged into this charging station.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -64,11 +65,11 @@ export const evsesPage: Page = {
 
         /**
          * What is typed into an EVSE's field for another type of cable and not
-         * added yet. Kept here rather than only in the field, because the page
-         * draws itself anew from the draft - a cable removed from another EVSE
-         * is enough - and the field is made anew with it, empty. Kept by the
-         * EVSE rather than by its place or its number, which change when an
-         * EVSE before it is removed.
+         * added yet - the field keeps it across a draw, and this is what asks
+         * before leaving the page, and what carries it over a save, which
+         * draws the EVSEs anew from the station's answer. Kept by the EVSE
+         * rather than by its place or its number, which change when an EVSE
+         * before it is removed.
          */
         const anotherType = new WeakMap<EVSE, string>();
 
@@ -150,6 +151,26 @@ export const evsesPage: Page = {
 
         }
 
+        /**
+         * What a row is known by while it is drawn - an EVSE, a cable - so
+         * that its fields stay its own while one before it is removed: kept
+         * by the object, not by its place or its number, which change. The
+         * fields hold what is typed into them; a draw does not touch it.
+         */
+        const keys    = new WeakMap<object, number>();
+        let   nextKey = 0;
+
+        const keyOf = (row: object): number => {
+            let key = keys.get(row);
+            if (key === undefined)
+                keys.set(row, key = ++nextKey);
+            return key;
+        };
+
+        /** What a number field shows of a number: nothing where nothing was said. */
+        const shown = (value: number): string => Number.isFinite(value) ? String(value) : '';
+
+
         function draw(): void {
 
             if (configuration === null)
@@ -162,7 +183,7 @@ export const evsesPage: Page = {
 
             render(content, html`
 
-                ${mayChangeAnything ? '' : html`
+                ${mayChangeAnything ? nothing : html`
                     <div class="notice">${mayButNot('look at the EVSEs', 'change them')}</div>
                 `}
 
@@ -172,20 +193,22 @@ export const evsesPage: Page = {
                         How many EVSEs there are and what shape of plug is fitted describes hardware somebody
                         installed.
                     </div>
-                `: ''}
+                `: nothing}
 
                 <datalist id="connector-types">
                     ${current.connectorTypes.map(type => html`<option value="${type}"></option>`)}
                 </datalist>
 
                 <div class="evse-list" id="evses">
-                    ${draft.map((evse, index) => html`
+                    ${repeat(draft, keyOf, (evse, index) => html`
                         <section class="card evse" data-index="${index}">
 
                             <h2>
                                 <i class="fa-solid fa-plug"></i> EVSE ${evse.id}
                                 <button type="button" class="btn small danger" data-remove="${index}"
-                                        ${!mayChangeHardware ? html`disabled` : draft.length === 1 ? html`disabled title="A charging station needs at least one EVSE."` : ''}>
+                                        ?disabled=${!mayChangeHardware || draft.length === 1}
+                                        title=${mayChangeHardware && draft.length === 1 ? 'A charging station needs at least one EVSE.' : nothing}
+                                        @click=${() => removeEVSE(evse)}>
                                     Remove
                                 </button>
                             </h2>
@@ -195,7 +218,8 @@ export const evsesPage: Page = {
                                 <label>Maximum power of this EVSE in kW
                                     <input type="number" data-field="maxPower_kW" data-index="${index}"
                                            min="0.1" max="${current.maxPower_kW}" step="0.1"
-                                           value="${evse.maxPower_kW}" ${mayChangeLimits ? '' : html`disabled`} />
+                                           value="${shown(evse.maxPower_kW)}" ?disabled=${!mayChangeLimits}
+                                           @input=${(event: Event) => typed(() => { evse.maxPower_kW = numberFrom(valueOf(event)); })} />
                                     <span class="hint">
                                         What the power stage behind its cables can deliver. Only one vehicle
                                         charges at a time, so this is not their sum - and no cable below may be
@@ -208,7 +232,7 @@ export const evsesPage: Page = {
                                     <span class="k">Cables and sockets</span>
 
                                     <div class="connector-list">
-                                        ${evse.connectors.map((connector, position) => html`
+                                        ${repeat(evse.connectors, keyOf, (connector, position) => html`
                                             <div class="connector-row">
 
                                                 <span class="connector-id">${connector.id}</span>
@@ -222,24 +246,26 @@ export const evsesPage: Page = {
                                                        title="${current.connectorTypes.includes(connector.type)
                                                                    ? 'Named by OCPP 2.1'
                                                                    : 'Not named by OCPP 2.1; passed on as written'}"
-                                                       ${mayChangeHardware ? '' : html`disabled`} />
+                                                       ?disabled=${!mayChangeHardware}
+                                                       @input=${(event: Event) => typed(() => { connector.type = valueOf(event).trim(); })} />
 
                                                 ${current.connectorTypes.includes(connector.type)
-                                                      ? ''
+                                                      ? nothing
                                                       : html`<span class="chip custom" title="Not named by OCPP 2.1; passed on as written">custom</span>`}
 
                                                 <input type="number" class="connector-power"
                                                        data-connector-power="${index}" data-position="${position}"
                                                        min="0.1" max="${evse.maxPower_kW}" step="0.1"
-                                                       value="${connector.maxPower_kW}"
-                                                       ${mayChangeLimits ? '' : html`disabled`} />
+                                                       value="${shown(connector.maxPower_kW)}"
+                                                       ?disabled=${!mayChangeLimits}
+                                                       @input=${(event: Event) => typed(() => { connector.maxPower_kW = numberFrom(valueOf(event)); })} />
                                                 <span class="unit">kW</span>
 
                                                 <button type="button" class="btn small danger"
                                                         data-remove-connector="${index}" data-position="${position}"
-                                                        ${!mayChangeHardware ? html`disabled`
-                                                            : evse.connectors.length === 1 ? html`disabled title="An EVSE needs at least one connector."`
-                                                            : ''}>
+                                                        ?disabled=${!mayChangeHardware || evse.connectors.length === 1}
+                                                        title=${mayChangeHardware && evse.connectors.length === 1 ? 'An EVSE needs at least one connector.' : nothing}
+                                                        @click=${() => removeConnector(evse, connector)}>
                                                     Remove
                                                 </button>
 
@@ -254,9 +280,19 @@ export const evsesPage: Page = {
                                                          value="${anotherType.get(evse) ?? ''}"
                                                          placeholder="another type, e.g. cCCS2"
                                                          maxlength="${current.maxConnectorTypeLength}"
-                                                         ${evse.connectors.length >= current.maxConnectors ? html`disabled` : ''} />
+                                                         ?disabled=${evse.connectors.length >= current.maxConnectors}
+                                                         @input=${(event: Event) => { anotherType.set(evse, valueOf(event)); }}
+                                                         @keydown=${(event: KeyboardEvent) => {
+                                                             // Otherwise Enter in a text field submits nothing
+                                                             // and looks like the page ignored it.
+                                                             if (event.key === 'Enter') {
+                                                                 event.preventDefault();
+                                                                 addConnector(evse, event.currentTarget as HTMLInputElement);
+                                                             }
+                                                         }} />
                                                   <button type="button" class="btn small" data-add-connector="${index}"
-                                                          ${evse.connectors.length >= current.maxConnectors ? html`disabled` : ''}>Add</button>
+                                                          ?disabled=${evse.connectors.length >= current.maxConnectors}
+                                                          @click=${(event: Event) => addConnector(evse, (event.currentTarget as HTMLElement).previousElementSibling as HTMLInputElement)}>Add</button>
                                               </div>
                                               <span class="hint">
                                                   OCPP 2.1 leaves this list open, so a plug it does not name may still be
@@ -264,31 +300,35 @@ export const evsesPage: Page = {
                                                   of its EVSE.
                                               </span>
                                             `
-                                          : ''}
+                                          : nothing}
 
                                 </div>
 
                                 <label>Physical reference
                                     <input type="text" data-field="physicalReference" data-index="${index}"
                                            value="${evse.physicalReference ?? ''}" placeholder="what is written on the housing, e.g. A"
-                                           ${mayChangeHardware ? '' : html`disabled`} />
+                                           ?disabled=${!mayChangeHardware}
+                                           @input=${(event: Event) => typed(() => { evse.physicalReference = orNull(valueOf(event)); })} />
                                 </label>
 
                                 <label class="checkbox">
                                     <input type="checkbox" data-field="operative" data-index="${index}"
-                                           ${evse.operative ? html`checked` : ''} ${mayChangeAvailability ? '' : html`disabled`} />
+                                           ?checked=${evse.operative} ?disabled=${!mayChangeAvailability}
+                                           @change=${(event: Event) => typed(() => { evse.operative = (event.target as HTMLInputElement).checked; })} />
                                     Operative
                                     <span class="hint">An inoperative EVSE is reported as one, and no vehicle is served by it.</span>
                                 </label>
 
                                 <label>Meter type
                                     <input type="text" data-field="meterType" data-index="${index}"
-                                           value="${evse.meterType ?? ''}" placeholder="optional" ${mayChangeHardware ? '' : html`disabled`} />
+                                           value="${evse.meterType ?? ''}" placeholder="optional" ?disabled=${!mayChangeHardware}
+                                           @input=${(event: Event) => typed(() => { evse.meterType = orNull(valueOf(event)); })} />
                                 </label>
 
                                 <label>Meter serial number
                                     <input type="text" data-field="meterSerialNumber" data-index="${index}"
-                                           value="${evse.meterSerialNumber ?? ''}" placeholder="optional" ${mayChangeHardware ? '' : html`disabled`} />
+                                           value="${evse.meterSerialNumber ?? ''}" placeholder="optional" ?disabled=${!mayChangeHardware}
+                                           @input=${(event: Event) => typed(() => { evse.meterSerialNumber = orNull(valueOf(event)); })} />
                                 </label>
 
                             </div>
@@ -299,11 +339,14 @@ export const evsesPage: Page = {
 
                 <div class="evse-actions">
                     <button type="button" id="add" class="btn"
-                            ${!mayChangeHardware || draft.length >= current.maxEVSEs ? html`disabled` : ''}>
+                            ?disabled=${!mayChangeHardware || draft.length >= current.maxEVSEs}
+                            @click=${addEVSE}>
                         Add an EVSE
                     </button>
-                    <button type="button" id="save" class="btn primary" ${dirty && maySaveDraft() ? '' : html`disabled`}>Save</button>
-                    <button type="button" id="revert" class="btn" ${dirty ? '' : html`disabled`}>Discard changes</button>
+                    <button type="button" id="save" class="btn primary" ?disabled=${!(dirty && maySaveDraft())}
+                            @click=${() => void save()}>Save</button>
+                    <button type="button" id="revert" class="btn" ?disabled=${!dirty}
+                            @click=${revert}>Discard changes</button>
                     <span id="form-note"  class="form-notice" role="status"></span>
                     <span id="form-error" class="form-error"  role="alert"></span>
 
@@ -319,8 +362,30 @@ export const evsesPage: Page = {
 
             `);
 
-            wire();
+        }
 
+        /** What a field says now. */
+        const valueOf = (event: Event): string => (event.target as HTMLInputElement).value;
+
+        /** What a field for an optional text says: nothing, where it is empty. */
+        const orNull = (text: string): string | null => text.trim() === '' ? null : text;
+
+        /**
+         * What is typed goes into the draft, and the page is drawn anew from
+         * it: the buttons, the limit of the cables below an EVSE's power, the
+         * chip of a type OCPP does not name. The field typed into is left as
+         * it is typed - a draw does not touch what is in a field.
+         *
+         * What a field for power says is read with numberFrom: emptied, it is
+         * NaN, which goes as null - not said, and a cable that says nothing
+         * may deliver as much as its EVSE. Number() made it 0 kW, which the
+         * station refused, and which a drawing anew put back into the field
+         * (found by the local controller).
+         */
+        function typed(Change: () => void): void {
+            Change();
+            dirty = true;
+            draw();
         }
 
         function touched(): void {
@@ -328,162 +393,84 @@ export const evsesPage: Page = {
             draw();
         }
 
-        function wire(): void {
-
-            const list = must<HTMLElement>(content, '#evses');
-
-            list.addEventListener('input', event => {
-
-                const input = event.target as HTMLInputElement;
-
-                const custom = input.dataset.custom;
-                if (custom !== undefined) {
-                    anotherType.set(draft[Number(custom)], input.value);
-                    return;
-                }
-
-                const connectorType = input.dataset.connectorType;
-                if (connectorType !== undefined) {
-                    draft[Number(connectorType)].connectors[Number(input.dataset.position)].type = input.value.trim();
-                    dirty = true;
-                    enableActions();
-                    return;
-                }
-
-                // What a field for power says is read with numberFrom: emptied,
-                // it is NaN, which goes as null - not said, and a cable that
-                // says nothing may deliver as much as its EVSE. Number() made
-                // it 0 kW, which the station refused, and which a drawing anew
-                // put back into the field (found by the local controller).
-                const connectorPower = input.dataset.connectorPower;
-                if (connectorPower !== undefined) {
-                    draft[Number(connectorPower)].connectors[Number(input.dataset.position)].maxPower_kW = numberFrom(input.value);
-                    dirty = true;
-                    enableActions();
-                    return;
-                }
-
-                const index = Number(input.dataset.index);
-                const field = input.dataset.field;
-
-                if (!field || Number.isNaN(index))
-                    return;
-
-                const evse = draft[index];
-
-                if (field === 'maxPower_kW')
-                    evse.maxPower_kW = numberFrom(input.value);
-                else if (field === 'operative')
-                    evse.operative = input.checked;
-                else if (field === 'physicalReference' || field === 'meterType' || field === 'meterSerialNumber')
-                    evse[field] = input.value.trim() === '' ? null : input.value;
-
-                // No redraw here: the field somebody is typing in would lose
-                // its caret. Only the buttons need to notice.
-                dirty = true;
-                enableActions();
-
+        /**
+         * Every field back at what the page last drew into it: the draft as
+         * it is now. A draw leaves what is typed in a field; after the draft
+         * was put back to what the station has, the fields go with it.
+         */
+        function fieldsAsDrawn(): void {
+            content.querySelectorAll<HTMLInputElement>('#evses input').forEach(input => {
+                if (input.type === 'checkbox')
+                    input.checked = input.defaultChecked;
+                else
+                    input.value = input.defaultValue;
             });
+        }
 
-            list.addEventListener('click', event => {
+        function addConnector(evse: EVSE, input: HTMLInputElement): void {
 
-                const target = event.target as HTMLElement;
+            const type = input.value.trim();
 
-                const add = target.closest<HTMLElement>('[data-add-connector]');
-                if (add) {
+            if (type.length === 0 || evse.connectors.some(connector => connector.type === type))
+                return;
 
-                    const index = Number(add.dataset.addConnector);
-                    const input = must<HTMLInputElement>(content, `input[data-custom="${index}"]`);
-                    const type  = input.value.trim();
-                    const evse  = draft[index];
+            // At the limit of its EVSE, which is the most it could be anyway
+            // and the only number available before somebody has said anything
+            // about this cable.
+            evse.connectors = [...evse.connectors,
+                               { id: evse.connectors.length + 1, type, maxPower_kW: evse.maxPower_kW }];
+            anotherType.delete(evse);
 
-                    if (type.length > 0 && !evse.connectors.some(connector => connector.type === type)) {
-                        // At the limit of its EVSE, which is the most it could
-                        // be anyway and the only number available before
-                        // somebody has said anything about this cable.
-                        evse.connectors = [...evse.connectors,
-                                           { id: evse.connectors.length + 1, type, maxPower_kW: evse.maxPower_kW }];
-                        anotherType.delete(evse);
-                        touched();
-                    }
+            touched();
 
-                    return;
-
-                }
-
-                const removeConnector = target.closest<HTMLElement>('[data-remove-connector]');
-                if (removeConnector) {
-
-                    const evse = draft[Number(removeConnector.dataset.removeConnector)];
-
-                    if (evse.connectors.length > 1) {
-                        evse.connectors.splice(Number(removeConnector.dataset.position), 1);
-                        renumber();
-                        touched();
-                    }
-
-                    return;
-
-                }
-
-                const remove = target.closest<HTMLElement>('[data-remove]');
-                if (remove && draft.length > 1) {
-                    draft.splice(Number(remove.dataset.remove), 1);
-                    renumber();
-                    touched();
-                }
-
-            });
-
-            list.addEventListener('keydown', event => {
-
-                const key = event as KeyboardEvent;
-
-                if (key.key !== 'Enter')
-                    return;
-
-                const input = (key.target as HTMLElement).closest<HTMLInputElement>('[data-custom]');
-
-                if (input) {
-                    // Otherwise Enter in a text field submits nothing and looks
-                    // like the page ignored it.
-                    key.preventDefault();
-                    must<HTMLElement>(content, `[data-add-connector="${input.dataset.custom}"]`).click();
-                }
-
-            });
-
-            must<HTMLButtonElement>(content, '#add').addEventListener('click', () => {
-
-                draft.push({
-                    id:                 draft.length + 1,
-                    connectors:         [ { id: 1, type: 'sType2', maxPower_kW: 22 } ],
-                    maxPower_kW:        22,
-                    operative:          true,
-                    physicalReference:  String.fromCharCode(65 + draft.length),
-                    meterType:          null,
-                    meterSerialNumber:  null
-                });
-
-                touched();
-
-            });
-
-            must<HTMLButtonElement>(content, '#revert').addEventListener('click', () => {
-                draft = clone(configuration!.evses);
-                dirty = false;
-                draw();
-            });
-
-            must<HTMLButtonElement>(content, '#save').addEventListener('click', () => void save());
-
-            enableActions();
+            // Added, so no longer typed.
+            input.value = '';
 
         }
 
-        function enableActions(): void {
-            must<HTMLButtonElement>(content, '#save').disabled   = !dirty || !maySaveDraft();
-            must<HTMLButtonElement>(content, '#revert').disabled = !dirty;
+        function removeConnector(evse: EVSE, connector: Connector): void {
+
+            if (evse.connectors.length <= 1)
+                return;
+
+            evse.connectors.splice(evse.connectors.indexOf(connector), 1);
+            renumber();
+            touched();
+
+        }
+
+        function removeEVSE(evse: EVSE): void {
+
+            if (draft.length <= 1)
+                return;
+
+            draft.splice(draft.indexOf(evse), 1);
+            renumber();
+            touched();
+
+        }
+
+        function addEVSE(): void {
+
+            draft.push({
+                id:                 draft.length + 1,
+                connectors:         [ { id: 1, type: 'sType2', maxPower_kW: 22 } ],
+                maxPower_kW:        22,
+                operative:          true,
+                physicalReference:  String.fromCharCode(65 + draft.length),
+                meterType:          null,
+                meterSerialNumber:  null
+            });
+
+            touched();
+
+        }
+
+        function revert(): void {
+            draft = clone(configuration!.evses);
+            dirty = false;
+            draw();
+            fieldsAsDrawn();
         }
 
         async function save(): Promise<void> {
@@ -498,26 +485,43 @@ export const evsesPage: Page = {
             {
                 configuration = await whileSaving(content, note, () => api.evses.save(draft));
 
-                // Another type typed and not added was not saved, and stays
-                // with its EVSE: the station answers with the list as it was
-                // sent, in the same order.
-                const typed   = draft.map(evse => anotherType.get(evse));
+                if (cancelled)
+                    return;
+
+                // The station answers with the list as it was sent, in the
+                // same order: each EVSE and cable keeps its row - and the
+                // field somebody is in, its focus - and another type typed and
+                // not added, which was not saved, stays with its EVSE.
+                const before  = draft;
 
                 draft         = clone(configuration.evses);
                 dirty         = false;
 
                 draft.forEach((evse, index) => {
-                    if (typed[index])
-                        anotherType.set(evse, typed[index]);
+                    const was = before[index];
+                    if (was === undefined)
+                        return;
+                    keys.set(evse, keyOf(was));
+                    evse.connectors.forEach((connector, position) => {
+                        if (was.connectors[position] !== undefined)
+                            keys.set(connector, keyOf(was.connectors[position]));
+                    });
+                    const typed = anotherType.get(was);
+                    if (typed)
+                        anotherType.set(evse, typed);
                 });
 
                 draw();
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved, and in effect.';
+                // What is in the fields is what the station took, as it says it.
+                fieldsAsDrawn();
+
+                note.textContent = 'Saved, and in effect.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
@@ -536,6 +540,7 @@ export const evsesPage: Page = {
                 dirty         = false;
 
                 draw();
+                fieldsAsDrawn();
             }
             catch (problem)
             {

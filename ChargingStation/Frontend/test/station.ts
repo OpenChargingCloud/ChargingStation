@@ -13,7 +13,7 @@ import '@node/../test/dom.ts';
 
 import { strict as assert } from 'node:assert';
 
-import type { Page } from '@node/router';
+import type { Cleanup, Page } from '@node/router';
 
 const { auth }            = await import('../src/auth.ts');
 const { configureShell }  = await import('@node/shell.ts');
@@ -72,9 +72,12 @@ window.confirm = (text?: unknown) => { said.push(String(text)); return true; };
 
 const wait = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Wait until it holds, a second at the most, and fail with what was said if it does not. */
-export async function until(what: () => boolean, failure: string): Promise<void> {
-    for (let i = 0; i < 200 && !what(); i++)
+/**
+ * Wait until it holds, a second at the most - or as long as it is given - and
+ * fail with what was said if it does not.
+ */
+export async function until(what: () => boolean, failure: string, within_ms = 1_000): Promise<void> {
+    for (const end = Date.now() + within_ms; Date.now() < end && !what(); )
         await wait(5);
     assert.ok(what(), failure);
 }
@@ -85,15 +88,39 @@ export async function settled(): Promise<void> {
         await wait(2);
 }
 
+/** What the page drawn last does when it is left, as the router does it. */
+let leaving: ReturnType<Page['render']> = undefined;
+
+/**
+ * Leave the page drawn last, as the router does: what it keeps asking - the
+ * Connections page asks every five seconds - stops, or the test's process
+ * never ends.
+ */
+export function left(): void {
+
+    const leave = leaving;
+
+    leaving = undefined;
+
+    if (leave instanceof Promise)
+        void leave.then((cleanup: Cleanup | void) => cleanup?.());
+    else
+        leave?.();
+
+}
+
 /**
  * A page drawn into a document of its own, for somebody with these
- * permissions, against a stand-in that answers so.
+ * permissions, against a stand-in that answers so. The page drawn before it
+ * is left.
  */
 export async function open(page:         Page,
                            path:         string,
                            permissions:  string[],
                            how:          Answers,
                            drawn:        (root: HTMLElement) => boolean): Promise<HTMLElement> {
+
+    left();
 
     asked.length = 0;
     said.length  = 0;
@@ -105,7 +132,7 @@ export async function open(page:         Page,
     const root = document.createElement('div');
     document.body.replaceChildren(root);
 
-    page.render({ root, url: new URL(`http://127.0.0.1${path}`), params: {}, navigate: () => undefined } as never);
+    leaving = page.render({ root, url: new URL(`http://127.0.0.1${path}`), params: {}, navigate: () => undefined } as never);
 
     await until(() => drawn(root), `${path} did not draw`);
 

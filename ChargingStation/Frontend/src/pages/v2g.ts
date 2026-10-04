@@ -1,12 +1,12 @@
 import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, numberField, whileSaving } from '@node/ui';
 import { typedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, type TemplateResult } from '@node/view';
 
 /**
  * What this charging station offers a vehicle on the wire below the cable.
@@ -32,14 +32,14 @@ export const v2gPage: Page = {
             active:    '/configuration/v2g',
             title:     'V2G',
             subtitle:  'SLAC, SDP and the endpoint they lead to - what is offered below the charging cable.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
             if (unsaved.mayBeLost())
-                void load();
+                void reload();
         });
 
         const mayChange = auth.can('v2g', 'edit');
@@ -80,7 +80,7 @@ export const v2gPage: Page = {
 
             render(content, html`
 
-                ${mayChange ? '' : html`
+                ${mayChange ? nothing : html`
                     <div class="notice">${mayButNot('look at what this station offers below the cable', 'change it')}</div>
                 `}
 
@@ -125,14 +125,14 @@ export const v2gPage: Page = {
                                                 <span class="k">SDP</span>
                                                 <span class="v">
                                                     ${link.sdp ? 'answering' : 'not running'}
-                                                    ${link.sdpLoopback ? html`, this machine included` : ''}
+                                                    ${link.sdpLoopback ? html`, this machine included` : nothing}
                                                 </span>
                                             </div>
                                             <div class="kv">
                                                 <span class="k">SLAC</span>
                                                 <span class="v">
                                                     ${link.slac ? 'listening' : 'not running'}
-                                                    ${link.slacTransport === null ? '' : html` on ${link.slacTransport}`}
+                                                    ${link.slacTransport === null ? nothing : html` on ${link.slacTransport}`}
                                                 </span>
                                             </div>
                                             <div class="kv">
@@ -156,17 +156,17 @@ export const v2gPage: Page = {
 
                     </section>
 
-                    ${link?.t1s ? coupler(link.t1s) : ''}
+                    ${link?.t1s ? coupler(link.t1s) : nothing}
 
                     <section class="card">
 
                         <h2><i class="fa-solid fa-sliders"></i> Settings</h2>
 
-                        <form id="v2g-form" class="form-stack">
+                        <form id="v2g-form" class="form-stack" @submit=${save}>
 
                             <label class="checkbox">
-                                <input type="checkbox" name="enabled" ${c.enabled ? html`checked` : ''}
-                                       ${mayChange ? '' : html`disabled`} />
+                                <input type="checkbox" name="enabled" ?checked=${c.enabled}
+                                       ?disabled=${!mayChange} />
                                 Offer something below the charging cable
                                 <span class="hint">
                                     Off by default, and off is the right default: this opens a raw socket and
@@ -176,8 +176,8 @@ export const v2gPage: Page = {
                             </label>
 
                             <label class="checkbox">
-                                <input type="checkbox" name="sdp" ${c.sdp ? html`checked` : ''}
-                                       ${mayChange ? '' : html`disabled`} />
+                                <input type="checkbox" name="sdp" ?checked=${c.sdp}
+                                       ?disabled=${!mayChange} />
                                 Answer SECC Discovery Protocol requests
                                 <span class="hint">
                                     How a vehicle finds the V2G endpoint. Switched off, the endpoint is still
@@ -186,8 +186,8 @@ export const v2gPage: Page = {
                             </label>
 
                             <label class="checkbox">
-                                <input type="checkbox" name="loopback" ${c.loopback ? html`checked` : ''}
-                                       ${mayChange ? '' : html`disabled`} />
+                                <input type="checkbox" name="loopback" ?checked=${c.loopback}
+                                       ?disabled=${!mayChange} />
                                 Also answer a vehicle on this same machine
                                 <span class="hint">
                                     For a bench where the vehicle is another process here. Off in the field: a
@@ -200,7 +200,7 @@ export const v2gPage: Page = {
                             <label>Powerline interface
                                 <input type="text" name="interface" value="${c.interface ?? ''}"
                                        maxlength="128" placeholder="let the station pick"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">
                                     Left empty, the station takes the first interface that looks like a
                                     candidate - right on a machine with one cable and a guess on a machine
@@ -210,7 +210,7 @@ export const v2gPage: Page = {
 
                             <label>V2G endpoint port
                                 <input type="number" name="port" min="0" max="65535" step="1"
-                                       value="${c.port}" ${mayChange ? '' : html`disabled`} />
+                                       value="${c.port}" ?disabled=${!mayChange} />
                                 <span class="hint">
                                     15118 unless you say otherwise, the port IANA registers for v2g-secc.
                                     ISO 15118 does not require it - the port travels in the SDP response, so
@@ -221,7 +221,7 @@ export const v2gPage: Page = {
 
                             <label>EVSE identification
                                 <input type="text" name="evseId" value="${c.evseId}" maxlength="17"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                                 <span class="hint">
                                     What SLAC hands a vehicle. At most 17 characters, because that is what
                                     HomePlug carries - a longer one is refused here rather than quietly cut.
@@ -229,9 +229,9 @@ export const v2gPage: Page = {
                             </label>
 
                             <label>SLAC transport
-                                <select name="slac" ${mayChange ? '' : html`disabled`}>
+                                <select name="slac" ?disabled=${!mayChange}>
                                     ${c.slacTransports.map(kind => html`
-                                        <option value="${kind}" ${kind === c.slac ? html`selected` : ''}>${describe(kind)}</option>
+                                        <option value="${kind}" ?selected=${kind === c.slac}>${describe(kind)}</option>
                                     `)}
                                 </select>
                                 <span class="hint">
@@ -242,9 +242,9 @@ export const v2gPage: Page = {
                             </label>
 
                             <label>The coupler's bus - 10BASE-T1S, below a megawatt cable
-                                <select name="t1sTransport" ${mayChange ? '' : html`disabled`}>
+                                <select name="t1sTransport" ?disabled=${!mayChange}>
                                     ${c.t1sTransports.map(kind => html`
-                                        <option value="${kind}" ${kind === c.t1sTransport ? html`selected` : ''}>${describeT1S(kind)}</option>
+                                        <option value="${kind}" ?selected=${kind === c.t1sTransport}>${describeT1S(kind)}</option>
                                     `)}
                                 </select>
                             </label>
@@ -252,37 +252,37 @@ export const v2gPage: Page = {
                             <label>Bus group and port
                                 <input type="text" name="t1sBus" value="${c.t1sBus ?? ''}"
                                        placeholder="${c.t1sDefaultBus} - the emulated medium's group"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                             </label>
 
                             <label>Bus interface
                                 <input type="text" name="t1sInterface" value="${c.t1sInterface ?? ''}"
                                        placeholder="leave empty: the V2G interface for an adapter, the system's pick for udp"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                             </label>
 
                             <label>What this station calls itself on the bus
                                 <input type="text" name="t1sName" value="${c.t1sName ?? ''}"
-                                       placeholder="EVSE" ${mayChange ? '' : html`disabled`} />
+                                       placeholder="EVSE" ?disabled=${!mayChange} />
                             </label>
 
                             <label>A cycle every ... milliseconds - how often every node is asked
                                 <input type="number" name="t1sCycleMs" value="${c.t1sCycleMs}" min="50" max="10000" step="10"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                             </label>
 
                             <label>A pin is warm at ... °C
                                 <input type="number" name="t1sWarningC" value="${c.t1sWarningC}" min="-50" max="300" step="1"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                             </label>
 
                             <label>... and overloaded at ... °C
                                 <input type="number" name="t1sOverloadC" value="${c.t1sOverloadC}" min="-50" max="300" step="1"
-                                       ${mayChange ? '' : html`disabled`} />
+                                       ?disabled=${!mayChange} />
                             </label>
 
                             <div class="form-actions">
-                                <button type="submit" class="btn primary" ${mayChange ? '' : html`disabled`}>Save</button>
+                                <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
                                 <span id="form-note"  class="form-notice" role="status"></span>
                                 <span id="form-error" class="form-error"  role="alert"></span>
                             </div>
@@ -290,7 +290,7 @@ export const v2gPage: Page = {
                             <span class="hint">
                                 Saved to ${c.file}, and put into effect at once${c.running && c.enabled ? html` - the
                                 link goes down and comes back up, and a vehicle in the middle of a SLAC match
-                                goes down with it` : ''}.
+                                goes down with it` : nothing}.
                             </span>
 
                         </form>
@@ -323,22 +323,13 @@ export const v2gPage: Page = {
 
             `);
 
-            wire();
-
         }
 
-        function wire(): void {
+        async function save(event: SubmitEvent): Promise<void> {
 
-            must<HTMLFormElement>(content, '#v2g-form').addEventListener('submit', event => {
-                event.preventDefault();
-                void save();
-            });
+            event.preventDefault();
 
-        }
-
-        async function save(): Promise<void> {
-
-            const form = must<HTMLFormElement>(content, '#v2g-form');
+            const form = event.currentTarget as HTMLFormElement;
             const note = must<HTMLElement>(content, '#form-note');
 
             note.textContent = '';
@@ -385,17 +376,30 @@ export const v2gPage: Page = {
             {
                 current = await whileSaving(content, note, () => api.v2g.save(update));
 
-                keepDrafts(content, 'v2g-form', draw);
+                if (cancelled)
+                    return;
 
-                must<HTMLElement>(content, '#form-note').textContent = 'Saved.';
+                draw();
+
+                // A draw leaves a form as it is typed into; the one saved goes
+                // back to what it says now - the station's answer.
+                form.reset();
+
+                note.textContent = 'Saved.';
             }
             catch (problem)
             {
-                must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                if (!cancelled)
+                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
             }
 
         }
 
+        /**
+         * The page as the station has it now, drawn over the page as it is -
+         * what is typed into the form kept, as a draw keeps it. Reload empties
+         * it itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -416,6 +420,16 @@ export const v2gPage: Page = {
                     `);
             }
 
+        }
+
+        /**
+         * Loaded anew - Reload - is what the station has, the form too, which
+         * a draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+            await load();
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
         }
 
         const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#v2g-form')));
@@ -473,7 +487,7 @@ function describeT1S(kind: string): string {
  * who has to compare two figures to see that something is wrong is a reader
  * who will not see it.
  */
-function coupler(bus: T1SBusStatus) {
+function coupler(bus: T1SBusStatus): TemplateResult {
 
     const pins     = bus.nodes.filter(node => node.temperatureC !== null);
     const hottest  = pins.reduce<number | null>((most, pin) => most === null || pin.temperatureC! > most ? pin.temperatureC! : most, null);
@@ -490,12 +504,12 @@ function coupler(bus: T1SBusStatus) {
                              the same way, because a sensor that has gone quiet is not one that has cooled.`
                       : bus.thermal.state === 'warning'
                             ? html`A pin of this coupler is <strong>warm</strong>: at or above
-                                   ${bus.thermal.warningC} °C${hottest === null ? '' : html`, the hottest
+                                   ${bus.thermal.warningC} °C${hottest === null ? nothing : html`, the hottest
                                    ${hottest.toFixed(1)} °C`}. Nothing is being stopped yet - that happens at
                                    ${bus.thermal.overloadC} °C - but it is on its way there if the current stays.`
                             : html`Every node on the bus is asked once a cycle, the vehicle more often than that.
                                    A pin is called warm at ${bus.thermal.warningC} °C and overloaded at
-                                   ${bus.thermal.overloadC} °C${hottest === null ? '' : html`; the hottest
+                                   ${bus.thermal.overloadC} °C${hottest === null ? nothing : html`; the hottest
                                    right now is ${hottest.toFixed(1)} °C`}.`}
             </p>
 
@@ -553,7 +567,7 @@ function coupler(bus: T1SBusStatus) {
                                                 : node.thermal === 'normal'
                                                       ? html`normal`
                                                       : html`<strong>${describeThermal(node.thermal)}</strong>`}
-                                          ${node.missed > 0 ? html` <span class="muted">(${node.missed} missed)</span>` : ''}
+                                          ${node.missed > 0 ? html` <span class="muted">(${node.missed} missed)</span>` : nothing}
                                       </td>
                                       <td class="right">${node.frames}</td>
                                   </tr>
