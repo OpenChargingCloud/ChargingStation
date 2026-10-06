@@ -51,6 +51,20 @@ Then open http://127.0.0.1:2348/ and sign in. The accounts, their passwords,
 their sessions and their API keys are Hermod's HTTPExt API, mounted under
 `/ext` - the same one the CSMS signs in against.
 
+Recommended for the first start: bring `root` your own SSH key, for the
+command line over SSH -
+
+```
+dotnet run --project ChargingStationCLI -- --authorize-ssh-key root=C:\Users\you\.ssh\id_ed25519.pub
+```
+
+Without it, the first start makes up a key pair for `root` and prints its
+private key once, below the box with the password, from
+`-----BEGIN OPENSSH PRIVATE KEY-----` to the END line, to be saved as a file
+only you can read. See
+[ChargingStationCLI](https://github.com/OpenChargingCloud/ChargingStationCLI)
+for signing in with it.
+
 `--help` lists the rest: `--port`, `--any`, `--accounts <dir>`,
 `--frontend <dir>`, `--config <file>`, `--verbose`, `--quiet`, `--no-trace`,
 the display's `--kiosk-port` and `--no-kiosk`, the local app server's
