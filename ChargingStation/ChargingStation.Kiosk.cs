@@ -65,25 +65,6 @@ namespace cloud.charging.open.ChargingStation
         #region Data
 
         /// <summary>
-        /// How much of a one-time password has to be left for it to be worth
-        /// putting on a screen.
-        /// </summary>
-/// <remarks>
-        /// A QR code with two seconds left is a code somebody points a phone at
-        /// and then cannot use, which is worse than no code at all: the second
-        /// attempt looks like the station is broken.
-        ///
-        /// What happens in that last stretch is that the *next* password is
-        /// shown a few seconds early, not that nothing is shown. This used to
-        /// say the display could simply wait, which measured badly: with a
-        /// thirty-second validity the outlet had no code at all for four
-        /// seconds out of every thirty - twice a minute, for as long as the
-        /// station stands there - and the card jumped its whole layout each
-        /// time as the code came and went.
-        /// </remarks>
-        public static readonly TimeSpan MinimumQRCodeTime = TimeSpan.FromSeconds(5);
-
-        /// <summary>
         /// The longest a display message may be.
         /// </summary>
         /// <remarks>
@@ -285,13 +266,14 @@ namespace cloud.charging.open.ChargingStation
         /// so the URL on the screen and the URL that component would report are
         /// the same URL.
         ///
-        /// A password that is about to run out is not shown; the one that is
-        /// about to begin is shown instead. TOTP is verified against three
-        /// passwords - the one before, the one now and the one next - which is
-        /// what makes that safe, and it is the same triple this generator hands
-        /// back. So the code on the screen is always one somebody can use, and
-        /// there is never a moment with no way to pay at an outlet that is
-        /// standing free.
+        /// The password of the slot this is, to its last second. A payment is
+        /// checked against three - the one before, the one now and the one
+        /// next - so a code read in the last second of its slot is still paid
+        /// with for the whole slot after it. It used to hand out the next one
+        /// for the last five seconds of a slot instead, which bought nothing
+        /// that the one before did not already give. So the code on the screen
+        /// is always one somebody can use, and there is never a moment with no
+        /// way to pay at an outlet that is standing free.
         /// </remarks>
         private (String URL, DateTimeOffset EndTime)? WebPaymentURL(Byte            EVSEId,
                                                                     DateTimeOffset  Now)
@@ -311,21 +293,15 @@ namespace cloud.charging.open.ChargingStation
                                        Replace("{evseId}", EVSEId.ToString(), StringComparison.OrdinalIgnoreCase)
                                );
 
-                var (_, current, next, remaining, endTime) = TOTPGenerator.GenerateURLs(
-                                                                     template,
-                                                                     webPayments.SharedSecret ?? "",
-                                                                     webPayments.ValidityTime,
-                                                                     webPayments.TOTPLength,
-                                                                     Timestamp: Now
-                                                                 );
+                var (_, current, _, _, endTime) = TOTPGenerator.GenerateURLs(
+                                                      template,
+                                                      webPayments.SharedSecret ?? "",
+                                                      webPayments.ValidityTime,
+                                                      webPayments.TOTPLength,
+                                                      Timestamp: Now
+                                                  );
 
-                // Near the end of a slot, hand out the one that is about to
-                // begin, along with when *it* runs out - so a phone that reads
-                // the screen in the last second of a slot still has a whole
-                // slot to pay in.
-                return remaining < MinimumQRCodeTime
-                           ? (next,    endTime + (webPayments.ValidityTime ?? TimeSpan.FromSeconds(30)))
-                           : (current, endTime);
+                return (current, endTime);
 
             }
             catch (Exception e)

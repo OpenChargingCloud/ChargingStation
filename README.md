@@ -650,9 +650,9 @@ operator's, because that is who they are buying from.
 `"webPayments"` is the QR code on the display: a URL carrying a time-based
 one-time password over a shared secret, so that a photograph of yesterday's
 screen is worth nothing. `{evseId}` in the template is filled in per outlet and
-`{TOTP}` with the password. A code with less than five seconds left is not shown
-at all - a code somebody photographs and then cannot use is worse than no code,
-because the second attempt looks like the station is broken.
+`{TOTP}` with the password. A payment is taken with the password before the one
+on the screen, the one on it and the one after it, so a code read in the last
+second of its slot is still good for the whole slot after it.
 
 **This is the one section with no page and no HTTP route.** The shared secret is
 the one piece of configuration in this station worth stealing, and the display
@@ -1404,14 +1404,14 @@ which is the part that matters from three metres away. Six outlets on a
 **The payment code never goes away.** Measured on the wire: with a thirty-second
 validity the station answered `qrCode: null` for four seconds out of every
 thirty - twice a minute, for as long as it stands there - because it would not
-hand out a password with less than five seconds left on it. Which is right as
-far as it goes: a code somebody photographs and then cannot use is worse than no
-code. But the answer is not to show nothing, it is to show the password that is
-about to begin. TOTP is verified against three - the one before, the one now and
-the one next - which is what makes that safe, and it is the same triple the
-generator already hands back. So the outlet standing free always has a way to
-pay at it, and the card does not jump its layout twice a minute as the code
-comes and goes.
+hand out a password with less than five seconds left on it, for fear of a code
+somebody photographs and then cannot use. That fear was unfounded: TOTP is
+verified against three - the one before, the one now and the one next - so a
+code read in its last second is still paid with for the whole slot after it.
+For a while the station showed the next password in those five seconds instead;
+now it simply shows the password of the slot it is in, to its last second. So
+the outlet standing free always has a way to pay at it, and the card does not
+jump its layout twice a minute as the code comes and goes.
 
 **It is touched, not clicked.** Everything on this screen is sized in vmin,
 which is right for something read from three metres away and wrong for

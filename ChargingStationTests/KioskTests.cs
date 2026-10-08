@@ -336,52 +336,110 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         /// <summary>
-        /// Near the end of a password's life, the next one is shown instead.
+        /// When the display's code runs out, as the station says it.
+        /// </summary>
+        private DateTimeOffset ExpiryOnTheDisplay(Byte EVSEId)
+            => DateTimeOffset.Parse(
+                   (OutletOnTheDisplay(EVSEId)["qrCode"] as JObject)!.Value<String>("expiresAt")!
+               );
+
+        /// <summary>
+        /// Ten seconds into a slot, wherever the slots happen to fall: asked
+        /// from the station rather than worked out here.
+        /// </summary>
+        private DateTimeOffset IntoASlot()
+        {
+            clock.Now = ExpiryOnTheDisplay(1).AddSeconds(10);
+            return clock.Now;
+        }
+
+        /// <summary>
+        /// The display shows the password of the slot it is in, to its last second.
         /// </summary>
         /// <remarks>
-        /// Which is what makes the rule above safe rather than merely quiet: a
-        /// code somebody photographs and then cannot use is worse than no code.
-        /// TOTP is verified against three - the one before, the one now and the
-        /// one next - so handing out the next one a few seconds early is
-        /// something the far end already accepts.
+        /// It used to show the next one for the last five seconds of a slot, so
+        /// that nobody would be handed a code with two seconds left. But a
+        /// password is taken for a whole slot after its own as well - see below -
+        /// so a code read in the last second still has that slot to be paid
+        /// with, and the five seconds bought nothing but a second rule.
         /// </remarks>
         [Test]
-        public void NearTheEndOfASlotTheNextPasswordIsShown()
+        public void TheDisplayShowsThePasswordOfTheSlotItIsIn()
         {
 
-            // Somewhere in the middle of a slot, wherever the slots happen to
-            // fall: asked from the station rather than worked out here.
-            var middle    = clock.Now;
-            var inTheMiddle = PasswordOnTheDisplay(1);
+            var start        = clock.Now;
+            IntoASlot();
 
-            var expires   = DateTimeOffset.Parse(
-                                (OutletOnTheDisplay(1)["qrCode"] as JObject)!.Value<String>("expiresAt")!
-                            );
+            var inTheMiddle  = PasswordOnTheDisplay(1);
+            var expires      = ExpiryOnTheDisplay(1);
 
-            // Two seconds before it runs out - inside the five the station
-            // refuses to hand out.
-            clock.Now     = expires.AddSeconds(-2);
-            var atTheEnd  = PasswordOnTheDisplay(1);
+            clock.Now        = expires.AddSeconds(-2);
+            var atTheEnd     = PasswordOnTheDisplay(1);
+            var expiresThen  = ExpiryOnTheDisplay(1);
 
-            // And a second after, which is the slot that was being handed out
-            // early.
-            clock.Now     = expires.AddSeconds(1);
-            var afterwards = PasswordOnTheDisplay(1);
+            clock.Now        = expires.AddSeconds(1);
+            var afterwards   = PasswordOnTheDisplay(1);
 
             Assert.Multiple(() => {
 
-                Assert.That(atTheEnd,   Is.Not.Null);
-                Assert.That(afterwards, Is.Not.Null);
+                Assert.That(inTheMiddle, Is.Not.Null);
+                Assert.That(afterwards,  Is.Not.Null);
 
-                Assert.That(atTheEnd,   Is.Not.EqualTo(inTheMiddle),
-                            "The code in the last seconds of a slot is the one that is about to run out.");
+                Assert.That(atTheEnd,    Is.EqualTo(inTheMiddle),
+                            "Two seconds before the end of a slot the display showed another slot's password.");
 
-                Assert.That(atTheEnd,   Is.EqualTo(afterwards),
-                            "The code shown early is not the one that follows.");
+                Assert.That(expiresThen, Is.EqualTo(expires),
+                            "Two seconds before the end of a slot the display said its code runs out at another time.");
+
+                Assert.That(afterwards,  Is.Not.EqualTo(inTheMiddle),
+                            "The next slot still showed the password before it.");
 
             });
 
-            clock.Now = middle;
+            clock.Now = start;
+
+        }
+
+        /// <summary>
+        /// The password before the one on the display and the one after it are
+        /// taken, and none further away.
+        /// </summary>
+        /// <remarks>
+        /// What the display can rely on: a code read in the last second of its
+        /// slot is still paid with for the whole slot after it, and a phone or
+        /// a payment service whose clock runs a little ahead is not turned away.
+        /// Two slots off is a photograph of an earlier screen.
+        /// </remarks>
+        [Test]
+        public void ThePasswordBeforeAndTheOneAfterAreTakenAndNoneFurther()
+        {
+
+            var start     = IntoASlot();
+            var shown     = PasswordOnTheDisplay(1)!;
+
+            clock.Now     = start.AddSeconds(2 * Validity.TotalSeconds);
+            var twoAhead  = Station.TryStartWebPayment(1, shown, out _, out _);
+
+            clock.Now     = start.AddSeconds(Validity.TotalSeconds + 15);
+            var oneAhead  = Station.TryStartWebPayment(1, shown, out _, out var errorOneAhead);
+
+            clock.Now     = start.AddSeconds(Validity.TotalSeconds);
+            var later     = PasswordOnTheDisplay(2)!;
+
+            clock.Now     = start.AddSeconds(-Validity.TotalSeconds);
+            var twoBack   = Station.TryStartWebPayment(2, later, out _, out _);
+
+            clock.Now     = start;
+            var oneBack   = Station.TryStartWebPayment(2, later, out _, out var errorOneBack);
+
+            Assert.Multiple(() => {
+
+                Assert.That(oneAhead,  Is.True,  $"The password of the slot before was turned away: {errorOneAhead}");
+                Assert.That(oneBack,   Is.True,  $"The password of the slot after was turned away: {errorOneBack}");
+                Assert.That(twoAhead,  Is.False, "A password two slots old was taken.");
+                Assert.That(twoBack,   Is.False, "A password two slots ahead was taken.");
+
+            });
 
         }
 
