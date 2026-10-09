@@ -730,16 +730,24 @@ keys this station dials its back ends with, which are on
 `/configuration/client-keys`: they are made on this station and never
 imported, which a store that takes files cannot promise.
 
-A certificate is imported as PEM, DER or PKCS#12, and one this station presents
-has to bring its private key. A TLS root and a server certificate are told what
-they are for - the time servers (`nts`), the name servers (`dns`), or with
-nothing said every use - at the upload and again later, because one root may
-vouch for both and a root kept for the name servers vouches for no time. The NTS
-and the DNS page offer, in a server's dialog, the ones kept for it. An identity
-is told the listeners it is shown on where a kind of node names some; a station
-names none, so the page offers an identity nothing to be told. Copying a file
-into the directory is a way to install one as well: the store reads the
-directory at every start, and "Re-read the directory" does it at once.
+The page has three tabs: by usage, kind by kind in those three groups; every
+certificate once, with every kind it is kept as; and the upload - a box that
+certificates are pasted into as text or dropped on as files, PEM, DER or
+PKCS#12, which says what is in it before anything goes in. One certificate may
+be kept as several kinds at once - a self-signed identity as the TLS root its
+peers are judged against as well - each switched on and off on its own, and a
+kind or a usage of one's own may be made up at the upload. One this station
+presents has to bring its private key. A TLS root and a server certificate are
+told what they are for - the time servers (`nts`), the name servers (`dns`), or
+with nothing said every use - at the upload and again later, because one root
+may vouch for both and a root kept for the name servers vouches for no time.
+The NTS and the DNS page offer, in a server's dialog, the ones kept for it. An
+identity is offered the listeners it is shown on where a kind of node names
+some; a station names none, so an identity here is offered no usage but one
+written down of one's own. Copying
+a file into the directory is a way to install one as well: the store reads the
+directory at every start, and `POST /api/v1/certificates/reload` does it at
+once.
 
 Reading the store is `certificates:read`. Changing it - importing, switching
 on and off, saying what a certificate is for, deleting - is `certificates:edit`,
