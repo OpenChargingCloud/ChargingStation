@@ -118,6 +118,21 @@ $touch-target-big:  48px;
     initial-value:  1;
 }
 
+// Where the picture is on its walk against burn-in, as two numbers the page
+// sets - see #kiosk below. Registered for the same reason as --dim: so that a
+// step is something that can glide.
+@property --drift-x {
+    syntax:         "<number>";
+    inherits:       false;
+    initial-value:  0;
+}
+
+@property --drift-y {
+    syntax:         "<number>";
+    inherits:       false;
+    initial-value:  0;
+}
+
 html, body.kiosk-body {
     height:      100%;
     margin:      0;
@@ -163,17 +178,22 @@ html, body.kiosk-body {
                      calc(2vmin   - var(--drift-y) * var(--drift-step))
                      calc(2.5vmin + var(--drift-x) * var(--drift-step));
 
-    // No transition on that padding, and the reason is worth writing down: a
+    // The step glides, and what glides is the two numbers, not the padding: a
     // property whose value varies only through an unregistered custom property
     // is one Chrome will not animate - and with a transition declared on it, it
     // does not apply the change at all. Measured: the step arrived, the custom
     // property read back as -1, and the padding sat at 2vmin four seconds
-    // later; taking the transition out moved it the same instant.
+    // later. Registered as numbers (above), the numbers themselves transition,
+    // and the padding follows them, as the brightness follows --dim.
     //
-    // A step every three quarters of a minute, thirteen pixels on a 1080p
-    // panel, is invisible from where this is read anyway. A glide would need
-    // @property to register the custom property as a number, which is a
-    // dependency to take on the day somebody can see it jump.
+    // It used to jump instead - thirteen pixels of the whole screen at once on
+    // a 1080p panel - on the reasoning that nobody would see it from where
+    // this is read. Somebody did. In steps rather than smoothly: a step a
+    // second, under a pixel each, is a page laid out fifteen times rather than
+    // sixty times a second, and nobody sees that either. How long and how many
+    // are the page's - see driftTakes.
+    transition:      --drift-x var(--drift-takes, 15000ms) steps(var(--drift-steps, 15), jump-end),
+                     --drift-y var(--drift-takes, 15000ms) steps(var(--drift-steps, 15), jump-end);
 
     // Exactly the screen, and never more. A display has no scroll bar and
     // nobody in front of it to use one: anything below the fold is not "further

@@ -1,14 +1,15 @@
-import { api, type DisplayConfiguration } from '../api/client';
+import { api, type DisplayConfiguration, type DisplayUpdate } from '../api/client';
 import { auth } from '../auth';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
-import { typedSinceDrawn, unsaved } from '@node/unsaved';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, nothing, render } from '@node/view';
 
 /**
- * The screen on the front of the station, at night.
+ * The screen on the front of the station: the hours it keeps, whether its
+ * picture walks, and the port it is served on.
  *
  * A display in a car park runs at full brightness through the night at nobody:
  * electricity spent, light thrown where a neighbour may not want it, and wear
@@ -18,9 +19,17 @@ import { html, nothing, render } from '@node/view';
  * one nobody has told does not dim. A screen that went dark on its own would be
  * read as a fault.
  *
+ * Whether the picture walks against burn-in is a fact about the panel, and off
+ * unless it is switched on. The port is where the screen is pointed, and a new
+ * one moves the display at once.
+ *
  * The operator's page, at the same permission as taking an outlet out of
  * general use: a statement about how the station presents itself to the people
  * standing at it, and not about what the equipment is or may deliver.
+ *
+ * Each card saves on its own, and each save sends the whole section - a PUT
+ * replaces all of it - made of what the card says and what the station has for
+ * the rest.
  */
 export const displayPage: Page = {
 
@@ -31,7 +40,7 @@ export const displayPage: Page = {
         const content = shell(root, {
             active:    '/configuration/display',
             title:     'Display',
-            subtitle:  'The screen on the front of the station, and the hours it keeps.',
+            subtitle:  'The screen on the front of the station: the hours it keeps, how it moves, and where it is served.',
             actions:   reloadButton(() => reload())
         });
 
@@ -51,11 +60,12 @@ export const displayPage: Page = {
             const configuration = current;
             const dims          = configuration.dimFrom !== null && configuration.dimUntil !== null;
             const percent       = Math.round((configuration.dimTo ?? configuration.limits.defaultDimTo) * 100);
+            const startsAt      = configuration.portGivenAtStart ?? configuration.port ?? configuration.defaultPort;
 
             render(content, html`
 
                 ${mayChange ? nothing : html`
-                    <div class="notice">${mayButNot("look at the display's hours", 'change them')}</div>
+                    <div class="notice">${mayButNot("look at the display's settings", 'change them')}</div>
                 `}
 
                 <div class="cards">
@@ -79,7 +89,7 @@ export const displayPage: Page = {
                                     `}
                         </p>
 
-                        <form id="display-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(); }}>
+                        <form id="display-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void saveTheHours(); }}>
 
                             <label>Dim from
                                 <input type="time" name="dimFrom" value="${configuration.dimFrom ?? ''}"
@@ -113,7 +123,7 @@ export const displayPage: Page = {
                                 <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
                                 <button type="button" id="no-quiet-hours" class="btn"
                                         ?disabled=${!(mayChange && dims)}
-                                        @click=${() => void save(true)}>Keep no quiet hours</button>
+                                        @click=${() => void saveTheHours(true)}>Keep no quiet hours</button>
                                 <span id="form-note"  class="form-notice" role="status"></span>
                                 <span id="form-error" class="form-error"  role="alert"></span>
                             </div>
@@ -149,36 +159,153 @@ export const displayPage: Page = {
 
                     </section>
 
+                    <section class="card">
+
+                        <h2><i class="fa-solid fa-arrows-up-down-left-right"></i> Against burn-in</h2>
+
+                        <p class="hint">
+                            ${configuration.keepMoving
+                                  ? html`The picture walks a small ring, a step every three quarters of a minute,
+                                         each step gliding over fifteen seconds.`
+                                  : html`The picture stands still.`}
+                        </p>
+
+                        <form id="walk-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void saveTheWalk(); }}>
+
+                            <label class="checkbox">
+                                <input type="checkbox" name="keepMoving"
+                                       ?checked=${configuration.keepMoving}
+                                       ?disabled=${!mayChange} />
+                                Keep the picture moving
+                                <span class="hint">
+                                    For a panel that shows the same thing for months - the operator's name in
+                                    the same corner, the same letter over the same outlet - and keeps it as a
+                                    ghost, on an LCD for a while and on an OLED for good. The whole picture
+                                    walks a ring of about a hundredth of the screen, so that no edge stands
+                                    still. On a panel that keeps no ghost it is only a screen that moves, so it
+                                    is off unless it is switched on here.
+                                </span>
+                            </label>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
+                                <span id="walk-note"  class="form-notice" role="status"></span>
+                                <span id="walk-error" class="form-error"  role="alert"></span>
+                            </div>
+
+                        </form>
+
+                    </section>
+
+                    <section class="card">
+
+                        <h2><i class="fa-solid fa-network-wired"></i> Where it is served</h2>
+
+                        <p class="hint">
+                            ${configuration.portInUse === null
+                                  ? html`This station was started without a display (<code>--no-kiosk</code>). A port
+                                         saved here is the one a start with a display gives it.`
+                                  : html`The display is at <strong>${configuration.url ?? `port ${configuration.portInUse}`}</strong>
+                                         - no sign-in, and nothing of the administration on it.`}
+                        </p>
+
+                        <form id="port-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void saveThePort(); }}>
+
+                            <label>TCP port
+                                <input type="number" name="port" min="1" max="65535" step="1"
+                                       value="${configuration.port ?? ''}"
+                                       placeholder="${configuration.portGivenAtStart ?? configuration.defaultPort}"
+                                       ?disabled=${!mayChange} />
+                                <span class="hint">
+                                    Empty is ${configuration.portGivenAtStart === null
+                                                   ? html`the default, ${configuration.defaultPort}`
+                                                   : html`the port this start was given`}.
+                                    A new port moves the display at once: it is listening there before anything
+                                    else changes, so a port something else has is refused and the display stays
+                                    where it is. A screen still on the old port is told where it went and follows
+                                    on its own within ${configuration.handoverSeconds} seconds; one reached
+                                    through a proxy or a forwarded port has to be pointed at the new one by hand.
+                                </span>
+                            </label>
+
+                            ${configuration.portGivenAtStart === null ? nothing : html`
+                                <div class="notice small">
+                                    This start was given <code>--kiosk-port ${configuration.portGivenAtStart}</code>,
+                                    which wins over the port here at every start. Saved here, a port still moves the
+                                    display now; started again with that switch, it is back on
+                                    ${configuration.portGivenAtStart}.
+                                </div>
+                            `}
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
+                                <span id="port-note"  class="form-notice" role="status"></span>
+                                <span id="port-error" class="form-error"  role="alert"></span>
+                            </div>
+
+                            <span class="hint">
+                                Saved to ${configuration.file}. At the next start the display is on
+                                ${configuration.portGivenAtStart === null
+                                      ? html`port ${startsAt}`
+                                      : html`the port <code>--kiosk-port</code> gives it, if it is given one, and on
+                                             ${configuration.port ?? configuration.defaultPort} if not`}.
+                            </span>
+
+                        </form>
+
+                    </section>
+
                 </div>
 
             `);
 
         }
 
-        async function save(TurnOff = false): Promise<void> {
+        /**
+         * The section as the station has it, for a card that changes one part
+         * of it: a PUT replaces the whole section, so what the card does not
+         * say is sent as it is.
+         */
+        function asItIs(): DisplayUpdate {
+            const configuration = current!;
+            return {
+                dimFrom:     configuration.dimFrom,
+                dimUntil:    configuration.dimUntil,
+                dimTo:       configuration.dimTo,
+                keepMoving:  configuration.keepMoving ? true : null,
+                port:        configuration.port
+            };
+        }
 
-            const form   = must<HTMLFormElement>(content, '#display-form');
-            const note   = must<HTMLElement>(content, '#form-note');
-            const error  = must<HTMLElement>(content, '#form-error');
+        /**
+         * One card's form saved: read, sent as part of the whole section, and
+         * drawn again as the station took it.
+         *
+         * @param FormId   the card's form.
+         * @param NoteId   where "Saved." is said.
+         * @param ErrorId  where a refusal is said.
+         * @param Change   what the card says, out of what was typed into it.
+         * @param Saved    what to say once it is saved, from the station before and after.
+         */
+        async function save(FormId:   string,
+                            NoteId:   string,
+                            ErrorId:  string,
+                            Change:   (Typed: (Name: string) => string) => Partial<DisplayUpdate>,
+                            Saved:    (Before: DisplayConfiguration, After: DisplayConfiguration) => string = () => 'Saved.'): Promise<void> {
+
+            const form   = must<HTMLFormElement>(content, FormId);
+            const note   = must<HTMLElement>(content, NoteId);
+            const error  = must<HTMLElement>(content, ErrorId);
 
             note.textContent   = '';
             error.textContent  = '';
 
             // Read before the page is held still: a disabled field is left out
             // of a FormData, so the order of these two matters.
-            const typed  = new FormData(form);
-            const text   = (name: string) => typed.get(name)?.toString().trim() ?? '';
-            const level  = text('dimTo');
-
-            // An empty section is how dimming is turned off, and it is the same
-            // thing whether the button said so or both times were cleared.
-            const update = TurnOff
-                               ? {}
-                               : {
-                                     dimFrom:   text('dimFrom')  === '' ? null : text('dimFrom'),
-                                     dimUntil:  text('dimUntil') === '' ? null : text('dimUntil'),
-                                     dimTo:     level === '' ? null : Number(level) / 100
-                                 };
+            const typed   = new FormData(form);
+            const text    = (name: string) => typed.get(name)?.toString().trim() ?? '';
+            const before  = current!;
+            const update  = { ...asItIs(), ...Change(text) };
 
             try
             {
@@ -193,7 +320,7 @@ export const displayPage: Page = {
                 // back to what it says now - the station's answer.
                 form.reset();
 
-                note.textContent = 'Saved.';
+                note.textContent = Saved(before, current);
             }
             catch (problem)
             {
@@ -203,10 +330,38 @@ export const displayPage: Page = {
 
         }
 
+        // No quiet hours is the same thing whether the button said so or both
+        // times were cleared.
+        const saveTheHours = (TurnOff = false) =>
+            save('#display-form', '#form-note', '#form-error', text => {
+                const level = text('dimTo');
+                return TurnOff
+                           ? { dimFrom: null, dimUntil: null, dimTo: null }
+                           : {
+                                 dimFrom:   text('dimFrom')  === '' ? null : text('dimFrom'),
+                                 dimUntil:  text('dimUntil') === '' ? null : text('dimUntil'),
+                                 dimTo:     level === '' ? null : Number(level) / 100
+                             };
+            });
+
+        // Off is the default, and is sent as no opinion rather than as false.
+        const saveTheWalk = () =>
+            save('#walk-form', '#walk-note', '#walk-error', text => ({
+                keepMoving: text('keepMoving') === 'on' ? true : null
+            }));
+
+        const saveThePort = () =>
+            save('#port-form', '#port-note', '#port-error',
+                 text => ({ port: text('port') === '' ? null : Number(text('port')) }),
+                 (before, after) => before.portInUse !== null && after.portInUse !== before.portInUse
+                                        ? `Saved - the display is on port ${after.portInUse} now. ` +
+                                          `Screens still on ${before.portInUse} are sent there for ${after.handoverSeconds} s.`
+                                        : 'Saved.');
+
         /**
          * The page as the station has it now, drawn over the page as it is -
-         * what is typed into the form kept, as a draw keeps it. Reload empties
-         * it itself.
+         * what is typed into the forms kept, as a draw keeps it. Reload empties
+         * them itself.
          */
         async function load(): Promise<void> {
 
@@ -231,7 +386,7 @@ export const displayPage: Page = {
         }
 
         /**
-         * Loaded anew - Reload - is what the station has, the form too, which
+         * Loaded anew - Reload - is what the station has, the forms too, which
          * a draw on its own would leave as typed.
          */
         async function reload(): Promise<void> {
@@ -240,7 +395,7 @@ export const displayPage: Page = {
                 content.querySelectorAll('form').forEach(form => form.reset());
         }
 
-        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#display-form')));
+        const release = unsaved.heldBy(() => anyFormTypedSinceDrawn(content));
 
         void load();
 

@@ -154,7 +154,13 @@ namespace cloud.charging.open.ChargingStation
                        // and only the display knows that somebody has.
                        new JProperty("dim",          Display.IsAQuietHour(now)
                                                          ? Display.HowDim
-                                                         : null)
+                                                         : null),
+
+                       // Whether the picture walks against burn-in. Off unless
+                       // it was switched on: a step is a jump somebody in front
+                       // of the screen sees, worth it only on a panel that
+                       // would otherwise keep a ghost.
+                       new JProperty("keepMoving",   Display.KeepsMoving)
 
                    );
 

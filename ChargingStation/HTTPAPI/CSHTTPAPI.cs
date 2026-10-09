@@ -178,8 +178,10 @@ namespace cloud.charging.open.ChargingStation
         }
 
         /// <summary>
-        /// PUT /api/v1/configuration/display with {"dimFrom", "dimUntil", "dimTo"}:
-        /// when the screen on the front is dim, and how dim.
+        /// PUT /api/v1/configuration/display with {"dimFrom", "dimUntil", "dimTo",
+        /// "keepMoving", "port"}: when the screen on the front is dim, and how
+        /// dim; whether its picture walks against burn-in; and the port it is
+        /// served on, which it is moved to at once.
         /// </summary>
         /// <remarks>
         /// The operator's, at the same permission as taking an outlet out of
@@ -190,23 +192,24 @@ namespace cloud.charging.open.ChargingStation
         /// runs the site is who knows it.
         ///
         /// The whole section at once - one end of a window is not a window -
-        /// and an empty object is how dimming is turned off.
+        /// and an empty object is how dimming is turned off. A port something
+        /// else has is refused with 400 and the display left where it was.
         /// </remarks>
-        private Task<HTTPResponse> PutDisplayConfiguration(HTTPRequest Request)
+        private async Task<HTTPResponse> PutDisplayConfiguration(HTTPRequest Request)
         {
 
             if (!TryAuthorize(Request, Permission.Edit(StationAccess.Display), true, out _, out var refused))
-                return Task.FromResult(refused);
+                return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
+                return errorResponse;
 
-            if (!Station.TryUpdateDisplayConfiguration(json, out var error, out var notSaved))
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+            var (success, error, notSaved) = await Station.UpdateDisplayConfiguration(json, Request.CancellationToken);
 
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON())
-                   );
+            if (!success)
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error ?? "The display configuration could not be changed.", notSaved);
+
+            return JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON());
 
         }
 

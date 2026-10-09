@@ -14,24 +14,34 @@ import { chromeTakesTheFocus } from '@node/../test/dom.ts';
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import type { DisplayConfiguration } from '../api/client.ts';
+import type { DisplayConfiguration, DisplayUpdate } from '../api/client.ts';
 
 const { displayPage } = await import('./display.ts');
 
 
 let held: DisplayConfiguration;
 
+/** What the last save sent, the whole section. */
+let sent: Partial<DisplayUpdate> | undefined;
+
 /** Refuses every change where told to. */
 let refuseChanges = false;
 
 function aStation(): DisplayConfiguration {
     return {
-        dimFrom:   '22:00',
-        dimUntil:  '06:00',
-        dimTo:     0.3,
-        quietNow:  false,
-        limits:    { darkestDimTo: 0.1, defaultDimTo: 0.3 },
-        file:      'chargingstation.json'
+        dimFrom:           '22:00',
+        dimUntil:          '06:00',
+        dimTo:             0.3,
+        quietNow:          false,
+        limits:            { darkestDimTo: 0.1, defaultDimTo: 0.3 },
+        keepMoving:        false,
+        port:              null,
+        portInUse:         2349,
+        portGivenAtStart:  null,
+        defaultPort:       2349,
+        url:               'http://127.0.0.1:2349/',
+        handoverSeconds:   30,
+        file:              'chargingstation.json'
     };
 }
 
@@ -40,16 +50,22 @@ function station({ method, path, body }: Asked): unknown {
     if (path === '/configuration/display' && method === 'PUT') {
         if (refuseChanges)
             return refused(400, "'display' needs both 'dimFrom' and 'dimUntil', or neither.");
-        const update = body as Partial<DisplayConfiguration>;
+        const update = body as Partial<DisplayUpdate>;
+        sent = update;
         // A station takes what it takes: a level of a whole per cent, and no
-        // level where there are no hours to keep it in.
+        // level where there are no hours to keep it in. A port is moved to at
+        // once.
         held = {
             ...held,
-            dimFrom:   update.dimFrom  ?? null,
-            dimUntil:  update.dimUntil ?? null,
-            dimTo:     update.dimFrom === undefined || update.dimTo === undefined || update.dimTo === null
-                           ? null
-                           : Math.round(update.dimTo * 100) / 100
+            dimFrom:     update.dimFrom  ?? null,
+            dimUntil:    update.dimUntil ?? null,
+            dimTo:       update.dimFrom === undefined || update.dimTo === undefined || update.dimTo === null
+                             ? null
+                             : Math.round(update.dimTo * 100) / 100,
+            keepMoving:  update.keepMoving === true,
+            port:        update.port ?? null,
+            portInUse:   update.port ?? held.portGivenAtStart ?? held.defaultPort,
+            url:         `http://127.0.0.1:${update.port ?? held.portGivenAtStart ?? held.defaultPort}/`
         };
         return held;
     }
@@ -61,8 +77,9 @@ function station({ method, path, body }: Asked): unknown {
 
 }
 
-async function opened(): Promise<HTMLElement> {
-    held          = aStation();
+async function opened(Station: Partial<DisplayConfiguration> = {}): Promise<HTMLElement> {
+    held          = { ...aStation(), ...Station };
+    sent          = undefined;
     refuseChanges = false;
     return open(displayPage, '/configuration/display', [ 'display:read', 'display:edit' ],
                 station, root => root.querySelector('#display-form') !== null);
@@ -136,6 +153,59 @@ describe('the Display page', () => {
                      "'display' needs both 'dimFrom' and 'dimUntil', or neither.");
         assert.equal(hours(root, 'dimUntil').value,  '', 'what was typed went');
         assert.equal(hours(root, 'dimFrom').value,   '22:00');
+
+    });
+
+    it('switches the walk against burn-in on, off by default, and keeps the hours', async () => {
+
+        const root   = await opened();
+        const walks  = root.querySelector<HTMLInputElement>('#walk-form [name="keepMoving"]');
+
+        assert.ok(walks !== null,     'there is nothing to switch the walk on with');
+        assert.equal(walks!.checked,  false, 'a station nobody told walks');
+
+        walks!.checked = true;
+
+        submit(root, '#walk-form');
+        await until(() => root.querySelector('#walk-note')?.textContent === 'Saved.' && held.keepMoving, 'the walk was not switched on');
+
+        assert.deepEqual(sent, { dimFrom: '22:00', dimUntil: '06:00', dimTo: 0.3, keepMoving: true, port: null },
+                         'what was sent is not the whole section, the hours as they were');
+
+    });
+
+    it('moves the display to a port saved, and says where it went', async () => {
+
+        const root = await opened();
+
+        field(root, '#port-form', 'port').value = '2350';
+
+        submit(root, '#port-form');
+        await until(() => held.portInUse === 2350 && /^Saved/.test(root.querySelector('#port-note')?.textContent ?? ''), 'the port was not saved');
+
+        assert.match(root.querySelector('#port-note')!.textContent!, /port 2350 now/);
+        assert.match(root.querySelector('#port-note')!.textContent!, /still on 2349/);
+        assert.equal(sent?.dimFrom, '22:00', 'saving the port took the hours away');
+
+    });
+
+    it('takes the hours away without taking the walk or the port with them', async () => {
+
+        const root = await opened({ keepMoving: true, port: 2350, portInUse: 2350 });
+
+        root.querySelector<HTMLButtonElement>('#no-quiet-hours')!.click();
+        await until(() => saved(root) && held.dimFrom === null, 'the hours were not taken away');
+
+        assert.deepEqual(sent, { dimFrom: null, dimUntil: null, dimTo: null, keepMoving: true, port: 2350 });
+
+    });
+
+    it('says what the command line gave this start, which wins at the next', async () => {
+
+        const root = await opened({ portGivenAtStart: 2351, portInUse: 2351, url: 'http://127.0.0.1:2351/' });
+
+        assert.match(root.querySelector('#port-form')!.textContent!, /--kiosk-port 2351/);
+        assert.equal(field(root, '#port-form', 'port').placeholder, '2351');
 
     });
 

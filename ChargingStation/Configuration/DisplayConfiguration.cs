@@ -21,36 +21,48 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod;
+
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
 {
 
     /// <summary>
-    /// The screen on the front of the station, at night.
+    /// The screen on the front of the station: the hours it keeps, whether its
+    /// picture walks, and the port it is served on.
     /// </summary>
     /// <remarks>
     /// A display in a car park runs at full brightness through the night at
     /// nobody, which costs electricity, throws light where a neighbour may not
-    /// want it, and wears the panel out - the same panel the picture is kept
-    /// walking across to save.
+    /// want it, and wears the panel out.
     ///
-    /// Two times and a level, and nothing else. Which hours are quiet is a fact
-    /// about the site and not about charging stations: a motorway service area
-    /// has none, a courtyard between flats has them from ten. So the station is
-    /// told rather than guessing, and a station nobody has told does not dim -
-    /// a screen that went dark on its own would be read as a fault.
+    /// Which hours are quiet is a fact about the site and not about charging
+    /// stations: a motorway service area has none, a courtyard between flats
+    /// has them from ten. So the station is told rather than guessing, and a
+    /// station nobody has told does not dim - a screen that went dark on its
+    /// own would be read as a fault.
     ///
     /// It says only whether it is a quiet hour, never how dark the screen
     /// should be at this moment: the display wakes for anybody who comes near
     /// it, and only the display knows that somebody has.
+    ///
+    /// Whether the picture walks against burn-in is a fact about the panel:
+    /// one that shows the same thing for months keeps it as a ghost, one that
+    /// does not is only made to twitch. Off unless it is switched on.
     /// </remarks>
     /// <param name="DimFrom">When the quiet hours begin, in the station's own local time.</param>
     /// <param name="DimUntil">When they end. Earlier than DimFrom is the ordinary case: they cross midnight.</param>
     /// <param name="DimTo">How bright the screen is while nothing is happening, as a fraction of full.</param>
-    public sealed record DisplayConfiguration(TimeOnly?  DimFrom    = null,
-                                              TimeOnly?  DimUntil   = null,
-                                              Double?    DimTo      = null)
+    /// <param name="KeepMoving">Whether the picture walks a small ring against burn-in; off where not said.</param>
+    /// <param name="Port">The TCP port the display is served on, where the command line gives none; ChargingStation.DefaultKioskPort where not said.</param>
+    public sealed record DisplayConfiguration(TimeOnly?  DimFrom     = null,
+                                              TimeOnly?  DimUntil    = null,
+                                              Double?    DimTo       = null,
+                                              Boolean?   KeepMoving  = null,
+                                              IPPort?    Port        = null)
     {
 
         #region Data
@@ -98,13 +110,19 @@ namespace cloud.charging.open.ChargingStation
         /// Whether this section says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => DimFrom is null && DimUntil is null && DimTo is null;
+            => DimFrom is null && DimUntil is null && DimTo is null && KeepMoving is null && Port is null;
 
         /// <summary>
         /// Whether this station has been given quiet hours to keep.
         /// </summary>
         public Boolean DimsAtNight
             => DimFrom.HasValue && DimUntil.HasValue;
+
+        /// <summary>
+        /// Whether the picture walks against burn-in.
+        /// </summary>
+        public Boolean KeepsMoving
+            => KeepMoving == true;
 
         #endregion
 
@@ -202,7 +220,13 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            Configuration = new DisplayConfiguration(from, until, dimTo);
+            if (!ConfigurationReader.TryReadBoolean(JSON, "keepMoving", SectionName, out var keepMoving, out Error) ||
+                !ConfigurationReader.TryReadPort   (JSON, "port",       SectionName, out var port,       out Error))
+            {
+                return false;
+            }
+
+            Configuration = new DisplayConfiguration(from, until, dimTo, keepMoving, port);
             return true;
 
         }
@@ -255,9 +279,11 @@ namespace cloud.charging.open.ChargingStation
 
             var json = new JObject();
 
-            if (DimFrom.HasValue)   json.Add("dimFrom",   DimFrom.Value.ToString("HH\\:mm"));
-            if (DimUntil.HasValue)  json.Add("dimUntil",  DimUntil.Value.ToString("HH\\:mm"));
-            if (DimTo.HasValue)     json.Add("dimTo",     DimTo.Value);
+            if (DimFrom.HasValue)     json.Add("dimFrom",     DimFrom.Value.ToString("HH\\:mm"));
+            if (DimUntil.HasValue)    json.Add("dimUntil",    DimUntil.Value.ToString("HH\\:mm"));
+            if (DimTo.HasValue)       json.Add("dimTo",       DimTo.Value);
+            if (KeepMoving.HasValue)  json.Add("keepMoving",  KeepMoving.Value);
+            if (Port.HasValue)        json.Add("port",        Port.Value.ToUInt16());
 
             return json;
 
@@ -269,9 +295,12 @@ namespace cloud.charging.open.ChargingStation
 
         public override String ToString()
 
-            => DimsAtNight
-                   ? $"dimmed to {HowDim:P0} between {DimFrom!.Value:HH\\:mm} and {DimUntil!.Value:HH\\:mm}"
-                   : "always at full brightness";
+            => (DimsAtNight
+                    ? $"dimmed to {HowDim:P0} between {DimFrom!.Value:HH\\:mm} and {DimUntil!.Value:HH\\:mm}"
+                    : "always at full brightness") +
+               (KeepsMoving
+                    ? ", its picture walking against burn-in"
+                    : ", its picture standing still");
 
         #endregion
 

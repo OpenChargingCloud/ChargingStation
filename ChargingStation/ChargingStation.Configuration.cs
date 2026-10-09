@@ -22,6 +22,8 @@ using System.Diagnostics.CodeAnalysis;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
@@ -267,97 +269,127 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region DisplayConfigurationJSON() / TryUpdateDisplayConfiguration(JSON, out Error [, out NotSaved])
+        #region DisplayConfigurationJSON() / UpdateDisplayConfiguration(JSON, CancellationToken = default)
 
         /// <summary>
-        /// The quiet hours the display keeps, as the web interface reads them.
+        /// The display's section as the web interface reads it: the quiet
+        /// hours, whether the picture walks, and its port - in the file, in
+        /// use, and given at the start.
         /// </summary>
         public JObject DisplayConfigurationJSON()
 
             => new (
 
-                   new JProperty("dimFrom",   Display.DimFrom?.ToString("HH\\:mm")),
-                   new JProperty("dimUntil",  Display.DimUntil?.ToString("HH\\:mm")),
-                   new JProperty("dimTo",     Display.DimTo),
+                   new JProperty("dimFrom",           Display.DimFrom?.ToString("HH\\:mm")),
+                   new JProperty("dimUntil",          Display.DimUntil?.ToString("HH\\:mm")),
+                   new JProperty("dimTo",             Display.DimTo),
 
                    // Whether it is one of them right now, so that somebody
                    // setting the hours can see what they have just done without
                    // walking round to the front of the station.
-                   new JProperty("quietNow",  Display.IsAQuietHour(TimeProvider.GetUtcNow())),
+                   new JProperty("quietNow",          Display.IsAQuietHour(TimeProvider.GetUtcNow())),
 
-                   new JProperty("limits",    new JObject(
-                                                  new JProperty("darkestDimTo",  DisplayConfiguration.DarkestDimTo),
-                                                  new JProperty("defaultDimTo",  DisplayConfiguration.DefaultDimTo)
-                                              )),
+                   new JProperty("limits",            new JObject(
+                                                          new JProperty("darkestDimTo",  DisplayConfiguration.DarkestDimTo),
+                                                          new JProperty("defaultDimTo",  DisplayConfiguration.DefaultDimTo)
+                                                      )),
 
-                   new JProperty("file",      ConfigFile.Path)
+                   new JProperty("keepMoving",        Display.KeepsMoving),
+
+                   // The port three ways, because they can differ: what the
+                   // file says, where the display is now, and what the command
+                   // line said - which a start puts it on whatever the file says.
+                   new JProperty("port",              Display.Port?.ToUInt16()),
+                   new JProperty("portInUse",         KioskPort?.ToUInt16()),
+                   new JProperty("portGivenAtStart",  kioskPortGivenAtStart?.ToUInt16()),
+                   new JProperty("defaultPort",       DefaultKioskPort.ToUInt16()),
+                   new JProperty("url",               KioskURL?.ToString()),
+                   new JProperty("handoverSeconds",   DisplayHandover.TotalSeconds),
+
+                   new JProperty("file",              ConfigFile.Path)
 
                );
 
         /// <summary>
-        /// Change the quiet hours the display keeps.
+        /// Change what the display does: the quiet hours it keeps, whether its
+        /// picture walks, and the port it is served on.
         /// </summary>
         /// <remarks>
         /// The whole section at once rather than a field at a time, because its
         /// fields are not independent: one end of a window is not a window, and
         /// a level without hours is a number with nothing to apply it to. An
-        /// empty object is therefore how dimming is turned off - a file with no
-        /// opinion, and a display at full brightness around the clock.
+        /// empty object is therefore a display at full brightness around the
+        /// clock, standing still, on the port a start would give it.
         ///
-        /// It takes effect at the display's next poll, which is two seconds
-        /// away. Nothing has to be restarted and nothing has to be told: the
-        /// answer the display reads is worked out from this whenever it asks.
+        /// The hours and the walk take effect at the display's next poll, which
+        /// is two seconds away: the answer it reads is worked out from this
+        /// whenever it asks. A port takes effect at once - the display is moved
+        /// there while the station runs, see ChargingStation.Display.cs - and
+        /// only where the port changed: a section saved for its hours does not
+        /// move a display the command line put somewhere else.
+        ///
+        /// Not a TryUpdate, because a port is bound by awaiting.
         /// </remarks>
-        public Boolean TryUpdateDisplayConfiguration(JObject                           JSON,
-                                                     [NotNullWhen(false)] out String?  Error)
-
-            => TryUpdateDisplayConfiguration(JSON, out Error, out _);
-
-        /// <summary>
-        /// Change the quiet hours the display keeps - and say whether a refusal
-        /// was the file's rather than the change's.
-        /// </summary>
-        /// <param name="JSON">What the page sent, in the shape of the "display" section.</param>
-        /// <param name="Error">Why nothing was changed.</param>
-        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
-        public Boolean TryUpdateDisplayConfiguration(JObject                           JSON,
-                                                     [NotNullWhen(false)] out String?  Error,
-                                                     out Boolean                       NotSaved)
+        /// <returns>Whether it was changed; why not; and whether that was the configuration file's doing - it could not be read or written, nothing about the change was wrong, and nothing was changed.</returns>
+        public async Task<(Boolean Success, String? Error, Boolean NotSaved)> UpdateDisplayConfiguration(JObject            JSON,
+                                                                                                         CancellationToken  CancellationToken   = default)
         {
 
-            NotSaved = false;
+            if (!DisplayConfiguration.TryParse(JSON, out var wanted, out var error))
+                return (false, error, false);
 
-            if (!DisplayConfiguration.TryParse(JSON, out var wanted, out Error))
-                return false;
-
-            reconfigureLock.Wait();
+            await reconfigureLock.WaitAsync(CancellationToken);
 
             try
             {
 
                 if (wanted == Display)
-                    return true;
+                    return (true, null, false);
+
+                // Where the display goes: the port asked for, or - asked for
+                // none any more - where a start would put it.
+                var moveTo = wanted.Port != Display.Port && kioskServer is not null
+                                 ? wanted.Port ?? kioskPortGivenAtStart ?? DefaultKioskPort
+                                 : (IPPort?) null;
+
+                if (moveTo == KioskPort)
+                    moveTo = null;
+
+                HTTPServer?    server  = null;
+                KioskHTTPAPI?  api     = null;
+
+                if (moveTo.HasValue)
+                {
+
+                    (server, api, error) = await OpenTheDisplayAt(moveTo.Value);
+
+                    if (server is null || api is null)
+                        return (false, error, false);
+
+                }
 
                 // Everything this refuses is the file's: read, replaced, written.
                 if (!ConfigFile.TryReplaceSection(
                          DisplayConfiguration.SectionName,
                          wanted.ToJSON(),
-                         out Error))
+                         out error))
                 {
-                    NotSaved = true;
-                    return false;
+
+                    if (server is not null && started)
+                        await server.Stop();
+
+                    return (false, error, true);
+
                 }
 
                 Display = wanted;
 
-                Log.Notice(
-                    wanted.DimsAtNight
-                        ? $"The display is now {wanted}."
-                        : "The display is now at full brightness around the clock.",
-                    "kiosk", "config"
-                );
+                if (server is not null && api is not null && moveTo.HasValue)
+                    HandOverTheDisplay(server, api, moveTo.Value);
 
-                return true;
+                Log.Notice($"The display is now {wanted}.", "kiosk", "config");
+
+                return (true, null, false);
 
             }
             finally

@@ -17,9 +17,17 @@
 
 #region Usings
 
+using System.Net;
+using System.Net.Sockets;
+
 using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
+
+using org.GraphDefined.Vanaheimr.Hermod;
+
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.ChargingStation.Web;
 
@@ -736,6 +744,315 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(onItsOwnPort.IsSuccessStatusCode, Is.False,
                         "The display's own server would change the station's configuration.");
+
+        }
+
+        #endregion
+
+        #region Keeping the picture moving
+
+        /// <summary>
+        /// The display's section of the configuration file, as it is on disk.
+        /// </summary>
+        private JObject? DisplaySectionInTheFile()
+            => JObject.Parse(File.ReadAllText(Path.Combine(Directory, "configuration.json")))[DisplayConfiguration.SectionName] as JObject;
+
+        /// <summary>
+        /// The picture stands still unless somebody asks it to walk.
+        /// </summary>
+        /// <remarks>
+        /// It used to walk on every station, a step every three quarters of a
+        /// minute, and a step is a jump of the whole screen that somebody in
+        /// front of it sees. Against burn-in on a panel that shows the same
+        /// thing for months it is worth it; on a panel that does not, it is a
+        /// screen that twitches. So it is a setting, and off unless set.
+        /// </remarks>
+        [Test]
+        public async Task ThePictureStandsStillUnlessToldToWalk()
+        {
+
+            var before = WhatTheDisplayShows()["keepMoving"];
+
+            using var signedIn = await SignedIn();
+
+            var response = await signedIn.PutAsync(
+                                     "/api/v1/configuration/display",
+                                     JSONBody(new JProperty("keepMoving", true))
+                                 );
+
+            var answer = JObject.Parse(await response.Content.ReadAsStringAsync());
+
+            Assert.Multiple(() => {
+
+                Assert.That(before?.Type,                                     Is.EqualTo(JTokenType.Boolean), "The display is not told whether to walk.");
+                Assert.That(before?.Value<Boolean>(),                         Is.False, "A station nobody told keeps its picture walking.");
+
+                Assert.That(response.IsSuccessStatusCode,                     Is.True, answer.ToString());
+                Assert.That(answer.Value<Boolean?>("keepMoving"),             Is.True);
+                Assert.That(WhatTheDisplayShows().Value<Boolean?>("keepMoving"), Is.True, "The display was not told at its next poll.");
+                Assert.That(DisplaySectionInTheFile()?.Value<Boolean?>("keepMoving"), Is.True, "It was not written down.");
+
+            });
+
+        }
+
+        /// <summary>
+        /// A word where a yes or no belongs is refused, and nothing is changed.
+        /// </summary>
+        [Test]
+        public void KeepMovingIsAYesOrANo()
+        {
+
+            Assert.Multiple(() => {
+
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("keepMoving", "yes")), out _, out var error), Is.False);
+                Assert.That(error, Does.Contain("keepMoving"));
+
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("keepMoving", false)), out var off, out _), Is.True);
+                Assert.That(off!.KeepsMoving, Is.False);
+
+                Assert.That(new DisplayConfiguration().KeepsMoving, Is.False, "the default walks");
+
+            });
+
+        }
+
+        #endregion
+
+        #region The display's port
+
+        /// <summary>
+        /// A port nobody has, on the loopback address the tests' displays use.
+        /// </summary>
+        private static UInt16 APortNobodyHas()
+            => TestPorts.Free();
+
+        /// <summary>
+        /// What a display at the given port answers, or null where nothing does.
+        /// </summary>
+        private static async Task<JObject?> TheDisplayAt(UInt16 Port)
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{Port}/"), Timeout = TimeSpan.FromSeconds(5) };
+                var response   = await http.GetAsync("api/kiosk");
+                return response.IsSuccessStatusCode ? JObject.Parse(await response.Content.ReadAsStringAsync()) : null;
+            }
+            catch (HttpRequestException)
+            {
+                return null;
+            }
+        }
+
+        private async Task<HttpResponseMessage> PutDisplay(HttpClient SignedIn, params JProperty[] Properties)
+            => await SignedIn.PutAsync("/api/v1/configuration/display", JSONBody(Properties));
+
+        /// <summary>
+        /// A port set on the page moves the display at once, and the screen
+        /// still on the old one is told where it went.
+        /// </summary>
+        /// <remarks>
+        /// The old port is held a little longer rather than dropped: a screen
+        /// in the car park is pointed at it, and dropped, it would show a dead
+        /// page until somebody walked out to it. Held, it answers what it always
+        /// answered and where the display is now, and the page goes there.
+        /// </remarks>
+        [Test]
+        public async Task APortSetOnThePageMovesTheDisplayAtOnce()
+        {
+
+            var oldPort   = Station.KioskPort!.Value.ToUInt16();
+            var newPort   = APortNobodyHas();
+
+            using var signedIn = await SignedIn();
+
+            var response  = await PutDisplay(signedIn, new JProperty("port", newPort));
+            var answer    = JObject.Parse(await response.Content.ReadAsStringAsync());
+
+            var atTheNew  = await TheDisplayAt(newPort);
+            var atTheOld  = await TheDisplayAt(oldPort);
+
+            Assert.Multiple(() => {
+
+                Assert.That(response.IsSuccessStatusCode,             Is.True, answer.ToString());
+                Assert.That(answer.Value<UInt16?>("port"),            Is.EqualTo(newPort), "what is in the file");
+                Assert.That(answer.Value<UInt16?>("portInUse"),       Is.EqualTo(newPort), "where the display is");
+                Assert.That(Station.KioskPort?.ToUInt16(),            Is.EqualTo(newPort));
+                Assert.That(Station.KioskURL?.ToString(),             Does.Contain($":{newPort}/"));
+
+                Assert.That(atTheNew,                                 Is.Not.Null, "Nothing answered at the new port.");
+                Assert.That(atTheNew?["movedTo"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null), "The new port says the display moved on from it.");
+
+                Assert.That(atTheOld,                                 Is.Not.Null, "The old port was dropped with a screen still pointed at it.");
+                Assert.That(atTheOld?.Value<UInt16?>("movedTo"),      Is.EqualTo(newPort), "The old port does not say where the display went.");
+
+                Assert.That(DisplaySectionInTheFile()?.Value<UInt16?>("port"), Is.EqualTo(newPort), "It was not written down.");
+
+            });
+
+        }
+
+        /// <summary>
+        /// After the handover the old port is let go.
+        /// </summary>
+        [Test]
+        public async Task AfterTheHandoverTheOldPortIsLetGo()
+        {
+
+            Station.DisplayHandover = TimeSpan.FromMilliseconds(200);
+
+            var oldPort = Station.KioskPort!.Value.ToUInt16();
+
+            using var signedIn = await SignedIn();
+
+            var response = await PutDisplay(signedIn, new JProperty("port", APortNobodyHas()));
+
+            Assert.That(response.IsSuccessStatusCode, Is.True, await response.Content.ReadAsStringAsync());
+
+            JObject? atTheOld = new ();
+
+            for (var i = 0; i < 50 && atTheOld is not null; i++)
+            {
+                await Task.Delay(100);
+                atTheOld = await TheDisplayAt(oldPort);
+            }
+
+            Assert.That(atTheOld, Is.Null, "The old port was still answering five seconds after a handover of 200 ms.");
+
+        }
+
+        /// <summary>
+        /// A port something else has is refused, and the display stays where it is.
+        /// </summary>
+        /// <remarks>
+        /// Bound first and only then written down, so that a refusal leaves
+        /// nothing behind: not a display gone from where it was, and not a file
+        /// that would fail the next start on a port that cannot be had.
+        /// </remarks>
+        [Test]
+        public async Task APortSomethingElseHasIsRefusedAndTheDisplayStays()
+        {
+
+            var oldPort   = Station.KioskPort!.Value.ToUInt16();
+
+            using var squatter = new TcpListener(System.Net.IPAddress.Loopback, 0) { ExclusiveAddressUse = true };
+            squatter.Start();
+            var taken     = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+
+            using var signedIn = await SignedIn();
+
+            var response  = await PutDisplay(signedIn, new JProperty("port", taken));
+            var said      = await response.Content.ReadAsStringAsync();
+            var atTheOld  = await TheDisplayAt(oldPort);
+
+            Assert.Multiple(() => {
+
+                Assert.That(response.StatusCode,              Is.EqualTo(HttpStatusCode.BadRequest), said);
+                Assert.That(said,                             Does.Contain(taken.ToString()));
+                Assert.That(Station.KioskPort?.ToUInt16(),    Is.EqualTo(oldPort), "The display moved anyway.");
+                Assert.That(atTheOld,                         Is.Not.Null, "The display is gone from where it was.");
+                Assert.That(DisplaySectionInTheFile()?["port"], Is.Null, "A port that cannot be had was written down.");
+
+            });
+
+        }
+
+        /// <summary>
+        /// The web interface's port is not the display's to take.
+        /// </summary>
+        [Test]
+        public async Task TheWebInterfacesPortIsRefused()
+        {
+
+            using var signedIn = await SignedIn();
+
+            var response = await PutDisplay(signedIn, new JProperty("port", Station.HTTPPort.ToUInt16()));
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest), await response.Content.ReadAsStringAsync());
+
+        }
+
+        /// <summary>
+        /// At a start, the port in the file is the display's - unless the
+        /// command line gives one, which wins for that start.
+        /// </summary>
+        /// <remarks>
+        /// A switch given at a start is the more deliberate statement, and it is
+        /// the way back up when the port in the file is one something else took.
+        /// </remarks>
+        [Test]
+        public async Task AtAStartTheCommandLineWinsOverTheFile()
+        {
+
+            var fromTheFile  = APortNobodyHas();
+            var fromTheLine  = APortNobodyHas();
+
+            var directory    = TestStations.TemporaryDirectory("display-port");
+
+            try
+            {
+
+                System.IO.Directory.CreateDirectory(directory);
+
+                var configuration = new JObject(
+                                        new JProperty("nts",     new JObject(new JProperty("enabled", false))),
+                                        new JProperty("display", new JObject(new JProperty("port", fromTheFile)))
+                                    );
+
+                File.WriteAllText(Path.Combine(directory, "configuration.json"), configuration.ToString());
+
+                await using var byTheFile = new ChargingStation(
+                                                DNSClient:       TestStations.Resolver(),
+                                                HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                                                AccountsPath:    Path.Combine(directory, ChargingStation.DefaultAccountsPath),
+                                                ConfigFile:      new WWCPConfigFile(Path.Combine(directory, "configuration.json")),
+                                                LogToConsole:    false,
+                                                BridgeDebugLog:  false
+                                            );
+
+                await using var byTheLine = new ChargingStation(
+                                                DNSClient:       TestStations.Resolver(),
+                                                HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                                                KioskPort:       IPPort.Parse(fromTheLine),
+                                                AccountsPath:    Path.Combine(directory, ChargingStation.DefaultAccountsPath),
+                                                ConfigFile:      new WWCPConfigFile(Path.Combine(directory, "configuration.json")),
+                                                LogToConsole:    false,
+                                                BridgeDebugLog:  false
+                                            );
+
+                var said = byTheLine.DisplayConfigurationJSON();
+
+                Assert.Multiple(() => {
+
+                    Assert.That(byTheFile.KioskPort?.ToUInt16(),          Is.EqualTo(fromTheFile), "The port in the file was passed over.");
+                    Assert.That(byTheLine.KioskPort?.ToUInt16(),          Is.EqualTo(fromTheLine), "The command line lost to the file.");
+                    Assert.That(said.Value<UInt16?>("portGivenAtStart"),  Is.EqualTo(fromTheLine), "The page is not told what the command line said.");
+                    Assert.That(said.Value<UInt16?>("port"),              Is.EqualTo(fromTheFile));
+
+                });
+
+            }
+            finally
+            {
+                TestStations.Remove(directory);
+            }
+
+        }
+
+        /// <summary>
+        /// A port that is no port is refused.
+        /// </summary>
+        [Test]
+        public void APortIsANumberFromOneUp()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("port", 0)),       out _, out _), Is.False);
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("port", 70000)),   out _, out _), Is.False);
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("port", "2349")),  out _, out _), Is.False);
+                Assert.That(DisplayConfiguration.TryParse(new JObject(new JProperty("port", 2350)),    out var c, out _), Is.True);
+                Assert.That(c!.Port?.ToUInt16(), Is.EqualTo(2350));
+            });
 
         }
 

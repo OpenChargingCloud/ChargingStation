@@ -173,6 +173,7 @@ is handed something else.
 | `HTTPAPI/CSHTTPAPI.cs`    | what the station adds to the JSON API every node answers at `/api` - its EVSEs, connections, power, reservations, sessions and messages; the rest, sign-in, status, log and the event stream among it, is WWCP_Node's `NodeHTTPAPI` |
 | `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
+| `ChargingStation.Display.cs` | the display's own server: built, and moved to another port while the station runs, the old port saying where it went for a while |
 | `Web/StationAccess.cs`    | the resources a station adds to the node's, and its two roles as data - `cpo` and `installer`, beside the node's `viewer` and `systemadmin` |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
@@ -759,8 +760,9 @@ kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 ## The display
 
 A page with no sign-in on it, for the screen on the front of the station:
-`http://<host>:2349/` by default, `--kiosk-port <n>`, `--no-kiosk` to leave it
-out. It shows each EVSE with its label, whether it is free, reserved, charging
+`http://<host>:2349/` by default, another port on **Configuration - Display**
+or with `--kiosk-port <n>` (see [its port](#its-port)), `--no-kiosk` to leave
+it out. It shows each EVSE with its label, whether it is free, reserved, charging
 or out of service, what it is drawing against what it could, the shape and limit
 of each cable, who is charging and their provider's name or logo, the QR code
 to pay with, and a card symbol where there is a reader.
@@ -776,9 +778,14 @@ can draw both, and nothing here can cause either yet.
 
 A display in a car park runs at full brightness through the night at nobody:
 electricity spent, light thrown where a neighbour may not want it, and wear on
-the same panel the picture is kept walking across to save.
+the panel.
 
-    "display": { "dimFrom": "22:00", "dimUntil": "06:00", "dimTo": 0.3 }
+    "display": { "dimFrom": "22:00", "dimUntil": "06:00", "dimTo": 0.3,
+                 "keepMoving": true, "port": 8049 }
+
+The same section says whether the picture walks against burn-in (below) and
+which port the display is on ([its port](#its-port)); the page has a card for
+each, and each card saves the whole section, the rest of it as it was.
 
 There is a page for it - **Configuration - Display** - at the same permission as
 taking an outlet out of general use and as putting a line on the screen: all
@@ -831,16 +838,46 @@ and, as the walk above found out the hard way, a transition declared on
 something that depends on one does not merely fail to glide, it stops the change
 from applying.
 
+### Its port
+
+The display is on 2349 unless it is told otherwise, and there are two ways to
+tell it. `"port"` in the display section - **Configuration - Display** writes
+it - is the display's port at every start. `--kiosk-port <n>` wins over that
+for the start it is given to: a switch given at a start is the more deliberate
+statement, and it is the way back up when the port in the file is one something
+else has taken. The page says what the command line gave, and what the next
+start will do.
+
+A port saved on the page **moves the display at once**, while the station runs.
+The new port is bound first and only then written down, so a port something
+else has - or the web interface's, or the local app server's - is refused with
+the reason, the display stays where it is, and the file keeps a port the next
+start can have. The old port is not dropped either: a screen in the car park is
+pointed at it, and dropped, it would show a page nobody answers for until
+somebody walked out to it. It answers for another 30 seconds, as before plus
+where the display went (`"movedTo"`), and the display page goes there by itself
+- the same host, the new port. A screen reached through a proxy or a forwarded
+port is one whose address the station cannot know, and has to be pointed at the
+new one by hand. A section saved only for its hours moves nothing: a display
+the command line put somewhere else stays there.
+
 ### Nothing stands still, and nothing stays old
 
 A charging station's display shows the same thing for months: the operator's
 name in the same corner, the same letter over the same outlet, the word for
 "free" in the same place. A panel left like that keeps it - as a ghost on an
 LCD, permanently on an OLED - and no amount of software brings it back
-afterwards. So the whole picture walks a small ring: eight places around the
-middle, a step every three quarters of a minute, about thirteen pixels on a
+afterwards. So the whole picture can walk a small ring: eight places around
+the middle, a step every three quarters of a minute, about thirteen pixels on a
 1080p panel and the same fraction of any other. Six minutes for a full circuit,
 every place visited as often as the others, and never a step of nothing.
+
+**It is off unless it is switched on**, with `"keepMoving": true` or on
+**Configuration - Display**. It used to walk on every station, and a step was a
+jump of the whole screen that somebody standing in front of it saw as the
+display twitching. Against a ghost on a panel that keeps one it is worth it; on
+a panel that keeps none it is only a screen that moves. Switched off, the
+picture goes back to the middle at the display's next poll.
 
 It is done by moving padding from one side of the display to the other, not by
 shifting the whole thing, and that is the part worth knowing. The sum of the two
@@ -853,15 +890,20 @@ Measured over a hundred seconds: two steps, the padding moving 21.6 px to
 the containing block of the card dialog, which is fixed to the screen and should
 stay fixed to the screen.
 
-There is deliberately no animation on that step, and the reason is a trap worth
-recording: a property whose value varies only through an *unregistered* custom
-property is one Chrome will not animate - and with a transition declared on it,
-it does not apply the change at all. Measured: the step arrived, the custom
-property read back as -1, and the padding sat at 2vmin four seconds later;
-removing the transition moved it the same instant. A jump of thirteen pixels
-once a minute is invisible from where this is read; a glide would need
-`@property` to register the custom property as a number, which is a dependency
-for the day somebody can see it jump.
+**A step glides.** It used to jump, and the reason is a trap worth recording: a
+property whose value varies only through an *unregistered* custom property is
+one Chrome will not animate - and with a transition declared on it, it does not
+apply the change at all. Measured: the step arrived, the custom property read
+back as -1, and the padding sat at 2vmin four seconds later; removing the
+transition moved it the same instant. A jump of thirteen pixels once a minute
+was thought invisible from where this is read, and a glide a dependency for the
+day somebody could see it jump. Somebody did. Now `--drift-x` and `--drift-y`
+are registered with `@property` as numbers, as `--dim` is, and the numbers
+themselves transition: over fifteen seconds, a second at a time, a fifteenth of
+the step each - under a pixel on a 1080p panel. In steps rather than smoothly
+because a smooth glide is a page laid out sixty times a second for fifteen
+seconds on hardware that is often the smallest that will run a browser, and a
+step a second is one laid out fifteen times that nobody sees either.
 
 **And the display notices when the station has a newer one.** Nothing ever
 reloads a panel: one that came up in March is running March's page in December,
@@ -889,17 +931,23 @@ browser is closed. `KioskTests` pins what is underneath: what the station says,
 and what it lets happen.
 
 It pins what has actually been wrong, which is not the same list as what could
-be wrong: the payment code never being absent and the next one being handed out
-early; an outlet taken out of service keeping the car that is already on it; the
+be wrong: the payment code never being absent, being the one of the slot it is
+in to its last second, and the one before and the one after it being taken and
+none further; an outlet taken out of service keeping the car that is already on it; the
 card that started a session still being able to stop it; somebody else's card
 being turned away for the right reason; an outlet charging under a scheduled
 close still counting as charging to OCPP's display messages; a payment code this
 station did not issue starting nothing; the one on the display starting a charge
 under the operator's own name; a payment not being able to take an outlet
 somebody is holding; and neither starting nor stopping being reachable without
-signing in or from the display's own port. And that the shared secret never
-appears in what the display is sent - asked of the whole answer as text, because
-the way it would get out is a field nobody thought about.
+signing in or from the display's own port. That the picture stands still unless
+it is told to walk; that a port saved on the page moves the display at once, the
+old port saying where it went and let go after the handover; that a port
+something else has, or the web interface's, is refused with the display left
+where it was and nothing written; and that at a start the command line's port
+wins over the file's. And that the shared secret never appears in what the
+display is sent - asked of the whole answer as text, because the way it would
+get out is a field nobody thought about.
 
 The page has its own, for the part of it that is a decision rather than a
 drawing: how many columns the outlets go in, which notices are shown this turn,

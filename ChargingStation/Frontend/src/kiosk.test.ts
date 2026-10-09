@@ -46,6 +46,9 @@ let secondIs = 'available';
 /** What the station says about a card held up; null for yes. */
 let refusal: string | null = null;
 
+/** Whether the station says the picture should walk against burn-in. */
+let walking = false;
+
 function aStation() {
     return {
         station:      { name: 'Test station', logo: null, language: 'en' },
@@ -64,7 +67,8 @@ function aStation() {
         messages:     [],
         rfid:         { id: 'reader-a', kind: 'fake', fake: true, ready: true },
         webPayments:  false,
-        dim:          null
+        dim:          null,
+        keepMoving:   walking
     };
 }
 
@@ -177,6 +181,45 @@ describe('the display', () => {
 
         assert.equal(root.querySelectorAll('#clock').length, 1, 'the clock is there twice');
         assert.match(root.querySelector('#clock')?.textContent ?? '', /\d{1,2}:\d{2}:\d{2}/, 'the clock went');
+
+    });
+
+    it('keeps its picture still where the station does not say to walk', async () => {
+
+        walking = false;
+
+        await passes(2000);
+        await passes(45_000);
+        await passes(45_000);
+
+        const where = [ root.style.getPropertyValue('--drift-x'), root.style.getPropertyValue('--drift-y') ];
+
+        assert.ok(where.every(value => value === '' || Number(value) === 0),
+                  `the picture walked to ${where.join(', ')} on a station that did not say to`);
+
+    });
+
+    it('walks where the station says to, a step gliding rather than jumping', async () => {
+
+        walking = true;
+
+        await passes(2000);
+        await passes(45_000);
+
+        const where  = [ root.style.getPropertyValue('--drift-x'), root.style.getPropertyValue('--drift-y') ];
+        const takes  = root.style.getPropertyValue('--drift-takes');
+
+        assert.ok(where.some(value => value !== '' && Number(value) !== 0), 'the picture did not take a step');
+        assert.match(takes, /^\d+ms$/, 'the step is not told how long it takes, and jumps');
+        assert.ok(Number.parseInt(takes) >= 1000, `a step of ${takes} is a jump`);
+
+        // And told to stop, it goes back to the middle at the next poll, not
+        // at the next step.
+        walking = false;
+        await passes(2000);
+
+        assert.deepEqual([ root.style.getPropertyValue('--drift-x'), root.style.getPropertyValue('--drift-y') ], [ '0', '0' ],
+                         'the picture stayed where it had walked to');
 
     });
 

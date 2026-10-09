@@ -302,6 +302,17 @@ interface KioskState {
      * page's to know - see dimTo.
      */
     dim:          number | null;
+    /**
+     * Whether the picture walks its ring against burn-in - see driftAt. Off
+     * unless the station was told otherwise: on a panel that keeps no ghost, a
+     * picture that moves is only a screen that twitches.
+     */
+    keepMoving:   boolean;
+    /**
+     * The port the display moved to, said for a while by the port it moved
+     * away from; null where this is where the display is.
+     */
+    movedTo?:     number | null;
 }
 
 
@@ -323,12 +334,19 @@ const staleAfter = 15000;
  * How often the picture moves a step, and how long a step takes.
  *
  * Slow on purpose. A step every three quarters of a minute walks the whole ring
- * in six, which is often enough that nothing stands still for long and rare
- * enough that a person in front of the station never catches it moving - and
- * the step itself is a glide rather than a jump.
+ * in six, which is often enough that nothing stands still for long - and the
+ * step itself is a glide rather than a jump. It used to be a jump: thirteen
+ * pixels of the whole screen at once on a 1080p panel, which somebody standing
+ * in front of it saw as the display twitching.
+ *
+ * The glide is a second at a time, a fifteenth of the step each - under a
+ * pixel on that panel - so that it is a page laid out fifteen times a step
+ * rather than sixty times a second for fifteen seconds, on hardware that is
+ * often the smallest that will run a browser.
  */
-const driftEvery  = 45_000;
-const driftTakes  = 3_000;
+const driftEvery       = 45_000;
+const driftTakes       = 15_000;
+const driftTakesSteps  = 15;
 
 /**
  * How often the display asks whether it is still the page the station serves.
@@ -482,6 +500,12 @@ async function poll(): Promise<void> {
 
         chooseWords(state.station.language);
         offline     = false;
+
+        if (typeof state.movedTo === 'number')
+            followTheDisplayTo(state.movedTo);
+
+        if (state.keepMoving !== true)
+            standStill();
     }
     catch
     {
@@ -1338,13 +1362,20 @@ setInterval(() => {
 }, cycleEvery);
 
 
-// The picture walks its ring, a step at a time. Written straight onto the
-// element like the clock and the columns: nothing about where the picture sits
-// is worth a redraw, and a redraw would take the keyboard away from whoever is
-// typing a card number.
+// The picture walks its ring, a step at a time, where the station says it
+// should. Written straight onto the element like the clock and the columns:
+// nothing about where the picture sits is worth a redraw, and a redraw would
+// take the keyboard away from whoever is typing a card number. How long a step
+// takes is set from here, where it is decided - the stylesheet only glides.
 let driftStep = 0;
 
+root.style.setProperty('--drift-takes',  `${driftTakes}ms`);
+root.style.setProperty('--drift-steps',  String(driftTakesSteps));
+
 setInterval(() => {
+
+    if (state?.keepMoving !== true)
+        return;
 
     const where = driftAt(driftStep++);
 
@@ -1352,6 +1383,43 @@ setInterval(() => {
     root.style.setProperty('--drift-y', String(where.y));
 
 }, driftEvery);
+
+/**
+ * Back to the middle, and the walk to begin there again when it is switched
+ * on - for a station that was told to stop it, at the next poll rather than
+ * at the next step.
+ */
+function standStill(): void {
+
+    driftStep = 0;
+
+    root.style.setProperty('--drift-x', '0');
+    root.style.setProperty('--drift-y', '0');
+
+}
+
+
+/**
+ * The display moved to another port while this screen was pointed at the old
+ * one: go there.
+ *
+ * The old port says so for a while, at every poll, so that a screen nobody can
+ * reach without a ladder follows on its own instead of showing a page nobody
+ * answers for any more. Only the port changes - the host is whatever this
+ * screen was pointed at, which the station cannot know better.
+ */
+function followTheDisplayTo(Port: number): void {
+
+    const there = new URL(location.href);
+
+    if (there.port === String(Port))
+        return;
+
+    there.port = String(Port);
+
+    location.replace(there.toString());
+
+}
 
 
 /**

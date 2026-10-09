@@ -23,6 +23,7 @@ using System.Text;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
@@ -103,6 +104,17 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public EventLog         Log      { get; }
 
+        /// <summary>
+        /// The port the display moved to from this one, or null while this is
+        /// where the display is.
+        /// </summary>
+        /// <remarks>
+        /// Said in every answer for as long as this server is still kept for
+        /// the screens pointed at it, so that a screen goes there at its next
+        /// poll rather than showing a page nobody answers for.
+        /// </remarks>
+        public IPPort?          MovedTo  { get; set; }
+
         #endregion
 
         #region Constructor(s)
@@ -143,10 +155,17 @@ namespace cloud.charging.open.ChargingStation
         /// GET /api/kiosk: everything on the display, in one answer.
         /// </summary>
         private Task<HTTPResponse> GetKiosk(HTTPRequest Request)
+        {
 
-            => Task.FromResult(
-                   JSONResponse(Request, HTTPStatusCode.OK, Station.KioskJSON())
-               );
+            var json = Station.KioskJSON();
+
+            json.Add("movedTo", MovedTo?.ToUInt16());
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, json)
+                   );
+
+        }
 
         #endregion
 

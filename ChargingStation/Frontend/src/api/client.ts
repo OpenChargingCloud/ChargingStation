@@ -269,7 +269,33 @@ export interface DisplayConfiguration {
     /** Whether it is one of them at this moment, as the station reckons it. */
     quietNow:   boolean;
     limits:     { darkestDimTo: number; defaultDimTo: number };
+    /** Whether the picture walks against burn-in. Off unless it was switched on. */
+    keepMoving:        boolean;
+    /** The display's port as the file says it, or null for the default. */
+    port:              number | null;
+    /** Where the display is now, or null for a station started without one. */
+    portInUse:         number | null;
+    /** What --kiosk-port said at this start, which a start puts it on whatever the file says. */
+    portGivenAtStart:  number | null;
+    defaultPort:       number;
+    /** The display's address now, or null without one. */
+    url:               string | null;
+    /** How long a port the display moved away from still tells screens where it went. */
+    handoverSeconds:   number;
     file:       string;
+}
+
+/**
+ * What a PUT to the display configuration carries: the whole section, because
+ * it replaces the whole section. A null is the default - no hours, a picture
+ * standing still, the port a start would give it.
+ */
+export interface DisplayUpdate {
+    dimFrom:     string | null;
+    dimUntil:    string | null;
+    dimTo:       number | null;
+    keepMoving:  true | null;
+    port:        number | null;
 }
 
 /** What a PUT to the power configuration carries; null takes the limit away. */
@@ -567,9 +593,9 @@ export const api = {
 
     display: {
         get:   ()                              => request<DisplayConfiguration>('GET', '/configuration/display'),
-        // The whole section at once, because its fields are not independent -
-        // and an empty object is how dimming is turned off.
-        save:  (update: Partial<DisplayConfiguration>) => request<DisplayConfiguration>('PUT', '/configuration/display', update)
+        // The whole section at once, because its fields are not independent
+        // and a PUT replaces all of them.
+        save:  (update: DisplayUpdate) => request<DisplayConfiguration>('PUT', '/configuration/display', update)
     },
 
     v2g: {

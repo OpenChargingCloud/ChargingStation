@@ -108,6 +108,11 @@ namespace cloud.charging.open.ChargingStation
         public static readonly NodePort DisplayPort = new ("The display");
 
         /// <summary>
+        /// How long a port the display moved away from still answers by default.
+        /// </summary>
+        public static readonly TimeSpan DefaultDisplayHandover = TimeSpan.FromSeconds(30);
+
+        /// <summary>
         /// The TCP port the program gives the local app server.
         /// </summary>
         /// <remarks>
@@ -165,7 +170,28 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private readonly  ConcurrentDictionary<Byte, ChargingSession>  sessions = [];
 
-        private readonly  HTTPServer?                          kioskServer;
+        /// <summary>
+        /// The display's server: replaced when the display is moved to another
+        /// port while running - see MoveTheDisplay.
+        /// </summary>
+        private           HTTPServer?                          kioskServer;
+
+        /// <summary>
+        /// Where the display listens, or null where there is no display.
+        /// </summary>
+        private readonly  IIPAddress?                          kioskAddress;
+
+        /// <summary>
+        /// The port the command line gave the display, which a start puts it
+        /// on whatever the file says.
+        /// </summary>
+        private readonly  IPPort?                              kioskPortGivenAtStart;
+
+        /// <summary>
+        /// Displays moved away from, still answering for a while to the screens
+        /// pointed at them - see MoveTheDisplay.
+        /// </summary>
+        private readonly  List<HTTPServer>                     handedOver = [];
 
         private readonly  HTTPServer?                          localAppServer;
 
@@ -265,17 +291,28 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// Where the display of this station is, or null when it has none.
         /// </summary>
-        public URL?                           KioskURL               { get; }
+        public URL?                           KioskURL               { get; private set; }
 
         /// <summary>
         /// The port the display listens on, or null where there is no display.
         /// </summary>
-        public IPPort?                        KioskPort              { get; }
+        public IPPort?                        KioskPort              { get; private set; }
 
         /// <summary>
         /// The display API, on its own server and its own port.
         /// </summary>
-        public KioskHTTPAPI?                  KioskAPI               { get; }
+        public KioskHTTPAPI?                  KioskAPI               { get; private set; }
+
+        /// <summary>
+        /// How long a port the display moved away from still answers, to tell
+        /// the screens pointed at it where it went.
+        /// </summary>
+        /// <remarks>
+        /// A screen asks every two seconds and goes where it is told at the
+        /// first answer that says so, so a few seconds would do for a screen
+        /// that is working. The rest is for one that is not, for the moment.
+        /// </remarks>
+        public TimeSpan                       DisplayHandover        { get; set; } = DefaultDisplayHandover;
 
         /// <summary>
         /// Where the local app server of this station is, or null when it has
@@ -590,9 +627,13 @@ namespace cloud.charging.open.ChargingStation
             if (!NoKiosk)
             {
 
+                // The command line's port first, then the file's: a switch
+                // given at a start is the more deliberate statement, and it is
+                // the way back up when the port in the file is one something
+                // else has taken.
                 var address       = webAddress;
                 var kioskAddress  = KioskHostname ?? address;
-                var kioskPort     = KioskPort     ?? DefaultKioskPort;
+                var kioskPort     = KioskPort     ?? Display.Port ?? DefaultKioskPort;
 
                 displayAddress    = kioskAddress;
 
@@ -603,46 +644,13 @@ namespace cloud.charging.open.ChargingStation
                               nameof(KioskPort)
                           );
 
-                this.kioskServer  = new HTTPServer(
-                                        IPAddress:       kioskAddress,
-                                        TCPPort:         kioskPort,
-                                        HTTPServerName:  $"OpenChargingCloud ChargingStation Display v{Version}",
-                                        DNSClient:       this.DNSClient
-                                    );
+                this.kioskAddress           = kioskAddress;
+                this.kioskPortGivenAtStart  = KioskPort;
+
+                (this.kioskServer, this.KioskAPI) = BuildTheDisplay(kioskAddress, kioskPort, SayWhatIsMissing: true);
 
                 this.KioskPort    = kioskPort;
                 this.KioskURL     = URL.Parse($"http://{kioskAddress}:{kioskPort}/");
-
-                this.KioskAPI     = new KioskHTTPAPI(
-                                        HTTPServer:  kioskServer,
-                                        Station:     this,
-                                        Log:         this.Log
-                                    );
-
-                if (this.Frontend.TryGet(KioskHTTPAPI.IndexFile, out _))
-                    kioskServer.AddHTTPAPI().
-                                MapSinglePageApplication(
-                                    this.Frontend,
-                                    new SinglePageAppOptions {
-                                        // The same bundle as the web interface,
-                                        // entered at its other door. The assets
-                                        // are shared; the page is not.
-                                        IndexFile       = KioskHTTPAPI.IndexFile,
-                                        IndexTransform  = html => html.Replace("{{ServerVersion}}", $"v{Version}", StringComparison.Ordinal)
-                                    }
-                                );
-
-                else
-                    this.Log.Error(
-                        $"No display page to serve ({this.Frontend.Description} has no '{KioskHTTPAPI.IndexFile}'): " +
-                        "the display API answers, the screen gets nothing.",
-                        "kiosk"
-                    );
-
-                kioskServer.OnHTTPRequest += (server, request, cancellationToken) => {
-                    this.Log.Debug($"{request.HTTPMethod} {request.Path} from {request.RemoteSocket}", "kiosk", "http");
-                    return Task.CompletedTask;
-                };
 
             }
 
@@ -852,6 +860,11 @@ namespace cloud.charging.open.ChargingStation
 
             if (kioskServer is not null)
                 await Take("stopping the display's server", () => kioskServer.Stop());
+
+            // And the ports it moved away from, which are still telling a
+            // screen where it went: on the way out there is nowhere left to go.
+            foreach (var old in TakeTheHandedOver())
+                await Take("stopping a port the display moved away from", () => old.Stop());
 
             // Each app on the WebSocket told with a close frame that the station
             // is going, rather than left to find out from a broken connection -
