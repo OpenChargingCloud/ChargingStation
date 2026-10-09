@@ -47,6 +47,8 @@ startNode({
             { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
             { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
             nodeMenu.certificates,
+            nodeMenu.identities,
+            nodeMenu.ssh,
             { path: '/configuration/calibration',     label: 'Calibration',      icon: 'fa-scale-balanced',  permission: [ 'calibration:read' ]  }
         ]),
         nodeMenu.logs
@@ -67,7 +69,7 @@ startNode({
             `,
             presents:     html`
                 A TLS identity, with its private key: what this station would show a server that asks for
-                one, or a browser at its web interface. The keys it dials its back ends with are not here
+                one. The keys it dials its back ends with are not here
                 but on the <a href="${toURL('/configuration/client-keys')}">Client keys</a> page, because
                 they are made on this station and never imported.
             `,
