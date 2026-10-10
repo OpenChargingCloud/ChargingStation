@@ -20,6 +20,7 @@
 using NUnit.Framework;
 
 using cloud.charging.open.protocols.ISO15118.StateMachines;
+using cloud.charging.open.protocols.ISO15118.StateMachines.Iso2;
 using cloud.charging.open.protocols.ISO15118.StateMachines.Iso20;
 using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
@@ -132,6 +133,79 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(terminate,  Is.True);
                 Assert.That(limit,      Is.EqualTo(0));
+            });
+
+        }
+
+        #endregion
+
+        #region What the pins do to the charge loop of a session, over -20 and over -2
+
+        [Test]
+        public void TheChargeLoopOfADCSessionIsReachedOverBothProtocols()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(ThermalChargeLoop.Of(new Secc20Mcs(timeout, TimeProvider.System)),               Is.Not.Null, "-20 MCS");
+                Assert.That(ThermalChargeLoop.Of(new Secc20Dc (timeout, TimeProvider.System)),               Is.Not.Null, "-20 DC");
+                Assert.That(ThermalChargeLoop.Of(new Secc2(PowerMode.Dc, timeout, TimeProvider.System), PowerMode.Dc), Is.Not.Null, "-2 DC");
+                Assert.That(ThermalChargeLoop.Of(new Secc20Ac (timeout, TimeProvider.System)),               Is.Null,     "-20 AC");
+                Assert.That(ThermalChargeLoop.Of(new Secc2(PowerMode.Ac, timeout, TimeProvider.System), PowerMode.Ac), Is.Null,     "-2 AC");
+            });
+
+        }
+
+        [Test]
+        public void AWarmPinHalvesTheCurrentOfA2Session()
+        {
+
+            var secc   = new Secc2(PowerMode.Dc, timeout, TimeProvider.System);
+            var loop   = ThermalChargeLoop.Of(secc, PowerMode.Dc)!;
+            var change = ThermalChargeLoop.Apply(loop, ThermalState.Warning);
+
+            Assert.Multiple(() => {
+                Assert.That(change,                     Is.EqualTo(ThermalChange.Limited));
+                Assert.That(secc.DcRunningMaxAmps,      Is.EqualTo(secc.MaximumCurrent_A / 2));
+                Assert.That(secc.StopChargingRequested, Is.False);
+            });
+
+            Assert.Multiple(() => {
+                Assert.That(ThermalChargeLoop.Apply(loop, ThermalState.Warning), Is.EqualTo(ThermalChange.None), "said once");
+                Assert.That(ThermalChargeLoop.Apply(loop, ThermalState.Normal),  Is.EqualTo(ThermalChange.Restored));
+                Assert.That(secc.DcRunningMaxAmps,                               Is.Null, "the full current again");
+            });
+
+        }
+
+        [TestCase(ThermalState.Overload)]
+        [TestCase(ThermalState.Lost)]
+        public void AnOverloadedOrALostPinTellsA2SessionToStopCharging(ThermalState State)
+        {
+
+            var secc   = new Secc2(PowerMode.Dc, timeout, TimeProvider.System);
+            var loop   = ThermalChargeLoop.Of(secc, PowerMode.Dc)!;
+
+            Assert.Multiple(() => {
+                Assert.That(ThermalChargeLoop.Apply(loop, State), Is.EqualTo(ThermalChange.Ended));
+                Assert.That(secc.StopChargingRequested,           Is.True);
+                Assert.That(secc.DcRunningMaxAmps,                Is.EqualTo(0));
+                Assert.That(ThermalChargeLoop.Apply(loop, State), Is.EqualTo(ThermalChange.None), "said once");
+            });
+
+        }
+
+        [TestCase(ThermalState.Overload)]
+        [TestCase(ThermalState.Lost)]
+        public void AnOverloadedOrALostPinTellsA20SessionToTerminate(ThermalState State)
+        {
+
+            var secc   = new Secc20Mcs(timeout, TimeProvider.System);
+            var loop   = ThermalChargeLoop.Of(secc)!;
+
+            Assert.Multiple(() => {
+                Assert.That(ThermalChargeLoop.Apply(loop, State), Is.EqualTo(ThermalChange.Ended));
+                Assert.That(secc.TerminateRequested,              Is.True);
+                Assert.That(secc.CurrentLimit_A,                  Is.EqualTo(0));
             });
 
         }

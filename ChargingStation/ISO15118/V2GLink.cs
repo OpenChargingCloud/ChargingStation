@@ -109,7 +109,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         private          IT1STransport?           t1sTransport;
         private          PlcaCoordinator?         coordinator;
         private          CableThermalMonitor?     thermal;
-        private volatile Secc20Dc?                dcSession;
+        private volatile IThermalChargeLoop?      chargeLoop;
         private          SECC_SDPServer?          sdpServer;
         private          TcpV2GListener?          v2gListener;
         private          Task?                    acceptLoop;
@@ -623,12 +623,17 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                ResumeSessionId = pausedSession?.SessionId
                            };
 
+                // What the coupler's pins say reaches a -2 session as it reaches a -20 one: a vehicle
+                // that charges over -2 on a megawatt coupler is on the same pins.
+                StartChargeLoop(ThermalChargeLoop.Of(secc, settled.Mode));
+
                 try
                 {
                     await secc.RunAsync(Stream, CancellationToken);
                 }
                 finally
                 {
+                    chargeLoop    = null;
                     pausedSession = secc.Paused
                                         ? new ResumableSession(secc.SessionId, null, 0)
                                         : null;
@@ -644,14 +649,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                 secc.OfferResume(pausedSession);
 
-                // What the coupler's pins say holds from the first charge-loop iteration on, and every
-                // change of it reaches this session while it runs.
-                if (secc is Secc20Dc dc)
-                {
-                    dcSession = dc;
-                    if (thermal is { } monitor)
-                        ApplyThermalState(dc, monitor.Overall);
-                }
+                StartChargeLoop(ThermalChargeLoop.Of(secc));
 
                 try
                 {
@@ -659,7 +657,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 }
                 finally
                 {
-                    dcSession     = null;
+                    chargeLoop    = null;
                     pausedSession = secc.PausedSession;
                     ReportSession(started, "ISO 15118-20", secc.PausedSession is not null, secc.Renegotiations, secc.SelectedEnergyServiceId != 0);
                 }
@@ -737,41 +735,52 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (private) ApplyThermalState (Session, Overall)
+        #region (private) StartChargeLoop   (Loop)
 
         /// <summary>
-        /// Give the session what the state of the coupler's pins means, and say
-        /// so when it changes anything.
+        /// The charge loop of the session that starts, or null for one the
+        /// coupler's pins do not reach: what they say holds from its first
+        /// iteration on, and every change of it reaches the session while it
+        /// runs.
         /// </summary>
-        private void ApplyThermalState(Secc20Dc      Session,
-                                       ThermalState  Overall)
+        private void StartChargeLoop(IThermalChargeLoop? Loop)
         {
 
-            var (limit, terminate) = ThermalAction(Overall, Session.MaximumCurrent_A);
+            chargeLoop = Loop;
 
-            if (terminate)
+            if (Loop is not null && thermal is { } monitor)
+                ApplyThermalState(Loop, monitor.Overall);
+
+        }
+
+        #endregion
+
+        #region (private) ApplyThermalState (Loop, Overall)
+
+        /// <summary>
+        /// Give the charge loop what the state of the coupler's pins means, and
+        /// say so when it changes anything.
+        /// </summary>
+        private void ApplyThermalState(IThermalChargeLoop  Loop,
+                                       ThermalState        Overall)
+        {
+
+            switch (ThermalChargeLoop.Apply(Loop, Overall))
             {
 
-                if (!Session.TerminateRequested)
+                case ThermalChange.Ended:
                     log.Critical($"T1S: the coupler is {Overall.ToString().ToLowerInvariant()} - the vehicle is told to end the charging.",
                                  "15118", "t1s", "thermal");
+                    break;
 
-                Session.CurrentLimit_A = 0;
-                Session.Terminate();
-                return;
-
-            }
-
-            if (Session.CurrentLimit_A != limit)
-            {
-
-                if (limit is { } amperes)
-                    log.Warning($"T1S: the coupler is warm - the current is limited to {amperes:F0} A of {Session.MaximumCurrent_A:F0} A.",
+                case ThermalChange.Limited:
+                    log.Warning($"T1S: the coupler is warm - the current is limited to {Loop.CurrentLimit_A:F0} A of {Loop.MaximumCurrent_A:F0} A.",
                                 "15118", "t1s", "thermal");
-                else
-                    log.Notice("T1S: the coupler is back to normal - the full current again.", "15118", "t1s", "thermal");
+                    break;
 
-                Session.CurrentLimit_A = limit;
+                case ThermalChange.Restored:
+                    log.Notice("T1S: the coupler is back to normal - the full current again.", "15118", "t1s", "thermal");
+                    break;
 
             }
 
@@ -1235,8 +1244,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
             }
 
-            if (dcSession is { } session && thermal is { } monitor)
-                ApplyThermalState(session, monitor.Overall);
+            if (chargeLoop is { } loop && thermal is { } monitor)
+                ApplyThermalState(loop, monitor.Overall);
 
             ThermalStateChanged?.Invoke(this, Change);
 
