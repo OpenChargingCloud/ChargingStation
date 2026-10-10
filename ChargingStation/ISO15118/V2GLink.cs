@@ -109,6 +109,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         private          IT1STransport?           t1sTransport;
         private          PlcaCoordinator?         coordinator;
         private          CableThermalMonitor?     thermal;
+        private volatile Secc20Dc?                dcSession;
         private          SECC_SDPServer?          sdpServer;
         private          TcpV2GListener?          v2gListener;
         private          Task?                    acceptLoop;
@@ -639,11 +640,18 @@ namespace cloud.charging.open.ChargingStation.ISO15118
             else
             {
 
-                Secc20Base secc = settled.Mode == PowerMode.Dc
-                                      ? new Secc20Dc(Options.SessionTimeout, clock)
-                                      : new Secc20Ac(Options.SessionTimeout, clock);
+                var secc = NewSecc20(settled.Mode, IsMegawattCoupler(Options), Options.SessionTimeout, clock);
 
                 secc.OfferResume(pausedSession);
+
+                // What the coupler's pins say holds from the first charge-loop iteration on, and every
+                // change of it reaches this session while it runs.
+                if (secc is Secc20Dc dc)
+                {
+                    dcSession = dc;
+                    if (thermal is { } monitor)
+                        ApplyThermalState(dc, monitor.Overall);
+                }
 
                 try
                 {
@@ -651,9 +659,119 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 }
                 finally
                 {
+                    dcSession     = null;
                     pausedSession = secc.PausedSession;
                     ReportSession(started, "ISO 15118-20", secc.PausedSession is not null, secc.Renegotiations, secc.SelectedEnergyServiceId != 0);
                 }
+
+            }
+
+        }
+
+        #endregion
+
+        #region (static)  IsMegawattCoupler (Options)
+
+        /// <summary>
+        /// Whether this station is one with a Megawatt Charging System coupler:
+        /// one with a 10BASE-T1S bus - which only MCS has - and DC power.
+        /// </summary>
+        /// <remarks>
+        /// The bus as configured, not as found: a station configured for one
+        /// whose adapter is missing is still an MCS station, and charging a
+        /// truck as if it were a car would be the wrong answer to a missing
+        /// adapter. That the bus is not there is said where it is started.
+        /// </remarks>
+        /// <param name="Options">The V2G options of the station.</param>
+        public static Boolean IsMegawattCoupler(V2GOptions Options)
+
+            => Options.Mode == PowerMode.Dc &&
+               Options.T1S is { Transport: not T1STransportKind.None };
+
+        #endregion
+
+        #region (static)  NewSecc20         (Mode, MegawattCoupler, SessionTimeout, Clock)
+
+        /// <summary>
+        /// The ISO 15118-20 state machine of a session: MCS on a megawatt
+        /// coupler - its service catalogue and its megawatt envelope, on the DC
+        /// message set - DC or AC otherwise.
+        /// </summary>
+        /// <param name="Mode">The power mode the vehicle and the station agreed on.</param>
+        /// <param name="MegawattCoupler">Whether this station has a Megawatt Charging System coupler.</param>
+        /// <param name="SessionTimeout">The sequence timeout of the session.</param>
+        /// <param name="Clock">The clock of the session.</param>
+        public static Secc20Base NewSecc20(PowerMode     Mode,
+                                           Boolean       MegawattCoupler,
+                                           TimeSpan      SessionTimeout,
+                                           TimeProvider  Clock)
+
+            => Mode == PowerMode.Dc
+                   ? MegawattCoupler
+                         ? new Secc20Mcs(SessionTimeout, Clock)
+                         : new Secc20Dc (SessionTimeout, Clock)
+                   : new Secc20Ac(SessionTimeout, Clock);
+
+        #endregion
+
+        #region (static)  ThermalAction     (Overall, MaximumCurrent_A)
+
+        /// <summary>
+        /// What the state of the coupler's pins means for the charging: all
+        /// normal, the full current; one warm, half of it, so that the pin cools
+        /// rather than climbs; one overloaded, or one nobody hears any more,
+        /// the end of the charging - a pin that cannot say it is melting is
+        /// treated as one that is.
+        /// </summary>
+        /// <param name="Overall">The worst state of any pin.</param>
+        /// <param name="MaximumCurrent_A">The most current the station can deliver at all.</param>
+        public static (Double? CurrentLimit_A, Boolean Terminate) ThermalAction(ThermalState  Overall,
+                                                                                Double        MaximumCurrent_A)
+
+            => Overall switch {
+                   ThermalState.Warning   => (MaximumCurrent_A / 2, false),
+                   ThermalState.Overload  => (0,                    true),
+                   ThermalState.Lost      => (0,                    true),
+                   _                      => (null,                 false)
+               };
+
+        #endregion
+
+        #region (private) ApplyThermalState (Session, Overall)
+
+        /// <summary>
+        /// Give the session what the state of the coupler's pins means, and say
+        /// so when it changes anything.
+        /// </summary>
+        private void ApplyThermalState(Secc20Dc      Session,
+                                       ThermalState  Overall)
+        {
+
+            var (limit, terminate) = ThermalAction(Overall, Session.MaximumCurrent_A);
+
+            if (terminate)
+            {
+
+                if (!Session.TerminateRequested)
+                    log.Critical($"T1S: the coupler is {Overall.ToString().ToLowerInvariant()} - the vehicle is told to end the charging.",
+                                 "15118", "t1s", "thermal");
+
+                Session.CurrentLimit_A = 0;
+                Session.Terminate();
+                return;
+
+            }
+
+            if (Session.CurrentLimit_A != limit)
+            {
+
+                if (limit is { } amperes)
+                    log.Warning($"T1S: the coupler is warm - the current is limited to {amperes:F0} A of {Session.MaximumCurrent_A:F0} A.",
+                                "15118", "t1s", "thermal");
+                else
+                    log.Notice("T1S: the coupler is back to normal - the full current again.", "15118", "t1s", "thermal");
+
+                Session.CurrentLimit_A = limit;
 
             }
 
@@ -1116,6 +1234,9 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                     break;
 
             }
+
+            if (dcSession is { } session && thermal is { } monitor)
+                ApplyThermalState(session, monitor.Overall);
 
             ThermalStateChanged?.Invoke(this, Change);
 

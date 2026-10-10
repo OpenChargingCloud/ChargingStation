@@ -244,7 +244,8 @@ export const displayPage: Page = {
                             </div>
 
                             <span class="hint">
-                                Saved to ${configuration.file}. At the next start the display is on
+                                Saved to ${configuration.file}, so that not only now but at every start the
+                                display is on
                                 ${configuration.portGivenAtStart === null
                                       ? html`port ${startsAt}`
                                       : html`the port <code>--kiosk-port</code> gives it, if it is given one, and on
