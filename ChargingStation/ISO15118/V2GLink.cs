@@ -486,6 +486,15 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                         "15118", "v2g", "tls"
                     );
 
+                // MCS is -20 only, and -20 is TLS only: without a certificate,
+                // a megawatt coupler charges nobody.
+                if (!UsesTLS && IsMegawattCoupler(Options))
+                    log.Error(
+                        "This station has a megawatt coupler, which charges over ISO 15118-20 only, and -20 requires " +
+                        "TLS: without a certificate no vehicle can charge here.",
+                        "15118", "v2g", "tls"
+                    );
+
                 acceptLoop = Task.Run(() => AcceptLoop(shutdown.Token), CancellationToken);
 
             }
@@ -518,7 +527,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
         #endregion
 
-        #region (static) SessionOffers(Mode) / TransportOf(UsesTLS)
+        #region (static) SessionOffers(Mode, MegawattCoupler) / TransportOf(UsesTLS)
 
         /// <summary>
         /// What this station offers a vehicle during the protocol handshake.
@@ -537,13 +546,26 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// ServiceDiscovery and is told "the station offers no DC energy
         /// transfer mode (offered: AC_three_phase_core)" - which is the right
         /// answer, arriving at the right place.
+        ///
+        /// A megawatt coupler offers -20 only: MCS is ISO 15118-20 only
+        /// (IEC 61851-23-3), so a vehicle that can do -2 alone is told
+        /// Failed_NoNegotiation rather than charged over a standard MCS does
+        /// not have. And -20 rides on TLS only, which is why such a station
+        /// says at its start when it has no certificate.
         /// </remarks>
-        public static IReadOnlyList<SapOffer> SessionOffers(PowerMode Mode)
+        /// <param name="Mode">The mode of the outlet behind the socket.</param>
+        /// <param name="MegawattCoupler">Whether the station has a Megawatt Charging System coupler.</param>
+        public static IReadOnlyList<SapOffer> SessionOffers(PowerMode  Mode,
+                                                            Boolean    MegawattCoupler = false)
 
-            => [
-                   new SapOffer(ProtocolVariant.Iso15118_20, Mode),
-                   new SapOffer(ProtocolVariant.Iso15118_2,  Mode)
-               ];
+            => MegawattCoupler
+                   ? [
+                         new SapOffer(ProtocolVariant.Iso15118_20, Mode)
+                     ]
+                   : [
+                         new SapOffer(ProtocolVariant.Iso15118_20, Mode),
+                         new SapOffer(ProtocolVariant.Iso15118_2,  Mode)
+                     ];
 
         /// <summary>
         /// What the connection turned out to be, which the handshake needs.
@@ -601,7 +623,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
             var started = clock.GetUtcNow();
 
             var settled = await SapHandshake.RunSeccSideAsync(Stream,
-                                                              SessionOffers(Options.Mode),
+                                                              SessionOffers(Options.Mode, IsMegawattCoupler(Options)),
                                                               CancellationToken,
                                                               TransportOf(UsesTLS));
 
@@ -623,8 +645,9 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                ResumeSessionId = pausedSession?.SessionId
                            };
 
-                // What the coupler's pins say reaches a -2 session as it reaches a -20 one: a vehicle
-                // that charges over -2 on a megawatt coupler is on the same pins.
+                // What the coupler's pins say reaches a -2 session as it reaches a -20 one. A megawatt
+                // coupler - the one coupler with pins that say anything - offers no -2, so today this
+                // reaches nothing; it is here so that no session ever runs on pins that cannot reach it.
                 StartChargeLoop(ThermalChargeLoop.Of(secc, settled.Mode));
 
                 try

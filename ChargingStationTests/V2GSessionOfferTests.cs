@@ -70,6 +70,29 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AMegawattCouplerOffersOnly20()
+
+        /// <summary>
+        /// MCS is ISO 15118-20 only (IEC 61851-23-3): a megawatt coupler offers
+        /// -20 in DC and nothing else, so a vehicle that can only do -2 is told
+        /// Failed_NoNegotiation at the handshake rather than charged at a
+        /// megawatt coupler over a standard MCS does not have.
+        /// </summary>
+        [Test]
+        public void AMegawattCouplerOffersOnly20()
+        {
+
+            var offers = V2GLink.SessionOffers(PowerMode.Dc, MegawattCoupler: true);
+
+            Assert.Multiple(() => {
+                Assert.That(offers.Select(offer => offer.Protocol), Is.EqualTo(new[] { ProtocolVariant.Iso15118_20 }));
+                Assert.That(offers.Select(offer => offer.Mode),     Is.All.EqualTo(PowerMode.Dc));
+            });
+
+        }
+
+        #endregion
+
         #region EveryOfferNamesTheOutletThisStationHas()
 
         /// <summary>
