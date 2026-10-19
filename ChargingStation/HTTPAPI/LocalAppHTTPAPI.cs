@@ -471,7 +471,7 @@ namespace cloud.charging.open.ChargingStation
             }
 
             public override async Task ProcessTextMessage(DateTimeOffset             Timestamp,
-                                                          AWebSocketServer           Server,
+                                                          AWebSocketEndpoint         Server,
                                                           WebSocketServerConnection  Connection,
                                                           EventTracking_Id           EventTrackingId,
                                                           WebSocketFrame             TextFrame,
