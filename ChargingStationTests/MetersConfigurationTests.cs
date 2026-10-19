@@ -20,8 +20,6 @@
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
-using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
-
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 using cloud.charging.open.ChargingStation.Configuration;
@@ -34,8 +32,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     /// <summary>
     /// How a meter is read, as the "meters" section and the Meters page say it;
-    /// a request asked by hand, as the page sends it; and what a SunSpec
-    /// meter's registers mean.
+    /// and a request asked by hand, as the page sends it. What a SunSpec
+    /// meter's registers mean is in SunSpecDeviceTests.
     /// </summary>
     [TestFixture]
     public class MetersConfigurationTests
@@ -204,74 +202,6 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(RefusalOfRequest(new JProperty("function", 6),  new JProperty("address", 1),     new JProperty("value", -1)),  Does.Contain("'value'"));
             Assert.That(RefusalOfRequest(new JProperty("function", 16), new JProperty("address", 1),     new JProperty("values", new JArray())), Does.Contain("'values'"));
             Assert.That(RefusalOfRequest(new JProperty("function", 3),  new JProperty("count", 1)),                                    Does.Contain("'address'"));
-
-        }
-
-        #endregion
-
-
-        #region What the registers mean
-
-        private static UInt16[] Registers()
-        {
-
-            var registers = new UInt16[SunSpecMeterMap.RegisterCount];
-
-            registers[SunSpecMeterMap.OffMarker]      = 0x5375;
-            registers[SunSpecMeterMap.OffMarker + 1]  = 0x6E53;
-            registers[SunSpecMeterMap.OffMeterId]     = SunSpecMeterMap.MeterModelId;
-
-            // "Vanaheimr", two characters to a register.
-            var name = "Vanaheimr\0"u8.ToArray();
-            for (var i = 0; i < name.Length / 2; i++)
-                registers[SunSpecMeterMap.OffCommonMn + i] = (UInt16) ((name[2 * i] << 8) | name[2 * i + 1]);
-
-            registers[SunSpecMeterMap.OffMeterPhVphA] = 2296;
-            registers[SunSpecMeterMap.OffMeterV_SF]   = unchecked((UInt16) (-1));
-            registers[SunSpecMeterMap.OffMeterW]      = 1104;
-            registers[SunSpecMeterMap.OffMeterW_SF]   = 1;
-            registers[SunSpecMeterMap.OffMeterHz]     = 0x8000;
-            registers[SunSpecMeterMap.OffMeterHz_SF]  = unchecked((UInt16) (-2));
-            registers[SunSpecMeterMap.OffMeterTotWhImp]     = 0x0001;
-            registers[SunSpecMeterMap.OffMeterTotWhImp + 1] = 0x0000;
-            registers[SunSpecMeterMap.OffMeterWh_SF]  = 0;
-
-            return registers;
-
-        }
-
-        [Test]
-        public void RegistersAreTheNumbersTheyStandForAndWhatIsNotImplementedIsNothing()
-        {
-
-            Assert.That(MeterReading.TryDecode(Registers(), DateTimeOffset.UnixEpoch, out var reading, out var error), Is.True, error);
-
-            Assert.That(reading!.Manufacturer,     Is.EqualTo("Vanaheimr"));
-            Assert.That(reading.Voltage_V.L1,      Is.EqualTo(229.6m));
-            Assert.That(reading.Power_W.All,       Is.EqualTo(11040m));
-            Assert.That(reading.Frequency_Hz,      Is.Null, "a value the meter does not implement became a number");
-            Assert.That(reading.Imported_Wh,       Is.EqualTo(65536m));
-
-        }
-
-        [Test]
-        public void WhatIsNoSunSpecMeterIsSaidSo()
-        {
-
-            var registers = Registers();
-            registers[SunSpecMeterMap.OffMarker] = 0;
-
-            Assert.That(MeterReading.TryDecode(registers, DateTimeOffset.UnixEpoch, out _, out var noMarker), Is.False);
-            Assert.That(noMarker, Does.Contain("SunS"));
-
-            registers = Registers();
-            registers[SunSpecMeterMap.OffMeterId] = 103;
-
-            Assert.That(MeterReading.TryDecode(registers, DateTimeOffset.UnixEpoch, out _, out var inverter), Is.False);
-            Assert.That(inverter, Does.Contain("103"));
-
-            Assert.That(MeterReading.TryDecode(registers[..10], DateTimeOffset.UnixEpoch, out _, out var tooFew), Is.False);
-            Assert.That(tooFew, Does.Contain("10 registers"));
 
         }
 

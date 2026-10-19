@@ -76,7 +76,12 @@ function station({ method, path, body }: Asked): unknown {
 
     if (path === '/status/meters')
         return { meters: [ { evse: 1, label: 'A', endpoint: { host: '10.0.0.5', port: 802, unit: 1 }, state: 'noIdentity',
-                             since: '2026-10-19T10:00:00.000Z', error: 'There is no TLS identity in this station\'s certificate store whose certificate carries a SunSpec role.' } ] };
+                             since: '2026-10-19T10:00:00.000Z', error: 'There is no TLS identity in this station\'s certificate store whose certificate carries a SunSpec role.' },
+                           { evse: 2, label: 'B', endpoint: { host: '10.0.0.6', port: 802, unit: 1 }, state: 'reading', since: '2026-10-19T10:00:00.000Z', error: null,
+                             connection: { protocol: 'Tls13', cipherSuite: 'TLS_AES_128_GCM_SHA256', meter: null, judged: 'accepted',
+                                           identity: { id: 'aaaaaaaaaaaaaaaa', label: 'Meter reader', role: 'ReadOnlySunSpec', subject: 'CN=Reader' },
+                                           sunSpec: { base: 40000, models: [ { id: 1, address: 40002, length: 66 }, { id: 101, address: 40070, length: 50 }, { id: 203, address: 40122, length: 105 } ], meter: 203 } },
+                             reading: null } ] };
 
     if (path === '/meters/modbus' && method === 'POST') {
         const ask = body as ModbusAsk;
@@ -123,6 +128,17 @@ describe('the Meters page', () => {
 
         assert.deepEqual(writers, [ 'nobody - nothing is written to it', 'Meter reader (ReadOnlySunSpec)', 'Meter writer (GridServiceSunSpec)' ]);
         assert.match(panel(root, 1).querySelector('.meter-error')!.textContent!, /SunSpec role/, 'how the meter goes now is not said');
+
+    });
+
+    it('says which SunSpec models a meter has, and which one it is read by', async () => {
+
+        const station = aStation();
+        station.meters[1] = aMeter(2, 'B', '10.0.0.6');
+
+        const root = await opened(everything, station);
+
+        assert.equal(panel(root, 2).querySelector('.meter-sunspec')!.textContent!.replace(/\s+/g, ' ').trim(), 'from 40000, models 1, 101, 203 - read by 203');
 
     });
 

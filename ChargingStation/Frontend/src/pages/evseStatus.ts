@@ -476,7 +476,7 @@ function meterCard(Meter:          EVSEStatus['meter'],
                           <div class="kv"><span class="k">Frequency</span><span class="v">${shown(reading.frequency_Hz, 2, 'Hz')}</span></div>
                           <div class="kv"><span class="k">Imported</span><span class="v">${shown(reading.imported_Wh, 0, 'Wh')}</span></div>
                           <div class="kv"><span class="k">Exported</span><span class="v">${shown(reading.exported_Wh, 0, 'Wh')}</span></div>
-                          <div class="kv"><span class="k">The meter</span><span class="v">${reading.manufacturer} ${reading.model}, version ${reading.version}, serial number ${reading.serialNumber}</span></div>
+                          <div class="kv"><span class="k">The meter</span><span class="v">${reading.manufacturer} ${reading.model}, version ${reading.version}, serial number ${reading.serialNumber}${reading.sunSpecModel ? `, SunSpec model ${reading.sunSpecModel}` : ''}</span></div>
                           <div class="kv"><span class="k">Read</span><span class="v">${formatTimestamp(reading.at)}</span></div>
                       </div>
                     `}

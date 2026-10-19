@@ -18,7 +18,6 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 
 using Newtonsoft.Json.Linq;
 
@@ -52,25 +51,53 @@ namespace cloud.charging.open.ChargingStation.Meters
 
 
     /// <summary>
+    /// How the registers of a meter model are laid out.
+    /// </summary>
+    public enum MeterLayout
+    {
+
+        /// <summary>
+        /// SunSpec 201 to 204: integers, each quantity with a scale factor - a
+        /// power of ten - of its own.
+        /// </summary>
+        Integer,
+
+        /// <summary>
+        /// SunSpec 211 to 214: 32-bit floats, two registers each.
+        /// </summary>
+        Float,
+
+        /// <summary>
+        /// The 24 registers Hermod's simulated meter answers under model 213:
+        /// integers with scale factors, and not the floats SunSpec's 213 has -
+        /// what a ModbusTLSEnergyMeter is read by.
+        /// </summary>
+        HermodDemo
+
+    }
+
+
+    /// <summary>
     /// What a SunSpec meter said when it was last read: who it is, and what it
-    /// measures - SunSpec's common model and its three-phase meter model 213.
+    /// measures - from whichever of SunSpec's meter models it is read by.
     /// </summary>
     /// <remarks>
     /// A value the meter does not implement - SunSpec's 0x8000 for a signed
-    /// register, or a scale factor that is one - is null here rather than a
-    /// number nobody measured.
+    /// integer, a scale factor that is one, a float that is not a number - is
+    /// null here rather than a number nobody measured.
     /// </remarks>
     /// <param name="At">When it was read.</param>
     /// <param name="Manufacturer">The manufacturer the meter names.</param>
     /// <param name="Model">Its model.</param>
     /// <param name="Version">Its firmware version.</param>
     /// <param name="SerialNumber">Its serial number.</param>
-    /// <param name="Power_W">The real power, in W: positive where energy flows out of the grid, towards the vehicle.</param>
+    /// <param name="Power_W">The real power, in W.</param>
     /// <param name="Current_A">The current, in A.</param>
     /// <param name="Voltage_V">The voltage between each phase and neutral, in V.</param>
     /// <param name="Frequency_Hz">The frequency, in Hz.</param>
     /// <param name="Imported_Wh">The energy it counted flowing in, in Wh.</param>
     /// <param name="Exported_Wh">The energy it counted flowing back, in Wh.</param>
+    /// <param name="SunSpecModel">The SunSpec meter model it was read by.</param>
     public sealed record MeterReading(DateTimeOffset  At,
                                       String          Manufacturer,
                                       String          Model,
@@ -81,41 +108,70 @@ namespace cloud.charging.open.ChargingStation.Meters
                                       PhaseValues     Voltage_V,
                                       Decimal?        Frequency_Hz,
                                       Decimal?        Imported_Wh,
-                                      Decimal?        Exported_Wh)
+                                      Decimal?        Exported_Wh,
+                                      UInt16          SunSpecModel)
     {
 
         #region Data
 
         /// <summary>
-        /// Where a SunSpec device's registers begin, and with them its marker.
+        /// How many registers of model 213 Hermod's simulated meter answers.
         /// </summary>
-        public const UInt16  FirstRegister  = SunSpecMeterMap.BaseAddress;
+        public const UInt16  HermodDemoLength  = SunSpecMeterMap.MeterModelLength;
 
-        /// <summary>
-        /// How many registers are read at once: the marker, the common model and
-        /// the meter model, up to the end marker.
-        /// </summary>
-        public const UInt16  RegisterCount  = SunSpecMeterMap.RegisterCount;
+        // Where a quantity is in a model of 201 to 204, counted from the first
+        // register after its length - SunSpec's own order, the same for all
+        // four.
+        private const Int32  I_A      =  0,  I_AphA   =  1,  I_AphB   =  2,  I_AphC   =  3,  I_A_SF   =  4;
+        private const Int32  I_PhV    =  5,  I_PhVphA =  6,  I_PhVphB =  7,  I_PhVphC =  8,  I_V_SF   = 13;
+        private const Int32  I_Hz     = 14,  I_Hz_SF  = 15;
+        private const Int32  I_W      = 16,  I_WphA   = 17,  I_WphB   = 18,  I_WphC   = 19,  I_W_SF   = 20;
+        private const Int32  I_WhExp  = 36,  I_WhImp  = 44,  I_Wh_SF  = 52;
 
-        /// <summary>
-        /// The three-phase wye meter model of SunSpec.
-        /// </summary>
-        public const UInt16  MeterModel     = SunSpecMeterMap.MeterModelId;
+        // And in a model of 211 to 214, two registers to a float.
+        private const Int32  F_A      =  0,  F_AphA   =  2,  F_AphB   =  4,  F_AphC   =  6;
+        private const Int32  F_PhV    =  8,  F_PhVphA = 10,  F_PhVphB = 12,  F_PhVphC = 14;
+        private const Int32  F_Hz     = 24;
+        private const Int32  F_W      = 26,  F_WphA   = 28,  F_WphB   = 30,  F_WphC   = 32;
+        private const Int32  F_WhExp  = 58,  F_WhImp  = 66;
+
+        // And in Hermod's 24, from its map: counted from the first register
+        // after the length, as the others are.
+        private const Int32  H        = SunSpecMeterMap.OffMeterId + 2;
 
         #endregion
 
 
-        #region (static) TryDecode(Registers, At, out Reading, out Error)
+        #region (static) LayoutOf(Model)
 
         /// <summary>
-        /// The registers a meter answered with, as what they mean - or why they
-        /// do not mean a SunSpec three-phase meter.
+        /// How a meter model is laid out, where it is one this station can read:
+        /// long enough for every quantity it reads from it.
         /// </summary>
-        /// <param name="Registers">The registers from <see cref="FirstRegister"/> on.</param>
+        public static MeterLayout? LayoutOf(SunSpecModel Model)
+
+            => Model.Id switch {
+                   213 when Model.Length == HermodDemoLength          => MeterLayout.HermodDemo,
+                   >= 201 and <= 204 when Model.Length > I_Wh_SF      => MeterLayout.Integer,
+                   >= 211 and <= 214 when Model.Length > F_WhImp + 1  => MeterLayout.Float,
+                   _                                                  => null
+               };
+
+        #endregion
+
+        #region (static) TryDecode(Device, Block, At, out Reading, out Error)
+
+        /// <summary>
+        /// The registers of a device's meter model, as what they mean - or why
+        /// they do not mean anything.
+        /// </summary>
+        /// <param name="Device">The device, and the model it is read by.</param>
+        /// <param name="Block">Every register of that model, its id and length included.</param>
         /// <param name="At">When they were read.</param>
         /// <param name="Reading">What they say.</param>
         /// <param name="Error">Why they say nothing.</param>
-        public static Boolean TryDecode(IReadOnlyList<UInt16>                    Registers,
+        public static Boolean TryDecode(SunSpecDevice                            Device,
+                                        IReadOnlyList<UInt16>                    Block,
                                         DateTimeOffset                           At,
                                         [NotNullWhen(true)]  out MeterReading?  Reading,
                                         [NotNullWhen(false)] out String?        Error)
@@ -123,73 +179,44 @@ namespace cloud.charging.open.ChargingStation.Meters
 
             Reading = null;
 
-            if (Registers.Count < RegisterCount)
+            var meter = Device.Meter;
+
+            if (Block.Count < meter.Registers || Block[0] != meter.Id || Block[1] != meter.Length)
             {
-                Error = $"It answered with {Registers.Count} registers, where a SunSpec meter has {RegisterCount}.";
+                Error = $"Where model {meter.Id} with {meter.Length} registers was, it answered model " +
+                        $"{(Block.Count > 0 ? Block[0].ToString() : "-")} with {(Block.Count > 1 ? Block[1].ToString() : "-")}: " +
+                         "the device rearranged its models.";
                 return false;
             }
 
-            if (Registers[SunSpecMeterMap.OffMarker]     != (UInt16) (SunSpecMeterMap.SunSpecMarker >> 16) ||
-                Registers[SunSpecMeterMap.OffMarker + 1] != (UInt16) (SunSpecMeterMap.SunSpecMarker & 0xFFFF))
+            if (LayoutOf(meter) is not MeterLayout layout)
             {
-                Error = $"Register {FirstRegister} does not begin with \"SunS\", so this is no SunSpec device.";
+                Error = $"Model {meter.Id} with {meter.Length} registers is no layout this station can read.";
                 return false;
             }
 
-            if (Registers[SunSpecMeterMap.OffMeterId] != MeterModel)
-            {
-                Error = $"It is a SunSpec device, but its first model is {Registers[SunSpecMeterMap.OffMeterId]} and not the three-phase meter {MeterModel}.";
-                return false;
-            }
+            // The quantities, from the first register after the length.
+            var data = Block.Skip(2).ToArray();
 
-            Decimal? Scaled(UInt16 Offset, UInt16 ScaleFactorOffset)
-            {
+            Reading = layout switch {
 
-                var raw          = Registers[Offset];
-                var scaleFactor  = Registers[ScaleFactorOffset];
+                          MeterLayout.Float       => Float  (Device, data, At),
 
-                if (raw == 0x8000 || scaleFactor == 0x8000)
-                    return null;
+                          MeterLayout.HermodDemo  => Integer(Device, data, At,
+                                                             A:   (SunSpecMeterMap.OffMeterA        - H, SunSpecMeterMap.OffMeterAphA     - H, SunSpecMeterMap.OffMeterAphB   - H, SunSpecMeterMap.OffMeterAphC   - H, SunSpecMeterMap.OffMeterA_SF - H),
+                                                             V:   (SunSpecMeterMap.OffMeterPhV      - H, SunSpecMeterMap.OffMeterPhVphA   - H, SunSpecMeterMap.OffMeterPhVphB - H, SunSpecMeterMap.OffMeterPhVphC - H, SunSpecMeterMap.OffMeterV_SF - H),
+                                                             W:   (SunSpecMeterMap.OffMeterW        - H, SunSpecMeterMap.OffMeterWphA     - H, SunSpecMeterMap.OffMeterWphB   - H, SunSpecMeterMap.OffMeterWphC   - H, SunSpecMeterMap.OffMeterW_SF - H),
+                                                             Hz:  (SunSpecMeterMap.OffMeterHz       - H, SunSpecMeterMap.OffMeterHz_SF    - H),
+                                                             Wh:  (SunSpecMeterMap.OffMeterTotWhImp - H, SunSpecMeterMap.OffMeterTotWhExp - H, SunSpecMeterMap.OffMeterWh_SF  - H)),
 
-                return Scale((Int16) raw, (Int16) scaleFactor);
+                          _                       => Integer(Device, data, At,
+                                                             A:   (I_A,     I_AphA,   I_AphB,   I_AphC,   I_A_SF),
+                                                             V:   (I_PhV,   I_PhVphA, I_PhVphB, I_PhVphC, I_V_SF),
+                                                             W:   (I_W,     I_WphA,   I_WphB,   I_WphC,   I_W_SF),
+                                                             Hz:  (I_Hz,    I_Hz_SF),
+                                                             Wh:  (I_WhImp, I_WhExp,  I_Wh_SF))
 
-            }
-
-            Decimal? ScaledCounter(UInt16 Offset)
-            {
-
-                var raw          = ((UInt32) Registers[Offset] << 16) | Registers[Offset + 1];
-                var scaleFactor  = Registers[SunSpecMeterMap.OffMeterWh_SF];
-
-                // An accumulator that is not implemented reads zero in SunSpec;
-                // a scale factor that is not reads 0x8000.
-                if (scaleFactor == 0x8000)
-                    return null;
-
-                return Scale(raw, (Int16) scaleFactor);
-
-            }
-
-            PhaseValues Phases(UInt16 All, UInt16 L1, UInt16 L2, UInt16 L3, UInt16 ScaleFactor)
-
-                => new (Scaled(All, ScaleFactor),
-                        Scaled(L1,  ScaleFactor),
-                        Scaled(L2,  ScaleFactor),
-                        Scaled(L3,  ScaleFactor));
-
-            Reading = new MeterReading(
-                          At,
-                          Text(Registers, SunSpecMeterMap.OffCommonMn,  16),
-                          Text(Registers, SunSpecMeterMap.OffCommonMd,  16),
-                          Text(Registers, SunSpecMeterMap.OffCommonVr,   8),
-                          Text(Registers, SunSpecMeterMap.OffCommonSN,  16),
-                          Phases(SunSpecMeterMap.OffMeterW,   SunSpecMeterMap.OffMeterWphA,   SunSpecMeterMap.OffMeterWphB,   SunSpecMeterMap.OffMeterWphC,   SunSpecMeterMap.OffMeterW_SF),
-                          Phases(SunSpecMeterMap.OffMeterA,   SunSpecMeterMap.OffMeterAphA,   SunSpecMeterMap.OffMeterAphB,   SunSpecMeterMap.OffMeterAphC,   SunSpecMeterMap.OffMeterA_SF),
-                          Phases(SunSpecMeterMap.OffMeterPhV, SunSpecMeterMap.OffMeterPhVphA, SunSpecMeterMap.OffMeterPhVphB, SunSpecMeterMap.OffMeterPhVphC, SunSpecMeterMap.OffMeterV_SF),
-                          Scaled(SunSpecMeterMap.OffMeterHz, SunSpecMeterMap.OffMeterHz_SF),
-                          ScaledCounter(SunSpecMeterMap.OffMeterTotWhImp),
-                          ScaledCounter(SunSpecMeterMap.OffMeterTotWhExp)
-                      );
+                      };
 
             Error = null;
             return true;
@@ -211,6 +238,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                    new JProperty("model",         Model),
                    new JProperty("version",       Version),
                    new JProperty("serialNumber",  SerialNumber),
+                   new JProperty("sunSpecModel",  SunSpecModel),
                    new JProperty("power_W",       Power_W.  ToJSON()),
                    new JProperty("current_A",     Current_A.ToJSON()),
                    new JProperty("voltage_V",     Voltage_V.ToJSON()),
@@ -221,6 +249,111 @@ namespace cloud.charging.open.ChargingStation.Meters
 
         #endregion
 
+
+        #region (private static) Integer(Device, Data, At, A, V, W, Hz, Wh)
+
+        /// <summary>
+        /// A model of integers, each quantity scaled by a power of ten of its
+        /// own, at the given places.
+        /// </summary>
+        private static MeterReading Integer(SunSpecDevice                                         Device,
+                                            UInt16[]                                              Data,
+                                            DateTimeOffset                                        At,
+                                            (Int32 All, Int32 L1, Int32 L2, Int32 L3, Int32 SF)   A,
+                                            (Int32 All, Int32 L1, Int32 L2, Int32 L3, Int32 SF)   V,
+                                            (Int32 All, Int32 L1, Int32 L2, Int32 L3, Int32 SF)   W,
+                                            (Int32 Value, Int32 SF)                               Hz,
+                                            (Int32 Imported, Int32 Exported, Int32 SF)            Wh)
+        {
+
+            Decimal? Scaled(Int32 Offset, Int32 ScaleFactorOffset)
+            {
+
+                var raw          = Data[Offset];
+                var scaleFactor  = Data[ScaleFactorOffset];
+
+                return raw == 0x8000 || scaleFactor == 0x8000
+                           ? null
+                           : Scale((Int16) raw, (Int16) scaleFactor);
+
+            }
+
+            // An accumulator that is not implemented reads zero in SunSpec; a
+            // scale factor that is not reads 0x8000.
+            Decimal? Counter(Int32 Offset)
+
+                => Data[Wh.SF] == 0x8000
+                       ? null
+                       : Scale(((UInt32) Data[Offset] << 16) | Data[Offset + 1], (Int16) Data[Wh.SF]);
+
+            PhaseValues Phases((Int32 All, Int32 L1, Int32 L2, Int32 L3, Int32 SF) Where)
+
+                => new (Scaled(Where.All, Where.SF), Scaled(Where.L1, Where.SF), Scaled(Where.L2, Where.SF), Scaled(Where.L3, Where.SF));
+
+            return new MeterReading(
+                       At,
+                       Device.Manufacturer,
+                       Device.Model,
+                       Device.Version,
+                       Device.SerialNumber,
+                       Phases(W),
+                       Phases(A),
+                       Phases(V),
+                       Scaled(Hz.Value, Hz.SF),
+                       Counter(Wh.Imported),
+                       Counter(Wh.Exported),
+                       Device.Meter.Id
+                   );
+
+        }
+
+        #endregion
+
+        #region (private static) Float(Device, Data, At)
+
+        /// <summary>
+        /// A model of 32-bit floats, two registers each.
+        /// </summary>
+        private static MeterReading Float(SunSpecDevice   Device,
+                                          UInt16[]        Data,
+                                          DateTimeOffset  At)
+        {
+
+            Decimal? Value(Int32 Offset)
+            {
+
+                var value = BitConverter.Int32BitsToSingle((Data[Offset] << 16) | Data[Offset + 1]);
+
+                // Not a number is SunSpec's "not implemented"; nothing too large
+                // for a decimal is a measurement either.
+                return Single.IsFinite(value) && Math.Abs(value) < 1e15f
+                           ? Math.Round((Decimal) value, 3)
+                           : null;
+
+            }
+
+            PhaseValues Phases(Int32 All, Int32 L1, Int32 L2, Int32 L3)
+
+                => new (Value(All), Value(L1), Value(L2), Value(L3));
+
+            return new MeterReading(
+                       At,
+                       Device.Manufacturer,
+                       Device.Model,
+                       Device.Version,
+                       Device.SerialNumber,
+                       Phases(F_W,   F_WphA,   F_WphB,   F_WphC),
+                       Phases(F_A,   F_AphA,   F_AphB,   F_AphC),
+                       Phases(F_PhV, F_PhVphA, F_PhVphB, F_PhVphC),
+                       Value(F_Hz),
+                       Value(F_WhImp),
+                       Value(F_WhExp),
+                       Device.Meter.Id
+                   );
+
+        }
+
+        #endregion
 
         #region (private static) Scale(Value, ScaleFactor)
 
@@ -238,30 +371,6 @@ namespace cloud.charging.open.ChargingStation.Meters
                 value = ScaleFactor > 0 ? value * 10 : value / 10;
 
             return value;
-
-        }
-
-        #endregion
-
-        #region (private static) Text(Registers, Offset, Length)
-
-        /// <summary>
-        /// A SunSpec string: ASCII, two characters to a register, padded with NUL.
-        /// </summary>
-        private static String Text(IReadOnlyList<UInt16>  Registers,
-                                   UInt16                 Offset,
-                                   Int32                  Length)
-        {
-
-            var bytes = new Byte[Length * 2];
-
-            for (var i = 0; i < Length; i++)
-            {
-                bytes[2 * i]     = (Byte) (Registers[Offset + i] >> 8);
-                bytes[2 * i + 1] = (Byte) (Registers[Offset + i] & 0xFF);
-            }
-
-            return Encoding.ASCII.GetString(bytes).TrimEnd('\0', ' ');
 
         }
 

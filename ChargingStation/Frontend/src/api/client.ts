@@ -125,6 +125,8 @@ export interface MeterReading {
     model:         string;
     version:       string;
     serialNumber:  string;
+    /** The SunSpec meter model it was read by: 201 to 204, 211 to 214. */
+    sunSpecModel?: number;
     power_W:       PhaseValues;
     current_A:     PhaseValues;
     voltage_V:     PhaseValues;
@@ -162,6 +164,8 @@ export interface MeterStatus {
         meter:        CertificateSummary | null;
         identity:     MeterIdentity;
         judged:       string | null;
+        /** How the meter describes itself: where its registers begin, the models it has, and the one it is read by. */
+        sunSpec?:     { base: number; models: { id: number; address: number; length: number }[]; meter: number };
     } | null;
     reading?:     MeterReading | null;
 }

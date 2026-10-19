@@ -90,7 +90,7 @@ function aMeter(EVSE: number, Label: string): MeterStatus {
         connection:  { protocol: 'Tls13', cipherSuite: 'TLS_AES_128_GCM_SHA256', judged: 'accepted',
                        identity: { id: '0123456789abcdef', label: 'meter reader', role: 'ReadOnlySunSpec', subject: 'CN=Station' },
                        meter:    { subject: 'CN=EnergyMeter01', issuer: 'CN=Issuing Device CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z', sha256: 'EF'.repeat(32) } },
-        reading:     { at: '2026-10-19T10:00:05.000Z', manufacturer: 'Vanaheimr', model: 'DemoMeter-3P', version: '1.0.0', serialNumber: 'EnergyMeter01',
+        reading:     { at: '2026-10-19T10:00:05.000Z', manufacturer: 'Vanaheimr', model: 'DemoMeter-3P', version: '1.0.0', serialNumber: 'EnergyMeter01', sunSpecModel: 213,
                        power_W: phases(11040, 3680), current_A: phases(48, 16), voltage_V: phases(230, 229.6), frequency_Hz: null,
                        imported_Wh: 123456, exported_Wh: 0 }
     };
@@ -215,6 +215,7 @@ describe('the EVSEs page', () => {
         assert.match(text, /ReadOnlySunSpec/,                  'the role it is read with is not said');
         assert.match(text, /CN=EnergyMeter01/,                 'the meter\'s certificate is not said');
         assert.match(text, /10\.0\.0\.5:802/,                  'where it is read is not said');
+        assert.match(text, /SunSpec model 213/,                'the model it is read by is not said');
 
     });
 

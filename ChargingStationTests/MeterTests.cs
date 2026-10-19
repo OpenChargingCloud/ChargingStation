@@ -48,12 +48,19 @@ namespace cloud.charging.open.ChargingStation.Tests
         private readonly CancellationTokenSource  stopping;
         private readonly Task                     running;
 
-        public SunSpecMeterDevice  Device  { get; }
+        private readonly SunSpecMeterDevice?  device;
+
+        /// <summary>
+        /// Hermod's simulated meter it serves, where it serves one.
+        /// </summary>
+        public SunSpecMeterDevice  Device
+            => device ?? throw new InvalidOperationException("This bench serves a register image, and no simulated meter.");
+
         public UInt16              Port    { get; }
 
-        private MeterOnTheBench(SunSpecMeterDevice Device, ModbusTlsFrontend Frontend, CancellationTokenSource Stopping, Task Running, UInt16 Port)
+        private MeterOnTheBench(SunSpecMeterDevice? Device, ModbusTlsFrontend Frontend, CancellationTokenSource Stopping, Task Running, UInt16 Port)
         {
-            this.Device    = Device;
+            this.device    = Device;
             this.frontend  = Frontend;
             this.stopping  = Stopping;
             this.running   = Running;
@@ -64,12 +71,31 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A meter with the given serial number, its certificates from the PKI
         /// in the given directory, believing the clients of that PKI's root.
         /// </summary>
-        public static async Task<MeterOnTheBench> Start(String PKI, String SerialNumber)
+        public static Task<MeterOnTheBench> Start(String PKI, String SerialNumber)
         {
 
             // Not simulated: what it measures stays what it measured at its
             // start, so that a test can hold the station to it.
-            var device   = new SunSpecMeterDevice(SerialNumber, SunSpecMeterMode.ImportOnly, runSimulation: false);
+            var device = new SunSpecMeterDevice(SerialNumber, SunSpecMeterMode.ImportOnly, runSimulation: false);
+
+            return Start(PKI, device, new SunSpecBackendFactory(device), new AuthorizationPolicy(device));
+
+        }
+
+        /// <summary>
+        /// A device that answers with the registers a test wrote down, to
+        /// whoever its PKI's root vouches for.
+        /// </summary>
+        public static Task<MeterOnTheBench> Serving(String PKI, SunSpecImage Image)
+
+            => Start(PKI, null, Image, new AuthorizationPolicy(new HashSet<UInt16>(), new HashSet<UInt16>()));
+
+        private static async Task<MeterOnTheBench> Start(String                 PKI,
+                                                         SunSpecMeterDevice?    Device,
+                                                         IModbusBackendFactory  Backend,
+                                                         AuthorizationPolicy    Policy)
+        {
+
             var server   = ServerCertificateChain.Load(Path.Combine(PKI, "server.chain.crt"), Path.Combine(PKI, "server.key"));
             var root     = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(PKI, "ca.crt"));
 
@@ -85,15 +111,15 @@ namespace cloud.charging.open.ChargingStation.Tests
                                    ServerCertificateSelector:  _ => server,
                                    ClientTrustAnchors:         () => [ root ]
                                ),
-                               new SunSpecBackendFactory(device),
-                               new AuthorizationPolicy(device)
+                               Backend,
+                               Policy
                            );
 
             var stopping = new CancellationTokenSource();
             var running  = Task.Run(() => frontend.RunAsync(stopping.Token));
             var bound    = await frontend.BoundEndPoint;
 
-            return new MeterOnTheBench(device, frontend, stopping, running, (UInt16) bound.Port);
+            return new MeterOnTheBench(Device, frontend, stopping, running, (UInt16) bound.Port);
 
         }
 
@@ -105,7 +131,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             try { await running; } catch { }
 
             frontend.Dispose();
-            Device.Dispose();
+            device?.Dispose();
             stopping.Dispose();
 
         }
@@ -608,6 +634,69 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(EntryInTheFile(1)!.Value<String>("certificateFingerprint"), Is.EqualTo(MetersCertificate()),
                         "the pin learned while the page was open went with its save");
+
+        }
+
+        #endregion
+
+        #region Meters of other models
+
+        [Test]
+        public async Task AMeterOfIntegersIsReadByItsModelBehindAnotherModel()
+        {
+
+            ImportIdentity(SunSpecRoles.ReadOnly);
+            ImportRoot(ChargingStation.MeterCertificateUsage);
+
+            await using var meter = await MeterOnTheBench.Serving(pki, SunSpecImage.Model203Meter());
+
+            await ReadTheMeterOf(1, "127.0.0.1", meter.Port);
+
+            await Until(() => StateOf(1) == "reading", "the meter was not read: " + MeterOfEVSE(1));
+
+            var reading = MeterOfEVSE(1)!["reading"]!;
+
+            Assert.That(reading.Value<String>("serialNumber"),            Is.EqualTo("SN203"));
+            Assert.That(reading.Value<Int32>("sunSpecModel"),             Is.EqualTo(203));
+            Assert.That(reading["power_W"]!.Value<Decimal>("all"),        Is.EqualTo(11040m));
+            Assert.That(reading["voltage_V"]!["L2"]!.Type,                Is.EqualTo(JTokenType.Null), "a voltage the meter does not measure was said");
+            Assert.That(MeterOfEVSE(1)!["connection"]!["sunSpec"]!["models"]!.Select(model => model.Value<Int32>("id")),
+                        Is.EqualTo(new[] { 1, 101, 203 }), "the models it has are not said");
+
+        }
+
+        [Test]
+        public async Task AMeterOfFloatsThatBeginsAt50000IsReadThere()
+        {
+
+            ImportIdentity(SunSpecRoles.ReadOnly);
+            ImportRoot(ChargingStation.MeterCertificateUsage);
+
+            await using var meter = await MeterOnTheBench.Serving(pki, SunSpecImage.Model213FloatMeter(Base: 50000));
+
+            await ReadTheMeterOf(1, "127.0.0.1", meter.Port);
+
+            await Until(() => StateOf(1) == "reading", "the meter was not read: " + MeterOfEVSE(1));
+
+            Assert.That(MeterOfEVSE(1)!["reading"]!["power_W"]!.Value<Decimal>("all"),  Is.EqualTo(11385m));
+            Assert.That(MeterOfEVSE(1)!["connection"]!["sunSpec"]!.Value<Int32>("base"), Is.EqualTo(50000));
+
+        }
+
+        [Test]
+        public async Task ADeviceWithNoMeterModelIsSaidToBeNoMeterAndWhatItHasInstead()
+        {
+
+            ImportIdentity(SunSpecRoles.ReadOnly);
+            ImportRoot(ChargingStation.MeterCertificateUsage);
+
+            await using var meter = await MeterOnTheBench.Serving(pki, new SunSpecImage().Common("Inv", "I-1", "1.0", "SN101").Model(101, 50).End());
+
+            await ReadTheMeterOf(1, "127.0.0.1", meter.Port);
+
+            await Until(() => StateOf(1) == "notSunSpec", "a device with no meter model was not said to be none: " + MeterOfEVSE(1));
+
+            Assert.That(MeterOfEVSE(1)!.Value<String>("error"), Does.Contain("none of its models is a meter: 1, 101"));
 
         }
 

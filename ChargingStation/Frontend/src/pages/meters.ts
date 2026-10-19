@@ -240,6 +240,9 @@ export const metersPage: Page = {
                                         ${state.reading
                                               ? html`<div class="kv"><span class="k">The meter</span><span class="v">${state.reading.manufacturer} ${state.reading.model}, serial number ${state.reading.serialNumber}</span></div>`
                                               : nothing}
+                                        ${state.connection?.sunSpec
+                                              ? html`<div class="kv"><span class="k">SunSpec</span><span class="v meter-sunspec">from ${state.connection.sunSpec.base}, models ${state.connection.sunSpec.models.map(model => model.id).join(', ')} - read by ${state.connection.sunSpec.meter}</span></div>`
+                                              : nothing}
                                     </div>
                                     ${state.error ? html`<p class="form-error meter-error">${state.error}</p>` : nothing}
                                   `}

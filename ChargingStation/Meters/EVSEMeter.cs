@@ -493,18 +493,33 @@ namespace cloud.charging.open.ChargingStation.Meters
                                       new JProperty("judged",       judgement?.Outcome)
                                   );
 
+                    ReadRegisters read = (first, count) => connection.ReadHoldingRegisters(Endpoint.Unit, first, count, DefaultTimeout, CancellationToken);
+
+                    // Where its registers begin and where its meter model is,
+                    // once for the connection: its list of models, walked.
+                    SunSpecDevice device;
+
+                    try
+                    {
+                        device = await SunSpecDevice.Discover(read);
+                    }
+                    catch (NotASunSpecMeter e)
+                    {
+                        Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {e.Message}", details);
+                        await Wait(RetryInterval, CancellationToken);
+                        continue;
+                    }
+
+                    details["sunSpec"] = device.ToJSON();
+
                     while (!CancellationToken.IsCancellationRequested)
                     {
 
-                        var registers = await connection.ReadHoldingRegisters(Endpoint.Unit,
-                                                                              MeterReading.FirstRegister,
-                                                                              MeterReading.RegisterCount,
-                                                                              DefaultTimeout,
-                                                                              CancellationToken);
+                        var block = await device.ReadMeter(read);
 
-                        if (!MeterReading.TryDecode(registers, timeProvider.GetUtcNow(), out var reading, out var notAMeter))
+                        if (!MeterReading.TryDecode(device, block, timeProvider.GetUtcNow(), out var reading, out var notAMeter))
                         {
-                            Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter: {notAMeter}", details);
+                            Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {notAMeter}", details);
                             break;
                         }
 
@@ -531,6 +546,10 @@ namespace cloud.charging.open.ChargingStation.Meters
                 catch (ModbusException e)
                 {
                     Became("refused", $"The meter at {Endpoint} refused to be read by '{identity.Role}': {e.Code}.");
+                }
+                catch (NotASunSpecMeter e)
+                {
+                    Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {e.Message}");
                 }
                 catch (Exception e) when (e is SocketException or IOException or OperationCanceledException or TimeoutException)
                 {
