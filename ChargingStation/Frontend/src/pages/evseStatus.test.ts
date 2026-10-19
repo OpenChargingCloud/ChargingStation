@@ -66,6 +66,7 @@ function anEVSE(Id: number, Label: string, More: Partial<EVSEStatus> = {}): EVSE
         connectors:         [ { id: 1, type: 'sType2', maxPower_kW: 22 } ],
         session:            null,
         reservation:        null,
+        v2g:                null,
         meter:              null,
         ...More
     };
@@ -167,6 +168,50 @@ describe('the EVSEs page', () => {
 
         assert.match(panel(root, 1)!.textContent!, /EnergyMeter01/);
         assert.match(panel(root, 1)!.textContent!, /reads no meter yet/);
+
+    });
+
+    it('says what is going on below the cable: the last SDP request, the vehicle connected and over what', async () => {
+
+        evses = [ anEVSE(1, 'A', {
+            v2g: {
+                up:          true,
+                interface:   'plc0',
+                endpoint:    '[::]:15118',
+                tls:         true,
+                certificate: { subject: 'CN=EVSE A', issuer: 'CN=CPO Sub-CA 2', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z', sha256: 'AB'.repeat(32) },
+                sdp:         true,
+                slac:        true,
+                evseId:      'DE*GEF*E0001*1',
+                mode:        'DC',
+                lastSDP:     { at: '2026-10-19T10:00:00Z', from: '[fe80::1%5]:51234', version: 'ISO_15118_2', security: 'TLS', transport: 'TCP',
+                               accepted: true, rejectReason: null, answer: { address: 'fe80::2', port: 15118, security: 'TLS' } },
+                connection:  { since: '2026-10-19T10:00:01Z', from: '[fe80::1%5]:51300', protocol: 'ISO 15118-20', mode: 'DC',
+                               tls: { protocol: 'Tls13', cipherSuite: 'TLS_AES_256_GCM_SHA384', library: 'platform',
+                                      vehicle: { subject: 'CN=WMIV2G00000001', issuer: 'CN=OEM Sub-CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2028-01-01T00:00:00Z', sha256: 'CD'.repeat(32) } } },
+                lastSession: null
+            }
+        }) ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const text = panel(root, 1)!.textContent!;
+
+        assert.match(text, /\[fe80::2\]:15118/,           'the SDP answer is not said');
+        assert.match(text, /ISO 15118-20, DC/,             'what the vehicle and the station agreed on is not said');
+        assert.match(text, /TLS_AES_256_GCM_SHA384/,       'the cipher suite is not said');
+        assert.match(text, /CN=WMIV2G00000001/,            'the vehicle\'s certificate is not said');
+        assert.match(text, /CN=CPO Sub-CA 2/,              'the station\'s certificate is not said');
+
+    });
+
+    it('says when an EVSE offers no ISO 15118, and when what it is to offer did not come up', async () => {
+
+        evses = [ anEVSE(1, 'A'), anEVSE(2, 'B', { v2g: { up: false } }) ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 2) !== null);
+
+        assert.match(panel(root, 1)!.textContent!, /offers no ISO 15118/);
+        assert.match(panel(root, 2)!.textContent!, /nothing came up below this cable/);
 
     });
 

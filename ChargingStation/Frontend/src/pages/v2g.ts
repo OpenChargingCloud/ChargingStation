@@ -1,15 +1,19 @@
-import { api, type T1SBusStatus, type V2GConfiguration } from '../api/client';
+import { api, type T1SBusStatus, type V2GConfiguration, type V2GLinkConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
 import { mayButNot, reloadButton, shell } from '@node/shell';
+import { rememberTab, tabFromURL, tabsView, type Tab } from '@node/tabs';
 import { errorMessage, field, numberField, whileSaving } from '@node/ui';
-import { typedSinceDrawn, unsaved } from '@node/unsaved';
-import { html, nothing, render, type TemplateResult } from '@node/view';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
- * What this charging station offers a vehicle on the wire below the cable.
+ * What each EVSE of this charging station offers a vehicle on the wire below
+ * its cable - one tab for each, because each has a link of its own: its
+ * interface, its endpoint, its SDP and its SLAC. The certificate is the
+ * station's, and said once below them.
  *
  * Two things on one page, and they are deliberately not merged: what the
  * station was told to offer, and what actually came up. A station told to
@@ -26,12 +30,12 @@ export const v2gPage: Page = {
 
     title: 'V2G',
 
-    render({ root }) {
+    render({ root, url }) {
 
         const content = shell(root, {
             active:    '/configuration/v2g',
             title:     'V2G',
-            subtitle:  'SLAC, SDP and the endpoint they lead to - what is offered below the charging cable.',
+            subtitle:  'SLAC, SDP and the endpoint they lead to - what each EVSE offers below its charging cable.',
             actions:   reloadButton(() => reload())
         });
 
@@ -41,6 +45,19 @@ export const v2gPage: Page = {
 
         let cancelled = false;
         let current: V2GConfiguration | null = null;
+        let shown:   string | null           = null;
+
+
+        function tabsOf(Configuration: V2GConfiguration): Tab[] {
+            return Configuration.links.map(link => ({ id: tabIdOf(link), label: `EVSE ${link.label}`, icon: 'fa-car-side' }));
+        }
+
+        function show(id: string): void {
+            shown = id;
+            if (current !== null)
+                rememberTab(tabsOf(current), id);
+            draw();
+        }
 
 
         function draw(): void {
@@ -48,7 +65,49 @@ export const v2gPage: Page = {
             if (current === null)
                 return;
 
-            const c    = current;
+            const station = current;
+            const tabs    = tabsOf(station);
+
+            // The tab asked for, as long as there still is one by that name.
+            if (tabs.length > 0 && (shown === null || !tabs.some(tab => tab.id === shown)))
+                shown = tabFromURL(tabs, shown === null ? url : new URL(location.href));
+
+            render(content, html`
+
+                ${mayChange ? nothing : html`
+                    <div class="notice">${mayButNot('look at what this station offers below the cable', 'change it')}</div>
+                `}
+
+                ${tabs.length === 0
+                      ? html`<div class="cards"><section class="card">
+                                <h2><i class="fa-solid fa-car-side"></i> No EVSEs</h2>
+                                <p class="muted small">
+                                    This station has no EVSEs, so there is no cable to offer anything below. They are
+                                    added on the <a href="${toURL('/configuration/evses')}">EVSEs</a> page.
+                                </p>
+                             </section></div>`
+                      : html`
+                          ${tabsView(tabs, shown!, show, 'The EVSEs of this station')}
+
+                          ${repeat(station.links, link => link.evse, link => html`
+                              <div id="panel-${tabIdOf(link)}" role="tabpanel" aria-labelledby="tab-${tabIdOf(link)}" ?hidden=${shown !== tabIdOf(link)}>
+                                  ${linkView(station, link)}
+                              </div>
+                          `)}
+                        `}
+
+                <div class="cards">
+                    ${certificateCard(station)}
+                </div>
+
+            `);
+
+        }
+
+
+        /** The link below one EVSE: what came up, the coupler, and its settings. */
+        function linkView(station: V2GConfiguration, c: V2GLinkConfiguration): TemplateResult {
+
             const link = c.link;
 
             // What was asked for and what happened, where those differ. Only
@@ -57,10 +116,10 @@ export const v2gPage: Page = {
             // disagreement would be the page inventing a fault.
             const troubles: string[] = [];
 
-            if (c.running && c.enabled && link === null)
+            if (station.running && c.enabled && link === null)
                 troubles.push('V2G is switched on, but nothing came up below the cable at all - the log under the "15118" tag says why.');
 
-            if (c.running && c.enabled && link !== null) {
+            if (station.running && c.enabled && link !== null) {
 
                 if (c.sdp && !link.sdp)
                     troubles.push('SDP is switched on and is not answering. It needs an interface with an IPv6 link-local address and a V2G endpoint to point a vehicle at.');
@@ -73,26 +132,22 @@ export const v2gPage: Page = {
 
             }
 
-            render(content, html`
-
-                ${mayChange ? nothing : html`
-                    <div class="notice">${mayButNot('look at what this station offers below the cable', 'change it')}</div>
-                `}
+            return html`
 
                 <div class="cards">
 
                     <section class="card">
 
-                        <h2><i class="fa-solid fa-car-side"></i> What came up</h2>
+                        <h2><i class="fa-solid fa-car-side"></i> What came up below EVSE ${c.label}</h2>
 
-                        ${!c.running
+                        ${!station.running
                               ? html`<p class="muted small">
                                         This station has not been started, so nothing is up yet. What is
                                         configured below is what it will bring up.
                                     </p>`
                               : link === null
                                     ? html`<p class="muted small">
-                                              Nothing is up below the charging cable.
+                                              Nothing is up below this charging cable.
                                               ${c.enabled
                                                     ? html`It is switched on, so something stopped it - look for "15118" in the
                                                            <a href="${toURL('/logs')}">log</a>.`
@@ -157,7 +212,7 @@ export const v2gPage: Page = {
 
                         <h2><i class="fa-solid fa-sliders"></i> Settings</h2>
 
-                        <form id="v2g-form" class="form-stack" @submit=${save}>
+                        <form id="v2g-form-${c.evse}" class="form-stack v2g-form" @submit=${(event: SubmitEvent) => save(event, c.evse)}>
 
                             <label class="checkbox">
                                 <input type="checkbox" name="enabled" ?checked=${c.enabled}
@@ -225,7 +280,7 @@ export const v2gPage: Page = {
 
                             <label>SLAC transport
                                 <select name="slac" ?disabled=${!mayChange}>
-                                    ${c.slacTransports.map(kind => html`
+                                    ${station.slacTransports.map(kind => html`
                                         <option value="${kind}" ?selected=${kind === c.slac}>${describe(kind)}</option>
                                     `)}
                                 </select>
@@ -236,9 +291,21 @@ export const v2gPage: Page = {
                                 </span>
                             </label>
 
+                            <label>The outlet behind the socket
+                                <select name="mode" ?disabled=${!mayChange}>
+                                    <option value="ac" ?selected=${c.mode === 'ac'}>AC</option>
+                                    <option value="dc" ?selected=${c.mode === 'dc'}>DC</option>
+                                </select>
+                                <span class="hint">
+                                    What the protocol handshake offers a vehicle: the namespace it asks for names
+                                    the mode, and offering the other one would be claiming an outlet this EVSE does
+                                    not have. A megawatt coupler is DC with a 10BASE-T1S bus.
+                                </span>
+                            </label>
+
                             <label>The coupler's bus - 10BASE-T1S, below a megawatt cable
                                 <select name="t1sTransport" ?disabled=${!mayChange}>
-                                    ${c.t1sTransports.map(kind => html`
+                                    ${station.t1sTransports.map(kind => html`
                                         <option value="${kind}" ?selected=${kind === c.t1sTransport}>${describeT1S(kind)}</option>
                                     `)}
                                 </select>
@@ -246,7 +313,7 @@ export const v2gPage: Page = {
 
                             <label>Bus group and port
                                 <input type="text" name="t1sBus" value="${c.t1sBus ?? ''}"
-                                       placeholder="${c.t1sDefaultBus} - the emulated medium's group"
+                                       placeholder="${station.t1sDefaultBus} - the emulated medium's group"
                                        ?disabled=${!mayChange} />
                             </label>
 
@@ -278,19 +345,31 @@ export const v2gPage: Page = {
 
                             <div class="form-actions">
                                 <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
-                                <span id="form-note"  class="form-notice" role="status"></span>
-                                <span id="form-error" class="form-error"  role="alert"></span>
+                                <span class="form-notice" role="status"></span>
+                                <span class="form-error"  role="alert"></span>
                             </div>
 
                             <span class="hint">
-                                Saved to ${c.file}, and put into effect at once${c.running && c.enabled ? html` - the
+                                Saved to ${station.file}, and put into effect at once${station.running && c.enabled ? html` - this
                                 link goes down and comes back up, and a vehicle in the middle of a SLAC match
-                                goes down with it` : nothing}.
+                                goes down with it. The other EVSEs' links stay as they are` : nothing}.
                             </span>
 
                         </form>
 
                     </section>
+
+                </div>
+
+            `;
+
+        }
+
+
+        /** The certificate, which is the station's and the same below every cable. */
+        function certificateCard(c: V2GConfiguration): TemplateResult {
+
+            return html`
 
                     <section class="card">
 
@@ -298,9 +377,9 @@ export const v2gPage: Page = {
 
                         <p>
                             ${c.certificate
-                                  ? html`A certificate was given to this station, so the V2G endpoint speaks TLS
+                                  ? html`A certificate was given to this station, so every V2G endpoint speaks TLS
                                          and SDP says so to every vehicle that asks.`
-                                  : html`No certificate was given to this station, so the V2G endpoint speaks plain
+                                  : html`No certificate was given to this station, so every V2G endpoint speaks plain
                                          TCP - which ISO 15118-20 does not allow. SDP advertises that honestly
                                          rather than promising TLS a vehicle could not then complete.`}
                         </p>
@@ -314,22 +393,20 @@ export const v2gPage: Page = {
 
                     </section>
 
-                </div>
-
-            `);
+            `;
 
         }
 
-        async function save(event: SubmitEvent): Promise<void> {
+        async function save(event: SubmitEvent, evse: number): Promise<void> {
 
             event.preventDefault();
 
-            const form = event.currentTarget as HTMLFormElement;
-            const note = must<HTMLElement>(content, '#form-note');
+            const form  = event.currentTarget as HTMLFormElement;
+            const note  = must<HTMLElement>(form, '.form-notice');
+            const error = must<HTMLElement>(form, '.form-error');
 
-            note.textContent = '';
-
-            must<HTMLElement>(content, '#form-error').textContent = '';
+            note.textContent  = '';
+            error.textContent = '';
 
             // Every one of them read here and not inside the call below.
             // whileSaving switches the whole form off before it runs, and a
@@ -338,6 +415,7 @@ export const v2gPage: Page = {
             // as "do not change it". Measured: the page said "Saved." and the
             // file was untouched.
             const update = {
+                              evse,
                               enabled:    checked(form, 'enabled'),
                               sdp:        checked(form, 'sdp'),
                               loopback:   checked(form, 'loopback'),
@@ -349,6 +427,7 @@ export const v2gPage: Page = {
                               port:       field(form, 'port')      === '' ? 0    : Number(field(form, 'port')),
                               evseId:     field(form, 'evseId'),
                               slac:       field(form, 'slac'),
+                              mode:       field(form, 'mode') === 'dc' ? 'dc' as const : 'ac' as const,
 
                               // The bus. An emptied group or interface is "the
                               // default", which travels as null. An emptied
@@ -385,7 +464,7 @@ export const v2gPage: Page = {
             catch (problem)
             {
                 if (!cancelled)
-                    must<HTMLElement>(content, '#form-error').textContent = errorMessage(problem);
+                    error.textContent = errorMessage(problem);
             }
 
         }
@@ -427,7 +506,7 @@ export const v2gPage: Page = {
                 content.querySelectorAll('form').forEach(form => form.reset());
         }
 
-        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#v2g-form')));
+        const release = unsaved.heldBy(() => anyFormTypedSinceDrawn(content));
 
         void load();
 
@@ -436,6 +515,12 @@ export const v2gPage: Page = {
     }
 
 };
+
+
+/** The id of an EVSE's tab, in the address and in the ids of its button and panel. */
+function tabIdOf(Link: V2GLinkConfiguration): string {
+    return `evse-${Link.evse}`;
+}
 
 
 /** Whether a checkbox of this form is ticked. */

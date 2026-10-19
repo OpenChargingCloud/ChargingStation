@@ -438,7 +438,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// </summary>
             public const String Why = "The V2G link would not end.";
 
-            protected override Task EndTheV2GLink()
+            protected override Task EndTheV2GLinks()
 
                 => Task.FromException(new IOException(Why));
 

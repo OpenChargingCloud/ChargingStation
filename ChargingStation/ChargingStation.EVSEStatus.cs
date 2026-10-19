@@ -176,6 +176,8 @@ namespace cloud.charging.open.ChargingStation
 
                        new JProperty("reservation",        reservation),
 
+                       new JProperty("v2g",                V2GStatusJSON(EVSE.Id)),
+
                        new JProperty("meter",              EVSE.MeterType is null && EVSE.MeterSerialNumber is null
                                                                ? null
                                                                : new JObject(
@@ -184,6 +186,29 @@ namespace cloud.charging.open.ChargingStation
                                                                  ))
 
                    );
+
+        }
+
+        #endregion
+
+        #region (private) V2GStatusJSON(EVSE)
+
+        /// <summary>
+        /// What is going on below the cable of one EVSE: null where it is to
+        /// have no V2G link, whether the one it is to have is up, and what that
+        /// one is doing - SDP, the vehicle connected and over what.
+        /// </summary>
+        private JObject? V2GStatusJSON(Byte EVSE)
+        {
+
+            if (!V2GOptionsOf(EVSE).Enabled)
+                return null;
+
+            var json = V2GLinkOf(EVSE)?.StatusJSON() ?? new JObject();
+
+            json.AddFirst(new JProperty("up", V2GLinkOf(EVSE) is not null));
+
+            return json;
 
         }
 

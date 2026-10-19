@@ -80,7 +80,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
     /// "15118" plus "slac", "sdp" or "v2g", which is what makes the Logs page
     /// of the web interface show a whole plug-in as one sequence.
     /// </remarks>
-    public sealed class V2GLink : IAsyncDisposable
+    public sealed partial class V2GLink : IAsyncDisposable
     {
 
         #region Data
@@ -100,7 +100,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// </summary>
         public const Int32 NMKSize    = 16;
 
-        private readonly EventLog                 log;
+        private readonly V2GLinkLog               log;
         private readonly CancellationTokenSource  shutdown = new();
         private readonly ISlacTransport?          givenSlacTransport;
 
@@ -138,6 +138,12 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// What was asked for.
         /// </summary>
         public V2GOptions            Options       { get; }
+
+        /// <summary>
+        /// The EVSE this link is below, as its log lines start; null where
+        /// nobody said.
+        /// </summary>
+        public String?               About         { get; }
 
         /// <summary>
         /// The interface the vehicle is on, when one was found.
@@ -223,10 +229,12 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         private V2GLink(V2GOptions       Options,
                         EventLog         Log,
                         TimeProvider     Clock,
-                        ISlacTransport?  SlacTransport)
+                        ISlacTransport?  SlacTransport,
+                        String?          About)
         {
             this.Options             = Options;
-            this.log                 = Log;
+            this.About               = About;
+            this.log                 = new V2GLinkLog(Log, About);
             this.clock               = Clock;
             this.givenSlacTransport  = SlacTransport;
         }
@@ -247,17 +255,19 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// </remarks>
         /// <param name="Clock">The station's own clock, which the session state machines time their steps by - so that a test which moves it moves them.</param>
         /// <param name="SlacTransport">A medium for SLAC to listen on instead of the one the options name. The link takes it over: it starts it, and ends it with the rest of itself.</param>
+        /// <param name="About">The EVSE this link is below, as every line it logs starts: "EVSE A".</param>
         public static async Task<V2GLink?> TryStart(V2GOptions         Options,
                                                     EventLog           Log,
                                                     TimeProvider?      Clock               = null,
                                                     CancellationToken  CancellationToken   = default,
-                                                    ISlacTransport?    SlacTransport       = null)
+                                                    ISlacTransport?    SlacTransport       = null,
+                                                    String?            About               = null)
         {
 
             if (!Options.Enabled)
                 return null;
 
-            var link = new V2GLink(Options, Log, Clock ?? TimeProvider.System, SlacTransport);
+            var link = new V2GLink(Options, Log, Clock ?? TimeProvider.System, SlacTransport, About);
 
             link.FindInterface();
 
@@ -456,7 +466,11 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 v2gListener  = new TcpV2GListener(
                                    new IPEndPoint(IPAddress.IPv6Any, Options.V2GPort),
                                    tls
-                               );
+                               ) {
+                                   // Not a policy: everybody is let in. It is
+                                   // where the address of who connects is seen.
+                                   Admit = NoteThePeer
+                               };
 
                 V2GEndpoint  = v2gListener.LocalEndpoint;
 
@@ -637,6 +651,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 ),
                 "15118", "v2g", "session"
             );
+
+            Agreed(Describe(settled.Protocol), settled.Mode);
 
             if (settled.Protocol == ProtocolVariant.Iso15118_2)
             {
@@ -832,6 +848,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
             var elapsed = clock.GetUtcNow() - Started;
 
+            Ended(Protocol, Math.Round(elapsed.TotalSeconds, 1), Paused);
+
             log.Log(
                 LogLevel.Notice,
                 $"The {Protocol} session ended after {elapsed.TotalSeconds:F1} s" +
@@ -899,6 +917,8 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                     stream = await v2gListener.AcceptAsync(CancellationToken);
 
+                    Connected(stream);
+
                     log.Notice("A vehicle connected to the V2G endpoint.", "15118", "v2g");
 
                     await RunSession(stream, CancellationToken);
@@ -918,6 +938,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                 }
                 finally
                 {
+                    Disconnected();
                     if (stream is not null)
                         await stream.DisposeAsync();
                 }
@@ -1006,6 +1027,9 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                               UsesTLS,
                                               Options.MulticastLoopback)
                             );
+
+                sdpServer.RequestReceived          += Heard;
+                sdpServer.ResponseSent             += Answered;
 
                 sdpServer.RequestReceived          += request => log.Log(
                                                           request.Accepted ? LogLevel.Info : LogLevel.Warning,

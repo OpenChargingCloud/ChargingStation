@@ -94,6 +94,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region (private static) Link(V2G, EVSE = 1)
+
+        /// <summary>
+        /// The link below one EVSE, as the page reads it.
+        /// </summary>
+        private static JObject Link(JObject V2G, Byte EVSE = 1)
+
+            => (V2G["links"] as JArray)!.
+                   OfType<JObject>().
+                   First(link => link.Value<Byte>("evse") == EVSE);
+
+        #endregion
+
 
         #region TheStationReadsTheV2GSectionOfItsFile()
 
@@ -110,13 +123,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             var v2g = await GetJSON(http, Resource);
 
             Assert.Multiple(() => {
-                Assert.That(v2g.Value<Boolean>("enabled"),    Is.False);
-                Assert.That(v2g.Value<Boolean>("sdp"),        Is.True);
-                Assert.That(v2g.Value<Boolean>("loopback"),   Is.True);
-                Assert.That(v2g.Value<String> ("interface"),  Is.EqualTo("eth-from-the-file"));
-                Assert.That(v2g.Value<Int32>  ("port"),       Is.EqualTo(15118));
-                Assert.That(v2g.Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0007*3"));
-                Assert.That(v2g.Value<String> ("slac"),       Is.EqualTo("none"));
+                Assert.That(Link(v2g).Value<Boolean>("enabled"),    Is.False);
+                Assert.That(Link(v2g).Value<Boolean>("sdp"),        Is.True);
+                Assert.That(Link(v2g).Value<Boolean>("loopback"),   Is.True);
+                Assert.That(Link(v2g).Value<String> ("interface"),  Is.EqualTo("eth-from-the-file"));
+                Assert.That(Link(v2g).Value<Int32>  ("port"),       Is.EqualTo(15118));
+                Assert.That(Link(v2g).Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0007*3"));
+                Assert.That(Link(v2g).Value<String> ("slac"),       Is.EqualTo("none"));
             });
 
         }
@@ -139,7 +152,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(v2g.Value<Boolean>("running"),  Is.True,  "This station has been started.");
-                Assert.That(v2g["link"]?.Type,              Is.EqualTo(JTokenType.Null).Or.Null,
+                Assert.That(Link(v2g)["link"]?.Type,              Is.EqualTo(JTokenType.Null).Or.Null,
                             "Something came up below the cable in a test run.");
             });
 
@@ -201,12 +214,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(v2g.Value<String>("t1sTransport"),  Is.EqualTo("udp"));
-                Assert.That(v2g.Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
-                Assert.That(v2g.Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-file"));
-                Assert.That(v2g.Value<Double>("t1sCycleMs"),    Is.EqualTo(300));
-                Assert.That(v2g.Value<Double>("t1sWarningC"),   Is.EqualTo(65));
-                Assert.That(v2g.Value<Double>("t1sOverloadC"),  Is.EqualTo(95));
+                Assert.That(Link(v2g).Value<String>("t1sTransport"),  Is.EqualTo("udp"));
+                Assert.That(Link(v2g).Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
+                Assert.That(Link(v2g).Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-file"));
+                Assert.That(Link(v2g).Value<Double>("t1sCycleMs"),    Is.EqualTo(300));
+                Assert.That(Link(v2g).Value<Double>("t1sWarningC"),   Is.EqualTo(65));
+                Assert.That(Link(v2g).Value<Double>("t1sOverloadC"),  Is.EqualTo(95));
 
                 // The picker on the page, and the placeholder beside the group.
                 Assert.That(v2g["t1sTransports"]?.Values<String>(),
@@ -245,14 +258,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             var asked = await GetJSON(http, Resource);
 
             Assert.Multiple(() => {
-                Assert.That(asked.Value<String>("t1sTransport"),  Is.EqualTo("afpacket"));
-                Assert.That(asked.Value<String>("t1sInterface"),  Is.EqualTo("t1s0"));
-                Assert.That(asked.Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-page"));
-                Assert.That(asked.Value<Double>("t1sCycleMs"),    Is.EqualTo(750));
-                Assert.That(asked.Value<Double>("t1sWarningC"),   Is.EqualTo(60));
-                Assert.That(asked.Value<Double>("t1sOverloadC"),  Is.EqualTo(80));
+                Assert.That(Link(asked).Value<String>("t1sTransport"),  Is.EqualTo("afpacket"));
+                Assert.That(Link(asked).Value<String>("t1sInterface"),  Is.EqualTo("t1s0"));
+                Assert.That(Link(asked).Value<String>("t1sName"),       Is.EqualTo("Coupler-from-the-page"));
+                Assert.That(Link(asked).Value<Double>("t1sCycleMs"),    Is.EqualTo(750));
+                Assert.That(Link(asked).Value<Double>("t1sWarningC"),   Is.EqualTo(60));
+                Assert.That(Link(asked).Value<Double>("t1sOverloadC"),  Is.EqualTo(80));
                 // What the file said and the page did not mention is kept.
-                Assert.That(asked.Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
+                Assert.That(Link(asked).Value<String>("t1sBus"),        Is.EqualTo("239.151.18.5:2360"));
             });
 
         }
@@ -275,9 +288,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             var asked = await GetJSON(http, Resource);
 
             Assert.Multiple(() => {
-                Assert.That(asked.Value<String>("t1sTransport"), Is.EqualTo("none"));
-                Assert.That(asked.Value<String>("t1sBus"),       Is.Null, "there is no bus to have a group");
-                Assert.That(asked.Value<String>("t1sName"),      Is.Null);
+                Assert.That(Link(asked).Value<String>("t1sTransport"), Is.EqualTo("none"));
+                Assert.That(Link(asked).Value<String>("t1sBus"),       Is.Null, "there is no bus to have a group");
+                Assert.That(Link(asked).Value<String>("t1sName"),      Is.Null);
             });
 
         }
@@ -337,21 +350,21 @@ namespace cloud.charging.open.ChargingStation.Tests
                 // What the PUT answered and what a fresh GET says are the same
                 // thing, because the answer is the configuration and not a
                 // receipt for it.
-                Assert.That(answered.Value<Boolean>("sdp"),        Is.False);
-                Assert.That(answered.Value<String> ("interface"),  Is.EqualTo("eth-from-the-page"));
-                Assert.That(answered.Value<Int32>  ("port"),       Is.EqualTo(0));
+                Assert.That(Link(answered).Value<Boolean>("sdp"),        Is.False);
+                Assert.That(Link(answered).Value<String> ("interface"),  Is.EqualTo("eth-from-the-page"));
+                Assert.That(Link(answered).Value<Int32>  ("port"),       Is.EqualTo(0));
 
-                Assert.That(asked.Value<Boolean>("sdp"),        Is.False);
-                Assert.That(asked.Value<Boolean>("loopback"),   Is.False);
-                Assert.That(asked.Value<String> ("interface"),  Is.EqualTo("eth-from-the-page"));
-                Assert.That(asked.Value<Int32>  ("port"),       Is.EqualTo(0));
-                Assert.That(asked.Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0009*1"));
-                Assert.That(asked.Value<String> ("slac"),       Is.EqualTo("udp"));
+                Assert.That(Link(asked).Value<Boolean>("sdp"),        Is.False);
+                Assert.That(Link(asked).Value<Boolean>("loopback"),   Is.False);
+                Assert.That(Link(asked).Value<String> ("interface"),  Is.EqualTo("eth-from-the-page"));
+                Assert.That(Link(asked).Value<Int32>  ("port"),       Is.EqualTo(0));
+                Assert.That(Link(asked).Value<String> ("evseId"),     Is.EqualTo("DE*GEF*E0009*1"));
+                Assert.That(Link(asked).Value<String> ("slac"),       Is.EqualTo("udp"));
 
                 // Nothing was said about it, so it stayed off - and nothing
                 // opened a socket on the way.
-                Assert.That(asked.Value<Boolean>("enabled"),  Is.False);
-                Assert.That(asked["link"]?.Type,              Is.EqualTo(JTokenType.Null).Or.Null);
+                Assert.That(Link(asked).Value<Boolean>("enabled"),  Is.False);
+                Assert.That(Link(asked)["link"]?.Type,              Is.EqualTo(JTokenType.Null).Or.Null);
 
             });
 
@@ -376,7 +389,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var onDisk = JObject.Parse(await File.ReadAllTextAsync(
                                            Path.Combine(Directory, "configuration.json")));
 
-            Assert.That(onDisk["v2g"]?.Value<String>("evseId"),  Is.EqualTo("DE*GEF*E0042*9"),
+            Assert.That(onDisk["v2g"]?["links"]?[0]?.Value<String>("evseId"),  Is.EqualTo("DE*GEF*E0042*9"),
                         "The change was not written to the configuration file.");
 
         }

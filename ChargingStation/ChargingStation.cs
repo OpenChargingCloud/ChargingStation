@@ -337,22 +337,16 @@ namespace cloud.charging.open.ChargingStation
         public CSHTTPAPI              API                    { get; }
 
         /// <summary>
-        /// What is on the wire below the charging cable - SLAC, SDP and the
-        /// V2G endpoint - once <see cref="WWCPNode.Start"/> has brought it up;
-        /// null when this station was not asked for any of it.
-        /// </summary>
-        public V2GLink?               V2G                    { get; private set; }
-
-        /// <summary>
-        /// What was asked for on that wire.
+        /// What this station was given for the wire below the cable when it was
+        /// made - by the command line: the first EVSE's link, and the
+        /// certificate every link shows.
         /// </summary>
         /// <remarks>
-        /// Settable because the V2G configuration page changes it while the
-        /// station runs; every change goes through
-        /// <see cref="UpdateV2GConfiguration"/>, which holds the same lock as
-        /// the other sections and restarts the link.
+        /// What each link offers is <see cref="V2GOptionsOf"/>, which lays the
+        /// file's "v2g" section over this; the links that are up are
+        /// <see cref="V2GLinks"/>.
         /// </remarks>
-        public V2GOptions             V2GOptions             { get; private set; }
+        public V2GOptions             V2GOptions             { get; }
 
         #endregion
 
@@ -534,7 +528,7 @@ namespace cloud.charging.open.ChargingStation
             // the last word on it. Nothing is started here - Start() does that,
             // much later - so this only decides what will be started.
             if (configuration.V2G is not null)
-                this.V2GOptions = configuration.V2G.Apply(this.V2GOptions);
+                this.v2gFile = configuration.V2G;
 
             #endregion
 
@@ -806,7 +800,7 @@ namespace cloud.charging.open.ChargingStation
             // After the web interface, so that whoever is watching the Logs
             // page sees SLAC, SDP and the V2G endpoint come up rather than
             // having to reload to find out how it went.
-            V2G = await V2GLink.TryStart(V2GOptions, Log, TimeProvider);
+            await StartV2GLinks();
 
             // After the web interface for the same reason as the V2G link
             // above: somebody watching the Logs page sees each back end come up
@@ -855,7 +849,7 @@ namespace cloud.charging.open.ChargingStation
 
             StopWatchingTheEVSEs();
 
-            await Take("ending the V2G link", EndTheV2GLink);
+            await Take("ending the V2G links", EndTheV2GLinks);
 
             // Before the servers, so that a close this station asked for is
             // recognised as one and does not start a reconnect on the way out.
@@ -887,35 +881,6 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (protected virtual) EndTheV2GLink()
-
-        /// <summary>
-        /// End the link below the cable, where there is one - the first thing
-        /// a station does when it stops.
-        /// </summary>
-        /// <remarks>
-        /// Let go of even where ending it fails: the station is stopping, and
-        /// a link it could not end is not one it can use again.
-        /// </remarks>
-        protected virtual async Task EndTheV2GLink()
-        {
-
-            if (V2G is null)
-                return;
-
-            try
-            {
-                await V2G.DisposeAsync();
-            }
-            finally
-            {
-                V2G = null;
-            }
-
-        }
-
-        #endregion
-
 
         #region ConfigurationJSON()
 
@@ -939,8 +904,15 @@ namespace cloud.charging.open.ChargingStation
                               new JProperty("os",             Environment.OSVersion.ToString())
                           )));
 
-            json.Property("log")!.AddAfterSelf(new JProperty("v2g",        V2G?.ToJSON() ?? new JObject(
-                                                   new JProperty("enabled",        false)
+            // One entry for each EVSE, by the name the pages give it: what is
+            // up below its cable, or that nothing is.
+            json.Property("log")!.AddAfterSelf(new JProperty("v2g",        new JObject(
+                                                   EVSEs.Select(evse => new JProperty(
+                                                       V2GLabelOf(evse.Id),
+                                                       V2GLinkOf(evse.Id)?.ToJSON() ?? new JObject(
+                                                           new JProperty("enabled",        false)
+                                                       )
+                                                   ))
                                                )));
 
             json.Add(new JProperty("ocpp",       new JArray(

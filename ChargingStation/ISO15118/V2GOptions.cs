@@ -127,6 +127,14 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         public const String DefaultEVSEId = "DE*GEF*E0001*1";
 
         /// <summary>
+        /// The EVSE identification of the link below the given EVSE, unless
+        /// another is given: <see cref="DefaultEVSEId"/> with that EVSE's number
+        /// at its end.
+        /// </summary>
+        public static String DefaultEVSEIdOf(Byte EVSE)
+            => $"DE*GEF*E0001*{EVSE}";
+
+        /// <summary>
         /// The TCP port the V2G endpoint listens on, unless another is given.
         /// </summary>
         /// <remarks>

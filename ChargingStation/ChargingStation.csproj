@@ -28,6 +28,11 @@
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPP_Common\WWCP_OCPP_Common.csproj" />
   </ItemGroup>
 
+  <!-- What a V2G link heard over SDP is asked of it by its tests without a multicast network: see ISO15118/V2GLink.Status.cs. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="ChargingStationTests" />
+  </ItemGroup>
+
   <!--
     The web interface
     =================

@@ -102,6 +102,52 @@ export interface EVSE {
 /** Whether an EVSE is free, charging, held or out of service. */
 export type EVSEState = 'available' | 'occupied' | 'reserved' | 'inoperative';
 
+/** A certificate as somebody checks one. */
+export interface CertificateSummary {
+    subject:    string;
+    issuer:     string;
+    notBefore:  string;
+    notAfter:   string;
+    sha256:     string;
+}
+
+/** What the V2G link below one EVSE is doing right now. */
+export interface V2GLiveStatus {
+    /** Whether the link it is to have is up. */
+    up:            boolean;
+    interface?:    string | null;
+    endpoint?:     string | null;
+    tls?:          boolean;
+    /** The station's certificate, which the endpoint shows where it speaks TLS. */
+    certificate?:  CertificateSummary | null;
+    sdp?:          boolean;
+    slac?:         boolean;
+    evseId?:       string;
+    mode?:         string;
+    /** The last time a vehicle asked SDP where the endpoint is, and what it was told. */
+    lastSDP?:      {
+        at:            string;
+        from:          string;
+        version:       string;
+        security:      string;
+        transport:     string;
+        accepted:      boolean;
+        rejectReason:  string | null;
+        answer:        { address: string; port: number; security: string } | null;
+    } | null;
+    /** The vehicle on the endpoint now. */
+    connection?:   {
+        since:     string;
+        from:      string | null;
+        /** "ISO 15118-2" or "ISO 15118-20", once the handshake agreed on one. */
+        protocol:  string | null;
+        mode:      string | null;
+        tls:       { protocol: string; cipherSuite: string | null; library: string; vehicle: CertificateSummary | null } | null;
+    } | null;
+    /** How the last session ended. */
+    lastSession?:  { endedAt: string; protocol: string; seconds: number; paused: boolean } | null;
+}
+
 /** How one EVSE stands right now, as the EVSEs page shows it. */
 export interface EVSEStatus {
     id:                 number;
@@ -116,6 +162,8 @@ export interface EVSEStatus {
     connectors:         Connector[];
     session:            { method: string; startedAt: string; provider: { name: string; logo: string | null } | null } | null;
     reservation:        { until: string; minutesLeft: number } | null;
+    /** What is going on below its cable; null where it is to have no V2G link. */
+    v2g:                V2GLiveStatus | null;
     /** What is written down about its meter, where anything is. */
     meter:              { type: string | null; serialNumber: string | null } | null;
 }
@@ -211,8 +259,12 @@ export interface T1SBusStatus {
     nodes:          T1SNodeStatus[];
 }
 
-/** What this station offers a vehicle below the charging cable. */
-export interface V2GConfiguration {
+/** What one EVSE of this station offers a vehicle below its charging cable. */
+export interface V2GLinkConfiguration {
+    /** The EVSE it is below, by its id. */
+    evse:            number;
+    /** Its physical reference, or its id where it has none. */
+    label:           string;
     enabled:         boolean;
     /** Whether the SECC Discovery Protocol answers vehicles. */
     sdp:             boolean;
@@ -233,27 +285,40 @@ export interface V2GConfiguration {
     t1sCycleMs:      number;
     t1sWarningC:     number;
     t1sOverloadC:    number;
-    /** The group the emulation uses when none is named, for the placeholder. */
-    t1sDefaultBus:   string;
+    /** Whether the outlet behind the socket is AC or DC. */
+    mode:            'ac' | 'dc';
+    /** What came up, or null where nothing did. */
+    link:            V2GLinkStatus | null;
+}
+
+/** What each EVSE of this station offers a vehicle below its charging cable. */
+export interface V2GConfiguration {
     /**
      * Whether a V2G server certificate was passed on the command line. Not
      * settable from the page - a certificate is a file and a password - but it
-     * is what decides whether the endpoint speaks TLS.
+     * is what decides whether an endpoint speaks TLS. The station's, and so the
+     * same below every cable.
      */
     certificate:     boolean;
     /** The transports this station knows, for the picker. */
     slacTransports:  string[];
     /** The same, for the bus below a megawatt coupler. */
     t1sTransports:   string[];
+    /** The group the emulation uses when none is named, for the placeholder. */
+    t1sDefaultBus:   string;
     /** Whether the station has been started; nothing comes up before that. */
     running:         boolean;
-    link:            V2GLinkStatus | null;
+    /** One for each EVSE, whether it is to have a link or not. */
+    links:           V2GLinkConfiguration[];
     file:            string;
 }
 
-/** What a PUT to the V2G configuration may carry; everything is optional. */
+/** What a PUT to the V2G configuration may carry: the EVSE, and what is to change of its link. */
 export interface V2GUpdate {
+    /** The EVSE whose link this changes. */
+    evse:        number;
     enabled?:    boolean;
+    mode?:       'ac' | 'dc';
     sdp?:        boolean;
     loopback?:   boolean;
     interface?:  string | null;

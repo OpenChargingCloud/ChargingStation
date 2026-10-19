@@ -22,6 +22,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using cloud.charging.open.protocols.ISO15118.StateMachines;
 using cloud.charging.open.protocols.ISO15118.T1S;
 using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
@@ -36,8 +37,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 {
 
     /// <summary>
-    /// The "v2g" section of the configuration file: what this charging station
-    /// offers a vehicle on the wire below the charging cable.
+    /// What one EVSE of this charging station offers a vehicle on the wire below
+    /// its charging cable - one link of the "v2g" section, see
+    /// <see cref="V2GLinksConfiguration"/>.
     /// </summary>
     /// <remarks>
     /// As in the DNS and NTS sections, null means "the file does not say", and
@@ -66,6 +68,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="T1SCycle">The pause between cycles, which is how often every node on the bus is asked.</param>
     /// <param name="T1SWarning_C">The temperature at which a pin of the coupler is called warm.</param>
     /// <param name="T1SOverload_C">The temperature at which it is called overloaded. Given together with the warning, never alone.</param>
+    /// <param name="Mode">Whether the outlet behind the socket is AC or DC - what the protocol handshake offers, and the one thing a megawatt coupler needs besides its bus.</param>
     public sealed record V2GConfiguration(Boolean?            Enabled         = null,
                                           String?             InterfaceName   = null,
                                           UInt16?             V2GPort         = null,
@@ -79,7 +82,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                           String?             T1SName         = null,
                                           TimeSpan?           T1SCycle        = null,
                                           Double?             T1SWarning_C    = null,
-                                          Double?             T1SOverload_C   = null)
+                                          Double?             T1SOverload_C   = null,
+                                          PowerMode?          Mode            = null)
     {
 
         #region Data
@@ -126,33 +130,40 @@ namespace cloud.charging.open.ChargingStation.Configuration
         #endregion
 
 
-        #region (static) TryParse(JSON, out Configuration, out Error)
+        #region (static) TryParse(JSON, out Configuration, out Error, Path = SectionName)
 
         /// <summary>
-        /// The "v2g" section, or the one sentence that says what is wrong with it.
+        /// One link's settings, or the one sentence that says what is wrong with
+        /// them.
         /// </summary>
+        /// <param name="JSON">The settings.</param>
+        /// <param name="Configuration">What they say.</param>
+        /// <param name="Error">What is wrong with them.</param>
+        /// <param name="Path">Where they are, as a refusal names a field: "v2g", or "v2g.links[1]" in a list.</param>
         public static Boolean TryParse(JObject                                     JSON,
                                        [NotNullWhen(true)]  out V2GConfiguration?  Configuration,
-                                       [NotNullWhen(false)] out String?            Error)
+                                       [NotNullWhen(false)] out String?            Error,
+                                       String                                      Path = SectionName)
         {
 
             Configuration  = null;
             Error          = null;
 
-            if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",    SectionName, out var enabled,       out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "sdp",        SectionName, out var sdp,           out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "loopback",   SectionName, out var loopback,      out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "interface",  SectionName, MaxInterfaceNameLength, out var interfaceName, out Error) ||
-                !TryReadV2GPort                    (JSON, "port",       SectionName, out var port,          out Error) ||
-                !TryReadSlacTransport              (JSON, "slac",       SectionName, out var transport,     out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "evseId",       SectionName, MaxEVSEIdLength,       out var evseId,        out Error) ||
-                !TryReadT1STransport               (JSON, "t1sTransport", SectionName,                        out var t1sTransport,  out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "t1sBus",       SectionName, MaxT1SNameLength,      out var t1sBus,        out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "t1sInterface", SectionName, MaxInterfaceNameLength, out var t1sInterface, out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "t1sName",      SectionName, MaxT1SNameLength,      out var t1sName,       out Error) ||
-                !TryReadNumber                     (JSON, "t1sCycleMs",   SectionName, MinT1SCycleMs,       MaxT1SCycleMs,       out var t1sCycleMs,  out Error) ||
-                !TryReadNumber                     (JSON, "t1sWarningC",  SectionName, MinT1STemperature_C, MaxT1STemperature_C, out var t1sWarning,  out Error) ||
-                !TryReadNumber                     (JSON, "t1sOverloadC", SectionName, MinT1STemperature_C, MaxT1STemperature_C, out var t1sOverload, out Error))
+            if (!ConfigurationReader.TryReadBoolean(JSON, "enabled",    Path,        out var enabled,       out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "sdp",        Path,        out var sdp,           out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "loopback",   Path,        out var loopback,      out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "interface",  Path,        MaxInterfaceNameLength, out var interfaceName, out Error) ||
+                !TryReadV2GPort                    (JSON, "port",       Path,        out var port,          out Error) ||
+                !TryReadSlacTransport              (JSON, "slac",       Path,        out var transport,     out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "evseId",       Path,        MaxEVSEIdLength,       out var evseId,        out Error) ||
+                !TryReadT1STransport               (JSON, "t1sTransport", Path,                               out var t1sTransport,  out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "t1sBus",       Path,        MaxT1SNameLength,      out var t1sBus,        out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "t1sInterface", Path,        MaxInterfaceNameLength, out var t1sInterface, out Error) ||
+                !ConfigurationReader.TryReadString (JSON, "t1sName",      Path,        MaxT1SNameLength,      out var t1sName,       out Error) ||
+                !TryReadNumber                     (JSON, "t1sCycleMs",   Path,        MinT1SCycleMs,       MaxT1SCycleMs,       out var t1sCycleMs,  out Error) ||
+                !TryReadNumber                     (JSON, "t1sWarningC",  Path,        MinT1STemperature_C, MaxT1STemperature_C, out var t1sWarning,  out Error) ||
+                !TryReadNumber                     (JSON, "t1sOverloadC", Path,        MinT1STemperature_C, MaxT1STemperature_C, out var t1sOverload, out Error) ||
+                !TryReadMode                       (JSON, "mode",         Path,                               out var mode,          out Error))
             {
                 return false;
             }
@@ -165,7 +176,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
             // nothing and says so in a log nobody is reading yet.
             if (t1sBus is not null && !T1SConstants.TryParseBus(t1sBus, out _))
             {
-                Error = $"'{SectionName}.t1sBus' must be an IPv4 multicast group and port, like {T1SConstants.DefaultMulticastEndpoint}.";
+                Error = $"'{Path}.t1sBus' must be an IPv4 multicast group and port, like {T1SConstants.DefaultMulticastEndpoint}.";
                 return false;
             }
 
@@ -175,14 +186,14 @@ namespace cloud.charging.open.ChargingStation.Configuration
             // charging over it, and nothing in a merge could catch that.
             if (t1sWarning.HasValue != t1sOverload.HasValue)
             {
-                Error = $"'{SectionName}.t1sWarningC' and '{SectionName}.t1sOverloadC' belong together; give both or neither.";
+                Error = $"'{Path}.t1sWarningC' and '{Path}.t1sOverloadC' belong together; give both or neither.";
                 return false;
             }
 
             if (t1sWarning.HasValue && t1sOverload.HasValue && t1sWarning.Value >= t1sOverload.Value)
             {
-                Error = $"'{SectionName}.t1sWarningC' ({t1sWarning.Value:F1} °C) must be below " +
-                        $"'{SectionName}.t1sOverloadC' ({t1sOverload.Value:F1} °C).";
+                Error = $"'{Path}.t1sWarningC' ({t1sWarning.Value:F1} °C) must be below " +
+                        $"'{Path}.t1sOverloadC' ({t1sOverload.Value:F1} °C).";
                 return false;
             }
 
@@ -202,7 +213,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                 t1sName,
                                 t1sCycleMs.HasValue ? TimeSpan.FromMilliseconds(t1sCycleMs.Value) : null,
                                 t1sWarning,
-                                t1sOverload
+                                t1sOverload,
+                                mode
                             );
 
             return true;
@@ -260,6 +272,46 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             Port = (UInt16) number;
             return true;
+
+        }
+
+        #endregion
+
+        #region (static) TryReadMode(JSON, Name, Path, out Mode, out Error)
+
+        /// <summary>
+        /// Whether the outlet is AC or DC, written "ac" or "dc".
+        /// </summary>
+        public static Boolean TryReadMode(JObject                           JSON,
+                                          String                            Name,
+                                          String?                           Path,
+                                          out PowerMode?                    Mode,
+                                          [NotNullWhen(false)] out String?  Error)
+        {
+
+            Mode   = null;
+            Error  = null;
+
+            var token = JSON[Name];
+
+            if (token is null || token.Type == JTokenType.Null)
+                return true;
+
+            var where = Path is null ? Name : $"{Path}.{Name}";
+            var text  = token.Type == JTokenType.String ? token.Value<String>()?.Trim() ?? "" : null;
+
+            switch (text?.ToLowerInvariant())
+            {
+                case "":    return true;
+                case "ac":  Mode = PowerMode.Ac; return true;
+                case "dc":  Mode = PowerMode.Dc; return true;
+            }
+
+            Error = text is null
+                        ? $"'{where}' must be \"ac\" or \"dc\"."
+                        : $"'{where}' is \"{text}\", which is neither \"ac\" nor \"dc\".";
+
+            return false;
 
         }
 
@@ -451,6 +503,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (T1SWarning_C.HasValue)      json.Add("t1sWarningC",  T1SWarning_C.Value);
             if (T1SOverload_C.HasValue)     json.Add("t1sOverloadC", T1SOverload_C.Value);
 
+            if (Mode.HasValue)              json.Add("mode",         Write(Mode.Value));
+
             return json;
 
         }
@@ -472,8 +526,48 @@ namespace cloud.charging.open.ChargingStation.Configuration
                    MulticastLoopback  = Loopback  ?? Options.MulticastLoopback,
                    SlacTransport  = SlacTransport  ?? Options.SlacTransport,
                    EVSEId         = EVSEId         ?? Options.EVSEId,
+                   Mode           = Mode           ?? Options.Mode,
                    T1S            = ApplyT1S(Options.T1S)
                };
+
+        #endregion
+
+        #region MergedWith(Change)
+
+        /// <summary>
+        /// These settings with what a change says laid over them: what the
+        /// change says wins, and what it does not mention stays as it was.
+        /// </summary>
+        public V2GConfiguration MergedWith(V2GConfiguration Change)
+
+            => new (
+                   Change.Enabled        ?? Enabled,
+                   Change.InterfaceName  ?? InterfaceName,
+                   Change.V2GPort        ?? V2GPort,
+                   Change.SDP            ?? SDP,
+                   Change.Loopback       ?? Loopback,
+                   Change.SlacTransport  ?? SlacTransport,
+                   Change.EVSEId         ?? EVSEId,
+                   Change.T1STransport   ?? T1STransport,
+                   Change.T1SBus         ?? T1SBus,
+                   Change.T1SInterface   ?? T1SInterface,
+                   Change.T1SName        ?? T1SName,
+                   Change.T1SCycle       ?? T1SCycle,
+                   Change.T1SWarning_C   ?? T1SWarning_C,
+                   Change.T1SOverload_C  ?? T1SOverload_C,
+                   Change.Mode           ?? Mode
+               );
+
+        #endregion
+
+        #region (static) Write(Mode)
+
+        /// <summary>
+        /// A power mode as the file and the page write it: "ac" or "dc".
+        /// </summary>
+        public static String Write(PowerMode Mode)
+
+            => Mode == PowerMode.Dc ? "dc" : "ac";
 
         #endregion
 
@@ -572,7 +666,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              T1SName       is not null ? $"coordinating as \"{T1SName}\""       : null,
                              T1SCycle.HasValue         ? $"a cycle every {T1SCycle.Value.TotalMilliseconds:F0} ms"  : null,
                              T1SWarning_C.HasValue     ? $"warm at {T1SWarning_C.Value:F0} °C"  : null,
-                             T1SOverload_C.HasValue    ? $"overloaded at {T1SOverload_C.Value:F0} °C"  : null
+                             T1SOverload_C.HasValue    ? $"overloaded at {T1SOverload_C.Value:F0} °C"  : null,
+                             Mode.HasValue             ? Write(Mode.Value).ToUpperInvariant()        : null
                          }.Where(part => part is not null));
 
         #endregion

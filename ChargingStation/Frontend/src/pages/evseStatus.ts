@@ -1,4 +1,4 @@
-import { api, type EVSEState, type EVSEStatus } from '../api/client';
+import { api, type CertificateSummary, type EVSEState, type EVSEStatus, type V2GLiveStatus } from '../api/client';
 import { toURL } from '@node/basePath';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
@@ -10,7 +10,9 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 /**
  * How each EVSE of this charging station stands right now, one tab each:
  * whether it is free, charging, held or out of service, the session on it,
- * the reservation, and what is written down about its meter.
+ * what is going on below its cable - the last vehicle that asked SDP and
+ * what it was told, the vehicle connected now and over what - the
+ * reservation, and what is written down about its meter.
  *
  * Asked once when the page opens, and followed after that: every change the
  * station notices comes as an "evses" event on the stream the web interface
@@ -149,6 +151,130 @@ function stateInWords(State: EVSEState): string {
 }
 
 
+/**
+ * What is going on below the cable: the link, the last SDP question and its
+ * answer, the vehicle connected now and over what, and how the last session
+ * ended.
+ */
+function v2gCard(V2G: V2GLiveStatus | null): TemplateResult {
+
+    if (V2G === null)
+        return html`
+            <section class="card">
+                <h2><i class="fa-solid fa-car-side"></i> ISO 15118</h2>
+                <p class="muted small">
+                    This EVSE offers no ISO 15118 below its cable. It is switched on on the
+                    <a href="${toURL('/configuration/v2g')}">V2G</a> page.
+                </p>
+            </section>
+        `;
+
+    if (!V2G.up)
+        return html`
+            <section class="card">
+                <h2><i class="fa-solid fa-car-side"></i> ISO 15118</h2>
+                <p class="form-error">
+                    It is switched on, but nothing came up below this cable - the
+                    <a href="${toURL('/logs')}">log</a> under the tag <code>15118</code> says why.
+                </p>
+            </section>
+        `;
+
+    const sdp  = V2G.lastSDP     ?? null;
+    const now  = V2G.connection  ?? null;
+    const last = V2G.lastSession ?? null;
+
+    return html`
+        <section class="card">
+
+            <h2><i class="fa-solid fa-car-side"></i> ISO 15118</h2>
+
+            <div class="kv-list">
+                <div class="kv"><span class="k">Endpoint</span><span class="v"><code>${V2G.endpoint ?? 'not listening'}</code>, ${V2G.tls ? 'TLS' : 'plain TCP'}</span></div>
+                <div class="kv"><span class="k">Interface</span><span class="v">${V2G.interface ?? 'none'}</span></div>
+                <div class="kv"><span class="k">SDP</span><span class="v">${V2G.sdp ? 'answering' : 'not running'}</span></div>
+                <div class="kv"><span class="k">SLAC</span><span class="v">${V2G.slac ? 'listening' : 'not running'}</span></div>
+                <div class="kv"><span class="k">EVSE identification</span><span class="v"><code>${V2G.evseId ?? '-'}</code></span></div>
+                <div class="kv"><span class="k">Outlet</span><span class="v">${V2G.mode ?? '-'}</span></div>
+            </div>
+
+            ${V2G.tls && V2G.certificate ? certificateView('The certificate it shows', V2G.certificate) : nothing}
+
+            <h3>The last SDP request</h3>
+
+            ${sdp === null
+                  ? html`<p class="muted small">No vehicle has asked SDP where this endpoint is since the link came up.</p>`
+                  : html`
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">At</span><span class="v">${formatTimestamp(sdp.at)}</span></div>
+                          <div class="kv"><span class="k">From</span><span class="v"><code>${sdp.from}</code></span></div>
+                          <div class="kv"><span class="k">Asked for</span><span class="v">${sdp.security}, ${sdp.transport}</span></div>
+                          ${sdp.accepted
+                                ? sdp.answer === null
+                                      ? html`<div class="kv"><span class="k">Answered</span><span class="v">not yet</span></div>`
+                                      : html`<div class="kv"><span class="k">Answered</span><span class="v"><code>[${sdp.answer.address}]:${sdp.answer.port}</code>, ${sdp.answer.security}</span></div>`
+                                : html`<div class="kv"><span class="k">Refused</span><span class="v">${sdp.rejectReason ?? 'without a reason'}</span></div>`}
+                      </div>
+                    `}
+
+            <h3>The vehicle connected now</h3>
+
+            ${now === null
+                  ? html`<p class="muted small">No vehicle is connected to the endpoint.</p>`
+                  : html`
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">Since</span><span class="v">${formatTimestamp(now.since)} (${formatSince(now.since)})</span></div>
+                          <div class="kv"><span class="k">From</span><span class="v"><code>${now.from ?? '-'}</code></span></div>
+                          <div class="kv"><span class="k">Protocol</span><span class="v">${now.protocol === null ? 'not agreed yet' : html`${now.protocol}, ${now.mode}`}</span></div>
+                          <div class="kv"><span class="k">Security</span><span class="v">${now.tls === null
+                                                                                            ? 'plain TCP'
+                                                                                            : html`${now.tls.protocol}${now.tls.cipherSuite ? html`, <code>${now.tls.cipherSuite}</code>` : nothing} (${now.tls.library} TLS)`}</span></div>
+                      </div>
+                      ${now.tls === null
+                            ? nothing
+                            : now.tls.vehicle === null
+                                  ? html`<p class="muted small">The vehicle presented no certificate of its own.</p>`
+                                  : certificateView('The vehicle\'s certificate', now.tls.vehicle)}
+                    `}
+
+            ${last === null
+                  ? nothing
+                  : html`
+                      <h3>The last session</h3>
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">Ended</span><span class="v">${formatTimestamp(last.endedAt)}</span></div>
+                          <div class="kv"><span class="k">Protocol</span><span class="v">${last.protocol}, ${formatNumber(last.seconds, 1)} s${last.paused ? ', paused' : ''}</span></div>
+                      </div>
+                    `}
+
+            <p class="muted small">
+                Every request, answer and session is also in the <a href="${toURL('/logs')}">log</a>
+                under the tag <code>15118</code>. What this EVSE offers is set on the
+                <a href="${toURL('/configuration/v2g')}">V2G</a> page.
+            </p>
+
+        </section>
+    `;
+
+}
+
+
+/** A certificate, as somebody checks one. */
+function certificateView(Heading: string, Certificate: CertificateSummary): TemplateResult {
+
+    return html`
+        <h3>${Heading}</h3>
+        <div class="kv-list">
+            <div class="kv"><span class="k">Subject</span><span class="v"><code>${Certificate.subject}</code></span></div>
+            <div class="kv"><span class="k">Issuer</span><span class="v"><code>${Certificate.issuer}</code></span></div>
+            <div class="kv"><span class="k">Valid</span><span class="v">${formatTimestamp(Certificate.notBefore)} to ${formatTimestamp(Certificate.notAfter)}</span></div>
+            <div class="kv"><span class="k">SHA-256</span><span class="v"><code>${Certificate.sha256}</code></span></div>
+        </div>
+    `;
+
+}
+
+
 /** One EVSE, drawn in the panel of its tab. */
 function evseView(EVSE: EVSEStatus): TemplateResult {
 
@@ -209,6 +335,8 @@ function evseView(EVSE: EVSEStatus): TemplateResult {
                         `}
 
             </section>
+
+            ${v2gCard(EVSE.v2g ?? null)}
 
             <section class="card">
 

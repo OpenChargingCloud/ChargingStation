@@ -59,7 +59,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Operator">Whose station this is, and whose cards it recognises.</param>
     /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
     /// <param name="Display">The quiet hours the screen on the front keeps.</param>
-    /// <param name="V2G">What this station offers a vehicle on the wire below the charging cable.</param>
+    /// <param name="V2G">What each EVSE of this station offers a vehicle on the wire below its charging cable.</param>
     public sealed record StationConfiguration(PowerConfiguration?                      Power         = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs         = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
@@ -67,7 +67,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               OperatorConfiguration?                   Operator      = null,
                                               WebPaymentsConfiguration?                WebPayments   = null,
                                               DisplayConfiguration?                    Display       = null,
-                                              V2GConfiguration?                        V2G           = null)
+                                              V2GLinksConfiguration?                   V2G           = null)
     {
 
         #region Data
@@ -267,7 +267,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #region V2G
 
-            V2GConfiguration? v2g = null;
+            V2GLinksConfiguration? v2g = null;
 
             if (JSON[V2GConfiguration.SectionName] is JToken v2gToken && v2gToken.Type != JTokenType.Null)
             {
@@ -278,7 +278,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                     return false;
                 }
 
-                if (!V2GConfiguration.TryParse(v2gJSON, out v2g, out Error))
+                if (!V2GLinksConfiguration.TryParse(v2gJSON, out v2g, out Error))
                     return false;
 
             }
