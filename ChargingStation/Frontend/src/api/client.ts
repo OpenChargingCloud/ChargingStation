@@ -8,7 +8,11 @@ import { afterAsking,
          type NodeMe,
          type NodeResource,
          type NodeStatus,
-         type Operation }  from '@node/api/client';
+         type Operation,
+         type KnownServer,
+         type PinKeys,
+         type ServerJudgement,
+         type ServerPins }  from '@node/api/client';
 
 
 // What every node answers - the log, name resolution, the time, the store,
@@ -21,11 +25,11 @@ export * from '@node/api/client';
 
 /**
  * What a role may be allowed to touch on this charging station: the node's
- * four resources, and the station's nine - see StationAccess.
+ * four resources, and the station's ten - see StationAccess.
  */
 export type Resource = NodeResource
                      | 'evses' | 'rfid' | 'availability' | 'power' | 'calibration'
-                     | 'display' | 'session' | 'connections' | 'v2g';
+                     | 'display' | 'session' | 'connections' | 'v2g' | 'meters';
 
 /** What somebody signed in to this station may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;
@@ -97,8 +101,6 @@ export interface EVSE {
     physicalReference:  string | null;
     meterType:          string | null;
     meterSerialNumber:  string | null;
-    /** Where its meter is read over Modbus/TLS, or null where it is not read; not said by a station from before meters were read. */
-    meterEndpoint?:     MeterEndpoint | null;
 }
 
 /** Where a SunSpec meter is read: a host, Modbus/TLS's port 802 and unit 1 by default. */
@@ -131,21 +133,116 @@ export interface MeterReading {
     exported_Wh:   number | null;
 }
 
-/** How a meter that is read stands: whether it is, over what, and what it said. */
-export interface MeterReadStatus {
-    endpoint:    MeterEndpoint;
-    /** "reading", or what is in the way: "connecting", "noIdentity", "untrusted", "refused", "unreachable", "notSunSpec", "failed". */
-    state:       string;
-    since:       string;
-    error:       string | null;
-    connection:  {
+/** A TLS identity of the store, with the SunSpec role in its certificate, as a meter is shown it. */
+export interface MeterIdentity {
+    id:        string;
+    label:     string;
+    role:      string;
+    subject:   string;
+    notAfter?: string;
+    usable?:   boolean;
+}
+
+/**
+ * How the meter of one EVSE that is to be read stands: whether it is, over
+ * what, and what it measures - as GET /status/meters and each "meters" event
+ * say it.
+ */
+export interface MeterStatus {
+    evse:         number;
+    label:        string;
+    endpoint:     MeterEndpoint;
+    /** "reading", or what is in the way: "connecting", "noIdentity", "untrusted", "refused", "unreachable", "notSunSpec", "failed" - or "notStarted" before the station is. */
+    state:        string;
+    since?:       string;
+    error?:       string | null;
+    connection?:  {
         protocol:     string;
         cipherSuite:  string;
         meter:        CertificateSummary | null;
-        identity:     { label: string; role: string; subject: string };
+        identity:     MeterIdentity;
         judged:       string | null;
     } | null;
-    reading:     MeterReading | null;
+    reading?:     MeterReading | null;
+}
+
+/** Every meter that is to be read, with the time at the station where it was asked. */
+export interface MeterStates {
+    timestamp?:  string;
+    meters:      MeterStatus[];
+}
+
+/** How the meter of one EVSE is configured to be read, and what it was last believed with. */
+export interface MeterLink {
+    evse:        number;
+    label:       string;
+    /** Whether it is read at all. */
+    read:        boolean;
+    host:        string | null;
+    port:        number | null;
+    unit:        number | null;
+    /** How the node's judgements name it: "10.0.0.5:802". */
+    server:      string | null;
+    /** The ids of the identities shown to it to read and to write; null for the least that may read, and for writing nothing. */
+    identities:  { read: string | null; write: string | null };
+    heldTo:      ServerPins | null;
+    judgement:   ServerJudgement | null;
+    known:       KnownServer | null;
+}
+
+/** The meters page's: each EVSE's meter, and the identities a meter can be shown. */
+export interface MetersConfiguration {
+    meters:      MeterLink[];
+    identities:  MeterIdentity[];
+    /** What a TLS root of the store is for, where it vouches for meters alone. */
+    usage:       string;
+    defaults:    { port: number; unit: number };
+    running:     boolean;
+    file:        string;
+}
+
+/** A change to how one EVSE's meter is read; a blank host reads it nowhere. */
+export interface MeterUpdate extends PinKeys {
+    evse:          number;
+    host:          string;
+    port:          number | null;
+    unit:          number | null;
+    identities:    { read: string | null; write: string | null };
+    pinsAsShown?:  PinKeys;
+}
+
+/** One Modbus request, as the Modbus client asks it. */
+export interface ModbusAsk {
+    evse:      number;
+    /** 3 and 4 read, 6 and 16 write. */
+    function:  number;
+    address:   number;
+    count?:    number;
+    value?:    number;
+    values?:   number[];
+}
+
+/** What came back, down to the bytes. */
+export interface ModbusAnswer {
+    at:          string;
+    endpoint:    MeterEndpoint;
+    function:    number;
+    name:        string;
+    operation:   'read' | 'write';
+    address:     number;
+    count:       number;
+    /** The PDU sent, in hexadecimal. */
+    request:     string;
+    /** "answered", "exception", or what was in the way: "noIdentity", "untrusted", "refused", "failed". */
+    outcome:     string;
+    identity?:   MeterIdentity;
+    tls?:        { protocol: string; cipherSuite: string; meter: CertificateSummary | null; judged: string | null };
+    /** The PDU that came back, in hexadecimal. */
+    response?:   string;
+    exception?:  { code: number; name: string };
+    registers?:  { address: number; value: number }[];
+    error?:      string;
+    ms?:         number;
 }
 
 /** Whether an EVSE is free, charging, held or out of service. */
@@ -213,8 +310,8 @@ export interface EVSEStatus {
     reservation:        { until: string; minutesLeft: number } | null;
     /** What is going on below its cable; null where it is to have no V2G link. */
     v2g:                V2GLiveStatus | null;
-    /** What is written down about its meter, where anything is - and how it is read, where it is read. */
-    meter:              { type: string | null; serialNumber: string | null; read?: MeterReadStatus | null } | null;
+    /** What is written down about its meter, and whether it is read - what it measures is a "meters" event's. */
+    meter:              { type: string | null; serialNumber: string | null; read: boolean } | null;
 }
 
 /**
@@ -785,6 +882,15 @@ export const api = {
          * off - and the station works that out by comparing.
          */
         save:  (readers: RFIDReader[])   => request<RFIDConfiguration>('PUT', '/configuration/rfid', { readers })
+    },
+
+    meters: {
+        get:     ()                      => request<MetersConfiguration>('GET', '/configuration/meters'),
+        /** Read anew where it is read another way now - which takes a connection, so it may take a moment. */
+        save:    (update: MeterUpdate)   => request<MetersConfiguration>('PUT', '/configuration/meters', update, 30_000),
+        states:  ()                      => request<MeterStates>('GET', '/status/meters'),
+        /** On a connection of its own, as the identity for what it does. */
+        ask:     (ask: ModbusAsk)        => request<ModbusAnswer>('POST', '/meters/modbus', ask, 30_000)
     },
 
     authentications: {

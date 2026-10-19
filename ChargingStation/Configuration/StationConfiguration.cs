@@ -60,6 +60,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="WebPayments">How somebody with no card and no contract pays here.</param>
     /// <param name="Display">The quiet hours the screen on the front keeps.</param>
     /// <param name="V2G">What each EVSE of this station offers a vehicle on the wire below its charging cable.</param>
+    /// <param name="Meters">How the meter of each EVSE that has one read is read.</param>
     public sealed record StationConfiguration(PowerConfiguration?                      Power         = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs         = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
@@ -67,7 +68,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               OperatorConfiguration?                   Operator      = null,
                                               WebPaymentsConfiguration?                WebPayments   = null,
                                               DisplayConfiguration?                    Display       = null,
-                                              V2GLinksConfiguration?                   V2G           = null)
+                                              V2GLinksConfiguration?                   V2G           = null,
+                                              MetersConfiguration?                     Meters        = null)
     {
 
         #region Data
@@ -96,7 +98,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public Boolean IsEmpty
             => Power is null && EVSEs is null && Calibration is null && RFID is null &&
-               Operator is null && WebPayments is null && Display is null && V2G is null;
+               Operator is null && WebPayments is null && Display is null && V2G is null && Meters is null;
 
         #endregion
 
@@ -285,7 +287,17 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g);
+            #region Meters
+
+            MetersConfiguration? meters = null;
+
+            if (JSON[MetersConfiguration.SectionName] is JToken metersToken && metersToken.Type != JTokenType.Null &&
+                !MetersConfiguration.TryParse(metersToken, out meters, out Error))
+                return false;
+
+            #endregion
+
+            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters);
             return true;
 
         }
@@ -327,6 +339,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (V2G is not null)
                 json.Add(V2GConfiguration.SectionName,          V2G.ToJSON());
 
+            if (Meters is not null)
+                json.Add(MetersConfiguration.SectionName,       Meters.ToJSON());
+
             return json;
 
         }
@@ -347,7 +362,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              RFID        is not null ? $"{RFID.Count} RFID reader(s)"           : null,
                              Operator    is not null ? Operator.ToString()                      : null,
                              WebPayments is not null ? WebPayments.ToString()                   : null,
-                             V2G         is not null ? V2G.ToString()                           : null
+                             V2G         is not null ? V2G.ToString()                           : null,
+                             Meters      is not null ? Meters.ToString()                        : null
                          }.Where(section => section is not null));
 
         #endregion

@@ -534,6 +534,10 @@ namespace cloud.charging.open.ChargingStation
             if (configuration.V2G is not null)
                 this.v2gFile = configuration.V2G;
 
+            // How each EVSE's meter is read; read from Start() on.
+            if (configuration.Meters is not null)
+                this.metersFile = configuration.Meters;
+
             #endregion
 
             #region The EVSEs this station has

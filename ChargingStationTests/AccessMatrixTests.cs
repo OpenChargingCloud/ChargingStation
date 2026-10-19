@@ -66,6 +66,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("GET",    "api/v1/configuration",                           Everybody),
             ("GET",    "api/v1/status/connections",                      Everybody),
             ("GET",    "api/v1/status/evses",                            Everybody),
+            ("GET",    "api/v1/status/meters",                           Everybody),
 
             ("GET",    "api/v1/configuration/dns",                       Everybody),
             ("PUT",    "api/v1/configuration/dns",                       TheOperator),
@@ -78,6 +79,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             ("GET",    "api/v1/configuration/v2g",                       Everybody),
             ("PUT",    "api/v1/configuration/v2g",                       TheOperator),
+
+            ("GET",    "api/v1/configuration/meters",                    Everybody),
+            ("PUT",    "api/v1/configuration/meters",                    TheInstaller),
+
+            // Let in at the door to read; a write is let in further on, by
+            // what the body asks - see MeterTests.
+            ("POST",   "api/v1/meters/modbus",                           Everybody),
 
             ("GET",    "api/v1/configuration/power",                     Everybody),
             ("PUT",    "api/v1/configuration/power",                     TheInstaller),

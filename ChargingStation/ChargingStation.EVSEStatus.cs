@@ -141,7 +141,7 @@ namespace cloud.charging.open.ChargingStation
         /// needed. Nothing simulated either: the display shows a power figure
         /// that no meter measured where no meter is read, and on a page about
         /// the EVSE itself that would read as a measurement. What a meter that
-        /// is read measures is here, under "meter".
+        /// is read measures is in <see cref="MetersStatusJSON"/>.
         /// </remarks>
         private JObject EVSEStatusJSON(EVSEConfig      EVSE,
                                        DateTimeOffset  Now)
@@ -179,7 +179,17 @@ namespace cloud.charging.open.ChargingStation
 
                        new JProperty("v2g",                V2GStatusJSON(EVSE.Id)),
 
-                       new JProperty("meter",              MeterStatusJSON(EVSE))
+                       // Whether it is read, and not what it measures: that is
+                       // news every second, and goes out as "meters" - see
+                       // ChargingStation.Meters.cs - so that this says only
+                       // what changes when the EVSE does.
+                       new JProperty("meter",              EVSE.MeterType is null && EVSE.MeterSerialNumber is null && metersFile.MeterOf(EVSE.Id) is null
+                                                               ? null
+                                                               : new JObject(
+                                                                     new JProperty("type",          EVSE.MeterType),
+                                                                     new JProperty("serialNumber",  EVSE.MeterSerialNumber),
+                                                                     new JProperty("read",          metersFile.MeterOf(EVSE.Id) is not null)
+                                                                 ))
 
                    );
 
@@ -260,7 +270,9 @@ namespace cloud.charging.open.ChargingStation
             lock (evseWatchLock)
                 lastEVSEs = EVSEsJSON(TimeProvider.GetUtcNow()).ToString(Formatting.None);
 
-            evseWatch = TimeProvider.CreateTimer(_ => ReportEVSEChanges(),
+            // The meters on the same beat: a second is what their page can be
+            // behind at worst, as it is for the EVSEs.
+            evseWatch = TimeProvider.CreateTimer(_ => { ReportEVSEChanges(); ReportMeterChanges(); },
                                                  null,
                                                  EVSEWatchInterval,
                                                  EVSEWatchInterval);

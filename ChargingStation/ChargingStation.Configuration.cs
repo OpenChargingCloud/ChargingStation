@@ -32,10 +32,13 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.ISO15118.T1S;
 using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.ISO15118;
+using cloud.charging.open.ChargingStation.Meters;
 using cloud.charging.open.ChargingStation.RFID;
 
 #endregion
@@ -242,6 +245,210 @@ namespace cloud.charging.open.ChargingStation
             {
                 reconfigureLock.Release();
             }
+
+        }
+
+        #endregion
+
+        #endregion
+
+
+        #region Meters
+
+        #region MetersConfigurationJSON()
+
+        /// <summary>
+        /// How the meter of each EVSE is read - where, whom it is believed to
+        /// be and what it was last believed with, whom this station is to it to
+        /// read and to write - and the identities of the store it can be shown.
+        /// </summary>
+        public JObject MetersConfigurationJSON()
+
+            => new (
+                   new JProperty("meters",      new JArray(EVSEs.Select(evse => MeterConfigurationJSON(evse)))),
+                   new JProperty("identities",  MeterIdentitiesJSON()),
+                   new JProperty("usage",       MeterCertificateUsage),
+                   new JProperty("defaults",    new JObject(
+                                                    new JProperty("port",  MeterEndpoint.DefaultPort),
+                                                    new JProperty("unit",  MeterEndpoint.DefaultUnit)
+                                                )),
+                   new JProperty("running",     started),
+                   new JProperty("file",        ConfigFile.Path)
+               );
+
+        #endregion
+
+        #region (private) MeterConfigurationJSON(EVSE)
+
+        /// <summary>
+        /// The meter of one EVSE, as it is configured to be read and as the
+        /// node last judged it.
+        /// </summary>
+        private JObject MeterConfigurationJSON(EVSEConfig EVSE)
+        {
+
+            var meter      = metersFile.MeterOf(EVSE.Id);
+            var server     = meter?.Endpoint.Server;
+            var judgement  = server is null ? null : LastJudgementOf(MeterCertificateUsage, server);
+
+            JObject? judged = null;
+
+            if (judgement is not null)
+            {
+                judged = judgement.ToJSON();
+                judged["steps"] = new JArray(judgement.Steps.Select(step => new JObject(
+                                                 new JProperty("level",  step.Level),
+                                                 new JProperty("text",   step.Text)
+                                             )));
+            }
+
+            return new JObject(
+
+                       new JProperty("evse",        EVSE.Id),
+                       new JProperty("label",       EVSE.PhysicalReference ?? EVSE.Id.ToString()),
+                       new JProperty("read",        meter is not null),
+
+                       new JProperty("host",        meter?.Endpoint.Host),
+                       new JProperty("port",        meter?.Endpoint.Port),
+                       new JProperty("unit",        meter?.Endpoint.Unit),
+                       new JProperty("server",      server),
+
+                       new JProperty("identities",  new JObject(
+                                                        new JProperty("read",   meter?.ReadIdentity),
+                                                        new JProperty("write",  meter?.WriteIdentity)
+                                                    )),
+
+                       new JProperty("heldTo",      meter?.Pins is { SaysAnything: true } pins ? pins.ToJSON() : null),
+                       new JProperty("judgement",   judged),
+                       new JProperty("known",       server is not null && KnownServers.Get(MeterCertificateUsage, server) is KnownServer known
+                                                        ? new JObject(
+                                                              new JProperty("certificate",  known.Certificate),
+                                                              new JProperty("root",         known.Root),
+                                                              new JProperty("since",        known.Since.ToString("o"))
+                                                          )
+                                                        : null)
+
+                   );
+
+        }
+
+        #endregion
+
+        #region UpdateMeterConfiguration(JSON, CancellationToken = default)
+
+        /// <summary>
+        /// Change how the meter of one EVSE is read - {"evse": 1, "host": …,
+        /// "port": …, "unit": …, "identities": { "read": …, "write": … }, and
+        /// what its certificate is held to} - and put it into effect at once; a
+        /// blank host reads it nowhere.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// What its certificate is held to is taken as a page saved it - see
+        /// <see cref="ServerPins.TryAfterAPageSaved"/>: a pin learned while the
+        /// page was open stays, unless the page took away what it showed.
+        /// </para>
+        /// <para>
+        /// The meter is read anew where it is read another way now, and left
+        /// alone where only the identity it is written with changed; the other
+        /// EVSEs' meters are not touched.
+        /// </para>
+        /// </remarks>
+        /// <returns>Whether it was changed; why not; and whether that was the configuration file's doing.</returns>
+        public async Task<(Boolean Success, String? Error, Boolean NotSaved)> UpdateMeterConfiguration(JObject            JSON,
+                                                                                                       CancellationToken  CancellationToken   = default)
+        {
+
+            var path = MetersConfiguration.SectionName;
+
+            if (!MeterConfiguration.TryReadEVSE(JSON, path, out var evse, out var error))
+                return (false, error, false);
+
+            if (!EVSEs.Any(candidate => candidate.Id == evse))
+                return (false, $"This station has no EVSE {evse}, so there is no meter of it to read.", false);
+
+            if (!MeterConfiguration.TryParse(JSON, path, out var sent, out error))
+                return (false, error, false);
+
+            ServerPins? shown    = null;
+            var         hasShown = false;
+
+            if (JSON[ServerPins.AsShownKey] is JToken shownToken && shownToken.Type != JTokenType.Null)
+            {
+
+                if (shownToken is not JObject shownJSON)
+                    return (false, $"'{path}.{ServerPins.AsShownKey}' must be an object: what the page showed the meter held to.", false);
+
+                if (!ServerPins.TryParse(shownJSON, $"{path}.{ServerPins.AsShownKey}", out shown, out error))
+                    return (false, error, false);
+
+                hasShown = true;
+
+            }
+
+            foreach (var (what, id) in new[] { ("read", sent?.ReadIdentity), ("write", sent?.WriteIdentity) })
+            {
+
+                if (id is null)
+                    continue;
+
+                if (Certificates.Get(id) is not CertificateEntry entry || entry.Kind != CertificateKind.TLSIdentity)
+                    return (false, $"'{id}' is no TLS identity of the certificate store, so it cannot be shown to the meter to {what}.", false);
+
+                if (!TryLoadIdentity(entry, out var identity))
+                    return (false, $"The TLS identity '{entry.Label}' carries no SunSpec role a meter knows, or has no private key, so a meter would not let it {what}.", false);
+
+                identity.Dispose();
+
+            }
+
+            await reconfigureLock.WaitAsync(CancellationToken);
+
+            try
+            {
+
+                if (!ConfigFile.TryLoadDocument(out var document, out error))
+                    return (false, error, true);
+
+                var inTheFile = MetersConfiguration.Empty;
+
+                if (document[MetersConfiguration.SectionName] is JToken section && section.Type != JTokenType.Null &&
+                    !MetersConfiguration.TryParse(section, out inTheFile, out error))
+                    return (false, error, true);
+
+                var changed = sent;
+
+                if (sent is not null && hasShown)
+                {
+
+                    if (!ServerPins.TryAfterAPageSaved(inTheFile.MeterOf(evse)?.Pins, shown, sent.Pins, path, out var pins, out error))
+                        return (false, error, false);
+
+                    changed = sent with { Pins = pins };
+
+                }
+
+                var file = inTheFile.With(evse, changed);
+
+                if (!ConfigFile.TryReplaceSection(MetersConfiguration.SectionName, file.ToJSON(), out error))
+                    return (false, error, true);
+
+                metersFile = file;
+
+                Log.Notice(changed is null
+                               ? $"{V2GLabelOf(evse)}: its meter is read nowhere now."
+                               : $"{V2GLabelOf(evse)}: its meter is read as {changed} now.",
+                           "meter", "config");
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+            await FollowTheMeters();
+
+            return (true, null, false);
 
         }
 

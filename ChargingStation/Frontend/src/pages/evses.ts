@@ -1,4 +1,4 @@
-import { api, type Connector, type EVSE, type EVSEConfiguration, type MeterEndpoint } from '../api/client';
+import { api, type Connector, type EVSE, type EVSEConfiguration } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { must } from '@node/html';
@@ -110,7 +110,6 @@ export const evsesPage: Page = {
                            evse.physicalReference !== other.physicalReference ||
                            evse.meterType         !== other.meterType         ||
                            evse.meterSerialNumber !== other.meterSerialNumber ||
-                           !sameMeterEndpoint(evse.meterEndpoint, other.meterEndpoint) ||
                            evse.connectors.length !== other.connectors.length ||
                            evse.connectors.some((connector, position) => connector.type !== other.connectors[position].type);
 
@@ -324,34 +323,10 @@ export const evsesPage: Page = {
                                     <input type="text" data-field="meterSerialNumber" data-index="${index}"
                                            value="${evse.meterSerialNumber ?? ''}" placeholder="optional" ?disabled=${!mayChangeHardware}
                                            @input=${(event: Event) => typed(() => { evse.meterSerialNumber = orNull(valueOf(event)); })} />
-                                </label>
-
-                                <label>Meter host
-                                    <input type="text" data-field="meterHost" data-index="${index}"
-                                           value="${evse.meterEndpoint?.host ?? ''}" placeholder="where it is read over Modbus/TLS - empty for nowhere"
-                                           ?disabled=${!mayChangeHardware}
-                                           @input=${(event: Event) => typed(() => { meterEndpointOf(evse).host = valueOf(event).trim(); })} />
                                     <span class="hint">
-                                        A SunSpec meter, read once a second - what it measures is on the
-                                        <a href="${toURL('/evses')}">EVSEs</a> page and on the display. The station shows it a
-                                        TLS identity of the <a href="${toURL('/configuration/certificates')}">certificate store</a>
-                                        that carries a SunSpec role, and believes it where its certificate is issued for this
-                                        host and chains to a TLS root for <code>meter</code>.
+                                        Where it is read over Modbus/TLS, and with which certificates, is set on the
+                                        <a href="${toURL('/configuration/meters')}">Meters</a> page.
                                     </span>
-                                </label>
-
-                                <label>Meter port
-                                    <input type="number" min="1" max="65535" data-field="meterPort" data-index="${index}"
-                                           value="${numberShown(evse.meterEndpoint?.port)}" placeholder="802"
-                                           ?disabled=${!mayChangeHardware}
-                                           @input=${(event: Event) => typed(() => { meterEndpointOf(evse).port = numberFrom(valueOf(event)); })} />
-                                </label>
-
-                                <label>Meter unit
-                                    <input type="number" min="0" max="255" data-field="meterUnit" data-index="${index}"
-                                           value="${numberShown(evse.meterEndpoint?.unit)}" placeholder="1"
-                                           ?disabled=${!mayChangeHardware}
-                                           @input=${(event: Event) => typed(() => { meterEndpointOf(evse).unit = numberFrom(valueOf(event)); })} />
                                 </label>
 
                             </div>
@@ -482,8 +457,7 @@ export const evsesPage: Page = {
                 operative:          true,
                 physicalReference:  String.fromCharCode(65 + draft.length),
                 meterType:          null,
-                meterSerialNumber:  null,
-                meterEndpoint:      null
+                meterSerialNumber:  null
             });
 
             touched();
@@ -610,39 +584,6 @@ export function mayChangeShortOfWhatIsFitted(Availability: boolean, Limits: bool
 function clone(evses: EVSE[]): EVSE[] {
     return evses.map(evse => ({
         ...evse,
-        connectors:     evse.connectors.map((connector): Connector => ({ ...connector })),
-        meterEndpoint:  evse.meterEndpoint ? { ...evse.meterEndpoint } : null
+        connectors: evse.connectors.map((connector): Connector => ({ ...connector }))
     }));
-}
-
-
-/**
- * Where an EVSE's meter is read, as the draft has it - made the moment one of
- * its fields is typed into. A port or a unit that is not typed is NaN, which
- * goes as null, and the station takes 802 and 1 for it.
- */
-function meterEndpointOf(EVSE: EVSE): MeterEndpoint {
-    return EVSE.meterEndpoint ??= { host: '', port: NaN, unit: NaN };
-}
-
-
-/**
- * Whether two endpoints read the same meter, as the station will take them:
- * no host is no meter, and a port or a unit not said is 802 and 1.
- */
-function sameMeterEndpoint(A: MeterEndpoint | null | undefined, B: MeterEndpoint | null | undefined): boolean {
-
-    const taken = (endpoint: MeterEndpoint | null | undefined) =>
-        !endpoint || endpoint.host.trim() === ''
-            ? ''
-            : `${endpoint.host.trim()}|${Number.isNaN(endpoint.port) ? 802 : endpoint.port}|${Number.isNaN(endpoint.unit) ? 1 : endpoint.unit}`;
-
-    return taken(A) === taken(B);
-
-}
-
-
-/** A number for a field: nothing for one not said. */
-function numberShown(Value: number | undefined): string {
-    return Value === undefined || Number.isNaN(Value) ? '' : String(Value);
 }

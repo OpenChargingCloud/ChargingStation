@@ -23,20 +23,13 @@ using Newtonsoft.Json.Linq;
 
 #endregion
 
-namespace cloud.charging.open.ChargingStation.EVSEs
+namespace cloud.charging.open.ChargingStation.Meters
 {
 
     /// <summary>
-    /// Where the energy meter of an EVSE is read: a SunSpec meter speaking
-    /// Modbus/TLS, at a host, a port and a unit address.
+    /// Where a meter is read: a SunSpec meter speaking Modbus/TLS, at a host, a
+    /// port and a unit address.
     /// </summary>
-    /// <remarks>
-    /// Part of what is bolted to the wall, as the meter's type and serial number
-    /// are: a meter that is read somewhere else is another meter. Nothing about
-    /// the certificates is said here - who the station is to the meter, and whom
-    /// it believes the meter to be, are in its certificate store, as they are
-    /// for every server it connects to.
-    /// </remarks>
     /// <param name="Host">The name or the address the meter is reached at, which its certificate has to be issued for.</param>
     /// <param name="Port">Its port; 802, Modbus/TLS's own, by default.</param>
     /// <param name="Unit">The Modbus unit address it answers on; 1 by default.</param>
@@ -64,23 +57,34 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         #endregion
 
-
-        #region (static) TryParse(JSON, EVSE, out Endpoint, out Error)
+        #region Properties
 
         /// <summary>
-        /// Where an EVSE's meter is read, as the web interface sends it and the
-        /// file keeps it: <c>{ "host": "10.0.0.5", "port": 802, "unit": 1 }</c>.
+        /// The meter as the node's judgements of servers name it: "10.0.0.5:802".
+        /// The port too, because two meters behind one address are two servers.
+        /// </summary>
+        public String  Server
+            => $"{(Host.Contains(':') ? $"[{Host}]" : Host)}:{Port}";
+
+        #endregion
+
+
+        #region (static) TryParse(JSON, Path, out Endpoint, out Error)
+
+        /// <summary>
+        /// Where a meter is read, from the entry that says so - its "host",
+        /// "port" and "unit": <c>{ "host": "10.0.0.5", "port": 802, "unit": 1 }</c>.
         /// </summary>
         /// <remarks>
-        /// Null, or an object without a host, is no meter to read: a form whose
-        /// host somebody cleared means just that.
+        /// An entry without a host, or with a blank one, is no meter to read: a
+        /// form whose host somebody cleared means just that.
         /// </remarks>
-        /// <param name="JSON">The value of "meterEndpoint".</param>
-        /// <param name="EVSE">Whose it is, for the sentence of a refusal.</param>
+        /// <param name="JSON">The entry.</param>
+        /// <param name="Path">Where it is, for the sentence of a refusal: "meters[0]".</param>
         /// <param name="Endpoint">Where the meter is read, or null for nowhere.</param>
         /// <param name="Error">Why it was refused.</param>
-        public static Boolean TryParse(JToken?                                JSON,
-                                       Int64                                  EVSE,
+        public static Boolean TryParse(JObject                                JSON,
+                                       String                                 Path,
                                        out MeterEndpoint?                     Endpoint,
                                        [NotNullWhen(false)] out String?       Error)
         {
@@ -88,29 +92,20 @@ namespace cloud.charging.open.ChargingStation.EVSEs
             Endpoint  = null;
             Error     = null;
 
-            if (JSON is null || JSON.Type == JTokenType.Null)
-                return true;
-
-            if (JSON is not JObject json)
+            if (JSON["host"] is JToken given && given.Type is not JTokenType.String and not JTokenType.Null)
             {
-                Error = $"EVSE {EVSE}: 'meterEndpoint' must be an object with a 'host', or null.";
+                Error = $"'{Path}.host' must be the name or the address the meter is reached at.";
                 return false;
             }
 
-            if (json["host"] is JToken given && given.Type is not JTokenType.String and not JTokenType.Null)
-            {
-                Error = $"EVSE {EVSE}: the meter's 'host' must be a name or an address.";
-                return false;
-            }
-
-            var host = json.Value<String>("host")?.Trim();
+            var host = JSON.Value<String>("host")?.Trim();
 
             if (String.IsNullOrEmpty(host))
                 return true;
 
             if (host.Length > MaxHostLength || host.Any(Char.IsWhiteSpace) || host.Contains('/'))
             {
-                Error = $"EVSE {EVSE}: '{host}' is no host a meter can be reached at; give its name or its address, without a port or a path.";
+                Error = $"'{Path}.host' is '{host}', which is no host a meter can be reached at; give its name or its address, without a port or a path.";
                 return false;
             }
 
@@ -120,11 +115,11 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             var port = DefaultPort;
 
-            if (json["port"] is JToken portToken && portToken.Type != JTokenType.Null)
+            if (JSON["port"] is JToken portToken && portToken.Type != JTokenType.Null)
             {
                 if (portToken.Type != JTokenType.Integer || portToken.Value<Int64>() is < 1 or > 65535)
                 {
-                    Error = $"EVSE {EVSE}: the meter's 'port' must be a whole number between 1 and 65535.";
+                    Error = $"'{Path}.port' must be a whole number between 1 and 65535.";
                     return false;
                 }
                 port = (UInt16) portToken.Value<Int64>();
@@ -132,11 +127,11 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             var unit = DefaultUnit;
 
-            if (json["unit"] is JToken unitToken && unitToken.Type != JTokenType.Null)
+            if (JSON["unit"] is JToken unitToken && unitToken.Type != JTokenType.Null)
             {
                 if (unitToken.Type != JTokenType.Integer || unitToken.Value<Int64>() is < 0 or > 255)
                 {
-                    Error = $"EVSE {EVSE}: the meter's 'unit' must be a Modbus unit address, a whole number between 0 and 255.";
+                    Error = $"'{Path}.unit' must be a Modbus unit address, a whole number between 0 and 255.";
                     return false;
                 }
                 unit = (Byte) unitToken.Value<Int64>();
@@ -149,11 +144,24 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
         #endregion
 
+        #region WriteInto(JSON)
+
+        /// <summary>
+        /// Write where the meter is read into its entry.
+        /// </summary>
+        public void WriteInto(JObject JSON)
+        {
+            JSON["host"]  = Host;
+            JSON["port"]  = Port;
+            JSON["unit"]  = Unit;
+        }
+
+        #endregion
+
         #region ToJSON()
 
         /// <summary>
-        /// Where the meter is read, as the web interface reads it and the file
-        /// keeps it.
+        /// Where the meter is read, as a page reads it.
         /// </summary>
         public JObject ToJSON()
 

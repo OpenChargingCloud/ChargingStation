@@ -99,6 +99,10 @@ namespace cloud.charging.open.ChargingStation
             // stream every page of the web interface already follows.
             Station.EVSEsChanged += json => Publish("evses", json);
 
+            // What the meters measure, on an event of its own: news every
+            // second, which the EVSEs' event should not have to carry.
+            Station.MetersChanged += json => Publish("meters", json);
+
         }
 
         #endregion
@@ -114,6 +118,11 @@ namespace cloud.charging.open.ChargingStation
 
             AddHandler(HTTPPath.Root + "v1/status/connections", GetConnectionStates, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/status/evses",       GetEVSEStates,       HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/status/meters",      GetMeterStates,      HTTPMethod.GET);
+
+            AddHandler(HTTPPath.Root + "v1/configuration/meters",     GetMeterConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/meters",     PutMeterConfiguration, HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/meters/modbus",            PostModbusRequest,     HTTPMethod.POST);
 
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        GetV2GConfiguration,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        PutV2GConfiguration,   HTTPMethod.PUT);
@@ -656,6 +665,91 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) GetMeterConfiguration(Request) / PutMeterConfiguration(Request) / PostModbusRequest(Request)
+
+        /// <summary>
+        /// GET /api/v1/configuration/meters: how the meter of each EVSE is read,
+        /// and the identities of the store it can be shown.
+        /// </summary>
+        private Task<HTTPResponse> GetMeterConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Meters), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.MetersConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/meters with {"evse", "host", "port", "unit",
+        /// "identities", and what the meter's certificate is held to}: change
+        /// how one EVSE's meter is read, and read it so at once.
+        /// </summary>
+        private async Task<HTTPResponse> PutMeterConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Meters), true, out var user, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            Log.Info($"'{user.Id}' is changing how a meter is read.", "meter", "config", "web");
+
+            var (success, error, notSaved) = await Station.UpdateMeterConfiguration(json, Request.CancellationToken);
+
+            if (!success)
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error ?? "How the meter is read could not be changed.", notSaved);
+
+            return JSONResponse(Request, HTTPStatusCode.OK, Station.MetersConfigurationJSON());
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/meters/modbus with {"evse", "function", "address",
+        /// "count" | "value" | "values"}: ask the meter of an EVSE one Modbus
+        /// request, as the identity this station is to it for what the request
+        /// does, and say what came back.
+        /// </summary>
+        /// <remarks>
+        /// A read at the permission that reads the meters, a write at the one
+        /// that runs them: a register written is a meter changed. Which it is
+        /// is known only from the body, so the body is read before the
+        /// permission is asked.
+        /// </remarks>
+        private async Task<HTTPResponse> PostModbusRequest(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Meters), true, out var user, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            if (!Configuration.MeterConfiguration.TryReadEVSE(json, "modbus", out var evse, out var error) ||
+                !Meters.ModbusRequest.TryParse(json, out var modbus, out error))
+                return JSONResponse(Request, HTTPStatusCode.BadRequest, new JObject(new JProperty("error", error)));
+
+            if (modbus.Operation == Meters.ModbusOperation.Write &&
+                !TryAuthorize(Request, Permission.Run(StationAccess.Meters), true, out _, out refused))
+                return refused;
+
+            if (Station.AskMeter(evse, modbus, Request.CancellationToken) is not Task<JObject> asking)
+                return JSONResponse(Request, HTTPStatusCode.NotFound,
+                                    new JObject(new JProperty("error", $"No meter is read at EVSE {evse}, so there is nothing to ask.")));
+
+            if (modbus.Operation == Meters.ModbusOperation.Write)
+                Log.Notice($"'{user.Id}' asks the meter of EVSE {evse}: {modbus}.", "meter", "modbus", "web");
+
+            return JSONResponse(Request, HTTPStatusCode.OK, await asking);
+
+        }
+
+        #endregion
+
         #region (private) GetPowerConfiguration(Request) / PutPowerConfiguration(Request)
 
         /// <summary>
@@ -867,6 +961,23 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEsStatusJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/status/meters: how each meter that is to be read stands
+        /// right now, and what it measures; every change after that reaches a
+        /// page as a "meters" event on the stream.
+        /// </summary>
+        private Task<HTTPResponse> GetMeterStates(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Meters), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.MetersStatusJSON())
                    );
 
         }

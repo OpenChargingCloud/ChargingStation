@@ -51,15 +51,13 @@ namespace cloud.charging.open.ChargingStation.EVSEs
     /// <param name="PhysicalReference">What is written on it, e.g. "A" - the label somebody reads off the housing.</param>
     /// <param name="MeterType">The energy meter built into it, if any.</param>
     /// <param name="MeterSerialNumber">That meter's serial number.</param>
-    /// <param name="MeterEndpoint">Where that meter is read over Modbus/TLS, or null where it is not read at all.</param>
     public sealed record EVSEConfig(Byte                            Id,
                                     IReadOnlyList<ConnectorConfig>  Connectors,
                                     Decimal                         MaxPower_kW,
                                     Boolean                         Operative           = true,
                                     String?                         PhysicalReference   = null,
                                     String?                         MeterType           = null,
-                                    String?                         MeterSerialNumber   = null,
-                                    MeterEndpoint?                  MeterEndpoint       = null)
+                                    String?                         MeterSerialNumber   = null)
     {
 
         #region Data
@@ -274,9 +272,6 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             #endregion
 
-            if (!MeterEndpoint.TryParse(json["meterEndpoint"], id.Value, out var meterEndpoint, out Error))
-                return false;
-
             EVSE = new EVSEConfig(
                        (Byte) id.Value,
                        connectors,
@@ -284,8 +279,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                        json.Value<Boolean?>("operative") ?? true,
                        Trimmed(json, "physicalReference"),
                        Trimmed(json, "meterType"),
-                       Trimmed(json, "meterSerialNumber"),
-                       meterEndpoint
+                       Trimmed(json, "meterSerialNumber")
                    );
 
             return true;
@@ -393,7 +387,6 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                PhysicalReference  == Other.PhysicalReference &&
                MeterType          == Other.MeterType         &&
                MeterSerialNumber  == Other.MeterSerialNumber &&
-               MeterEndpoint      == Other.MeterEndpoint     &&
                Connectors.Count   == Other.Connectors.Count  &&
                Connectors.Zip(Other.Connectors).All(pair => String.Equals(pair.First.Type, pair.Second.Type, StringComparison.Ordinal));
 
@@ -446,8 +439,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
                    new JProperty("operative",          Operative),
                    new JProperty("physicalReference",  PhysicalReference),
                    new JProperty("meterType",          MeterType),
-                   new JProperty("meterSerialNumber",  MeterSerialNumber),
-                   new JProperty("meterEndpoint",      MeterEndpoint?.ToJSON())
+                   new JProperty("meterSerialNumber",  MeterSerialNumber)
                );
 
         #endregion

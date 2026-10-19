@@ -128,10 +128,24 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  V2G           = "v2g";
 
         /// <summary>
+        /// The meter of each EVSE: read, how each is read and what it measures,
+        /// and a request asked that only reads; edited, where it is read, whom
+        /// it is believed to be and whom this station is to it; run, a request
+        /// asked that writes to it.
+        /// </summary>
+        /// <remarks>
+        /// Its own resource rather than a part of the EVSEs, because reading a
+        /// meter is a matter of the network and the certificates as much as of
+        /// what is bolted to the wall - and writing to one is a matter of its
+        /// own.
+        /// </remarks>
+        public const String  Meters        = "meters";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
-                                                                    Display, Session, Connections, V2G ];
+                                                                    Display, Session, Connections, V2G, Meters ];
 
         #endregion
 
@@ -163,7 +177,8 @@ namespace cloud.charging.open.ChargingStation.Web
         /// Whoever commissions this charging station: everything the operator
         /// may do, and on top of it the numbers and the papers that belong to
         /// the installation - what the grid connection and each cable may
-        /// deliver, and which calibration certificates this station runs
+        /// deliver, how each meter is read and what is written to it, and
+        /// which calibration certificates this station runs
         /// under.
         /// </summary>
         /// <remarks>
@@ -179,8 +194,10 @@ namespace cloud.charging.open.ChargingStation.Web
         public static readonly Role  Installer  = new ("installer",
                                                        [ .. CPO.Permissions,
                                                          Permission.Edit(Power),
-                                                         Permission.Edit(Calibration) ],
-                                                       "commissions the station: everything the operator may do, and its power limits and calibration certificates");
+                                                         Permission.Edit(Calibration),
+                                                         Permission.Edit(Meters),
+                                                         Permission.Run (Meters) ],
+                                                       "commissions the station: everything the operator may do, its power limits and calibration certificates, and its meters - how each is read, and what is written to it");
 
         /// <summary>
         /// Both, in the order a sentence naming them reads best.

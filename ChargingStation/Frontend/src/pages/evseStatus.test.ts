@@ -13,7 +13,7 @@ import { asked, leave, open, refused, until, type Asked } from '../../test/stati
 import { strict as assert }       from 'node:assert';
 import { afterEach, describe, it } from 'node:test';
 
-import type { EVSEStatus } from '../api/client.ts';
+import type { EVSEStatus, MeterStatus } from '../api/client.ts';
 
 
 /** The stream the page follows, as a test drives it. */
@@ -72,12 +72,38 @@ function anEVSE(Id: number, Label: string, More: Partial<EVSEStatus> = {}): EVSE
     };
 }
 
-let evses: EVSEStatus[] = [];
+let evses:  EVSEStatus[]  = [];
+let meters: MeterStatus[] = [];
+
+/** A meter that is read, as EVSEMeter.StatusJSON says one. */
+function aMeter(EVSE: number, Label: string): MeterStatus {
+
+    const phases = (all: number, each: number) => ({ all, L1: each, L2: each, L3: each });
+
+    return {
+        evse:        EVSE,
+        label:       Label,
+        endpoint:    { host: '10.0.0.5', port: 802, unit: 1 },
+        state:       'reading',
+        since:       '2026-10-19T10:00:00.000Z',
+        error:       null,
+        connection:  { protocol: 'Tls13', cipherSuite: 'TLS_AES_128_GCM_SHA256', judged: 'accepted',
+                       identity: { id: '0123456789abcdef', label: 'meter reader', role: 'ReadOnlySunSpec', subject: 'CN=Station' },
+                       meter:    { subject: 'CN=EnergyMeter01', issuer: 'CN=Issuing Device CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z', sha256: 'EF'.repeat(32) } },
+        reading:     { at: '2026-10-19T10:00:05.000Z', manufacturer: 'Vanaheimr', model: 'DemoMeter-3P', version: '1.0.0', serialNumber: 'EnergyMeter01',
+                       power_W: phases(11040, 3680), current_A: phases(48, 16), voltage_V: phases(230, 229.6), frequency_Hz: null,
+                       imported_Wh: 123456, exported_Wh: 0 }
+    };
+
+}
 
 function station({ method, path }: Asked): unknown {
 
     if (method === 'GET' && path === '/status/evses')
         return { timestamp: '2026-10-19T10:00:00.000Z', evses };
+
+    if (method === 'GET' && path === '/status/meters')
+        return { timestamp: '2026-10-19T10:00:00.000Z', meters };
 
     return refused(404, `Nothing at ${method} ${path}`);
 
@@ -88,6 +114,7 @@ const panel = (root: HTMLElement, id: number) => root.querySelector<HTMLElement>
 afterEach(() => {
     leave();
     logs.stop();
+    meters = [];
 });
 
 
@@ -162,9 +189,9 @@ describe('the EVSEs page', () => {
 
     it('says what is written down about a meter that is not read, and where it would be set to be', async () => {
 
-        evses = [ anEVSE(1, 'A', { meter: { type: 'SunSpec 213', serialNumber: 'EnergyMeter01' } }) ];
+        evses = [ anEVSE(1, 'A', { meter: { type: 'SunSpec 213', serialNumber: 'EnergyMeter01', read: false } }) ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station, root => panel(root, 1) !== null);
 
         assert.match(panel(root, 1)!.textContent!, /EnergyMeter01/);
         assert.match(panel(root, 1)!.textContent!, /Where it is read over Modbus\/TLS is set/);
@@ -173,22 +200,11 @@ describe('the EVSEs page', () => {
 
     it('says what a meter that is read measures, phase by phase, and over what it is read', async () => {
 
-        const phases = (all: number, each: number) => ({ all, L1: each, L2: each, L3: each });
+        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
+        meters = [ aMeter(1, 'A') ];
 
-        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: {
-            endpoint:    { host: '10.0.0.5', port: 802, unit: 1 },
-            state:       'reading',
-            since:       '2026-10-19T10:00:00.000Z',
-            error:       null,
-            connection:  { protocol: 'Tls13', cipherSuite: 'TLS_AES_128_GCM_SHA256', judged: 'accepted',
-                           identity: { label: 'meter reader', role: 'ReadOnlySunSpec', subject: 'CN=Station' },
-                           meter:    { subject: 'CN=EnergyMeter01', issuer: 'CN=Issuing Device CA', notBefore: '2026-01-01T00:00:00Z', notAfter: '2027-01-01T00:00:00Z', sha256: 'EF'.repeat(32) } },
-            reading:     { at: '2026-10-19T10:00:05.000Z', manufacturer: 'Vanaheimr', model: 'DemoMeter-3P', version: '1.0.0', serialNumber: 'EnergyMeter01',
-                           power_W: phases(11040, 3680), current_A: phases(48, 16), voltage_V: phases(230, 229.6), frequency_Hz: null,
-                           imported_Wh: 123456, exported_Wh: 0 }
-        } } }) ];
-
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+                                root => (panel(root, 1)?.querySelector('table.meter-phases') ?? null) !== null);
         const text = panel(root, 1)!.textContent!;
         const rows = [...panel(root, 1)!.querySelectorAll('.table-scroll table.meter-phases tbody tr')].map(row => row.textContent!.replace(/\s+/g, ' ').trim());
 
@@ -202,18 +218,56 @@ describe('the EVSEs page', () => {
 
     });
 
+    it('draws what a meter measures from the meters\' own event, as it comes', async () => {
+
+        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
+        meters = [ aMeter(1, 'A') ];
+
+        logs.start();
+
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+                                root => (panel(root, 1)?.querySelector('table.meter-phases') ?? null) !== null);
+
+        const later = aMeter(1, 'A');
+        later.reading!.power_W = { all: 7000, L1: 2333, L2: 2333, L3: 2334 };
+
+        Stream.latest!.publish('meters', { meters: [ later ] });
+
+        await until(() => /7[.,]?000 W/.test(panel(root, 1)!.textContent!), 'what the meter measures now was not drawn');
+
+        assert.deepEqual(asked.map(request => request.path).sort(), [ '/status/evses', '/status/meters' ],
+                         'the page asked the station again instead of taking what it said');
+
+    });
+
+    it('does not ask what the meters measure for somebody who may not read them', async () => {
+
+        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
+        meters = [ aMeter(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+
+        assert.deepEqual(asked.map(request => request.path), [ '/status/evses' ]);
+        assert.match(panel(root, 1)!.textContent!, /for those who may read the meters/);
+
+    });
+
     it('says why a meter that is to be read is not', async () => {
 
-        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: {
+        evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
+        meters = [ {
+            evse:        1,
+            label:       'A',
             endpoint:    { host: '10.0.0.5', port: 802, unit: 1 },
             state:       'noIdentity',
             since:       '2026-10-19T10:00:00.000Z',
             error:       'There is no TLS identity in this station\'s certificate store whose certificate carries a SunSpec role.',
             connection:  null,
             reading:     null
-        } } }) ];
+        } ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+                                root => (panel(root, 1)?.querySelector('.meter-state') ?? null) !== null);
 
         assert.match(panel(root, 1)!.querySelector('.meter-state')!.textContent!, /nothing to show it/);
         assert.match(panel(root, 1)!.querySelector('.meter-error')!.textContent!,  /SunSpec role/);

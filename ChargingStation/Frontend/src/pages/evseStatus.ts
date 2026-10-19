@@ -1,4 +1,5 @@
-import { api, type CertificateSummary, type EVSEState, type EVSEStatus, type V2GLiveStatus } from '../api/client';
+import { api, type CertificateSummary, type EVSEState, type EVSEStatus, type MeterStates, type MeterStatus, type V2GLiveStatus } from '../api/client';
+import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
@@ -41,6 +42,10 @@ export const evseStatusPage: Page = {
         let cancelled              = false;
         let evses:  EVSEStatus[] | null = null;
         let shown:  string | null  = null;
+
+        /** How each meter that is read stands, by its EVSE - from their own event, which comes every second. */
+        const meters    = new Map<number, MeterStatus>();
+        const mayMeters = auth.can('meters', 'read');
 
 
         function tabsOf(List: readonly EVSEStatus[]): Tab[] {
@@ -86,7 +91,7 @@ export const evseStatusPage: Page = {
 
                 ${repeat(evses, evse => evse.id, evse => html`
                     <div id="panel-${tabIdOf(evse)}" role="tabpanel" aria-labelledby="tab-${tabIdOf(evse)}" ?hidden=${shown !== tabIdOf(evse)}>
-                        ${evseView(evse)}
+                        ${evseView(evse, meters.get(evse.id) ?? null, mayMeters)}
                     </div>
                 `)}
 
@@ -98,12 +103,19 @@ export const evseStatusPage: Page = {
 
             try
             {
-                const loaded = await api.evses.states();
+                const [ loaded, read ] = await Promise.all([
+                                             api.evses.states(),
+                                             mayMeters ? api.meters.states().catch(() => null) : Promise.resolve(null)
+                                         ]);
 
                 if (cancelled)
                     return;
 
                 evses = loaded.evses;
+
+                if (read !== null)
+                    took(read);
+
                 draw();
             }
             catch (problem)
@@ -125,9 +137,24 @@ export const evseStatusPage: Page = {
             draw();
         });
 
+        // What the meters measure, on an event of their own: news every
+        // second, which the EVSEs' own event does not carry.
+        function took(States: MeterStates): void {
+            meters.clear();
+            for (const state of States.meters)
+                meters.set(state.evse, state);
+        }
+
+        const unfollowMeters = logs.onEvent<MeterStates>('meters', data => {
+            if (cancelled)
+                return;
+            took(data);
+            draw();
+        });
+
         void load();
 
-        return () => { cancelled = true; unfollow(); };
+        return () => { cancelled = true; unfollow(); unfollowMeters(); };
 
     }
 
@@ -277,7 +304,7 @@ function certificateView(Heading: string, Certificate: CertificateSummary): Temp
 
 
 /** One EVSE, drawn in the panel of its tab. */
-function evseView(EVSE: EVSEStatus): TemplateResult {
+function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: boolean): TemplateResult {
 
     return html`
         <div class="cards">
@@ -354,7 +381,7 @@ function evseView(EVSE: EVSEStatus): TemplateResult {
 
             </section>
 
-            ${meterCard(EVSE.meter)}
+            ${meterCard(EVSE.meter, Meter, MayReadMeters)}
 
         </div>
     `;
@@ -377,11 +404,14 @@ const meterStates: Record<string, string> = {
 
 /**
  * The meter of an EVSE: what is written down about it, and - where it is read
- * - whether it is, over what, and what it measures, phase by phase.
+ * - whether it is, over what, and what it measures, phase by phase: the last
+ * from the "meters" event, where whoever looks may read the meters.
  */
-function meterCard(Meter: EVSEStatus['meter']): TemplateResult {
+function meterCard(Meter:          EVSEStatus['meter'],
+                   State:          MeterStatus | null,
+                   MayReadMeters:  boolean): TemplateResult {
 
-    const read    = Meter?.read ?? null;
+    const read    = Meter?.read ? State : null;
     const reading = read?.reading ?? null;
     const phases  = reading === null
                         ? []
@@ -405,7 +435,7 @@ function meterCard(Meter: EVSEStatus['meter']): TemplateResult {
                                 ? nothing
                                 : html`
                                     <div class="kv"><span class="k">Read at</span><span class="v"><code>${read.endpoint.host}:${read.endpoint.port}</code>, unit ${read.endpoint.unit}</span></div>
-                                    <div class="kv"><span class="k">State</span><span class="v meter-state">${meterStates[read.state] ?? read.state}, since ${formatTimestamp(read.since)}</span></div>
+                                    <div class="kv"><span class="k">State</span><span class="v meter-state">${meterStates[read.state] ?? read.state}${read.since ? html`, since ${formatTimestamp(read.since)}` : nothing}</span></div>
                                   `}
                       </div>
                     `}
@@ -452,11 +482,14 @@ function meterCard(Meter: EVSEStatus['meter']): TemplateResult {
                     `}
 
             <p class="muted small">
-                ${Meter?.read === undefined
+                ${!Meter?.read
                       ? html`What is written down about it. Where it is read over Modbus/TLS is set on the
-                             <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.`
-                      : html`Read once a second over Modbus/TLS; every change of how that goes is in the
-                             <a href="${toURL('/logs')}">log</a> under the tag <code>meter</code>.`}
+                             <a href="${toURL('/configuration/meters')}">Meters</a> page under Configuration.`
+                      : MayReadMeters
+                            ? html`Read once a second over Modbus/TLS - how is set on the
+                                   <a href="${toURL('/configuration/meters')}">Meters</a> page; every change of how
+                                   that goes is in the <a href="${toURL('/logs')}">log</a> under the tag <code>meter</code>.`
+                            : html`Read over Modbus/TLS; what it measures is for those who may read the meters.`}
             </p>
 
         </section>

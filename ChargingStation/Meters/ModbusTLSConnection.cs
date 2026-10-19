@@ -176,6 +176,25 @@ namespace cloud.charging.open.ChargingStation.Meters
                                                          UInt16             Count,
                                                          TimeSpan           Timeout,
                                                          CancellationToken  CancellationToken)
+
+            => ModbusPDU.DecodeReadResponse(await Exchange(Unit,
+                                                           ModbusPDU.BuildReadHoldingRegisters(First, Count),
+                                                           Timeout,
+                                                           CancellationToken));
+
+        #endregion
+
+        #region Exchange(Unit, Request, Timeout, CancellationToken)
+
+        /// <summary>
+        /// Send one request and return the answer, both as the PDU inside the
+        /// frame - an exception response included, which is the caller's to
+        /// read.
+        /// </summary>
+        public async Task<Byte[]> Exchange(Byte               Unit,
+                                           Byte[]             Request,
+                                           TimeSpan           Timeout,
+                                           CancellationToken  CancellationToken)
         {
 
             using var waiting = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
@@ -187,7 +206,7 @@ namespace cloud.charging.open.ChargingStation.Meters
             {
 
                 var id       = unchecked(++transactionId);
-                var request  = new ModbusFrame(id, Unit, ModbusPDU.BuildReadHoldingRegisters(First, Count));
+                var request  = new ModbusFrame(id, Unit, Request);
 
                 await tls.WriteAsync(request.ToBytes(), waiting.Token);
                 await tls.FlushAsync(waiting.Token);
@@ -197,7 +216,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                 if (response.TransactionId != id || response.UnitId != Unit)
                     throw new InvalidDataException($"The meter answered transaction {response.TransactionId} of unit {response.UnitId}, where {id} of unit {Unit} was asked.");
 
-                return ModbusPDU.DecodeReadResponse(response.Pdu);
+                return response.Pdu;
 
             }
             finally

@@ -16,13 +16,13 @@
  * stays with its EVSE across a save; a list refused stays, with why.
  */
 
-import { asked, open, refused, until, type Asked } from '../../test/station.ts';
+import { open, refused, until, type Asked } from '../../test/station.ts';
 import { chromeTakesTheFocus } from '@node/../test/dom.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-import type { EVSE, EVSEConfiguration, MeterEndpoint } from '../api/client.ts';
+import type { EVSE, EVSEConfiguration } from '../api/client.ts';
 
 const { evsesPage, mayChangeShortOfWhatIsFitted } = await import('./evses.ts');
 
@@ -82,7 +82,7 @@ function station({ method, path, body }: Asked): unknown {
             return refused(400, "EVSE 1, connector 'sType2': a cable may not be configured for more (30 kW) than the EVSE feeding it (22 kW).");
         // A station takes what it takes: a tenth of a kW at the finest.
         const { evses } = body as { evses: EVSE[] };
-        held = { ...held, evses: evses.map(evse => ({ ...evse, maxPower_kW: Math.round(evse.maxPower_kW * 10) / 10, meterEndpoint: meterTaken(evse.meterEndpoint) })) };
+        held = { ...held, evses: evses.map(evse => ({ ...evse, maxPower_kW: Math.round(evse.maxPower_kW * 10) / 10 })) };
         return held;
     }
 
@@ -93,18 +93,10 @@ function station({ method, path, body }: Asked): unknown {
 
 }
 
-/** Where a meter is read, as a station takes it - MeterEndpoint.cs: no host is no meter, 802 and 1 where nothing is said. */
-function meterTaken(Endpoint: EVSE['meterEndpoint']): MeterEndpoint | null {
-    return !Endpoint || Endpoint.host.trim() === ''
-               ? null
-               : { host: Endpoint.host.trim(), port: Endpoint.port ?? 802, unit: Endpoint.unit ?? 1 };
-}
-
-async function opened(Permissions = [ 'evses:read', 'evses:edit', 'power:edit', 'availability:edit' ],
-                      Station     = aStation()): Promise<HTMLElement> {
-    held          = Station;
+async function opened(): Promise<HTMLElement> {
+    held          = aStation();
     refuseChanges = false;
-    return open(evsesPage, '/configuration/evses', Permissions,
+    return open(evsesPage, '/configuration/evses', [ 'evses:read', 'evses:edit', 'power:edit', 'availability:edit' ],
                 station, root => root.querySelector('#evses section') !== null);
 }
 
@@ -222,83 +214,6 @@ describe('the EVSEs page', () => {
         assert.equal(root.querySelector('#form-error')!.textContent,
                      "EVSE 1, connector 'sType2': a cable may not be configured for more (30 kW) than the EVSE feeding it (22 kW).");
         assert.equal(fieldOf(root, 0, 'meterType').value, 'Eastron', 'what was typed went');
-
-    });
-
-    it('saves where a meter is read, and shows the port and the unit the station took for what was not typed', async () => {
-
-        const root = await opened();
-
-        type(fieldOf(root, 0, 'meterHost'), ' 10.0.0.5 ');
-
-        root.querySelector<HTMLButtonElement>('#save')!.click();
-        await until(() => saved(root) && held.evses[0].meterEndpoint?.host === '10.0.0.5', 'where the meter is read was not saved');
-
-        const put = (asked.find(one => one.method === 'PUT')!.body as { evses: EVSE[] }).evses;
-
-        assert.deepEqual(put[0].meterEndpoint, { host: '10.0.0.5', port: null, unit: null }, 'what was not typed was sent as something');
-        assert.equal(put[1].meterEndpoint ?? null, null, 'the other EVSE was given a meter');
-
-        assert.equal(fieldOf(root, 0, 'meterPort').value, '802');
-        assert.equal(fieldOf(root, 0, 'meterUnit').value, '1');
-
-    });
-
-    it('puts back where a meter is read when the changes are discarded', async () => {
-
-        const station = aStation();
-        station.evses[0].meterEndpoint = { host: '10.0.0.5', port: 802, unit: 1 };
-
-        const root = await opened(undefined, station);
-
-        type(fieldOf(root, 0, 'meterHost'), '10.0.0.6');
-
-        root.querySelector<HTMLButtonElement>('#revert')!.click();
-        await until(() => root.querySelector<HTMLButtonElement>('#revert')!.disabled, 'the changes were not discarded');
-
-        assert.equal(fieldOf(root, 0, 'meterHost').value, '10.0.0.5', 'what was typed outlived discarding it');
-
-    });
-
-    it('reads a meter nowhere once its host is cleared', async () => {
-
-        const station = aStation();
-        station.evses[0].meterEndpoint = { host: '10.0.0.5', port: 802, unit: 1 };
-
-        const root = await opened(undefined, station);
-
-        assert.equal(fieldOf(root, 0, 'meterHost').value, '10.0.0.5');
-
-        type(fieldOf(root, 0, 'meterHost'), '');
-
-        root.querySelector<HTMLButtonElement>('#save')!.click();
-        await until(() => saved(root) && held.evses[0].meterEndpoint === null, 'the meter is still read');
-
-    });
-
-    it('lets somebody who may correct the power alone do so on an EVSE whose meter is read', async () => {
-
-        const station = aStation();
-        station.evses[0].meterEndpoint = { host: '10.0.0.5', port: 802, unit: 1 };
-
-        const root = await opened([ 'evses:read', 'power:edit' ], station);
-
-        type(fieldOf(root, 0, 'maxPower_kW'), '11');
-
-        assert.equal(root.querySelector<HTMLButtonElement>('#save')!.disabled, false,
-                     'the meter, untouched, was taken for a change to what is fitted');
-
-        root.querySelector<HTMLButtonElement>('#save')!.click();
-        await until(() => saved(root) && held.evses[0].maxPower_kW === 11, 'the power was not saved');
-
-    });
-
-    it('lets nobody move a meter who may not change what is fitted', async () => {
-
-        const root = await opened([ 'evses:read', 'power:edit', 'availability:edit' ]);
-
-        assert.equal(fieldOf(root, 0, 'meterHost').disabled, true, 'a meter could be moved by somebody who may not change what is fitted');
-        assert.equal(fieldOf(root, 0, 'meterPort').disabled, true);
 
     });
 
