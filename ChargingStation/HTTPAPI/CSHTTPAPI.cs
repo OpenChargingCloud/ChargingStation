@@ -95,6 +95,10 @@ namespace cloud.charging.open.ChargingStation
 
             RegisterURLTemplates();
 
+            // What an EVSE does, to the EVSEs page as it happens - on the
+            // stream every page of the web interface already follows.
+            Station.EVSEsChanged += json => Publish("evses", json);
+
         }
 
         #endregion
@@ -109,6 +113,7 @@ namespace cloud.charging.open.ChargingStation
         {
 
             AddHandler(HTTPPath.Root + "v1/status/connections", GetConnectionStates, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/status/evses",       GetEVSEStates,       HTTPMethod.GET);
 
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        GetV2GConfiguration,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        PutV2GConfiguration,   HTTPMethod.PUT);
@@ -841,6 +846,27 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, ConnectionStatesJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/status/evses: how each EVSE stands right now.
+        /// </summary>
+        /// <remarks>
+        /// What the EVSEs page draws when it is opened; every change after that
+        /// reaches it as an "evses" event on the stream. At the permission that
+        /// reads the EVSEs' configuration, because what an EVSE is doing is about
+        /// the same outlets.
+        /// </remarks>
+        private Task<HTTPResponse> GetEVSEStates(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.EVSEs), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.EVSEsStatusJSON())
                    );
 
         }

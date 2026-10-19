@@ -799,6 +799,10 @@ namespace cloud.charging.open.ChargingStation
 
             Log.Info($"The JSON API is at {APIURL}v1/status", "web", "http");
 
+            // So that the EVSEs page follows what an EVSE does - see
+            // ChargingStation.EVSEStatus.cs.
+            StartWatchingTheEVSEs();
+
             // After the web interface, so that whoever is watching the Logs
             // page sees SLAC, SDP and the V2G endpoint come up rather than
             // having to reload to find out how it went.
@@ -848,6 +852,8 @@ namespace cloud.charging.open.ChargingStation
                     failed ??= ExceptionDispatchInfo.Capture(e);
                 }
             }
+
+            StopWatchingTheEVSEs();
 
             await Take("ending the V2G link", EndTheV2GLink);
 

@@ -182,19 +182,7 @@ namespace cloud.charging.open.ChargingStation
 
             var reservation = ReservationJSON(EVSE.Id, Now);
 
-            // A car that is charging is charging, whatever the
-            // configuration now says about the outlet it is on: an outlet taken
-            // out of service under a running session goes out of service when
-            // that session ends, not while somebody is standing at it. Out of
-            // service beats held, because a hold on an outlet nobody can use is
-            // let go of at the same moment.
-            var status  = session is not null
-                              ? EVSEStatus.Occupied
-                              : !EVSE.Operative
-                                    ? EVSEStatus.Inoperative
-                                    : reservation is not null
-                                          ? EVSEStatus.Reserved
-                                          : EVSEStatus.Available;
+            var status  = StatusOf(EVSE, session, reservation);
 
             // Charging now, and not to be used again afterwards. The one thing
             // the person on this cable needs to know that nobody else does.

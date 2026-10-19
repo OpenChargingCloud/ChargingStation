@@ -99,6 +99,36 @@ export interface EVSE {
     meterSerialNumber:  string | null;
 }
 
+/** Whether an EVSE is free, charging, held or out of service. */
+export type EVSEState = 'available' | 'occupied' | 'reserved' | 'inoperative';
+
+/** How one EVSE stands right now, as the EVSEs page shows it. */
+export interface EVSEStatus {
+    id:                 number;
+    /** Its physical reference, or its id where it has none. */
+    label:              string;
+    physicalReference:  string | null;
+    status:             EVSEState;
+    operative:          boolean;
+    /** Charging now, and out of service once that ends. */
+    closing:            boolean;
+    maxPower_kW:        number;
+    connectors:         Connector[];
+    session:            { method: string; startedAt: string; provider: { name: string; logo: string | null } | null } | null;
+    reservation:        { until: string; minutesLeft: number } | null;
+    /** What is written down about its meter, where anything is. */
+    meter:              { type: string | null; serialNumber: string | null } | null;
+}
+
+/**
+ * Every EVSE of this station, as GET /status/evses answers - with the time at
+ * the station - and as each "evses" event on the stream says it, without.
+ */
+export interface EVSEStates {
+    timestamp?:  string;
+    evses:       EVSEStatus[];
+}
+
 /** The EVSEs of this station, and what may be plugged into one. */
 export interface EVSEConfiguration {
     evses:                   EVSE[];
@@ -624,7 +654,13 @@ export const api = {
          * - so a 403 here can arrive for a request that a moment ago would have
          * gone through.
          */
-        save:  (evses: EVSE[])  => request<EVSEConfiguration>('PUT', '/configuration/evses', { evses })
+        save:  (evses: EVSE[])  => request<EVSEConfiguration>('PUT', '/configuration/evses', { evses }),
+
+        /**
+         * How each EVSE stands right now - once, when the EVSEs page opens:
+         * what changes after that comes as an "evses" event on the stream.
+         */
+        states: ()              => request<EVSEStates>('GET', '/status/evses')
     },
 
     rfid: {

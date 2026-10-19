@@ -19,11 +19,13 @@ import { authenticationPage }  from './pages/authentication';
 import { connectionsPage }     from './pages/connections';
 import { clientKeysPage }      from './pages/clientKeys';
 import { calibrationPage }     from './pages/calibration';
+import { evseStatusPage }      from './pages/evseStatus';
 
 // What a charging station has pages for beside what every node has: the
 // vehicle below the cable, what it may draw, the screen on its front, its
 // EVSEs and card readers, the back ends it dials and what it proves itself
-// with, and what it is calibrated under. Each entry is shown to whoever may
+// with, and what it is calibrated under - and, outside the configuration, how
+// each of its EVSEs stands right now. Each entry is shown to whoever may
 // read what its page reads, as CSHTTPAPI asks it - the three pages about
 // dialling out all read the connections. The sign-in, the log, the name
 // servers, the time servers, the certificate store, the frame, "/" - the
@@ -38,6 +40,7 @@ startNode({
         nodeMenu.configuration([
             nodeMenu.dns,
             nodeMenu.nts,
+            nodeMenu.ssh,
             { path: '/configuration/v2g',             label: 'V2G',              icon: 'fa-car-side',        permission: [ 'v2g:read' ]          },
             { path: '/configuration/power',           label: 'Grid connection',  icon: 'fa-bolt',            permission: [ 'power:read' ]        },
             { path: '/configuration/display',         label: 'Display',          icon: 'fa-desktop',         permission: [ 'display:read' ]      },
@@ -48,9 +51,9 @@ startNode({
             { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
             nodeMenu.certificates,
             nodeMenu.identities,
-            nodeMenu.ssh,
             { path: '/configuration/calibration',     label: 'Calibration',      icon: 'fa-scale-balanced',  permission: [ 'calibration:read' ]  }
         ]),
+        { path: '/evses', label: 'EVSEs', icon: 'fa-charging-station', permission: [ 'evses:read' ] },
         nodeMenu.logs
     ],
 
@@ -87,7 +90,8 @@ startNode({
         '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
         '/configuration/client-keys':     clientKeysPage,
-        '/configuration/calibration':     calibrationPage
+        '/configuration/calibration':     calibrationPage,
+        '/evses':                         evseStatusPage
     }
 
 });
