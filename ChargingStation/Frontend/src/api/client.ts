@@ -97,6 +97,55 @@ export interface EVSE {
     physicalReference:  string | null;
     meterType:          string | null;
     meterSerialNumber:  string | null;
+    /** Where its meter is read over Modbus/TLS, or null where it is not read; not said by a station from before meters were read. */
+    meterEndpoint?:     MeterEndpoint | null;
+}
+
+/** Where a SunSpec meter is read: a host, Modbus/TLS's port 802 and unit 1 by default. */
+export interface MeterEndpoint {
+    host:  string;
+    port:  number;
+    unit:  number;
+}
+
+/** Three values of one quantity: one for each phase, and the one for them all. */
+export interface PhaseValues {
+    all:  number | null;
+    L1:   number | null;
+    L2:   number | null;
+    L3:   number | null;
+}
+
+/** What a SunSpec meter said when it was last read. */
+export interface MeterReading {
+    at:            string;
+    manufacturer:  string;
+    model:         string;
+    version:       string;
+    serialNumber:  string;
+    power_W:       PhaseValues;
+    current_A:     PhaseValues;
+    voltage_V:     PhaseValues;
+    frequency_Hz:  number | null;
+    imported_Wh:   number | null;
+    exported_Wh:   number | null;
+}
+
+/** How a meter that is read stands: whether it is, over what, and what it said. */
+export interface MeterReadStatus {
+    endpoint:    MeterEndpoint;
+    /** "reading", or what is in the way: "connecting", "noIdentity", "untrusted", "refused", "unreachable", "notSunSpec", "failed". */
+    state:       string;
+    since:       string;
+    error:       string | null;
+    connection:  {
+        protocol:     string;
+        cipherSuite:  string;
+        meter:        CertificateSummary | null;
+        identity:     { label: string; role: string; subject: string };
+        judged:       string | null;
+    } | null;
+    reading:     MeterReading | null;
 }
 
 /** Whether an EVSE is free, charging, held or out of service. */
@@ -164,8 +213,8 @@ export interface EVSEStatus {
     reservation:        { until: string; minutesLeft: number } | null;
     /** What is going on below its cable; null where it is to have no V2G link. */
     v2g:                V2GLiveStatus | null;
-    /** What is written down about its meter, where anything is. */
-    meter:              { type: string | null; serialNumber: string | null } | null;
+    /** What is written down about its meter, where anything is - and how it is read, where it is read. */
+    meter:              { type: string | null; serialNumber: string | null; read?: MeterReadStatus | null } | null;
 }
 
 /**

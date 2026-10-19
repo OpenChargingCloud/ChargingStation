@@ -12,7 +12,8 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
  * whether it is free, charging, held or out of service, the session on it,
  * what is going on below its cable - the last vehicle that asked SDP and
  * what it was told, the vehicle connected now and over what - the
- * reservation, and what is written down about its meter.
+ * reservation, and its meter: what is written down about it, and what it
+ * measures where it is read.
  *
  * Asked once when the page opens, and followed after that: every change the
  * station notices comes as an "evses" event on the stream the web interface
@@ -353,26 +354,112 @@ function evseView(EVSE: EVSEStatus): TemplateResult {
 
             </section>
 
-            <section class="card">
-
-                <h2><i class="fa-solid fa-gauge"></i> Energy meter</h2>
-
-                ${EVSE.meter === null
-                      ? html`<p class="muted small">Nothing is written down about a meter on this EVSE.</p>`
-                      : html`
-                          <div class="kv-list">
-                              <div class="kv"><span class="k">Type</span><span class="v">${EVSE.meter.type ?? '-'}</span></div>
-                              <div class="kv"><span class="k">Serial number</span><span class="v">${EVSE.meter.serialNumber ?? '-'}</span></div>
-                          </div>
-                        `}
-
-                <p class="muted small">
-                    What is written down about it. This station reads no meter yet, so there are no readings here.
-                </p>
-
-            </section>
+            ${meterCard(EVSE.meter)}
 
         </div>
+    `;
+
+}
+
+
+/** What a meter's state is called on the page. */
+const meterStates: Record<string, string> = {
+    connecting:   'connecting',
+    reading:      'read',
+    noIdentity:   'nothing to show it',
+    untrusted:    'not believed',
+    refused:      'refused',
+    unreachable:  'not reachable',
+    notSunSpec:   'no SunSpec meter',
+    failed:       'failed'
+};
+
+
+/**
+ * The meter of an EVSE: what is written down about it, and - where it is read
+ * - whether it is, over what, and what it measures, phase by phase.
+ */
+function meterCard(Meter: EVSEStatus['meter']): TemplateResult {
+
+    const read    = Meter?.read ?? null;
+    const reading = read?.reading ?? null;
+    const phases  = reading === null
+                        ? []
+                        : [ [ 'L1', 'L1' ], [ 'L2', 'L2' ], [ 'L3', 'L3' ], [ 'all', 'Total' ] ] as const;
+
+    const shown   = (Value: number | null, Decimals: number, Unit: string) =>
+        Value === null ? '-' : `${formatNumber(Value, Decimals)} ${Unit}`;
+
+    return html`
+        <section class="card">
+
+            <h2><i class="fa-solid fa-gauge"></i> Energy meter</h2>
+
+            ${Meter === null
+                  ? html`<p class="muted small">Nothing is written down about a meter on this EVSE.</p>`
+                  : html`
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">Type</span><span class="v">${Meter.type ?? '-'}</span></div>
+                          <div class="kv"><span class="k">Serial number</span><span class="v">${Meter.serialNumber ?? '-'}</span></div>
+                          ${read === null
+                                ? nothing
+                                : html`
+                                    <div class="kv"><span class="k">Read at</span><span class="v"><code>${read.endpoint.host}:${read.endpoint.port}</code>, unit ${read.endpoint.unit}</span></div>
+                                    <div class="kv"><span class="k">State</span><span class="v meter-state">${meterStates[read.state] ?? read.state}, since ${formatTimestamp(read.since)}</span></div>
+                                  `}
+                      </div>
+                    `}
+
+            ${read?.error ? html`<p class="form-error meter-error">${read.error}</p>` : nothing}
+
+            ${read?.connection
+                  ? html`
+                      <h3>Over what</h3>
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">Security</span><span class="v">${read.connection.protocol}, <code>${read.connection.cipherSuite}</code></span></div>
+                          <div class="kv"><span class="k">Shown to it</span><span class="v">${read.connection.identity.label}, as <code>${read.connection.identity.role}</code></span></div>
+                      </div>
+                      ${read.connection.meter ? certificateView('The meter\'s certificate', read.connection.meter) : nothing}
+                    `
+                  : nothing}
+
+            ${reading === null
+                  ? nothing
+                  : html`
+                      <h3>What it measures</h3>
+                      <div class="table-scroll">
+                          <table class="records meter-phases">
+                              <thead><tr><th>Phase</th><th>Voltage</th><th>Current</th><th>Power</th></tr></thead>
+                              <tbody>
+                                  ${phases.map(([ phase, label ]) => html`
+                                      <tr>
+                                          <td>${label}</td>
+                                          <td>${shown(reading.voltage_V[phase], 1, 'V')}</td>
+                                          <td>${shown(reading.current_A[phase], 2, 'A')}</td>
+                                          <td>${shown(reading.power_W[phase],   0, 'W')}</td>
+                                      </tr>
+                                  `)}
+                              </tbody>
+                          </table>
+                      </div>
+                      <div class="kv-list">
+                          <div class="kv"><span class="k">Frequency</span><span class="v">${shown(reading.frequency_Hz, 2, 'Hz')}</span></div>
+                          <div class="kv"><span class="k">Imported</span><span class="v">${shown(reading.imported_Wh, 0, 'Wh')}</span></div>
+                          <div class="kv"><span class="k">Exported</span><span class="v">${shown(reading.exported_Wh, 0, 'Wh')}</span></div>
+                          <div class="kv"><span class="k">The meter</span><span class="v">${reading.manufacturer} ${reading.model}, version ${reading.version}, serial number ${reading.serialNumber}</span></div>
+                          <div class="kv"><span class="k">Read</span><span class="v">${formatTimestamp(reading.at)}</span></div>
+                      </div>
+                    `}
+
+            <p class="muted small">
+                ${Meter?.read === undefined
+                      ? html`What is written down about it. Where it is read over Modbus/TLS is set on the
+                             <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.`
+                      : html`Read once a second over Modbus/TLS; every change of how that goes is in the
+                             <a href="${toURL('/logs')}">log</a> under the tag <code>meter</code>.`}
+            </p>
+
+        </section>
     `;
 
 }

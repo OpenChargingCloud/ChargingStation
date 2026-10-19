@@ -445,6 +445,10 @@ namespace cloud.charging.open.ChargingStation
                    // back ends with stay in a store of their own, where they are
                    // made and never imported - see ClientCertificateStore.
                    CertificateKinds:  StoredCertificateKinds,
+
+                   // Beside "dns" and "nts": a TLS root may vouch for the meters
+                   // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
+                   CertificateUsages: [ MeterCertificateUsage ],
                    Log:               Log,
                    LogToConsole:      LogToConsole,
                    ConsoleLogLevel:   ConsoleLogLevel,
@@ -797,6 +801,10 @@ namespace cloud.charging.open.ChargingStation
             // ChargingStation.EVSEStatus.cs.
             StartWatchingTheEVSEs();
 
+            // The meters of the EVSEs, each read in a loop of its own - see
+            // ChargingStation.Meters.cs. Nothing here waits for a meter.
+            StartMeters();
+
             // After the web interface, so that whoever is watching the Logs
             // page sees SLAC, SDP and the V2G endpoint come up rather than
             // having to reload to find out how it went.
@@ -850,6 +858,8 @@ namespace cloud.charging.open.ChargingStation
             StopWatchingTheEVSEs();
 
             await Take("ending the V2G links", EndTheV2GLinks);
+
+            await Take("letting go of the meters", EndTheMeters);
 
             // Before the servers, so that a close this station asked for is
             // recognised as one and does not start a reconnect on the way out.

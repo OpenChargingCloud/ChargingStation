@@ -160,15 +160,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 // What the page's usage fields are drawn from, for a station.
                 // Any kind may be told a usage of one's own, so every kind has
-                // usages; what is offered is the services a station has, to a
-                // root and a server certificate, and nothing else - not to a
-                // vehicle's roots, and not to an identity, since a station
-                // names no listener one could be shown on.
-                Assert.That(store["usages"]!.Values<String>(),                                 Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer");
+                // usages; what is offered is the services a station has - its
+                // meters among them - to a root and a server certificate, and
+                // nothing else - not to a vehicle's roots, and not to an
+                // identity, since a station names no listener one could be
+                // shown on.
+                Assert.That(store["usages"]!.Values<String>(),                                 Is.EqualTo(new[] { "dns", "nts", "meter" }), "what a page may offer");
                 Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Value["hasUsages"]!.Value<Boolean>()),
                             Is.All.True, "a kind that could not be told a usage of one's own");
-                Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),           Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer a root");
-                Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),         Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),           Is.EqualTo(new[] { "dns", "nts", "meter" }), "what a page may offer a root");
+                Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),         Is.EqualTo(new[] { "dns", "nts", "meter" }));
                 Assert.That(store["kinds"]!["v2gRoot"]!["usages"]?.Children().Any(),           Is.False, "a vehicle's root was offered the services of a station");
                 Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),       Is.False,
                             "a station names no listener an identity could be told of, so a page offers it nothing - not the services a root vouches for");

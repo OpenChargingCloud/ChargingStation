@@ -139,8 +139,9 @@ namespace cloud.charging.open.ChargingStation
         /// what this says also goes out on the event stream, which every signed-in
         /// user follows, and a UID is somebody's - the log says it where it is
         /// needed. Nothing simulated either: the display shows a power figure
-        /// that no meter measured, and on a page about the EVSE itself that would
-        /// read as a measurement.
+        /// that no meter measured where no meter is read, and on a page about
+        /// the EVSE itself that would read as a measurement. What a meter that
+        /// is read measures is here, under "meter".
         /// </remarks>
         private JObject EVSEStatusJSON(EVSEConfig      EVSE,
                                        DateTimeOffset  Now)
@@ -178,12 +179,7 @@ namespace cloud.charging.open.ChargingStation
 
                        new JProperty("v2g",                V2GStatusJSON(EVSE.Id)),
 
-                       new JProperty("meter",              EVSE.MeterType is null && EVSE.MeterSerialNumber is null
-                                                               ? null
-                                                               : new JObject(
-                                                                     new JProperty("type",          EVSE.MeterType),
-                                                                     new JProperty("serialNumber",  EVSE.MeterSerialNumber)
-                                                                 ))
+                       new JProperty("meter",              MeterStatusJSON(EVSE))
 
                    );
 

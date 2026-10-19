@@ -947,6 +947,13 @@ namespace cloud.charging.open.ChargingStation
                         ContinueWith(task => Log.Warning($"Ending the V2G link of an EVSE that is gone failed: {task.Exception?.GetBaseException().Message}", "15118", "config"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
+                // And its meter, as does an EVSE whose meter is read somewhere
+                // else now; one that is new is begun on. The same reason not
+                // to wait.
+                _ = FollowTheMeters().
+                        ContinueWith(task => Log.Warning($"Following the meters of the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "meter", "config"),
+                                     TaskContinuationOptions.OnlyOnFaulted);
+
                 return true;
 
             }
