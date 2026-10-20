@@ -32,6 +32,8 @@ function aMeter(EVSE: number, Label: string, Host: string | null): MeterLink {
         unit:        Host === null ? null : 1,
         server:      Host === null ? null : `${Host}:802`,
         identities:  { read: null, write: null },
+        tariffText:  null,
+        evseId:      null,
         heldTo:      null,
         judgement:   null,
         known:       null
@@ -62,7 +64,7 @@ function station({ method, path, body }: Asked): unknown {
         const changed: MeterLink = update.host.trim() === ''
                                        ? aMeter(update.evse, meterOf(update.evse).label, null)
                                        : { ...meterOf(update.evse), read: true, host: update.host.trim(), port: update.port ?? 802, unit: update.unit ?? 1,
-                                           identities: update.identities,
+                                           identities: update.identities, tariffText: update.tariffText, evseId: update.evseId,
                                            heldTo: update.certificateFingerprint
                                                        ? { certificate: update.certificateFingerprint, root: null, certificates: [ update.certificateFingerprint ], roots: [],
                                                            onMismatch: 'refuse', trustOnFirstUse: null }
@@ -82,6 +84,16 @@ function station({ method, path, body }: Asked): unknown {
                                            identity: { id: 'aaaaaaaaaaaaaaaa', label: 'Meter reader', role: 'ReadOnlySunSpec', subject: 'CN=Reader' },
                                            sunSpec: { base: 40000, models: [ { id: 1, address: 40002, length: 66 }, { id: 101, address: 40070, length: 50 }, { id: 203, address: 40122, length: 105 } ], meter: 203 } },
                              reading: null } ] };
+
+    if (path === '/meters/sessions')
+        return { timestamp: '2026-10-20T10:00:00.000Z', sessions: [
+                     { id: 'b2', evse: 1, startedAt: '2026-10-20T09:00:00.000Z', state: 'unsigned', stoppedAt: '2026-10-20T09:30:00.000Z',
+                       error: 'There is no TLS identity to write to the meter at 10.0.0.5:802 with.' },
+                     { id: 'a1', evse: 1, startedAt: '2026-10-20T08:00:00.000Z', state: 'signed', stoppedAt: '2026-10-20T08:30:00.000Z',
+                       identificationType: 'ISO14443', identification: '04A2112233', startValue: 100, stopValue: 112.5, energy_kWh: 12.5,
+                       verification: 'ValidSignature', ocmf: 'OCMF|{}|{}', publicKey: '3059' },
+                     { id: 'c3', evse: 2, startedAt: '2026-10-20T07:00:00.000Z', state: 'signed', verification: 'InvalidSignature', ocmf: 'OCMF|{}|{}' }
+                 ] };
 
     if (path === '/meters/modbus' && method === 'POST') {
         const ask = body as ModbusAsk;
@@ -115,6 +127,42 @@ const sent    = <T>(Path: string) => asked.filter(one => one.path === Path && on
 
 
 describe('the Meters page', () => {
+
+    it('lists the sessions the meter of an EVSE signed, with what ChargyCore said, and why one is not signed', async () => {
+
+        const root = await opened();
+
+        const rows = [...panel(root, 1).querySelectorAll<HTMLElement>('.signed-sessions tbody tr')];
+
+        assert.deepEqual(rows.map(row => row.dataset.session), [ 'b2', 'a1' ], 'not the sessions of this EVSE, the newest first');
+        assert.match(rows[0]!.querySelector('.signed-state')!.textContent!, /not signed/);
+        assert.match(rows[0]!.querySelector('.signed-error')!.textContent!, /no TLS identity to write/);
+        assert.match(rows[1]!.textContent!.replace(/\s+/g, ' '), /12\.5 kWh ISO14443 04A2112233 signed, verified/);
+        assert.equal(rows[0]!.querySelector('.signed-download'), null, 'a session without a document offers one');
+        assert.notEqual(rows[1]!.querySelector('.signed-download'), null, 'its document is not offered');
+
+        assert.match(panel(root, 2).querySelector('.signed-sessions')!.textContent!, /signed, InvalidSignature/);
+
+    });
+
+    it('saves the tariff and the EVSE id the sessions of a meter are signed with', async () => {
+
+        const root = await opened();
+
+        type(field(root, form(1), 'tariffText'), '  001;EUR;0;35;0;0 ');
+        type(field(root, form(1), 'evseId'),     'DE*GEF*E0001*1');
+
+        submit(root, form(1));
+
+        await until(() => saved(root), 'not saved');
+
+        const update = sent<MeterUpdate>('/configuration/meters').at(-1)!;
+
+        assert.equal(update.tariffText, '001;EUR;0;35;0;0');
+        assert.equal(update.evseId,     'DE*GEF*E0001*1');
+        assert.equal(field<HTMLInputElement>(root, form(1), 'tariffText').value, '001;EUR;0;35;0;0', 'the page does not show what was saved');
+
+    });
 
     it('has a tab for each EVSE\'s meter, opens on the first, and offers the identities of a SunSpec role to read and to write', async () => {
 

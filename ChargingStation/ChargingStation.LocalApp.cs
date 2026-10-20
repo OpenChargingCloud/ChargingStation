@@ -184,6 +184,7 @@ namespace cloud.charging.open.ChargingStation
             }
 
             SetCharging(evse.Id, true);
+            SessionBegan(evse.Id);
 
             // As for a card: the person the outlet was held for is here.
             if (reservation is not null)
@@ -255,6 +256,7 @@ namespace cloud.charging.open.ChargingStation
             var (evseId, ended) = (found[0].Key, found[0].Value);
 
             SetCharging(evseId, false);
+            SessionEnded(evseId);
 
             var seconds = (TimeProvider.GetUtcNow() - ended.StartedAt).TotalSeconds;
 

@@ -86,6 +86,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Let in at the door to read; a write is let in further on, by
             // what the body asks - see MeterTests.
             ("POST",   "api/v1/meters/modbus",                           Everybody),
+            ("GET",    "api/v1/meters/sessions",                         Everybody),
 
             ("GET",    "api/v1/configuration/power",                     Everybody),
             ("PUT",    "api/v1/configuration/power",                     TheInstaller),

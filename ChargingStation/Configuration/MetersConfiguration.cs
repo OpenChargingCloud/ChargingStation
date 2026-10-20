@@ -52,17 +52,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// reading, the identity of the store with the least role that may read is
     /// shown; without one for writing, nothing is written.
     /// </para>
+    /// <para>
+    /// What a charging session is signed with, by a meter that signs them: the
+    /// tariff, and the EVSE as OCMF names it. A meter signs nothing without the
+    /// identity for writing, because beginning and ending a session is a
+    /// write.
+    /// </para>
     /// </remarks>
     /// <param name="EVSE">The EVSE whose meter it is.</param>
     /// <param name="Endpoint">Where it is read.</param>
     /// <param name="Pins">What its certificate is held to, beyond what every meter's is; null for nothing.</param>
     /// <param name="ReadIdentity">The id of the TLS identity shown to it to read; null for the least that may.</param>
     /// <param name="WriteIdentity">The id of the TLS identity shown to it to write; null for writing nothing.</param>
+    /// <param name="TariffText">The tariff its sessions are signed with, OCMF "TT": "001;EUR;0;35;0;0" in the Bonn form, or free text; null for none.</param>
+    /// <param name="EVSEId">The EVSE its sessions are signed at, OCMF "CI": "DE*GEF*E0001*1"; null for none.</param>
     public sealed record MeterConfiguration(Byte           EVSE,
                                             MeterEndpoint  Endpoint,
                                             ServerPins?    Pins           = null,
                                             String?        ReadIdentity   = null,
-                                            String?        WriteIdentity  = null)
+                                            String?        WriteIdentity  = null,
+                                            String?        TariffText     = null,
+                                            String?        EVSEId         = null)
     {
 
         #region Data
@@ -71,6 +81,17 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// The longest the id of an identity may be written.
         /// </summary>
         public const Int32  MaxIdentityLength  = 64;
+
+        /// <summary>
+        /// The most bytes a tariff text may have: what the session model of a
+        /// meter has room for.
+        /// </summary>
+        public const Int32  MaxTariffBytes     = MeterSessionModel.TariffTextLength * 2;
+
+        /// <summary>
+        /// The most bytes an EVSE id may have.
+        /// </summary>
+        public const Int32  MaxEVSEIdBytes     = MeterSessionModel.ChargePointIdLength * 2;
 
         #endregion
 
@@ -81,7 +102,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// One entry of the "meters" section, or of a page's change to one -
         /// <c>{ "evse": 1, "host": "10.0.0.5", "port": 802, "unit": 1,
         /// "identities": { "read": "…", "write": "…" }, "rootFingerprint": "…",
-        /// "trustOnFirstUse": "certificate" }</c>.
+        /// "trustOnFirstUse": "certificate", "tariffText": "001;EUR;0;35;0;0",
+        /// "evseId": "DE*GEF*E0001*1" }</c>.
         /// </summary>
         /// <param name="JSON">The entry.</param>
         /// <param name="Path">Where it is, for the sentence of a refusal: "meters[0]".</param>
@@ -122,8 +144,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             }
 
+            if (!TryReadText(JSON, "tariffText", Path, MaxTariffBytes, false, out var tariff, out Error) ||
+                !TryReadText(JSON, "evseId",     Path, MaxEVSEIdBytes, true,  out var evseId, out Error))
+                return false;
+
             if (endpoint is not null)
-                Meter = new MeterConfiguration(evse, endpoint, pins, read, write);
+                Meter = new MeterConfiguration(evse, endpoint, pins, read, write, tariff, evseId);
 
             return true;
 
@@ -153,6 +179,59 @@ namespace cloud.charging.open.ChargingStation.Configuration
             }
 
             EVSE = (Byte) token.Value<Int64>();
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryReadText(JSON, Name, Path, MaxBytes, NoSpaces, out Text, out Error)
+
+        /// <summary>
+        /// A text of the entry that goes into what a meter signs: no longer than
+        /// the meter has room for, and nothing in it that is no character.
+        /// </summary>
+        private static Boolean TryReadText(JObject                           JSON,
+                                           String                            Name,
+                                           String                            Path,
+                                           Int32                             MaxBytes,
+                                           Boolean                           NoSpaces,
+                                           out String?                       Text,
+                                           [NotNullWhen(false)] out String?  Error)
+        {
+
+            Text  = null;
+            Error = null;
+
+            if (JSON[Name] is not JToken token || token.Type == JTokenType.Null)
+                return true;
+
+            if (token.Type != JTokenType.String)
+            {
+                Error = $"'{Path}.{Name}' must be a text.";
+                return false;
+            }
+
+            var text = token.Value<String>()!.Trim();
+
+            if (text.Length == 0)
+                return true;
+
+            if (MeterSessionModel.BytesOf(text) > MaxBytes)
+            {
+                Error = $"'{Path}.{Name}' has {MeterSessionModel.BytesOf(text)} bytes, and a meter has room for {MaxBytes}.";
+                return false;
+            }
+
+            if (text.Any(Char.IsControl) || (NoSpaces && text.Any(Char.IsWhiteSpace)))
+            {
+                Error = NoSpaces
+                            ? $"'{Path}.{Name}' must be one word: no spaces, no line breaks."
+                            : $"'{Path}.{Name}' must be one line.";
+                return false;
+            }
+
+            Text = text;
             return true;
 
         }
@@ -232,6 +311,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             Pins?.WriteInto(json);
 
+            if (TariffText is not null) json["tariffText"] = TariffText;
+            if (EVSEId     is not null) json["evseId"]     = EVSEId;
+
             return json;
 
         }
@@ -245,7 +327,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             => $"{Endpoint}" +
                (ReadIdentity  is not null ? $", read as {ReadIdentity}"     : "") +
                (WriteIdentity is not null ? $", written as {WriteIdentity}" : ", never written") +
-               (Pins?.Text    is String held ? $", held to {held}"          : "");
+               (Pins?.Text    is String held ? $", held to {held}"          : "") +
+               (TariffText    is not null    ? $", tariff '{TariffText}'"   : "") +
+               (EVSEId        is not null    ? $", as {EVSEId}"             : "");
 
         #endregion
 

@@ -757,6 +757,61 @@ station believes, and somebody who can add one can make it believe a server
 nobody else would. `CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 
+## Meters
+
+The meter of an EVSE is read over Modbus/TLS, as a SunSpec meter, once a second
+- configured per EVSE on **Configuration -> Meters** and kept in the `meters`
+section of the configuration file:
+
+```json
+"meters": [ { "evse": 1, "host": "10.0.0.5", "port": 802, "unit": 1,
+              "identities": { "read": "…", "write": "…" },
+              "tariffText": "001;EUR;0;35;0;0", "evseId": "DE*GEF*E0001*1" } ]
+```
+
+Whom the station is to a meter is a TLS identity of its certificate store whose
+certificate carries a SunSpec role - one to read with, and one to write with,
+because a meter decides by that role what its peer may do. Whom the meter is
+believed to be is held to a certificate or a root, or learned the first time,
+like a time server. The page also has a Modbus client that asks one request at a
+time, as the identity for what it does.
+
+### Sessions signed by the meter
+
+This is what tells the meter of an EVSE from the meter of a grid connection
+point. A meter at a grid connection point counts on and on. The meter of an
+EVSE measures charging sessions, and under the German calibration law it is the
+meter that signs what a session cost in energy - together with who charged and
+on which tariff.
+
+There is no standard for how a station tells it so. This station speaks the
+session model of OpenChargingCloud's
+[Modbus/TLS energy meter](https://github.com/OpenChargingCloud/ModbusTLSEnergyMeter):
+model 64900, behind the meter's own models, whose README says it register by
+register. A meter that has it is told, over one connection as the identity to
+write with:
+
+* when a session begins: the station's id for it, who charges - a card's UID as
+  `ISO14443`, the contract as `EMAID` for Plug and Charge, nobody for a
+  payment at the screen - the EVSE id (`CI`) and the tariff (`TT`) of its
+  entry;
+* when it ends: to end that session. The meter answers with one OCMF document,
+  signed, and the key it is signed with.
+
+The station checks the document with ChargyCore against that key, keeps it in
+`signed-sessions` beside the configuration file - one file a session, never
+deleted - and lists it on the Meters page, where each document can be taken
+away as an `.ocmf` file. `GET /api/v1/meters/sessions` gives the same, and the
+`meters` event says when the latest session of a meter stands otherwise.
+
+Nothing waits for the meter: a car is charged whether it could be told or not.
+What could not be signed - no identity to write with, a meter without the
+model, one that refused or could not be reached after five tries to end the
+session - is kept as **not signed**, with why. A session the meter still
+measures when the next begins - the station was restarted in the middle of one,
+or could not end it - is ended first, and its document kept with the session it
+belongs to where the station still knows it.
+
 ## The display
 
 A page with no sign-in on it, for the screen on the front of the station:
@@ -1283,10 +1338,11 @@ anything behind it is the fake one - so a station nobody has touched shows every
 outlet as free. Nothing here is connected to a CSMS, because nothing in this
 station is yet.
 
-**The power figure is simulated and says so**, on the screen and in the JSON.
-This station has no energy meter and is not connected to anything that has one.
-A dash where the power should be would be honest and useless to look at; a
-number that pretends to be a meter reading would be useful and a lie.
+**The power figure is simulated and says so**, on the screen and in the JSON -
+unless the meter of that EVSE is read, see [Meters](#meters); then it is what
+the meter measures. A dash where the power should be would be honest and useless
+to look at; a number that pretends to be a meter reading would be useful and a
+lie.
 
 The page polls every two seconds rather than holding an event stream open. A
 display is the one client where a dropped connection must not be noticed by

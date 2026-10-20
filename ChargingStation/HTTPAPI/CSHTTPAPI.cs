@@ -123,6 +123,7 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/meters",     GetMeterConfiguration, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/meters",     PutMeterConfiguration, HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/meters/modbus",            PostModbusRequest,     HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/meters/sessions",          GetSignedSessions,     HTTPMethod.GET);
 
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        GetV2GConfiguration,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/v2g",        PutV2GConfiguration,   HTTPMethod.PUT);
@@ -978,6 +979,35 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.MetersStatusJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/meters/sessions?evse=1: the charging sessions the meters
+        /// signed, or were to sign, the newest first - each with its document,
+        /// the key it is signed with, and what ChargyCore said of the two.
+        /// </summary>
+        private Task<HTTPResponse> GetSignedSessions(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Meters), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            Byte? evse = null;
+
+            if (Request.QueryString.GetString("evse") is String text)
+            {
+
+                if (!Byte.TryParse(text, out var parsed) || parsed == 0)
+                    return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, $"'evse' must be the number of an EVSE, not '{text}'."));
+
+                evse = parsed;
+
+            }
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.SignedSessionsJSON(evse))
                    );
 
         }

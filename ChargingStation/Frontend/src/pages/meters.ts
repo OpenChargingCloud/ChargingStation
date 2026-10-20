@@ -1,4 +1,4 @@
-import { api, type MeterIdentity, type MeterLink, type MeterStatus, type MeterStates, type MetersConfiguration, type MeterUpdate, type ModbusAnswer, type ModbusAsk } from '../api/client';
+import { api, type MeterIdentity, type MeterLink, type MeterStatus, type MeterStates, type MetersConfiguration, type MeterUpdate, type ModbusAnswer, type ModbusAsk, type SignedSession } from '../api/client';
 import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { must } from '@node/html';
@@ -23,6 +23,12 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
  * is believed. Whom this station is to it is a TLS identity of the
  * certificate store for reading and one for writing, because a SunSpec meter
  * decides by the role in a certificate what its peer may do.
+ *
+ * A meter that signs charging sessions - one with the session model of
+ * OpenChargingCloud's Modbus/TLS meter - is told when a session begins and
+ * ends, with who charges, the tariff and the EVSE id set here; the sessions it
+ * signed are listed with what ChargyCore said of each document, and each
+ * document can be taken away as an .ocmf file.
  *
  * The Modbus client asks one request on a connection of its own, as the
  * identity for what the request does - the one to read with for 3 and 4, the
@@ -60,6 +66,12 @@ export const metersPage: Page = {
 
         /** What each EVSE's Modbus client was answered last, or why it was not asked. */
         const answers   = new Map<number, ModbusAnswer | string>();
+
+        /** The signed sessions, the newest first; null where they could not be read. */
+        let signed:       SignedSession[] | null = null;
+
+        /** Where the latest session of each meter stood, as the events said it - to read them again when that changes. */
+        let signedSaid    = '';
 
 
         function tabsOf(Configuration: MetersConfiguration): Tab[] {
@@ -107,6 +119,7 @@ export const metersPage: Page = {
                                   <div class="cards">
                                       ${linkCard(station, meter)}
                                       ${stateCard(meter)}
+                                      ${signedCard(meter)}
                                       ${clientCard(station, meter)}
                                   </div>
                               </div>
@@ -173,6 +186,22 @@ export const metersPage: Page = {
                                 ReadOnlySunSpec reads, GridServiceSunSpec may also write the registers that command it.
                                 ${identities.length === 0 ? html`<strong>There is none yet.</strong>` : nothing}
                             </span>
+                        </label>
+
+                        <label>Tariff
+                            <input type="text" name="tariffText" value="${meter.tariffText ?? ''}" ?disabled=${!mayChange}
+                                   placeholder="e.g. 001;EUR;0;35;0;0 - empty for none" spellcheck="false" autocomplete="off" />
+                            <span class="hint">
+                                What a meter that signs charging sessions signs into each one, as OCMF <code>TT</code>: in the
+                                Bonn form - <code>001;EUR;</code> start fee<code>;</code> cents per kWh<code>;</code> blocking fee
+                                per minute<code>;</code> from minute - or free text.
+                            </span>
+                        </label>
+
+                        <label>EVSE id
+                            <input type="text" name="evseId" value="${meter.evseId ?? ''}" ?disabled=${!mayChange}
+                                   placeholder="e.g. DE*GEF*E0001*1 - empty for none" spellcheck="false" autocomplete="off" />
+                            <span class="hint">This EVSE as OCMF <code>CI</code> names it, signed into each session.</span>
                         </label>
 
                         ${pinsFieldset(draftOf(meter.heldTo), {
@@ -258,6 +287,59 @@ export const metersPage: Page = {
                     <p class="muted small">
                         What it measures is on the <a href="${toURL('/evses')}">EVSEs</a> page; every change of how
                         it is read is in the <a href="${toURL('/logs')}">log</a> under the tag <code>meter</code>.
+                    </p>
+
+                </section>
+            `;
+
+        }
+
+
+        /** The charging sessions the meter of one EVSE signed, or was to sign. */
+        function signedCard(meter: MeterLink): TemplateResult {
+
+            const sessions = (signed ?? []).filter(session => session.evse === meter.evse);
+
+            return html`
+                <section class="card">
+
+                    <h2><i class="fa-solid fa-file-signature"></i> Signed sessions</h2>
+
+                    ${signed === null
+                          ? html`<p class="muted small">The signed sessions could not be read.</p>`
+                          : sessions.length === 0
+                                ? html`<p class="muted small signed-none">
+                                      No session at this EVSE was signed yet. A meter signs them when it has the session model
+                                      (64900) of OpenChargingCloud's Modbus/TLS meter, and this station an identity to write to it with.
+                                  </p>`
+                                : html`
+                                    <div class="table-scroll">
+                                        <table class="records signed-sessions">
+                                            <thead><tr><th>Began</th><th>Ended</th><th>Energy</th><th>Who</th><th>Signed</th><th></th></tr></thead>
+                                            <tbody>
+                                                ${sessions.map(session => html`
+                                                    <tr data-session="${session.id}">
+                                                        <td>${formatTimestamp(session.startedAt)}</td>
+                                                        <td>${session.stoppedAt ? formatTimestamp(session.stoppedAt) : '-'}</td>
+                                                        <td>${session.energy_kWh !== undefined ? `${session.energy_kWh} kWh` : '-'}</td>
+                                                        <td>${session.identification ? `${session.identificationType ?? ''} ${session.identification}`.trim() : 'nobody'}</td>
+                                                        <td class="signed-state">
+                                                            ${signedChip(session)}
+                                                            ${session.error ? html`<div class="muted small signed-error">${session.error}</div>` : nothing}
+                                                        </td>
+                                                        <td>${session.ocmf
+                                                                 ? html`<button type="button" class="btn small signed-download" @click=${() => download(session)}>.ocmf</button>`
+                                                                 : nothing}</td>
+                                                    </tr>
+                                                `)}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                  `}
+
+                    <p class="muted small">
+                        Each document is checked by ChargyCore against the key the meter handed out with it, and kept by
+                        the station beside its configuration, in <code>signed-sessions</code>.
                     </p>
 
                 </section>
@@ -366,6 +448,8 @@ export const metersPage: Page = {
                                unit:         numberOrNull(numberField(form, 'unit')),
                                identities:   { read:   field(form, 'readIdentity')  || null,
                                                write:  field(form, 'writeIdentity') || null },
+                               tariffText:   field(form, 'tariffText').trim() || null,
+                               evseId:       field(form, 'evseId').trim()     || null,
                                pinsAsShown:  asShown(meter.heldTo)
                            }, pins.draft);
 
@@ -459,17 +543,19 @@ export const metersPage: Page = {
             try
             {
 
-                const [ loaded, kept, live ] = await Promise.all([
-                                                   api.meters.get(),
-                                                   storeOffers('meter'),
-                                                   api.meters.states().catch(() => null)
-                                               ]);
+                const [ loaded, kept, live, sessions ] = await Promise.all([
+                                                             api.meters.get(),
+                                                             storeOffers('meter'),
+                                                             api.meters.states().catch(() => null),
+                                                             api.meters.sessions().catch(() => null)
+                                                         ]);
 
                 if (cancelled)
                     return;
 
                 current = loaded;
                 offers  = kept;
+                signed  = sessions?.sessions ?? null;
 
                 if (live !== null)
                     took(live);
@@ -499,9 +585,37 @@ export const metersPage: Page = {
                 states.set(state.evse, state);
         }
 
+        /** The signed sessions read again - after a meter said its latest one stands otherwise now. */
+        async function reread(): Promise<void> {
+            try
+            {
+                const sessions = await api.meters.sessions();
+                if (!cancelled) {
+                    signed = sessions.sessions;
+                    draw();
+                }
+            }
+            catch
+            {
+                // What was shown stays: the next change says so again.
+            }
+        }
+
         const unfollow = logs.onEvent<MeterStates>('meters', data => {
+
             took(data);
+
+            const said = JSON.stringify(data.meters.map(meter => meter.signed ?? null));
+
+            if (said !== signedSaid) {
+                const first = signedSaid === '';
+                signedSaid  = said;
+                if (!first)
+                    void reread();
+            }
+
             draw();
+
         });
 
         // Every form: how a meter is read, and a request typed into a Modbus
@@ -579,6 +693,33 @@ function answerView(Answer: ModbusAnswer | string): TemplateResult {
 
         </div>
     `;
+
+}
+
+
+/** Where a signed session stands, as a chip: signed and verified, signed and not, or not signed. */
+function signedChip(Session: SignedSession): TemplateResult {
+    switch (Session.state) {
+        case 'signed':    return Session.verification === 'ValidSignature'
+                                     ? html`<span class="chip ok">signed, verified</span>`
+                                     : html`<span class="chip bad">signed, ${Session.verification ?? 'not verified'}</span>`;
+        case 'unsigned':  return html`<span class="chip bad">not signed</span>`;
+        default:          return html`<span class="chip warn">${Session.state}</span>`;
+    }
+}
+
+
+/** A session's document, as a file to take away. */
+function download(Session: SignedSession): void {
+
+    const url  = URL.createObjectURL(new Blob([ Session.ocmf ?? '' ], { type: 'text/plain' }));
+    const link = document.createElement('a');
+
+    link.href     = url;
+    link.download = `${Session.id}.ocmf`;
+    link.click();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
 }
 

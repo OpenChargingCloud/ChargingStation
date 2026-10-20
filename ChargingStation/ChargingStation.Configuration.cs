@@ -318,6 +318,11 @@ namespace cloud.charging.open.ChargingStation
                                                         new JProperty("write",  meter?.WriteIdentity)
                                                     )),
 
+                       // What its sessions are signed with, by a meter that
+                       // signs them.
+                       new JProperty("tariffText",  meter?.TariffText),
+                       new JProperty("evseId",      meter?.EVSEId),
+
                        new JProperty("heldTo",      meter?.Pins is { SaysAnything: true } pins ? pins.ToJSON() : null),
                        new JProperty("judgement",   judged),
                        new JProperty("known",       server is not null && KnownServers.Get(MeterCertificateUsage, server) is KnownServer known
@@ -1520,7 +1525,10 @@ namespace cloud.charging.open.ChargingStation
                     if (evse is null)
                     {
                         if (sessions.TryRemove(evseId, out var gone))
+                        {
+                            SessionEnded(evseId);
                             Log.Notice($"The session at EVSE {evseId} was ended: {gone} - that EVSE is no longer there.", "kiosk");
+                        }
                         continue;
                     }
 

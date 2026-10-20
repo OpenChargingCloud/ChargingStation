@@ -168,6 +168,39 @@ export interface MeterStatus {
         sunSpec?:     { base: number; models: { id: number; address: number; length: number }[]; meter: number };
     } | null;
     reading?:     MeterReading | null;
+    /** Where the latest session at its EVSE stands with it, where it signs sessions. */
+    signed?:      { id: string; state: SignedSessionState; verification: string | null } | null;
+}
+
+/** Where a charging session stands with the meter that signs it. */
+export type SignedSessionState = 'starting' | 'running' | 'stopping' | 'signed' | 'unsigned';
+
+/** A charging session as the meter of its EVSE signs it, as GET /meters/sessions says it. */
+export interface SignedSession {
+    id:                   string;
+    evse:                 number;
+    startedAt:            string;
+    state:                SignedSessionState;
+    identificationType?:  string;
+    identification?:      string;
+    evseId?:              string;
+    tariffText?:          string;
+    stoppedAt?:           string;
+    /** Why it is not signed, or not yet. */
+    error?:               string;
+    startValue?:          number;
+    stopValue?:           number;
+    energy_kWh?:          number;
+    /** What ChargyCore said of the document and the key: "ValidSignature", or what is wrong. */
+    verification?:        string;
+    ocmf?:                string;
+    publicKey?:           string;
+}
+
+/** The signed sessions, the newest first. */
+export interface SignedSessions {
+    timestamp:  string;
+    sessions:   SignedSession[];
 }
 
 /** Every meter that is to be read, with the time at the station where it was asked. */
@@ -189,6 +222,10 @@ export interface MeterLink {
     server:      string | null;
     /** The ids of the identities shown to it to read and to write; null for the least that may read, and for writing nothing. */
     identities:  { read: string | null; write: string | null };
+    /** The tariff its sessions are signed with, OCMF "TT"; null for none. */
+    tariffText:  string | null;
+    /** The EVSE its sessions are signed at, OCMF "CI"; null for none. */
+    evseId:      string | null;
     heldTo:      ServerPins | null;
     judgement:   ServerJudgement | null;
     known:       KnownServer | null;
@@ -212,6 +249,8 @@ export interface MeterUpdate extends PinKeys {
     port:          number | null;
     unit:          number | null;
     identities:    { read: string | null; write: string | null };
+    tariffText:    string | null;
+    evseId:        string | null;
     pinsAsShown?:  PinKeys;
 }
 
@@ -894,7 +933,9 @@ export const api = {
         save:    (update: MeterUpdate)   => request<MetersConfiguration>('PUT', '/configuration/meters', update, 30_000),
         states:  ()                      => request<MeterStates>('GET', '/status/meters'),
         /** On a connection of its own, as the identity for what it does. */
-        ask:     (ask: ModbusAsk)        => request<ModbusAnswer>('POST', '/meters/modbus', ask, 30_000)
+        ask:     (ask: ModbusAsk)        => request<ModbusAnswer>('POST', '/meters/modbus', ask, 30_000),
+        /** The charging sessions the meters signed, or were to sign - with their documents. */
+        sessions: ()                     => request<SignedSessions>('GET', '/meters/sessions')
     },
 
     authentications: {

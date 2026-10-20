@@ -569,6 +569,8 @@ namespace cloud.charging.open.ChargingStation
         protected virtual async Task EndTheMeters()
         {
 
+            await StopSigning();
+
             Certificates.OnChanged -= TryTheMetersAgain;
 
             foreach (var evse in meters.Keys.ToArray())
@@ -631,6 +633,8 @@ namespace cloud.charging.open.ChargingStation
 
                                  json.AddFirst(new JProperty("label", evse.PhysicalReference ?? evse.Id.ToString()));
                                  json.AddFirst(new JProperty("evse",  evse.Id));
+
+                                 json["signed"] = SignedSessionSummary(evse.Id);
 
                                  return json;
 

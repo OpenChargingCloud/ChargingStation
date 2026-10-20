@@ -132,6 +132,43 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         [Test]
+        public void TheTariffAndTheEVSEIdSessionsAreSignedWithAreKeptAndWrittenBack()
+        {
+
+            var meter = MeterOf(Entry(new JProperty("host",        "meter"),
+                                      new JProperty("tariffText",  " 001;EUR;0;35;5;30 "),
+                                      new JProperty("evseId",      "DE*GEF*E0001*1")))!;
+
+            Assert.Multiple(() => {
+                Assert.That(meter.TariffText,                Is.EqualTo("001;EUR;0;35;5;30"));
+                Assert.That(meter.EVSEId,                    Is.EqualTo("DE*GEF*E0001*1"));
+                Assert.That(MeterOf(meter.ToJSON()),         Is.EqualTo(meter with { Pins = null }));
+                Assert.That(MeterOf(Entry(new JProperty("host", "meter"), new JProperty("tariffText", " ")))!.TariffText,
+                            Is.Null, "an empty tariff is none");
+            });
+
+        }
+
+        [Test]
+        public void ATariffOrAnEVSEIdAMeterHasNoRoomForOrCannotSignIsRefused()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(RefusalOf(Entry(new JProperty("host", "meter"), new JProperty("tariffText", new String('x', 257)))),
+                            Does.Contain("'meters[0].tariffText'").And.Contain("room for 256"));
+                Assert.That(RefusalOf(Entry(new JProperty("host", "meter"), new JProperty("tariffText", "001;EUR\n;0"))),
+                            Does.Contain("one line"));
+                Assert.That(RefusalOf(Entry(new JProperty("host", "meter"), new JProperty("tariffText", 35))),
+                            Does.Contain("must be a text"));
+                Assert.That(RefusalOf(Entry(new JProperty("host", "meter"), new JProperty("evseId", "DE GEF E1"))),
+                            Does.Contain("'meters[0].evseId'").And.Contain("one word"));
+                Assert.That(RefusalOf(Entry(new JProperty("host", "meter"), new JProperty("evseId", new String('E', 81)))),
+                            Does.Contain("room for 80"));
+            });
+
+        }
+
+        [Test]
         public void TwoEntriesForOneEVSEAreRefused()
         {
 

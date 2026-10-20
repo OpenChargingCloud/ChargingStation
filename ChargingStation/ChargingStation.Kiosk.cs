@@ -422,6 +422,7 @@ namespace cloud.charging.open.ChargingStation
             }
 
             SetCharging(EVSEId, true);
+            SessionBegan(EVSEId);
 
             Log.Notice($"A web payment started a session at EVSE {EVSEId}.", "webpayment", "kiosk");
 
@@ -503,6 +504,7 @@ namespace cloud.charging.open.ChargingStation
             }
 
             SetCharging(EVSEId, false);
+            SessionEnded(EVSEId);
 
             var seconds = (TimeProvider.GetUtcNow() - ended.StartedAt).TotalSeconds;
 
@@ -653,6 +655,7 @@ namespace cloud.charging.open.ChargingStation
                 sessions.TryRemove(evse.Id, out _);
 
                 SetCharging(evse.Id, false);
+                SessionEnded(evse.Id);
 
                 Log.Notice(
                     $"Card {token} stopped the session at EVSE {evse.Id} after {(now - running.StartedAt).TotalSeconds:F0} s (reader '{reader.Id}').",
@@ -684,6 +687,7 @@ namespace cloud.charging.open.ChargingStation
                 started = true;
 
                 SetCharging(evse.Id, true);
+                SessionBegan(evse.Id);
 
                 // The reservation has done its job: the person it was held for
                 // is here and plugged in. Leaving it standing would hold the
@@ -942,7 +946,10 @@ namespace cloud.charging.open.ChargingStation
             var ended = sessions.Count;
 
             foreach (var evseId in sessions.Keys)
+            {
                 SetCharging(evseId, false);
+                SessionEnded(evseId);
+            }
 
             sessions.Clear();
 

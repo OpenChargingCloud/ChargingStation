@@ -36,6 +36,39 @@ namespace cloud.charging.open.ChargingStation.Meters
 {
 
     /// <summary>
+    /// What a command to the session model of a meter came to.
+    /// </summary>
+    /// <param name="Done">Whether the meter did it.</param>
+    /// <param name="Error">Why not.</param>
+    /// <param name="Reason">The meter's own code for why not, or 0: 1 a session runs already, 2 none runs, 3 another runs.</param>
+    /// <param name="State">The state of the model afterwards: 0 none, 1 running, 2 stopped.</param>
+    /// <param name="SessionId">Whose session the model is about afterwards.</param>
+    /// <param name="PublicKey">The key the stopped session is signed with, as hex.</param>
+    /// <param name="Document">The OCMF document of the stopped session.</param>
+    public sealed record SessionCommandAnswer(Boolean  Done,
+                                              String?  Error,
+                                              UInt16   Reason,
+                                              UInt16   State,
+                                              String?  SessionId,
+                                              String?  PublicKey,
+                                              String?  Document)
+    {
+
+        /// <summary>A session already runs at the meter.</summary>
+        public const UInt16 AlreadyRunning = 1;
+
+        /// <summary>No session runs at the meter.</summary>
+        public const UInt16 NotRunning     = 2;
+
+        public static SessionCommandAnswer Failed(String  Error,
+                                                  UInt16  Reason = 0)
+
+            => new (false, Error, Reason, 0, null, null, null);
+
+    }
+
+
+    /// <summary>
     /// Who this station is to a meter: a TLS identity of its store whose
     /// certificate carries a SunSpec role, with its private key and the CAs
     /// between it and its root.
@@ -437,6 +470,191 @@ namespace cloud.charging.open.ChargingStation.Meters
                 log.Info  (said, "meter", "modbus");
 
             return json;
+
+        }
+
+        #endregion
+
+
+        #region Command(Command, Parameters, CancellationToken)
+
+        /// <summary>
+        /// Give the session model of the meter a command - its parameters first,
+        /// then the command, over one connection shown the identity this
+        /// station writes with - and read what the model says afterwards: its
+        /// state, whose session it is, and, once a session was stopped, the key
+        /// and the document.
+        /// </summary>
+        /// <remarks>
+        /// One connection for all of it, because the meter keeps what a
+        /// connection wrote for that connection's next command and nobody
+        /// else's. A connection of its own besides, for the same reason as
+        /// <see cref="Ask"/>: the reading loop's shows the identity that reads.
+        /// </remarks>
+        /// <param name="Command">What to do: <see cref="MeterSessionModel.Start"/> or <see cref="MeterSessionModel.Stop"/>.</param>
+        /// <param name="Parameters">The points to write first, each with its length and its text.</param>
+        /// <param name="CancellationToken">To give up.</param>
+        public async Task<SessionCommandAnswer> Command(UInt16                                                        Command,
+                                                        IEnumerable<(UInt16 Point, UInt16 Length, String? Text)>      Parameters,
+                                                        CancellationToken                                             CancellationToken)
+        {
+
+            var choice = identityFor(ModbusOperation.Write);
+
+            using var identity = choice.Identity;
+
+            if (identity is null)
+                return SessionCommandAnswer.Failed(
+                           $"There is no TLS identity to write to the meter at {Endpoint} with, and beginning or ending a signed session is a write. " +
+                           (choice.Why ?? "Choose the identity it is written with on the Meters page."));
+
+            MeterJudgement? judgement = null;
+
+            try
+            {
+
+                await using var connection = await ModbusTLSConnection.Open(
+                                                       Endpoint.Host,
+                                                       Endpoint.Port,
+                                                       identity.Certificate,
+                                                       identity.Intermediates,
+                                                       (sender, certificate, chain, errors) => {
+                                                           judgement = judge(certificate as X509Certificate2, chain, errors);
+                                                           return judgement.Accepted;
+                                                       },
+                                                       DefaultTimeout,
+                                                       CancellationToken
+                                                   );
+
+                ReadRegisters read = (first, count) => connection.ReadHoldingRegisters(Endpoint.Unit, first, count, DefaultTimeout, CancellationToken);
+
+                var device = await SunSpecDevice.Discover(read);
+
+                if (device.Sessions is not SunSpecModel model)
+                    return SessionCommandAnswer.Failed(
+                               $"The meter at {Endpoint} has no session model ({MeterSessionModel.Id}) among its models " +
+                               $"({String.Join(", ", device.Models.Select(m => m.Id))}), so it signs no charging session.");
+
+                var at = (UInt16) (model.Address + 2);
+
+                foreach (var (point, length, text) in Parameters)
+                {
+
+                    var registers = MeterSessionModel.Encode(text, length);
+
+                    for (var done = 0; done < registers.Length; done += MeterSessionModel.MaxWrite)
+                    {
+
+                        var answer = await connection.Exchange(
+                                               Endpoint.Unit,
+                                               ModbusPDU.BuildWriteMultipleRegisters(
+                                                   (UInt16) (at + point + done),
+                                                   registers[done..Math.Min(registers.Length, done + MeterSessionModel.MaxWrite)]
+                                               ),
+                                               DefaultTimeout,
+                                               CancellationToken
+                                           );
+
+                        if (ModbusPDU.TryGetException(answer) is ModbusExceptionCode refused)
+                            return SessionCommandAnswer.Failed($"The meter at {Endpoint} refused '{identity.Role}' writing the session's parameters: {refused}.");
+
+                    }
+
+                }
+
+                var commanded = await connection.Exchange(
+                                          Endpoint.Unit,
+                                          ModbusPDU.BuildWriteSingleRegister((UInt16) (at + MeterSessionModel.Command), Command),
+                                          DefaultTimeout,
+                                          CancellationToken
+                                      );
+
+                if (ModbusPDU.TryGetException(commanded) is ModbusExceptionCode code)
+                {
+
+                    // Why, where the meter says: its error registers are this
+                    // connection's.
+                    String? why    = null;
+                    UInt16  reason = 0;
+
+                    if (code != ModbusExceptionCode.IllegalFunction)
+                    {
+                        var error = await read((UInt16) (at + MeterSessionModel.Error), (UInt16) (MeterSessionModel.ErrorText + MeterSessionModel.ErrorTextLength - MeterSessionModel.Error));
+                        reason    = error[0];
+                        why       = MeterSessionModel.Decode(error[(MeterSessionModel.ErrorText - MeterSessionModel.Error)..]);
+                    }
+
+                    return SessionCommandAnswer.Failed(
+                               $"The meter at {Endpoint} refused '{identity.Role}' to {(Command == MeterSessionModel.Start ? "begin" : "end")} the session: " +
+                               (String.IsNullOrWhiteSpace(why) ? $"{code}." : why),
+                               reason
+                           );
+
+                }
+
+                var status = await read((UInt16) (at + MeterSessionModel.State), 1);
+                var whose  = MeterSessionModel.Decode(await read((UInt16) (at + MeterSessionModel.CurrentSessionId), MeterSessionModel.SessionIdLength));
+
+                String? publicKey = null;
+                String? document  = null;
+
+                if (status[0] == MeterSessionModel.StateStopped)
+                {
+                    publicKey = await TextBehindItsLength(read, (UInt16) (at + MeterSessionModel.PublicKeyLength), (UInt16) (at + MeterSessionModel.PublicKey));
+                    document  = await TextBehindItsLength(read, (UInt16) (at + MeterSessionModel.DocumentLength),  (UInt16) (at + MeterSessionModel.Document));
+                }
+
+                log.Notice($"{About}: the meter at {Endpoint} was told to {(Command == MeterSessionModel.Start ? "begin" : "end")} the session '{whose}' " +
+                           $"as '{identity.Label}' ({identity.Role}).",
+                           "meter", "sessions");
+
+                return new SessionCommandAnswer(true, null, 0, status[0], whose, publicKey, document);
+
+            }
+            catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception) when (judgement is { Accepted: false })
+            {
+                return SessionCommandAnswer.Failed($"The meter at {Endpoint} is not believed: {judgement.Why ?? judgement.Outcome}");
+            }
+            catch (AuthenticationException e)
+            {
+                return SessionCommandAnswer.Failed($"The TLS handshake with the meter at {Endpoint} failed: {e.GetBaseException().Message}");
+            }
+            catch (ModbusException e)
+            {
+                return SessionCommandAnswer.Failed($"The meter at {Endpoint} refused '{identity.Role}': {e.Code}.");
+            }
+            catch (NotASunSpecMeter e)
+            {
+                return SessionCommandAnswer.Failed($"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {e.Message}");
+            }
+            catch (Exception e)
+            {
+                return SessionCommandAnswer.Failed($"The meter at {Endpoint} could not be told: {e.GetBaseException().Message}");
+            }
+
+        }
+
+        /// <summary>
+        /// A text whose length in bytes is in the register before it, in as many
+        /// reads as it takes.
+        /// </summary>
+        private static async Task<String?> TextBehindItsLength(ReadRegisters  Read,
+                                                               UInt16         LengthAt,
+                                                               UInt16         TextAt)
+        {
+
+            var bytes = (await Read(LengthAt, 1))[0];
+
+            if (bytes == 0)
+                return null;
+
+            var registers = await SunSpecDevice.ReadBlock(Read, TextAt, (bytes + 1) / 2);
+
+            return MeterSessionModel.Decode(registers);
 
         }
 

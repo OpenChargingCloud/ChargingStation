@@ -34,6 +34,7 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.Kiosk;
+using cloud.charging.open.ChargingStation.Meters;
 using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.OCPP;
@@ -486,6 +487,23 @@ namespace cloud.charging.open.ChargingStation
                                    ),
                                    this.TimeProvider
                                );
+
+            this.SignedSessions = new SignedSessionStore(
+                                      System.IO.Path.Combine(
+                                          System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
+                                          SignedSessionStore.DefaultDirectoryName
+                                      ),
+                                      unreadable => this.Log.Warning(unreadable, "meter", "sessions")
+                                  );
+
+            // A session the meter was told about before the station last
+            // stopped, and was not done with: unsigned, unless its meter still
+            // has it and hands over its document when the next session begins.
+            foreach (var open in this.SignedSessions.Open)
+                this.SignedSessions.Keep(open with {
+                    State  = SignedSessionState.Unsigned,
+                    Error  = $"The station stopped while this session was {open.State.ToString().ToLowerInvariant()} at its meter."
+                });
 
             // Which certificates exist is the certificate store's business and
             // changes while this one is alive, so it is asked rather than told

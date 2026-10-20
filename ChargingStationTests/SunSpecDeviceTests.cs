@@ -79,6 +79,23 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         [Test]
+        public async Task TheSessionModelIsFoundWhereTheMeterHasItAndOneTooShortIsNot()
+        {
+
+            var signing = await SunSpecDevice.Discover(new SigningMeter().Image.Read);
+            var short_  = await SunSpecDevice.Discover(new SunSpecImage().Common("S", "S-1", "1", "SN").Model(203, 105).Model(MeterSessionModel.Id, 100).End().Read);
+            var none    = await SunSpecDevice.Discover(SunSpecImage.Model203Meter().Read);
+
+            Assert.Multiple(() => {
+                Assert.That(signing.Sessions?.Id,               Is.EqualTo(MeterSessionModel.Id));
+                Assert.That(signing.ToJSON().Value<Boolean>("sessions"), Is.True);
+                Assert.That(short_.Sessions,                    Is.Null, "a model too short for the points is not the session model");
+                Assert.That(none.Sessions,                      Is.Null);
+            });
+
+        }
+
+        [Test]
         public async Task ADeviceThatBeginsAt50000IsFoundThere()
         {
 

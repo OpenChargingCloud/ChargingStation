@@ -86,9 +86,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A device that answers with the registers a test wrote down, to
         /// whoever its PKI's root vouches for.
         /// </summary>
-        public static Task<MeterOnTheBench> Serving(String PKI, SunSpecImage Image)
+        public static Task<MeterOnTheBench> Serving(String PKI, IModbusBackendFactory Image)
 
-            => Start(PKI, null, Image, new AuthorizationPolicy(new HashSet<UInt16>(), new HashSet<UInt16>()));
+            => Start(PKI, null, Image, new AuthorizationPolicy(new HashSet<UInt16>(), (Image as SigningMeter)?.Commanded ?? new HashSet<UInt16>()));
 
         private static async Task<MeterOnTheBench> Start(String                 PKI,
                                                          SunSpecMeterDevice?    Device,
@@ -913,6 +913,286 @@ namespace cloud.charging.open.ChargingStation.Tests
             using var response = await http.PostAsync("api/v1/meters/modbus", JSONBody(new JProperty("evse", 1), new JProperty("function", 3), new JProperty("address", 40000), new JProperty("count", 2)));
 
             Assert.That(response.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.NotFound));
+
+        }
+
+        #endregion
+
+
+        #region Sessions signed by the meter
+
+        /// <summary>
+        /// The meter of EVSE 1 is the signing meter, read and written as the
+        /// given identities, with a tariff and an EVSE id.
+        /// </summary>
+        private async Task<String> SignedBy(MeterOnTheBench Meter, Boolean Write = true)
+        {
+
+            var readOnly    = ImportIdentity(SunSpecRoles.ReadOnly);
+            var gridService = ImportIdentity(SunSpecRoles.GridService);
+            ImportRoot(ChargingStation.MeterCertificateUsage);
+
+            Station.SessionStopRetry = TimeSpan.FromMilliseconds(100);
+
+            await ReadTheMeterOf(1, "127.0.0.1", Meter.Port,
+                                 Identities(readOnly, Write ? gridService : null),
+                                 new JProperty("tariffText",  "001;EUR;0;35;0;0"),
+                                 new JProperty("evseId",      "DE*GEF*E0001*1"));
+
+            await Until(() => StateOf(1) == "reading", "the meter was not read: " + MeterOfEVSE(1));
+
+            return gridService;
+
+        }
+
+        private SignedSession? Latest(Byte EVSE = 1)
+            => Station.SignedSessions.All.FirstOrDefault(session => session.EVSE == EVSE);
+
+        [Test]
+        public async Task ACardSessionIsSignedByTheMeterWithWhoWhereAndOnWhichTariff()
+        {
+
+            var signer = new SigningMeter();
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Running, "the meter was not told the session began: " + Latest()?.ToJSON());
+
+            var id = Latest()!.Id;
+
+            Assert.That(signer.Starts.Single(), Is.EqualTo(new Dictionary<String, String?> {
+                            ["sessionId"]           = id,
+                            ["identificationType"]  = "ISO14443",
+                            ["identification"]      = CardOfKnown,
+                            ["chargePointIdType"]   = "EVSEID",
+                            ["chargePointId"]       = "DE*GEF*E0001*1",
+                            ["tariffText"]          = "001;EUR;0;35;0;0"
+                        }));
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Signed, "the session was not signed: " + Latest()?.ToJSON());
+
+            var signed = Latest()!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(signed.Id,            Is.EqualTo(id));
+                Assert.That(signed.Verification,  Is.EqualTo("ValidSignature"), "ChargyCore does not verify the document");
+                Assert.That(signed.StartValue,    Is.EqualTo(100.0m));
+                Assert.That(signed.StopValue,     Is.EqualTo(112.5m));
+                Assert.That(signed.PublicKey,     Is.EqualTo(SigningMeter.PublicKey));
+                Assert.That(signed.Document,      Does.Contain("\"TT\":\"001;EUR;0;35;0;0\""));
+
+                Assert.That(System.IO.Directory.GetFiles(Path.Combine(Directory, SignedSessionStore.DefaultDirectoryName), $"*-{id}.json"),
+                            Has.Length.EqualTo(1), "the signed session is not on disk");
+
+                Assert.That(MeterOfEVSE(1)!["signed"]!.Value<String>("state"), Is.EqualTo("signed"),
+                            "the meters' JSON - and so its event - does not say the session was signed");
+
+            });
+
+        }
+
+        [Test]
+        public async Task TheSignedSessionsAreReadByWhoMayReadTheMeters()
+        {
+
+            var signer = new SigningMeter();
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+            await Until(() => Latest()?.State == SignedSessionState.Running, "the meter was not told the session began");
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out error), Is.True, error);
+            await Until(() => Latest()?.State == SignedSessionState.Signed, "the session was not signed");
+
+            using var http = await SignedIn();
+
+            var json = await GetJSON(http, "/api/v1/meters/sessions?evse=1");
+
+            Assert.Multiple(() => {
+                Assert.That(json["sessions"]!.Single().Value<String>("id"),           Is.EqualTo(Latest()!.Id));
+                Assert.That(json["sessions"]!.Single().Value<String>("ocmf"),         Does.StartWith("OCMF|"));
+                Assert.That(json["sessions"]!.Single().Value<Decimal>("energy_kWh"),  Is.EqualTo(12.5m));
+            });
+
+        }
+
+        [Test]
+        public async Task WithoutAnIdentityToWriteWithTheSessionIsUnsignedAndSaysWhy()
+        {
+
+            var signer = new SigningMeter();
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter, Write: false);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Unsigned, "the session is not said to be unsigned: " + Latest()?.ToJSON());
+
+            Assert.Multiple(() => {
+                Assert.That(Latest()!.Error,     Does.Contain("no TLS identity to write"));
+                Assert.That(signer.Starts,        Is.Empty);
+                Assert.That(Station.KioskJSON()["evses"]!.First(evse => evse.Value<Byte>("id") == 1).Value<String>("status"), Is.EqualTo("occupied"), "the car is charged all the same");
+            });
+
+        }
+
+        [Test]
+        public async Task AMeterWithoutTheSessionModelIsReadAndSignsNothingAndThatIsSaid()
+        {
+
+            await using var meter = await MeterOnTheBench.Serving(pki, SunSpecImage.Model203Meter());
+
+            await SignedBy(meter);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Unsigned, "the session is not said to be unsigned: " + Latest()?.ToJSON());
+
+            Assert.That(Latest()!.Error, Does.Contain("no session model").And.Contain("64900"));
+
+        }
+
+        [Test]
+        public async Task AWriteIdentityTheMeterDoesNotLetBeginASessionLeavesItUnsignedAndSaysSo()
+        {
+
+            var signer      = new SigningMeter();
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            // Written as one that may only read.
+            var readOnly = Station.MetersFile.MeterOf(1)!.ReadIdentity;
+
+            await ReadTheMeterOf(1, "127.0.0.1", meter.Port, Identities(readOnly, readOnly));
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Unsigned, "the session is not said to be unsigned: " + Latest()?.ToJSON());
+
+            Assert.Multiple(() => {
+                Assert.That(Latest()!.Error,  Does.Contain("refused").And.Contain(SunSpecRoles.ReadOnly));
+                Assert.That(signer.Starts,     Is.Empty);
+            });
+
+        }
+
+        [Test]
+        public async Task ADocumentThatDoesNotVerifyIsKeptAndSaidNotToVerify()
+        {
+
+            var signer = new SigningMeter { Tampers = true };
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+            await Until(() => Latest()?.State == SignedSessionState.Running, "the meter was not told the session began");
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out error), Is.True, error);
+            await Until(() => Latest()?.State == SignedSessionState.Signed, "the session was not ended: " + Latest()?.ToJSON());
+
+            Assert.Multiple(() => {
+                Assert.That(Latest()!.Verification,  Is.EqualTo("InvalidSignature"));
+                Assert.That(Latest()!.Document,      Is.Not.Null, "a document that does not verify is evidence too, and kept");
+            });
+
+        }
+
+        [Test]
+        public async Task ASessionTheMeterStillMeasuresIsEndedFirstAndItsDocumentKept()
+        {
+
+            var signer = new SigningMeter { Running = "left-over" };
+
+            await using var meter = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Running, "the session did not begin at the meter: " + Latest()?.ToJSON());
+
+            var leftOver = Station.SignedSessions.Of("left-over");
+
+            Assert.Multiple(() => {
+                Assert.That(signer.Stops,                Is.EqualTo(1), "the session left over was not ended");
+                Assert.That(leftOver?.State,             Is.EqualTo(SignedSessionState.Signed), "its document was not kept");
+                Assert.That(leftOver?.Verification,      Is.EqualTo("ValidSignature"));
+                Assert.That(leftOver?.Error,             Does.Contain("did not know"));
+                Assert.That(signer.Running,              Is.EqualTo(Latest()!.Id));
+            });
+
+        }
+
+        [Test]
+        public async Task ASessionTheStationWasNotDoneWithWhenItStoppedIsUnsignedWhenItComesBack()
+        {
+
+            var directory = TestStations.TemporaryDirectory("signed-sessions");
+
+            try
+            {
+
+                new SignedSessionStore(Path.Combine(directory, SignedSessionStore.DefaultDirectoryName)).
+                    Keep(new SignedSession("was-running", 1, DateTimeOffset.UtcNow.AddMinutes(-5), SignedSessionState.Running, "ISO14443", CardOfKnown));
+
+                await using var again = TestStations.New(directory, Configuration);
+
+                var session = again.SignedSessions.Of("was-running");
+
+                Assert.Multiple(() => {
+                    Assert.That(session?.State,           Is.EqualTo(SignedSessionState.Unsigned));
+                    Assert.That(session?.Error,           Does.Contain("stopped while this session was running"));
+                    Assert.That(session?.Identification,  Is.EqualTo(CardOfKnown), "what it was begun with is gone");
+                    Assert.That(new SignedSessionStore(Path.Combine(directory, SignedSessionStore.DefaultDirectoryName)).Of("was-running")?.State,
+                                Is.EqualTo(SignedSessionState.Unsigned), "not on disk");
+                });
+
+            }
+            finally
+            {
+                TestStations.Remove(directory);
+            }
+
+        }
+
+        [Test]
+        public async Task AStopTheMeterCannotBeToldIsTriedAgainAndThenSaidToBeUnsigned()
+        {
+
+            var signer = new SigningMeter();
+            var meter  = await MeterOnTheBench.Serving(pki, signer);
+
+            await SignedBy(meter);
+
+            Station.SessionStopAttempts = 2;
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+            await Until(() => Latest()?.State == SignedSessionState.Running, "the meter was not told the session began");
+
+            await meter.DisposeAsync();
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out error), Is.True, error);
+
+            await Until(() => Latest()?.State == SignedSessionState.Unsigned, "the session is not said to be unsigned: " + Latest()?.ToJSON(), 30);
+
+            Assert.Multiple(() => {
+                Assert.That(Latest()!.Error,      Does.Contain("could not be told").Or.Contain("cannot be reached").Or.Contain("refused"));
+                Assert.That(Latest()!.StoppedAt,  Is.Not.Null);
+            });
 
         }
 

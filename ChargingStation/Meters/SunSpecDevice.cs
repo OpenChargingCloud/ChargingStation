@@ -94,13 +94,15 @@ namespace cloud.charging.open.ChargingStation.Meters
     /// <param name="Version">Its version there.</param>
     /// <param name="SerialNumber">Its serial number there.</param>
     /// <param name="Meter">The meter model it is read by.</param>
+    /// <param name="Sessions">The session model charging sessions are signed through, where it has one - see <see cref="MeterSessionModel"/>.</param>
     public sealed record SunSpecDevice(UInt16                       Base,
                                        IReadOnlyList<SunSpecModel>  Models,
                                        String                       Manufacturer,
                                        String                       Model,
                                        String                       Version,
                                        String                       SerialNumber,
-                                       SunSpecModel                 Meter)
+                                       SunSpecModel                 Meter,
+                                       SunSpecModel?                Sessions   = null)
     {
 
         #region Data
@@ -241,7 +243,11 @@ namespace cloud.charging.open.ChargingStation.Meters
                        Text(registers, 18, 16),
                        Text(registers, 42,  8),
                        Text(registers, 50, 16),
-                       meter
+                       meter,
+
+                       // One that is shorter than the model is not this model.
+                       models.FirstOrDefault(model => model.Id     == MeterSessionModel.Id &&
+                                                      model.Length >= MeterSessionModel.Length)
                    );
 
         }
@@ -300,8 +306,9 @@ namespace cloud.charging.open.ChargingStation.Meters
 
             => new (
                    new JProperty("base",    Base),
-                   new JProperty("models",  new JArray(Models.Select(model => model.ToJSON()))),
-                   new JProperty("meter",   Meter.Id)
+                   new JProperty("models",    new JArray(Models.Select(model => model.ToJSON()))),
+                   new JProperty("meter",     Meter.Id),
+                   new JProperty("sessions",  Sessions is not null)
                );
 
         #endregion
