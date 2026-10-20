@@ -335,13 +335,21 @@ namespace cloud.charging.open.ChargingStation.Tests
             return request!;
         }
 
-        private static async Task Until(Func<Boolean> What, String Failure, Int32 Seconds = 15)
+        private static Task Until(Func<Boolean> What, String Failure, Int32 Seconds = 15)
+
+            => Until(What, () => Failure, Seconds);
+
+        /// <summary>
+        /// Wait until it is so - and where it never is, say how things stand
+        /// then, rather than how they stood when the wait began.
+        /// </summary>
+        private static async Task Until(Func<Boolean> What, Func<String> Failure, Int32 Seconds = 15)
         {
             var until = DateTime.UtcNow + TimeSpan.FromSeconds(Seconds);
             while (!What())
             {
                 if (DateTime.UtcNow > until)
-                    Assert.Fail(Failure);
+                    Assert.Fail(Failure());
                 await Task.Delay(25);
             }
         }
@@ -714,14 +722,16 @@ namespace cloud.charging.open.ChargingStation.Tests
             await ReadTheMeterOf(1, "127.0.0.1", meterA.Port);
             await ReadTheMeterOf(2, "localhost", meterB.Port);
 
-            await Until(() => StateOf(1) == "reading" && StateOf(2) == "reading", "the two meters were not read: " + MeterOfEVSE(1) + MeterOfEVSE(2));
+            await Until(() => StateOf(1) == "reading" && StateOf(2) == "reading", () => "the two meters were not read: " + MeterOfEVSE(1) + MeterOfEVSE(2));
 
             var second = Station.MeterOf(2);
 
             await ReadTheMeterOf(1, "localhost", meterA.Port);
 
             await Until(() => Station.MeterOf(1)?.Endpoint.Host == "localhost", "the meter is still read where it was");
-            await Until(() => StateOf(1) == "reading", "the meter is not read where it is now: " + MeterOfEVSE(1));
+            // Over "localhost", where the other meter was read before: a TLS
+            // session resumed from that one would show this meter no role.
+            await Until(() => StateOf(1) == "reading", () => "the meter is not read where it is now: " + MeterOfEVSE(1));
 
             Assert.That(Station.MeterOf(2), Is.SameAs(second), "changing the first EVSE's meter began the second's anew");
 

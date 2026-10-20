@@ -132,6 +132,13 @@ namespace cloud.charging.open.ChargingStation.Meters
                     using var handshake = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
                     handshake.CancelAfter(Timeout);
 
+                    // Never a session resumed: a meter decides what a peer may
+                    // do by the role in the certificate it shows, and a resumed
+                    // TLS session shows none - the meter sees a peer without a
+                    // role and hangs up. On Linux a session for a host name is
+                    // offered to every server of that name whose tickets can
+                    // read it, so a second meter at "localhost" was refused for
+                    // ever once the first had been read there.
                     await tls.AuthenticateAsClientAsync(
                               new SslClientAuthenticationOptions {
                                   TargetHost                      = Host,
@@ -139,6 +146,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                                   EnabledSslProtocols             = SslProtocols.Tls12 | SslProtocols.Tls13,
                                   CertificateRevocationCheckMode  = X509RevocationMode.NoCheck,
                                   AllowRenegotiation              = false,
+                                  AllowTlsResume                  = false,
                                   EncryptionPolicy                = EncryptionPolicy.RequireEncryption,
                                   RemoteCertificateValidationCallback = Judge
                               },
