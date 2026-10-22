@@ -199,7 +199,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             => new (
                    new JProperty("nts", new JObject(
-                       new JProperty("enabled", false)
+                       new JProperty("groups", new JObject(
+                           new JProperty("legal", new JObject(
+                               new JProperty("enabled", false)
+                           ))
+                       ))
                    ))
                );
 

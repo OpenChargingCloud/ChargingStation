@@ -127,7 +127,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             => new (
 
                    new JProperty("nts", new JObject(
-                       new JProperty("enabled", false)
+                       new JProperty("groups", new JObject(
+                           new JProperty("legal", new JObject(
+                               new JProperty("enabled", false)
+                           ))
+                       ))
                    )),
 
                    new JProperty("evses", new JArray(
@@ -995,7 +999,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 System.IO.Directory.CreateDirectory(directory);
 
                 var configuration = new JObject(
-                                        new JProperty("nts",     new JObject(new JProperty("enabled", false))),
+                                        new JProperty("nts",     new JObject(new JProperty("groups", new JObject(new JProperty("legal", new JObject(new JProperty("enabled", false))))))),
                                         new JProperty("display", new JObject(new JProperty("port", fromTheFile)))
                                     );
 

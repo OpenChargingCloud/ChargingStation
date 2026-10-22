@@ -172,7 +172,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         protected override JObject Configuration
             => new (
                    new JProperty("nts", new JObject(
-                       new JProperty("enabled", false)
+                       new JProperty("groups", new JObject(
+                           new JProperty("legal", new JObject(
+                               new JProperty("enabled", false)
+                           ))
+                       ))
                    )),
                    new JProperty("evses", new JArray(
                        new JObject(

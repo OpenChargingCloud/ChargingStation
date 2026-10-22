@@ -273,9 +273,10 @@ Everything this station can be told in writing lives in one file,
 ```json
 {
   "dns":   { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
-  "nts":   { "enabled": true, "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
-                                           "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
-             "minServers": 2 },
+  "nts":   { "groups": { "legal": { "enabled": true,
+                                     "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
+                                                  "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
+                                     "minServers": 2 } } },
   "power": { "uplinkPowerLimit_kW": 55 },
   "evses": [ { "id": 1, "maxPower_kW": 22,
                "connectors": [ { "id": 1, "type": "sType2", "maxPower_kW": 22 } ] } ],
@@ -320,7 +321,7 @@ interface will not delete the part it did not understand.
 |---|---|
 | `/configuration`             | what the station is made of, read-only |
 | `/configuration/dns`         | name resolution: on/off, the servers, the settings, and a test |
-| `/configuration/nts`         | the time servers: on/off, the group and what it is held to, a test of each, and "Sync now" |
+| `/configuration/nts`         | the groups of time servers, a tab each and a "+" tab for another: on/off, the servers and what they are held to, a test of each, and "Sync now" |
 | `/configuration/power`       | what the grid connection allows, against what the EVSEs could draw |
 | `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
@@ -331,8 +332,10 @@ interface will not delete the part it did not understand.
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
     POST /api/v1/configuration/dns/query    {"name": "...", "recordTypes": ["A"]}
-    GET  /api/v1/configuration/nts          PUT with the fields to change
+    GET  /api/v1/configuration/nts          the legal group: PUT with the fields to change
     POST /api/v1/configuration/nts/sync     NTS-KE + one authenticated NTP request
+    GET  /api/v1/configuration/nts/groups   every group; POST {"id": "local"} makes one, switched off
+    GET  /api/v1/configuration/nts/groups/{id}   PUT, DELETE (switched off only), POST .../sync and .../test
     GET  /api/v1/configuration/power        PUT with {"uplinkPowerLimit_kW": 55}, null clears it
     GET  /api/v1/configuration/evses        PUT with {"evses": [...]}, all of them at once
     GET  /api/v1/configuration/rfid         PUT with {"readers": [...]}, all of them at once
