@@ -129,15 +129,16 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region TheStoreKeepsTheRootsAndTLSAndNothingOnlyAVehicleHolds()
+        #region TheStoreKeepsTheRootsTLSAndTheWebInterfacesIdentityAndNothingOnlyAVehicleHolds()
 
         /// <summary>
-        /// TLS's four kinds and the three roots Plug &amp; Charge checks a
-        /// vehicle against - grouped as what the station believes, presents and
-        /// recognises - and none of what only a vehicle holds.
+        /// TLS's four kinds, the identity the web interface shows over HTTPS,
+        /// and the three roots Plug &amp; Charge checks a vehicle against -
+        /// grouped as what the station believes, presents and recognises - and
+        /// none of what only a vehicle holds.
         /// </summary>
         [Test]
-        public async Task TheStoreKeepsTheRootsAndTLSAndNothingOnlyAVehicleHolds()
+        public async Task TheStoreKeepsTheRootsTLSAndTheWebInterfacesIdentityAndNothingOnlyAVehicleHolds()
         {
 
             using var http          = AsTheAdministrator();
@@ -152,9 +153,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(status,                                           Is.EqualTo(HttpStatusCode.OK), store.ToString());
                 Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Name),
-                            Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity" }));
+                            Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity", "tlsServerIdentity" }));
                 Assert.That(store["trustAnchors"]!.Values<String>(),          Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot" }));
-                Assert.That(store["credentials"]!.Values<String>(),           Is.EqualTo(new[] { "tlsIdentity" }));
+                Assert.That(store["credentials"]!.Values<String>(),           Is.EqualTo(new[] { "tlsIdentity", "tlsServerIdentity" }));
+                Assert.That(store["kinds"]!["tlsServerIdentity"]!["page"]?.Value<String>(),
+                                                                              Is.EqualTo("serverIdentities"),
+                            "what the web interface shows is looked after on the page the station's menu has below the identities");
                 Assert.That(store["recognised"]!.Values<String>(),            Is.EqualTo(new[] { "tlsServer" }),
                             "a server certificate is recognised, neither believed nor presented");
 

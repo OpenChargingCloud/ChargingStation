@@ -42,8 +42,9 @@ namespace cloud.charging.open.ChargingStation
         #region StoredCertificateKinds
 
         /// <summary>
-        /// The kinds of certificate this station's store keeps: TLS's four, and
-        /// the three roots a vehicle's certificates chain to.
+        /// The kinds of certificate this station's store keeps: TLS's four, the
+        /// identity its web interface shows over HTTPS, and the three roots a
+        /// vehicle's certificates chain to.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -52,6 +53,14 @@ namespace cloud.charging.open.ChargingStation
         /// roots a client connecting here has to chain to, the certificates a
         /// server may be held to by its fingerprint, and what this station
         /// presents itself.
+        /// </para>
+        /// <para>
+        /// The TLS server identity because it is what the web interface, the
+        /// JSON API and the sign-in show where the "web" section says "tls":
+        /// { "certificate": "store" }, or --https - kept from the start, so that
+        /// --import-certificate tlsServerIdentity=&lt;file&gt; puts it in at the
+        /// same start that asks for it, and the page offers it before anybody
+        /// has asked.
         /// </para>
         /// <para>
         /// The V2G, Mobility Operator and OEM roots because they are what Plug
@@ -75,7 +84,8 @@ namespace cloud.charging.open.ChargingStation
             CertificateKind.TLSRoot,
             CertificateKind.ClientRoot,
             CertificateKind.TLSServer,
-            CertificateKind.TLSIdentity
+            CertificateKind.TLSIdentity,
+            CertificateKind.TLSServerIdentity
         ];
 
         #endregion

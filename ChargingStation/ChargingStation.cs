@@ -385,6 +385,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX ends up in the log.</param>
         /// <param name="TimeProvider">Where this station reads the time; the system clock by default.</param>
         /// <param name="SSH">What the program says about serving the command line over SSH; nothing by default - see SSHSettings.</param>
+        /// <param name="Web">What the program says of HTTPS and of the reverse proxies in front - --https, --https-cert, --redirect-port and --trusted-proxy - over the "web" section of the configuration file; nothing by default, and then the file alone says it.</param>
         public ChargingStation(DNSClient?                            DNSClient                 = null,
                                NTSClient?                            NTSClient                 = null,
                                HTTPServer?                           HTTPServer                = null,
@@ -412,7 +413,8 @@ namespace cloud.charging.open.ChargingStation
                                String?                               LogPath                   = null,
                                Boolean                               BridgeDebugLog            = true,
                                TimeProvider?                         TimeProvider              = null,
-                               SSHSettings?                          SSH                       = null)
+                               SSHSettings?                          SSH                       = null,
+                               WebConfiguration?                     Web                       = null)
 
             : base(Kind:              ChargingStationKind,
                    Version:           typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
@@ -435,8 +437,9 @@ namespace cloud.charging.open.ChargingStation
                    Frontend:          Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
                    CertificatesPath:  CertificatesPath,
 
-                   // TLS's four and the three roots a vehicle's certificates chain
-                   // to, and none of what only a vehicle holds - its own
+                   // TLS's four, the identity the web interface shows over HTTPS,
+                   // and the three roots a vehicle's certificates chain to, and
+                   // none of what only a vehicle holds - its own
                    // certificate, its contracts, its OEM provisioning certificate,
                    // the key it checks a tariff with. The TLS roots are what a
                    // time server and a name server may be vouched for by, and
@@ -456,7 +459,12 @@ namespace cloud.charging.open.ChargingStation
                    LogPath:           LogPath,
                    BridgeDebugLog:    BridgeDebugLog,
                    TimeProvider:      TimeProvider,
-                   SSH:               SSH)
+                   SSH:               SSH,
+
+                   // HTTPS of the station's own, or the proxies in front
+                   // believed: with --any the sign-in would otherwise cross the
+                   // network in the clear - see the node's "web" section.
+                   Web:               Web)
 
         {
 

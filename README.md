@@ -68,8 +68,9 @@ for signing in with it.
 `--help` lists the rest: `--port`, `--any`, `--accounts <dir>`,
 `--frontend <dir>`, `--config <file>`, `--verbose`, `--quiet`, `--no-trace`,
 the display's `--kiosk-port` and `--no-kiosk`, the local app server's
-`--local-app-port`, `--local-app-any` and `--no-local-app`, and the `--v2g`
-family below.
+`--local-app-port`, `--local-app-any` and `--no-local-app`, `--https` and
+`--trusted-proxy` with theirs (see `web` under [Configuration](#configuration)),
+and the `--v2g` family below.
 
 
 ## Building
@@ -136,6 +137,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
 | `RolesFromTheFileTests` | roles the configuration file adds, where only a station can say it: kept out of the station's own routes, and named in a refusal among the station's roles |
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
+| `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 
 Two of them are about the station having more than one door. The display is a
@@ -295,13 +297,42 @@ as" should have one answer that fits on a screen instead of a directory to go
 through.
 
 The node below reads the sections every one of these programs has - `dns`,
-`nts` and `certificates` - and the station reads its own from the same
-document; each passes over what is the other's. The station keeps no
-certificates in the node's store: the keys it dials its back ends with are in
-`ocpp-client-keys/` beside this file, the connections in `ocpp-connections/`,
-and what it offers a vehicle comes with its V2G options. So there is no
-`certificates/` beside it, and a `certificates` section has nothing to say to
-it.
+`nts`, `certificates`, `roles`, `ssh` and `web` - and the station reads its own
+from the same document; each passes over what is the other's. The node's
+certificate store is `certificates/` beside this file (see
+[Certificates](#certificates)); the keys the station dials its back ends with
+are not in it but in `ocpp-client-keys/`, the connections in
+`ocpp-connections/`, and what it offers a vehicle comes with its V2G options.
+
+`web` says how the web interface, the JSON API and the sign-in are reached
+safely. With `--any` they are on the network, and without `web` the password,
+every API key and the session cookie cross it in the clear. Either HTTPS of
+the station's own, with certbot's PEM files, read again when they change,
+
+```json
+"web": { "tls": { "certificate": { "fullchain": "/etc/letsencrypt/live/cs.example.org/fullchain.pem",
+                                   "privateKey": "/etc/letsencrypt/live/cs.example.org/privkey.pem" },
+                  "redirectPort": 80 } }
+```
+
+or with `"certificate": "store"` and the store's `tlsServerIdentity`, put there with
+`--import-certificate tlsServerIdentity=<file>` or on the **Server identities**
+page; with HSTS, and optionally a port of plain HTTP that only redirects. Or
+the reverse proxy in front that does the HTTPS:
+
+```json
+"web": { "trustedProxies": [ "127.0.0.1", "::1" ] }
+```
+
+Then the client the proxy names in `Forwarded` or `X-Forwarded-For` is who the
+log, the sign-in's ration of guesses and an API key bound to addresses see, and
+the session cookie is a secure one where the proxy says its leg was HTTPS. The
+switches `--https`, `--https-cert <file>` with `--https-key <file>`,
+`--redirect-port <number>` and `--trusted-proxy <address>` say the same and win
+over the file. Neither said and listening beyond the loopback, the station
+warns in its log, below its banner, on the Configuration page and above every
+page to its administrators. WWCP_Node's README has all of it;
+`StationHTTPSTests` holds the station to it.
 
 **What is missing is not what is empty.** A section the file does not mention
 leaves whatever the station was handed at construction; a station handed
@@ -724,7 +755,7 @@ differently:
 | | |
 |---|---|
 | believed   | TLS roots, client roots, and the V2G, Mobility Operator and OEM roots Plug & Charge checks a vehicle's certificate, a contract and an OEM provisioning certificate against. Any number of each may be on at once. |
-| presented  | a TLS identity, with its private key |
+| presented  | a TLS identity, with its private key, and the TLS server identity the web interface, the JSON API and the sign-in show over HTTPS where `web` says `"tls": { "certificate": "store" }` or the command line `--https` - looked after on the **Server identities** page |
 | recognised | a server certificate: kept so that a time server or a name server can be held to it by its fingerprint, and never with a key |
 
 What only a vehicle holds - its own certificate, its contracts, its OEM

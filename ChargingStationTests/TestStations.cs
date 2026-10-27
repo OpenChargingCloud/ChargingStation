@@ -65,16 +65,18 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <param name="LogToConsole">Whether its log reaches the console, for a test about who gets to write there. Off otherwise, because a test run's console is for the test run.</param>
         /// <param name="LogPath">A directory for its log files, for a test about those. None otherwise.</param>
         /// <param name="CertificatesPath">A directory for its certificate store, for a test about where that is. Beside its configuration file otherwise.</param>
-        public static ChargingStation New(String         Directory,
-                                          JObject?       Configuration      = null,
-                                          Boolean        WithDisplay        = true,
-                                          TimeProvider?  Clock              = null,
-                                          IPPort?        HTTPPort           = null,
-                                          IPPort?        KioskPort          = null,
-                                          IPPort?        LocalAppPort       = null,
-                                          Boolean        LogToConsole       = false,
-                                          String?        LogPath            = null,
-                                          String?        CertificatesPath   = null)
+        /// <param name="Web">What the command line said of HTTPS and of the proxies in front, as ChargingStationCLI passes it on, for a test about those. Nothing otherwise.</param>
+        public static ChargingStation New(String             Directory,
+                                          JObject?           Configuration      = null,
+                                          Boolean            WithDisplay        = true,
+                                          TimeProvider?      Clock              = null,
+                                          IPPort?            HTTPPort           = null,
+                                          IPPort?            KioskPort          = null,
+                                          IPPort?            LocalAppPort       = null,
+                                          Boolean            LogToConsole       = false,
+                                          String?            LogPath            = null,
+                                          String?            CertificatesPath   = null,
+                                          WebConfiguration?  Web                = null)
         {
 
             System.IO.Directory.CreateDirectory(Directory);
@@ -96,7 +98,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                        LogToConsole:     LogToConsole,
                        LogPath:          LogPath,
                        BridgeDebugLog:   false,
-                       TimeProvider:     Clock
+                       TimeProvider:     Clock,
+                       Web:              Web
                    );
 
         }

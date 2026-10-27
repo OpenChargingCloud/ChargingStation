@@ -53,6 +53,9 @@ startNode({
             { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
             nodeMenu.certificates,
             nodeMenu.identities,
+            // What the web interface shows over HTTPS, where the "web"
+            // section says "tls": { "certificate": "store" }, or --https.
+            nodeMenu.serverIdentities,
             { path: '/configuration/calibration',     label: 'Calibration',      icon: 'fa-scale-balanced',  permission: [ 'calibration:read' ]  }
         ]),
         { path: '/evses', label: 'EVSEs', icon: 'fa-charging-station', permission: [ 'evses:read' ] },
