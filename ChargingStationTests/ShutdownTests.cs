@@ -19,7 +19,6 @@
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Net.NetworkInformation;
 using System.Net.WebSockets;
 
 using Newtonsoft.Json.Linq;
@@ -271,7 +270,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 ? told.Result.MessageType
                                 : (WebSocketMessageType?) null;
 
-            var listening = ports.Where (port => Listening(port.Port)).
+            var asked     = await Task.WhenAll(ports.Select(async port => (port.What, port.Port, Listening: await Listeners.Listening(port.Port))));
+
+            var listening = asked.Where (port => port.Listening).
                                   Select(port => $"{port.What} on port {port.Port}").
                                   ToArray();
 
@@ -385,24 +386,6 @@ namespace cloud.charging.open.ChargingStation.Tests
         private static UInt16 PortOf(String URL)
 
             => (UInt16) new Uri(URL).Port;
-
-        #endregion
-
-        #region (private static) Listening(Port)
-
-        /// <summary>
-        /// Whether anything on this machine listens on the given TCP port.
-        /// </summary>
-        /// <remarks>
-        /// Asked of the operating system's table of listeners rather than tried
-        /// with a connection: on Windows, a connection to a closed port on the
-        /// loopback is refused only after some two seconds of retries.
-        /// </remarks>
-        private static Boolean Listening(UInt16 Port)
-
-            => IPGlobalProperties.GetIPGlobalProperties().
-                   GetActiveTcpListeners().
-                   Any(listener => listener.Port == Port);
 
         #endregion
 

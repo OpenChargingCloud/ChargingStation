@@ -18,7 +18,6 @@
 #region Usings
 
 using System.Collections.Concurrent;
-using System.Net.NetworkInformation;
 
 using NUnit.Framework;
 
@@ -80,15 +79,17 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var port      = (UInt16) link.V2GEndpoint!.Port;
 
-            Assert.That(Listening(port),   Is.True,     $"The V2G endpoint is not listening on port {port}.");
+            Assert.That(await Listeners.Listening(port),  Is.True,  $"The V2G endpoint is not listening on port {port}.");
 
             Assert.That(async () => await link.DisposeAsync(),
                         Throws.InstanceOf<IOException>().With.Message.EqualTo(ASlacMediumThatWillNotClose.Why),
                         "What failed did not reach whoever ended the link.");
 
+            var listening = await Listeners.Listening(port);
+
             Assert.Multiple(() => {
 
-                Assert.That(Listening(port),  Is.False,
+                Assert.That(listening,        Is.False,
                             $"The V2G endpoint is still listening on port {port} once the link was ended.");
 
                 Assert.That(warnings,         Has.Some.Matches<String>(warning => warning is not null &&
@@ -102,16 +103,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-
-        #region (private static) Listening(Port)
-
-        private static Boolean Listening(UInt16 Port)
-
-            => IPGlobalProperties.GetIPGlobalProperties().
-                   GetActiveTcpListeners().
-                   Any(listener => listener.Port == Port);
-
-        #endregion
 
         #region (private class) ASlacMediumThatWillNotClose
 
