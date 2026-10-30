@@ -1476,6 +1476,44 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) ConfigureDNS(Node)
+
+        /// <summary>
+        /// Show OCPP 2.1 how this station resolves names: DNSClientController,
+        /// and a DNSServerController for every slot, the unused ones included.
+        /// </summary>
+        /// <remarks>
+        /// Unlike the web payments above, nothing is copied: the controllers
+        /// read the node at every read, so a change from the page, the command
+        /// line or a pin learned on first use is what the next GetVariables
+        /// reads, and a node rebuilt for new EVSEs reads the same. Read-only
+        /// until the setters exist that go through TryUpdateDNSConfiguration.
+        /// </remarks>
+        private void ConfigureDNS(OCPPv2_1.CS.TestChargingStationNode Node)
+        {
+
+            var source = new OCPP.DNSDeviceModel(DNSConfigurationJSON);
+
+            Node.AddComponent(new OCPPv2_1.DNSClientController(source));
+
+            foreach (var server in OCPPv2_1.DNSServerController.AllOf(source))
+                Node.AddComponent(server);
+
+        }
+
+        #endregion
+
+        #region (internal) OCPPv2_1Node
+
+        /// <summary>
+        /// The OCPP 2.1 node that speaks for this station now, for a test about
+        /// what it says.
+        /// </summary>
+        internal OCPPv2_1.CS.TestChargingStationNode OCPPv2_1Node
+            => cs02;
+
+        #endregion
+
         #region (private) CarryOverToNewNode(WasCharging, WasReserved, Change)
 
         /// <summary>
@@ -1713,6 +1751,7 @@ namespace cloud.charging.open.ChargingStation
                                   );
 
             ConfigureWebPayments(chargingStation);
+            ConfigureDNS        (chargingStation);
 
             // Every back end this station dials is dialled again after a drop,
             // and until it answers at all: the node gives each client the

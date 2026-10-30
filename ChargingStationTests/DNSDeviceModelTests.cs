@@ -24,6 +24,7 @@ using NUnit.Framework;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
+using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.OCPP;
 
 #endregion
@@ -295,6 +296,70 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(model.ClientValue("Enabled"),     Is.EqualTo("false"));
                 Assert.That(model.ServerValue(1, "Address"),  Is.EqualTo("192.0.2.53"));
                 Assert.That(model.ServerValue(2, "Address"),  Is.EqualTo("2001:db8::53"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheOCPPNodeReadsTheStationsNameResolution()
+
+        /// <summary>
+        /// The station's OCPP 2.1 node answers GetVariables for the DNS
+        /// controllers from the station's node: a change made elsewhere is what
+        /// it reads next, a slot no server is in is there, and a node rebuilt
+        /// for changed EVSEs has them again.
+        /// </summary>
+        [Test]
+        public void TheOCPPNodeReadsTheStationsNameResolution()
+        {
+
+            static String? ValueIn(protocols.OCPPv2_1.CS.TestChargingStationNode  Node,
+                                   String                                         Component,
+                                   String?                                        Instance,
+                                   String                                         Variable)
+
+                => protocols.OCPPv2_1.DeviceModel.GetVariables(
+                       [
+                           new protocols.OCPPv2_1.GetVariableData(
+                               Component:   new protocols.OCPPv2_1.Component(Component, Instance),
+                               Variable:    new protocols.OCPPv2_1.Variable(Variable)
+                           )
+                       ],
+                       (name, evse) => Node.GetComponentConfigs(name, evse)
+                   ).Single().AttributeValue;
+
+            var before = station!.OCPPv2_1Node;
+
+            Assert.Multiple(() => {
+                Assert.That(ValueIn(before, "dnsclientcontroller", null, "DNSSECOK"),  Is.EqualTo("true"));
+                Assert.That(ValueIn(before, "DNSServerController", "2",  "Address"),   Is.EqualTo("2001:db8::53"));
+                Assert.That(ValueIn(before, "DNSServerController", "16", "Address"),   Is.EqualTo(""));
+            });
+
+            Assert.That(station.TryUpdateDNSConfiguration(new JObject(new JProperty("dnssecOK", false)), out var error), Is.True, error);
+
+            Assert.That(ValueIn(before, "DNSClientController", null, "DNSSECOK"), Is.EqualTo("false"), "read again, not kept");
+
+            var outOfService = new JObject(
+                                   new JProperty("evses", new JArray(
+                                       station.EVSEs.Select(evse => {
+                                           var json = evse.ToJSON();
+                                           json["operative"] = false;
+                                           return json;
+                                       })
+                                   ))
+                               );
+
+            Assert.That(station.TryUpdateEVSEConfiguration(outOfService, _ => true, out var change, out error, out _), Is.True, error);
+            Assert.That(change, Is.Not.EqualTo(EVSEChange.None), "taking the EVSEs out of service is a change");
+
+            var after = station.OCPPv2_1Node;
+
+            Assert.Multiple(() => {
+                Assert.That(after,                                                     Is.Not.SameAs(before), "the node was rebuilt");
+                Assert.That(after.AllComponentConfigs.Count(component => component.Name == nameof(protocols.OCPPv2_1.DNSServerController)), Is.EqualTo(16));
+                Assert.That(ValueIn(after, "DNSServerController", "1",  "RootPins"),   Is.EqualTo(ARoot));
             });
 
         }

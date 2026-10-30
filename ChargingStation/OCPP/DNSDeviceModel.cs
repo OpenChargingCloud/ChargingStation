@@ -49,7 +49,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// comes from.
     /// </para>
     /// </remarks>
-    public sealed class DNSDeviceModel
+    public sealed class DNSDeviceModel : protocols.OCPPv2_1.IDNSControllerSource
     {
 
         #region Data
@@ -129,6 +129,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public UInt16                      Slots
             => SlotsIn(section());
+
+        IEnumerable<String> protocols.OCPPv2_1.IDNSControllerSource.ClientVariables
+            => ClientVariables;
+
+        IEnumerable<String> protocols.OCPPv2_1.IDNSControllerSource.ServerVariables
+            => ServerVariables;
 
         #endregion
 
