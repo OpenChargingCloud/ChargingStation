@@ -48,8 +48,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// SecureDNS-DeviceModel-Concept.md B.7 and B.8 say where each value
     /// comes from.
     /// </para>
+    /// <para>
+    /// Made with a way to change the node, it takes the writes of a
+    /// SetVariables request as well - see DNSDeviceModel.Writing.cs.
+    /// </para>
     /// </remarks>
-    public sealed class DNSDeviceModel : protocols.OCPPv2_1.IDNSControllerSource
+    public sealed partial class DNSDeviceModel : protocols.OCPPv2_1.IDNSControllerSource
     {
 
         #region Data

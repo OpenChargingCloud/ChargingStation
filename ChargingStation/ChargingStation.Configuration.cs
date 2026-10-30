@@ -1486,13 +1486,21 @@ namespace cloud.charging.open.ChargingStation
         /// Unlike the web payments above, nothing is copied: the controllers
         /// read the node at every read, so a change from the page, the command
         /// line or a pin learned on first use is what the next GetVariables
-        /// reads, and a node rebuilt for new EVSEs reads the same. Read-only
-        /// until the setters exist that go through TryUpdateDNSConfiguration.
+        /// reads, and a node rebuilt for new EVSEs reads the same. A CSMS
+        /// changes them through TryUpdateDNSConfiguration, as the page does,
+        /// and only after the names of the CSMS connections were resolved with
+        /// the change: one that would stop them resolving is refused.
         /// </remarks>
         private void ConfigureDNS(OCPPv2_1.CS.TestChargingStationNode Node)
         {
 
-            var source = new OCPP.DNSDeviceModel(DNSConfigurationJSON);
+            var source = new OCPP.DNSDeviceModel(
+                             DNSConfigurationJSON,
+                             TryUpdateDNSConfiguration,
+                             ResolveWithAsync,
+                             CSMSNames,
+                             sentence => Log.Notice(sentence, "dns", "ocpp")
+                         );
 
             Node.AddComponent(new OCPPv2_1.DNSClientController(source));
 
@@ -1500,6 +1508,23 @@ namespace cloud.charging.open.ChargingStation
                 Node.AddComponent(server);
 
         }
+
+        #endregion
+
+        #region (private) CSMSNames()
+
+        /// <summary>
+        /// The names the CSMS connections are dialled by - every configured one,
+        /// whether it is dialled now or not - leaving out those dialled by an
+        /// address, which need no name resolution.
+        /// </summary>
+        private IEnumerable<String> CSMSNames()
+
+            => Connections.Connections.
+                           Select  (connection => connection.URL.Host.ToString()).
+                           Where   (host       => !System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _)).
+                           Distinct(StringComparer.OrdinalIgnoreCase).
+                           ToArray ();
 
         #endregion
 
