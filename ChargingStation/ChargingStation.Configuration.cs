@@ -1528,6 +1528,113 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) ConfigureNTS(Node)
+
+        /// <summary>
+        /// Show OCPP 2.1 how this station keeps its time: the standard
+        /// ClockCtrlr, NTPController, an NTPClientGroupController for every
+        /// group of time servers and an NTPClientController for every server.
+        /// </summary>
+        /// <remarks>
+        /// As for name resolution, nothing is copied: the controllers read the
+        /// node at every read, so a change from the page or a pin learned on
+        /// first use is what the next GetVariables reads. Which groups and
+        /// servers there are changes while the node stays, though, so the
+        /// components follow every group made, taken away or changed - see
+        /// FollowNTSGroups - on the node built last. Read-only until the
+        /// setters exist that go through TryUpdateNTSConfigurations.
+        /// </remarks>
+        private void ConfigureNTS(OCPPv2_1.CS.TestChargingStationNode Node)
+        {
+            lock (ntsComponentsLock)
+            {
+
+                ntsNode = Node;
+
+                Node.AddComponent(new OCPPv2_1.ClockController(ntsDeviceModel));
+                Node.AddComponent(new OCPPv2_1.NTPController  (ntsDeviceModel));
+
+                FollowNTSGroups(Node);
+
+            }
+        }
+
+        #endregion
+
+        #region (private) FollowNTSGroups([Node])
+
+        /// <summary>
+        /// Give the OCPP 2.1 node built last a component for every group of time
+        /// servers and every server there is now, and none for one there is not.
+        /// </summary>
+        /// <remarks>
+        /// Told by the node after every group made, taken away or changed, a
+        /// change of the servers' ids among them, and after it let go of its
+        /// configuration, so that what is read here is what was saved. A node
+        /// built for new EVSEs in the meantime is the one followed from then on:
+        /// it takes the lock to say so, and reads the groups as they are then.
+        /// </remarks>
+        private void FollowNTSGroups()
+        {
+            lock (ntsComponentsLock)
+            {
+                if (ntsNode is not null)
+                    FollowNTSGroups(ntsNode);
+            }
+        }
+
+        private void FollowNTSGroups(OCPPv2_1.CS.TestChargingStationNode Node)
+        {
+
+            var groups   = ntsDeviceModel.Groups.
+                                          Distinct  (StringComparer.OrdinalIgnoreCase).
+                                          ToArray   ();
+
+            // A server belongs to the first group naming it, as for
+            // NTPClientController.AllOf.
+            var clients  = groups.
+                               SelectMany(group  => ntsDeviceModel.ClientsOf(group).Select(client => (Group: group, Client: client))).
+                               DistinctBy(member => member.Client, StringComparer.OrdinalIgnoreCase).
+                               ToArray   ();
+
+            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.NTPClientGroupController)).OfType<OCPPv2_1.NTPClientGroupController>().ToArray())
+                if (!groups.Contains(shown.Group, StringComparer.OrdinalIgnoreCase))
+                    Node.RemoveComponent(shown.Name, shown.Instance);
+
+            // Gone from its group, or moved to another one, whose description
+            // it would otherwise go on giving.
+            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.NTPClientController)).OfType<OCPPv2_1.NTPClientController>().ToArray())
+                if (!clients.Any(member => String.Equals(member.Client, shown.Client, StringComparison.OrdinalIgnoreCase) &&
+                                           String.Equals(member.Group,  shown.Group,  StringComparison.OrdinalIgnoreCase)))
+                    Node.RemoveComponent(shown.Name, shown.Instance);
+
+            // A component already there is kept: the node adds none twice. One
+            // taken away since it was read here is not added at all, and the
+            // node tells of that change next.
+            foreach (var group in groups)
+            {
+                try
+                {
+                    Node.AddComponent(new OCPPv2_1.NTPClientGroupController(ntsDeviceModel, group));
+                }
+                catch (ArgumentException)
+                { }
+            }
+
+            foreach (var (group, client) in clients)
+            {
+                try
+                {
+                    Node.AddComponent(new OCPPv2_1.NTPClientController(ntsDeviceModel, group, client));
+                }
+                catch (ArgumentException)
+                { }
+            }
+
+        }
+
+        #endregion
+
         #region (internal) OCPPv2_1Node
 
         /// <summary>
@@ -1777,6 +1884,7 @@ namespace cloud.charging.open.ChargingStation
 
             ConfigureWebPayments(chargingStation);
             ConfigureDNS        (chargingStation);
+            ConfigureNTS        (chargingStation);
 
             // Every back end this station dials is dialled again after a drop,
             // and until it answers at all: the node gives each client the

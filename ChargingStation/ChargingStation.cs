@@ -201,6 +201,12 @@ namespace cloud.charging.open.ChargingStation
         private           OCPPv1_6.   TestChargePointNode      cs01;
         private           OCPPv2_1.CS.TestChargingStationNode  cs02;
 
+        // What OCPP 2.1 reads of the time servers, and the node whose
+        // components for them follow the groups - see ConfigureNTS.
+        private readonly  NTSDeviceModel                       ntsDeviceModel;
+        private readonly  Lock                                 ntsComponentsLock = new();
+        private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
+
         #endregion
 
         #region Properties
@@ -739,6 +745,14 @@ namespace cloud.charging.open.ChargingStation
             #endregion
 
             #region The OCPP nodes
+
+            // What OCPP 2.1 shows of the time servers is read from this node at
+            // every read; which components there are for them follows each
+            // group made, taken away or changed.
+            ntsDeviceModel     = new NTSDeviceModel(this);
+            OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
+            OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
+            OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
 
             // Built from the EVSEs above, and rebuilt whenever those change -
             // see BuildOCPPNodes, which is the one place that knows how an EVSE
