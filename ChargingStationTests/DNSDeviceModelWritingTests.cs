@@ -396,6 +396,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             public List<JObject>        Changes          { get; } = [];
 
+            public List<String?>        Origins          { get; } = [];
+
+            /// <summary>
+            /// What happens elsewhere while a change is resolved with: a save
+            /// on the page, say.
+            /// </summary>
+            public Action?              Meanwhile        { get; set; }
+
             public Boolean              NotSaved         { get; set; }
 
             public Boolean              ResolvesNow      { get; set; } = true;
@@ -404,18 +412,25 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             public String[]             Names            { get; set; } = [ "csms.example.test" ];
 
-            public Boolean TryUpdate(JObject                           Change,
+            public Boolean TryUpdate(Func<JObject, JObject?>           Change,
                                      [NotNullWhen(false)] out String?  Error,
-                                     out Boolean                       NotSaved)
+                                     out Boolean                       NotSaved,
+                                     String?                           Origin = null)
             {
 
                 NotSaved = this.NotSaved;
                 Error    = NotSaved ? "The file is read-only." : null;
 
-                if (!NotSaved)
-                    Changes.Add(Change);
+                if (NotSaved)
+                    return false;
 
-                return Error is null;
+                if (Change(Section) is JObject change)
+                {
+                    Changes.Add(change);
+                    Origins.Add(Origin);
+                }
+
+                return true;
 
             }
 
@@ -424,7 +439,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                   TimeSpan             Within,
                                                   CancellationToken    CancellationToken)
 
-                => Task.FromResult(new DNSPreflight(
+                => Task.Run(() => {
+
+                       if (Change.Count > 0)
+                           Meanwhile?.Invoke();
+
+                       return new DNSPreflight(
                                        Names.ToDictionary(name => name, _ => Change.Count == 0 ? ResolvesNow : ResolvesThen),
                                        Change.Count == 0 || ResolvesThen
                                            ? []
@@ -443,7 +463,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                    FirstSeen:               false,
                                                    Steps:                   []
                                                ) ]
-                                   ));
+                                   );
+
+                   });
 
             public DNSDeviceModel Source()
 
@@ -567,6 +589,100 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(sent?[1]?["onMismatch"],                                   Is.Null, "a server held to nothing has no mismatch to come to");
                 Assert.That(sent?[1]?[ServerPins.AsShownKey],                          Is.InstanceOf<JObject>().And.Empty);
 
+            });
+
+        }
+
+        #endregion
+
+
+        #region AChangeNamesTheCSMSThatMadeIt()
+
+        /// <summary>
+        /// The node writes a change of a CSMS down as the CSMS's, and tells it
+        /// so: a bridge telling the CSMS of local changes leaves its own out.
+        /// </summary>
+        [Test]
+        public async Task AChangeNamesTheCSMSThatMadeIt()
+        {
+
+            var told    = new List<(IReadOnlyList<String> Changes, String? Origin)>();
+
+            station!.OnDNSConfigurationChanged += (changes, origin) => {
+                lock (told)
+                    told.Add((changes, origin));
+            };
+
+            var before  = station.Log.LastId;
+            var results = await Set(null, (null, "MaxRetries", "3"));
+
+            Assert.Multiple(() => {
+
+                Assert.That(results.Single().AttributeStatus,                          Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+
+                Assert.That(told.Select   (change => change.Origin),                   Is.EqualTo(new[] { "ocpp:CSMS" }));
+                Assert.That(told.SelectMany(change => change.Changes),                 Is.EqualTo(new[] { "max retries = 3" }));
+                Assert.That(told.All(change => ChangeOrigin.IsOCPP(change.Origin)),    Is.True);
+
+                Assert.That(station.Log.Recent(100, before, null).Select(entry => entry.Message),
+                            Has.Some.EqualTo("DNS configuration changed: max retries = 3 (by ocpp:CSMS)."));
+
+            });
+
+        }
+
+        #endregion
+
+        #region AServerAddedElsewhereMeanwhileIsNotWrittenAway()
+
+        /// <summary>
+        /// A server added on the page while a change of the CSMS was resolved
+        /// with: the whole list the CSMS's change would send back is not the
+        /// one the node holds, so the change is refused as ValueChanged, and
+        /// the page's server is kept.
+        /// </summary>
+        [Test]
+        public async Task AServerAddedElsewhereMeanwhileIsNotWrittenAway()
+        {
+
+            var node = new ANodeOfWords();
+
+            node.Meanwhile = () => ((JArray) node.Section["servers"]!).Add(new JObject(new JProperty("address", "198.51.100.53"), new JProperty("port", 53), new JProperty("transport", "UDP")));
+
+            var results = await SetIn(node.Source(), null, ("2", "Port", "5353"));
+
+            Assert.Multiple(() => {
+                Assert.That(results.Single().AttributeStatus,                          Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(results.Single().AttributeStatusInfo?.ReasonCode,          Is.EqualTo("ValueChanged"));
+                Assert.That(node.Changes,                                              Is.Empty,  "nothing was sent that would write the page's server away");
+                Assert.That((node.Section["servers"] as JArray)?.Count,                Is.EqualTo(3));
+            });
+
+        }
+
+        #endregion
+
+        #region TheSameServersWrittenOtherwiseAreNoChangeElsewhere()
+
+        /// <summary>
+        /// The node writes a server as it reads it - an IPv6 address in its
+        /// short form, a port written out. The second change of a request
+        /// whose first sent an address written otherwise finds the servers
+        /// the first one sent, not a change made elsewhere.
+        /// </summary>
+        [Test]
+        public async Task TheSameServersWrittenOtherwiseAreNoChangeElsewhere()
+        {
+
+            var results = await Set(null,
+                                    ("3", "Address", "2001:DB8:0:0:0:0:0:5353"),
+                                    ("1", "Port",    "5300"));
+
+            Assert.Multiple(() => {
+                Assert.That(StatusesOf(results),                     Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(model.ServerValue(3, "Address"),         Is.EqualTo("2001:db8::5353"));
+                Assert.That(model.ServerValue(3, "Port"),            Is.EqualTo("53"));
+                Assert.That(model.ServerValue(1, "Port"),            Is.EqualTo("5300"));
             });
 
         }

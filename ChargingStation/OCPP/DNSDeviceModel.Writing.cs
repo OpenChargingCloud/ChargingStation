@@ -24,6 +24,8 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
+
 using cloud.charging.open.protocols.OCPPv2_1;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -35,14 +37,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
     /// <summary>
     /// Change how a node resolves names, as WWCPNode.TryUpdateDNSConfiguration
-    /// does: what the change does not mention stays as it is.
+    /// does: by a change made from the configuration as it is while nothing
+    /// else can change it, and what the change does not mention stays as it is.
     /// </summary>
-    /// <param name="Change">The change, in the shape of the "dns" section of the configuration file.</param>
+    /// <param name="Change">The change, in the shape of the "dns" section of the configuration file, from the section as the node says it then; null for none.</param>
     /// <param name="Error">Why nothing was changed.</param>
     /// <param name="NotSaved">True where the configuration file could not be read or written, and nothing was changed.</param>
-    public delegate Boolean TryUpdateDNSConfigurationDelegate(JObject                           Change,
+    /// <param name="Origin">Who makes the change, as ChangeOrigin says it: "ocpp:CSMS".</param>
+    public delegate Boolean TryUpdateDNSConfigurationDelegate(Func<JObject, JObject?>           Change,
                                                               [NotNullWhen(false)] out String?  Error,
-                                                              out Boolean                       NotSaved);
+                                                              out Boolean                       NotSaved,
+                                                              String?                           Origin = null);
 
     /// <summary>
     /// Resolve names as a node would with a change of its name resolution in
@@ -87,6 +92,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// would not resolve then makes it CSMSUnreachable. A CSMS must not cut
     /// itself off, and nothing would show it before the next connection.
     /// SecureDNS-DeviceModel-Concept.md B.6 and B.9 say all of this at length.
+    /// </para>
+    /// <para>
+    /// The node is handed each change together with its list as it is while
+    /// nothing else can change it. A list that is no longer the one the slot
+    /// table holds - a server added on the page while the request was being
+    /// made - would be written away by the whole list sent back, so the
+    /// change is refused as ValueChanged instead: the CSMS reads again and
+    /// decides. Each change names the CSMS that made it, as the node writes
+    /// it down: "ocpp:" and the start of the request's network path.
     /// </para>
     /// </remarks>
     public sealed partial class DNSDeviceModel : ISetVariablesSource
@@ -506,9 +520,28 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             #endregion
 
-            log?.Invoke($"A CSMS changes the name resolution of this charging station: {section.ToString(Formatting.None)}");
+            var origin    = ChangeOrigin.OCPP(SenderOf(Change));
+            var elsewhere = false;
 
-            if (!update!(section, out var refused, out var notSaved))
+            log?.Invoke($"A CSMS changes the name resolution of this charging station (by {origin}): {section.ToString(Formatting.None)}");
+
+            // Made from the list as the node holds it when nothing else can
+            // change it: a list changed elsewhere since the slot table was
+            // read would lose that change to the whole list sent back.
+            if (!update!(current => {
+
+                             if (section["servers"] is not null && !SameServers(current, Table))
+                             {
+                                 elsewhere = true;
+                                 return null;
+                             }
+
+                             return section;
+
+                         },
+                         out var refused,
+                         out var notSaved,
+                         origin))
             {
 
                 if (notSaved)
@@ -520,6 +553,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 return;
 
+            }
+
+            if (elsewhere)
+            {
+                Refuse(Change, Change, Results, false, "ValueChanged",
+                       "The name servers were changed elsewhere while this request was made, and nothing of it was put into effect: read them again!");
+                return;
             }
 
             // In effect: from now on the servers are held to what was sent.
@@ -548,6 +588,64 @@ namespace cloud.charging.open.ChargingStation.OCPP
             => Section.Properties().Any(property => property.Name != "servers") ||
                (Section["servers"] is JArray servers &&
                 !JToken.DeepEquals(servers, new JArray(Table.OfType<SlotServer>().Select(server => server.ToJSON()))));
+
+        #endregion
+
+        #region (private static) SameServers(Section, Table)
+
+        /// <summary>
+        /// Whether the node holds the servers the slot table holds, in that
+        /// order and with those timeouts - as the node tells servers apart, so
+        /// that "2001:DB8::53" and its short form, or a port left out and the
+        /// port of its transport, are the same server.
+        /// </summary>
+        private static Boolean SameServers(JObject        Section,
+                                           SlotServer?[]  Table)
+        {
+
+            var held   = ServersIn(Section["servers"] as JArray ?? []);
+            var meant  = ServersIn(new JArray(Table.OfType<SlotServer>().Select(server => server.ToJSON())));
+
+            return held is not null && meant is not null && held.SequenceEqual(meant);
+
+        }
+
+        /// <summary>
+        /// The servers of a list, or null where one of them cannot be read.
+        /// </summary>
+        private static (DNSServerConfig Server, TimeSpan? QueryTimeout)[]? ServersIn(JArray Servers)
+        {
+
+            var servers = new List<(DNSServerConfig Server, TimeSpan? QueryTimeout)>();
+
+            foreach (var json in Servers)
+            {
+
+                if (!DNSConfiguration.TryParseServer(json, out var server, out _))
+                    return null;
+
+                servers.Add((server, server.QueryTimeout));
+
+            }
+
+            return [.. servers];
+
+        }
+
+        #endregion
+
+        #region (private static) SenderOf(Change)
+
+        /// <summary>
+        /// Who sent the request of a change, by the start of its network path:
+        /// "CSMS" for the one the station is connected to directly, and for a
+        /// request that came by no path at all.
+        /// </summary>
+        private static String SenderOf(IReadOnlyList<Item> Change)
+
+            => Change.FirstOrDefault()?.Entry.Request?.NetworkPath is { Length: > 0 } path
+                   ? path.Source.ToString()
+                   : "CSMS";
 
         #endregion
 
