@@ -142,10 +142,23 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Meters        = "meters";
 
         /// <summary>
+        /// The e-mobility providers this station knows: read, which they are
+        /// and their logos; edited, a logo put up, replaced or removed - over
+        /// SFTP, in /logos.
+        /// </summary>
+        /// <remarks>
+        /// Its own resource rather than a part of the display, because dimming
+        /// the screen and showing other companies' logos on it are different
+        /// decisions - and it is where a page that edits the providers
+        /// themselves belongs, once something other than the file edits them.
+        /// </remarks>
+        public const String  Providers     = "providers";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
-                                                                    Display, Session, Connections, V2G, Meters ];
+                                                                    Display, Session, Connections, V2G, Meters, Providers ];
 
         #endregion
 
@@ -154,9 +167,10 @@ namespace cloud.charging.open.ChargingStation.Web
         /// <summary>
         /// The operator of this charging station: may point it at other name
         /// and time servers and test them, may say where it dials and with
-        /// what, may take an outlet or a reader out of service, and runs the
-        /// display and the sessions - but may not redescribe the hardware it is
-        /// bolted to, nor change what it may deliver.
+        /// what, may take an outlet or a reader out of service, runs the
+        /// display and the sessions, and puts up the providers' logos - but may
+        /// not redescribe the hardware it is bolted to, nor change what it may
+        /// deliver.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
                                                        [ Permission.Read(Permission.AnyResource),
@@ -170,8 +184,9 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Edit(Availability),
                                                          Permission.Edit(Display),
                                                          Permission.Run (Display),
-                                                         Permission.Run (Session) ],
-                                                       "runs the station: its network, its connections, what is in service, the display and the sessions");
+                                                         Permission.Run (Session),
+                                                         Permission.Edit(Providers) ],
+                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos and the sessions");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator

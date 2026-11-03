@@ -176,6 +176,7 @@ is handed something else.
 | `HTTPAPI/LocalAppHTTPAPI.cs` | the local app server: `POST /localStart`, `POST /localStop/{SessionId}` and the WebSocket `/localApp`, one piece of code behind both doors |
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
 | `ChargingStation.Display.cs` | the display's own server: built, and moved to another port while the station runs, the old port saying where it went for a while |
+| `ChargingStation.Logos.cs`, `Kiosk/Logos.cs` | the logos the display shows as files put up over SFTP: the two areas in `logos/`, what a logo file may be, and the URL the display fetches it by |
 | `Web/StationAccess.cs`    | the resources a station adds to the node's, and its two roles as data - `cpo` and `installer`, beside the node's `viewer` and `systemadmin` |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
@@ -448,6 +449,8 @@ and the station's nine, in `Web/StationAccess.cs`:
 | `session`      | read, the reservations; run, an outlet held, a session paid at the screen started, one stopped |
 | `connections`  | where the station dials, with what credentials and keys, and where each connection stands; run, a test |
 | `v2g`          | the wire below the charging cable |
+| `meters`       | how each meter is read and what it measures; edited, where it is read and whom it is believed to be; run, a request that writes to it |
+| `providers`    | read, the e-mobility providers and their logos; edited, a logo put up, replaced or removed over SFTP |
 
 Asked of the node, which answers from the roles it put together at the start:
 its own two, the station's two, and whatever the configuration file adds.
@@ -455,8 +458,8 @@ its own two, the station's two, and whatever the configuration file adds.
 | role | may |
 |---|---|
 | `viewer`      | `*:read` - look at everything, and change nothing |
-| `cpo`         | that, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability` and `display` edited, `display` and `session` run |
-| `installer`   | that, plus `power:edit` and `calibration:edit` |
+| `cpo`         | that, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run |
+| `installer`   | that, plus `power:edit`, `calibration:edit`, `meters:edit` and `meters:run` |
 | `systemadmin` | everything, and nothing the file can take away - the certificate store included, which nobody else may edit |
 
 The three about the same EVSE are kept apart, because they are different kinds
@@ -679,6 +682,36 @@ so - it is enough to print a name on a screen and nowhere near enough to bill
 anybody, which is the right way round for a thing on a wall in public. Somebody
 charging ad hoc has no provider, and the name over that session is the
 operator's, because that is who they are buying from.
+
+A logo is better kept as a file on the station than as a URL the screen has
+to reach over LTE, or a `data:` URI that makes the file hard to read. With SFTP
+switched on (`"ssh": { "sftp": true }`, see WWCP_Node's "Files over SFTP"),
+whoever may edit `providers` - the CPO, the installer - puts one up:
+
+```
+/logos/operator.svg
+/logos/providers/<provider id>.png
+```
+
+kept in `logos/` beside the configuration file. A file is bound to its
+provider by its name, and a name that is no provider's of this station is
+refused before a byte is sent, with the providers there are. A `.png`,
+`.jpg`/`.jpeg`, `.webp` or `.svg`, at most 512 KiB and, but for an SVG,
+2048×2048 pixels; what it holds must be what its name says - the first bytes,
+the header - and an SVG may hold no script, no `<foreignObject>`, no handler of
+an event and nothing it would fetch from elsewhere. A refused upload leaves
+nothing behind, and one picture to a provider: `ionity.svg` put up takes
+`ionity.png` away. WinSCP's way of uploading a larger file - under
+`<name>.filepart`, renamed after - is put in place at the rename.
+
+A file wins over the file's `"logo"`, which stays what is shown where there is
+none. The display fetches it from its own port, without a sign-in -
+`/api/kiosk/logos/providers/ionity.svg?v=<the first 8 hex digits of its
+SHA-256>`, a new URL for a new picture, so that it is on the screen at the next
+swipe - served with `Content-Security-Policy: default-src 'none';
+style-src 'unsafe-inline'; sandbox` and `X-Content-Type-Options: nosniff`, and
+a 304 for a display that has it already. Who put up or removed which logo is in
+the log, tagged `sftp` and `providers`.
 
 ### Web payments
 

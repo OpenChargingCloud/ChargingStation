@@ -144,7 +144,91 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "kiosk/rfid",               PostRFIDCard,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "kiosk/reservation/cancel", PostCancelHold,    HTTPMethod.POST);
 
+            AddHandler(HTTPPath.Root + $"{ChargingStation.KioskLogosPath}/{{name}}",
+                       request => GetLogo(request, ChargingStation.LogosArea),
+                       HTTPMethod.GET);
+
+            AddHandler(HTTPPath.Root + $"{ChargingStation.KioskLogosPath}/providers/{{name}}",
+                       request => GetLogo(request, ChargingStation.ProviderLogosArea),
+                       HTTPMethod.GET);
+
         }
+
+        #endregion
+
+
+        #region (private) GetLogo(Request, Area)
+
+        /// <summary>
+        /// GET /api/kiosk/logos/{name} and /api/kiosk/logos/providers/{name}: a
+        /// logo put up over SFTP, as the display shows it.
+        /// </summary>
+        /// <remarks>
+        /// Without a sign-in, as everything here: the screen shows the picture to
+        /// whoever stands in front of it anyway. Only a name its area shows, and
+        /// only what is there. Served so that nothing in it can act even where
+        /// it is opened by itself rather than as a picture - an SVG gets no
+        /// script, no fetch and no frame (it was checked for those before it was
+        /// put in place, and this holds for whatever a check might miss) - and is
+        /// taken as nothing but what it says it is. Its ETag is its SHA-256,
+        /// which the display's URL carries as well, so that a new logo is a new
+        /// URL and an unchanged one a 304.
+        /// </remarks>
+        private Task<HTTPResponse> GetLogo(HTTPRequest  Request,
+                                           String       Area)
+        {
+
+            var name = Request.ParsedURLParameters.Length > 0
+                           ? Uri.UnescapeDataString(Request.ParsedURLParameters[0])
+                           : "";
+
+            if (Station.LogoFile(Area, name) is not (String file, String contentType, String sha256))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, $"There is no logo '{name}'."));
+
+            var etag = $"\"{sha256}\"";
+
+            if (ContentNegotiation.IfNoneMatchMatches(Request.IfNoneMatch, etag))
+                return Task.FromResult(
+                           Logo(Request, HTTPStatusCode.NotModified, contentType, etag, null)
+                       );
+
+            Byte[] content;
+
+            try
+            {
+                content = File.ReadAllBytes(file);
+            }
+            catch (Exception problem) when (problem is IOException or UnauthorizedAccessException)
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, $"The logo '{name}' could not be read."));
+            }
+
+            return Task.FromResult(
+                       Logo(Request, HTTPStatusCode.OK, contentType, etag, content)
+                   );
+
+        }
+
+        /// <summary>
+        /// A logo as the display gets it: asked again before it is shown from
+        /// a cache, and nothing in it let act.
+        /// </summary>
+        private static HTTPResponse Logo(HTTPRequest     Request,
+                                         HTTPStatusCode  Status,
+                                         String          ContentType,
+                                         String          ETag,
+                                         Byte[]?         Content)
+
+            => new HTTPResponse.Builder(Request) {
+                   HTTPStatusCode  = Status,
+                   ContentType     = HTTPContentType.TryParse(ContentType, out var type) ? type : HTTPContentType.Application.OCTETSTREAM,
+                   Content         = Content,
+                   ETag            = ETag,
+                   CacheControl    = "no-cache",
+                   Connection      = ConnectionType.KeepAlive
+               }.Set("Content-Security-Policy",  "default-src 'none'; style-src 'unsafe-inline'; sandbox").
+                 Set("X-Content-Type-Options",   "nosniff").
+                 AsImmutable;
 
         #endregion
 

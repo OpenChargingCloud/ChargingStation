@@ -110,7 +110,9 @@ namespace cloud.charging.open.ChargingStation
 
                        new JProperty("station",      new JObject(
                                                          new JProperty("name",      Operator.Name),
-                                                         new JProperty("logo",      Operator.Logo),
+                                                         // The file put up over SFTP, before what the
+                                                         // configuration file says - see ChargingStation.Logos.cs.
+                                                         new JProperty("logo",      LogoURL(null, Operator.Logo)),
                                                          // What the screen speaks. The page has words of its
                                                          // own to put on it - "free", "scan to charge" - and
                                                          // they are no use in a language nobody there reads.
@@ -541,13 +543,13 @@ namespace cloud.charging.open.ChargingStation
             if (Session.Provider is not null)
                 return new JObject(
                            new JProperty("name",  Session.Provider.Name),
-                           new JProperty("logo",  Session.Provider.Logo)
+                           new JProperty("logo",  LogoURL(Session.Provider.Id, Session.Provider.Logo))
                        );
 
             if (Session.Method == AuthorizationMethod.AdHoc && Operator.Name is not null)
                 return new JObject(
                            new JProperty("name",  Operator.Name),
-                           new JProperty("logo",  Operator.Logo)
+                           new JProperty("logo",  LogoURL(null, Operator.Logo))
                        );
 
             return null;

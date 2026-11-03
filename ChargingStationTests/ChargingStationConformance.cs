@@ -47,6 +47,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             => TestStations.New(Directory, Configuration);
 
+        protected override WWCPNode NewNodeWritingLogFiles(String   Directory,
+                                                           JObject  Configuration,
+                                                           String   LogPath)
+
+            => TestStations.New(Directory, Configuration, LogPath: LogPath);
+
     }
 
 }

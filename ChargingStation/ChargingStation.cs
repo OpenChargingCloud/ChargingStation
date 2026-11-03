@@ -625,6 +625,9 @@ namespace cloud.charging.open.ChargingStation
 
             this.Operator = configuration.Operator ?? new OperatorConfiguration();
 
+            // The logos the display shows, as files put up over SFTP.
+            AddLogoAreas();
+
             this.WebPaymentsEnabled = configuration.WebPayments?.Enabled == true &&
                                       configuration.WebPayments.URLTemplate.HasValue;
 
