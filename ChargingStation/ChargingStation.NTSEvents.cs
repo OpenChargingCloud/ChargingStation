@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Globalization;
+
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
@@ -49,8 +51,10 @@ namespace cloud.charging.open.ChargingStation
     /// security event carries as much of it as fits.
     /// </para>
     /// <para>
-    /// SettingSystemTime is not told: the node has no threshold for an offset
-    /// to measure against yet (B.4 point 6).
+    /// SettingSystemTime is told when a check finds the clock at least the
+    /// legal group's threshold off, and again only after a check found it
+    /// closer (B.4 point 6): the node does not set its clock, so an offset is
+    /// the same offset until something else sets it.
     /// </para>
     /// </remarks>
     public partial class ChargingStation
@@ -84,6 +88,8 @@ namespace cloud.charging.open.ChargingStation
             };
 
             OnNTSGroupLimited += WhenNTSGroupLimited;
+
+            OnNTSOffsetReached += WhenNTSOffsetReached;
 
             OnServerNews += (judgement, news) => {
 
@@ -134,6 +140,25 @@ namespace cloud.charging.open.ChargingStation
 
             CheckMonitors();
 
+        }
+
+        #endregion
+
+        #region (internal) WhenNTSOffsetReached(Group, Offset)
+
+        /// <summary>
+        /// A check found the clock at least the legal group's threshold off.
+        /// </summary>
+        /// <remarks>
+        /// Of its own, so that a test can say it without a time server whose
+        /// clock is off.
+        /// </remarks>
+        internal void WhenNTSOffsetReached(NTSGroup  Group,
+                                           TimeSpan  Offset)
+        {
+            TellCSMS("SettingSystemTime",
+                     $"nts.groups.{Group.Id}: the clock is {Offset.TotalSeconds.ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture)} s off, " +
+                     $"the threshold is {Group.OffsetReportingThreshold?.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) ?? "none"} s");
         }
 
         #endregion

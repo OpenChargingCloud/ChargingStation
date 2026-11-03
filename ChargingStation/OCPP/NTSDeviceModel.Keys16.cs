@@ -61,9 +61,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// set the one interval the node checks at, where 2.1 has to set both at
     /// once. Keys of the paper the node does not have - the delay asymmetries,
     /// preflight, separate NTS-KE servers, the cookie refresh, the AEAD
-    /// algorithm, signed responses and the common "ntp.reboot.*" and
-    /// "ntp.timeAdjustmentReportingThreshold" - are not listed, and a change of
-    /// one is NotSupported. Groups cannot be made or taken away through 1.6.
+    /// algorithm, signed responses and the common "ntp.reboot.*" - are not
+    /// listed, and a change of one is NotSupported. Groups cannot be made or
+    /// taken away through 1.6.
+    /// </para>
+    /// <para>
+    /// The common "ntp.timeAdjustmentReportingThreshold" is ClockCtrlr's
+    /// TimeAdjustmentReportingThreshold, and so the legal group's: listed
+    /// where there is one, and "" for never, as in 2.1.
     /// </para>
     /// </remarks>
     public sealed partial class NTSDeviceModel : OCPP16.CP.IConfigurationKeySource
@@ -112,6 +117,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("ntske.rootPins",           "RootPins")
         ];
 
+        /// <summary>
+        /// The common key of the reporting threshold, ClockCtrlr's
+        /// TimeAdjustmentReportingThreshold.
+        /// </summary>
+        private const String thresholdKey16 = "ntp.timeAdjustmentReportingThreshold";
+
         private static readonly Regex key16 = new (@"^(ntp|ntske)\.([a-z][a-z0-9-]*)\.([A-Za-z]+)(?:\.([1-9][0-9]*))?$",
                                                    RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
@@ -130,6 +141,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
             {
 
                 var keys = new List<String>();
+
+                if (node.NTSGroupOf(NTSGroup.LegalId) is not null)
+                    keys.Add(thresholdKey16);
 
                 foreach (var group in Groups)
                 {
@@ -164,6 +178,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public OCPP16.ConfigurationKey? Get(String Key)
         {
+
+            if (IsThresholdKey(Key))
+                return node.NTSGroupOf(NTSGroup.LegalId) is not null
+                           ? new OCPP16.ConfigurationKey(thresholdKey16, OCPP16.AccessRights.ReadWrite, ClockValue("TimeAdjustmentReportingThreshold") ?? "")
+                           : null;
 
             if (!TryKey(Key, out var group, out var name, out var variable, out var perServer, out var number))
                 return null;
@@ -211,6 +230,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                                                    CancellationToken  CancellationToken = default)
         {
 
+            if (IsThresholdKey(Key))
+                return Get(Key) is null
+                           ? null
+                           : await SetAsync([ new OCPP21.SetVariableData(new OCPP21.Component(OCPP21.ClockController.ComponentName),
+                                                                         new OCPP21.Variable("TimeAdjustmentReportingThreshold"),
+                                                                         Value.Trim()) ],
+                                            Sender,
+                                            CancellationToken);
+
             if (Get(Key) is null ||
                 !TryKey(Key, out var group, out _, out var variable, out var perServer, out var number))
             {
@@ -257,13 +285,31 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (entries.Count == 0)
                 return OCPP16.ConfigurationStatus.Accepted;
 
+            return await SetAsync(entries, Sender, CancellationToken);
+
+        }
+
+        #endregion
+
+
+        #region (private) SetAsync(Entries, Sender, CancellationToken)
+
+        /// <summary>
+        /// The entries a key stands for, set as the CSMS of OCPP 2.1 sets them,
+        /// with ACID where they are several: accepted where all of them are.
+        /// </summary>
+        private async Task<OCPP16.ConfigurationStatus> SetAsync(List<OCPP21.SetVariableData>  Entries,
+                                                                String?                       Sender,
+                                                                CancellationToken             CancellationToken)
+        {
+
             OCPP21.ComponentConfig[] components = [ new OCPP21.ClockController(this), .. OCPP21.NTPController.AllOf(this) ];
 
             var results = await OCPP21.DeviceModel.SetVariablesAsync(
                                     new OCPP21.CSMS.SetVariablesRequest(
                                         Destination:           SourceRouting.CSMS,
-                                        VariableData:          entries,
-                                        DataConsistencyModel:  entries.Count > 1 ? OCPP21.DataConsistencyModel.ACID : null,
+                                        VariableData:          Entries,
+                                        DataConsistencyModel:  Entries.Count > 1 ? OCPP21.DataConsistencyModel.ACID : null,
                                         NetworkPath:           NetworkingNode_Id.TryParse(Sender ?? "", out var sender)
                                                                    ? NetworkPath.From(sender)
                                                                    : NetworkPath.Empty
@@ -448,6 +494,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
             return false;
 
         }
+
+        #endregion
+
+        #region (private static) IsThresholdKey(Key)
+
+        private static Boolean IsThresholdKey(String Key)
+
+            => String.Equals(Key.Trim(), thresholdKey16, StringComparison.OrdinalIgnoreCase);
 
         #endregion
 

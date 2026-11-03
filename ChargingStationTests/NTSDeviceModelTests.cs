@@ -292,6 +292,37 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheReportingThresholdIsTheLegalGroups()
+
+        /// <summary>
+        /// ClockCtrlr's TimeAdjustmentReportingThreshold is the legal group's
+        /// threshold of an offset: the white paper's five seconds where the
+        /// file names none, and empty where it says never.
+        /// </summary>
+        [Test]
+        public void TheReportingThresholdIsTheLegalGroups()
+        {
+
+            var five   = model.ClockValue("TimeAdjustmentReportingThreshold");
+
+            Assert.That(station!.TryUpdateNTSConfiguration(station.LegalTime, JObject.Parse("""{ "offsetReportingThresholdSeconds": 9 }"""), out var error, out _),  Is.True,  error);
+
+            var nine   = model.ClockValue("TimeAdjustmentReportingThreshold");
+
+            Assert.That(station.TryUpdateNTSConfiguration(station.LegalTime, JObject.Parse("""{ "offsetReportingThresholdSeconds": false }"""), out error, out _),  Is.True,  error);
+
+            var never  = model.ClockValue("TimeAdjustmentReportingThreshold");
+
+            Assert.Multiple(() => {
+                Assert.That(five,   Is.EqualTo("5"));
+                Assert.That(nine,   Is.EqualTo("9"));
+                Assert.That(never,  Is.EqualTo(""),  "never is an empty value, which OCPP lets the variable have");
+            });
+
+        }
+
+        #endregion
+
         #region WithTheLegalGroupOnTheTimeComesFromNTP()
 
         /// <summary>

@@ -568,6 +568,55 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheReportingThresholdIsTheLegalGroups()
+
+        /// <summary>
+        /// ClockCtrlr's TimeAdjustmentReportingThreshold goes into the legal
+        /// group, with its servers where a request names both; empty is never,
+        /// written down as false, and below a second is out of range.
+        /// </summary>
+        [Test]
+        public async Task TheReportingThresholdIsTheLegalGroups()
+        {
+
+            var seven        = await Set(OCPP21.DataConsistencyModel.ACID,
+                                         Clock("1",  "other.example.invalid"),
+                                         Clock(null, "7", "TimeAdjustmentReportingThreshold"));
+
+            var sevenOnDisk  = OnDisk("legal")?["offsetReportingThresholdSeconds"];
+            var sevenRead    = model.ClockValue("TimeAdjustmentReportingThreshold");
+            var firstServer  = model.ClockValue("NtpServerUri", "1");
+
+            var never        = await Set(null, Clock(null, "",  "TimeAdjustmentReportingThreshold"));
+
+            var neverOnDisk  = OnDisk("legal")?["offsetReportingThresholdSeconds"];
+            var neverRead    = model.ClockValue("TimeAdjustmentReportingThreshold");
+
+            var zero         = await Set(null, Clock(null, "0", "TimeAdjustmentReportingThreshold"));
+
+            Assert.Multiple(() => {
+
+                Assert.That(StatusesOf(seven),                   Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(sevenOnDisk?.Type,                   Is.EqualTo(JTokenType.Integer));
+                Assert.That(sevenOnDisk?.Value<Int32>(),         Is.EqualTo(7));
+                Assert.That(sevenRead,                           Is.EqualTo("7"));
+                Assert.That(firstServer,                         Is.EqualTo("nts://other.example.invalid"),  "the servers went in with it");
+
+                Assert.That(never.Single().AttributeStatus,      Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(neverOnDisk?.Type,                   Is.EqualTo(JTokenType.Boolean),  "never, and not the five seconds of the key left out");
+                Assert.That(neverOnDisk?.Value<Boolean>(),       Is.False);
+                Assert.That(neverRead,                           Is.EqualTo(""));
+                Assert.That(station!.LegalTime.OffsetReportingThreshold,  Is.Null);
+
+                Assert.That(zero.Single().AttributeStatus,                   Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(zero.Single().AttributeStatusInfo?.ReasonCode,   Is.EqualTo("ValueOutOfRange"));
+
+            });
+
+        }
+
+        #endregion
+
         #region AChangeTheCSMSHasNotSeenIsNotMade()
 
         /// <summary>
@@ -694,6 +743,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(MutabilityOf(node, "NTPClientController",       "ptb-a",  "Mode"),             Is.EqualTo(OCPP21.MutabilityTypes.ReadOnly));
                 Assert.That(MutabilityOf(node, "ClockCtrlr",                null,     "DateTime"),         Is.EqualTo(OCPP21.MutabilityTypes.ReadOnly));
                 Assert.That(MutabilityOf(node, "ClockCtrlr",                null,     "TimeSource"),       Is.EqualTo(OCPP21.MutabilityTypes.ReadWrite));
+                Assert.That(MutabilityOf(node, "ClockCtrlr",                null,     "TimeAdjustmentReportingThreshold"),  Is.EqualTo(OCPP21.MutabilityTypes.ReadWrite));
             });
 
         }

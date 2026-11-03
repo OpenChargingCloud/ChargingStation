@@ -202,6 +202,35 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AnOffsetReachedIsSettingSystemTime()
+
+        /// <summary>
+        /// A check that found the clock at least the legal group's threshold
+        /// off is SettingSystemTime for the CSMS of each version, with the
+        /// offset and the threshold.
+        /// </summary>
+        [Test]
+        public void AnOffsetReachedIsSettingSystemTime()
+        {
+
+            Dial("2.1");
+            Dial("1.6");
+
+            station!.WhenNTSOffsetReached(station.LegalTime, TimeSpan.FromSeconds(-7.25));
+
+            var told21 = Security(station.OCPPv2_1Node.OfflineQueue);
+            var told16 = Security(station.OCPPv1_6Node.OfflineQueue);
+
+            Assert.Multiple(() => {
+                Assert.That(told21.Select(told => told.Type),  Is.EqualTo(new[] { "SettingSystemTime" }));
+                Assert.That(told21.Single().TechInfo,          Is.EqualTo("nts.groups.legal: the clock is -7.250 s off, the threshold is 5 s"));
+                Assert.That(told16.Select(told => told.Type),  Is.EqualTo(new[] { "SettingSystemTime" }));
+            });
+
+        }
+
+        #endregion
+
         #region ARefusedTimeServerCertificateIsTold()
 
         /// <summary>

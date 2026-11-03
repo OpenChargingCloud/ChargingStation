@@ -100,7 +100,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         ];
 
         private static readonly String[] writableClockVariables = [
-            "NtpServerUri", "TimeSource"
+            "NtpServerUri", "TimeAdjustmentReportingThreshold", "TimeSource"
         ];
 
         /// <summary>
@@ -428,7 +428,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             #region What changes in each group
 
-            foreach (var item in Change.Where(item => item.Kind is Kind.Group or Kind.Client or Kind.NtpServerUri))
+            foreach (var item in Change.Where(item => item.Kind is Kind.Group or Kind.Client or Kind.NtpServerUri or Kind.ReportingThreshold))
             {
 
                 var id = item.Group!;
@@ -461,6 +461,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     }
 
                     patch[groupKeys[item.Name]] = GroupJSON(item.Name, item.Value);
+
+                }
+
+                // ClockCtrlr's threshold is the legal group's, and an empty one
+                // is never - not the five seconds the key left out would be.
+                else if (item.Kind == Kind.ReportingThreshold)
+                {
+
+                    var patch = patches.TryGetValue(id, out var existing) ? existing : patches[id] = new JObject();
+
+                    patch[NTSConfiguration.OffsetReportingThresholdKey] = item.Value.Length == 0
+                                                                              ? new JValue(false)
+                                                                              : new JValue(Int64.Parse(item.Value, CultureInfo.InvariantCulture));
 
                 }
 
@@ -879,6 +892,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     => new Item(Index, Entry, Kind.NtpServerUri, NTSGroup.LegalId, null, name, value, position, false),
 
                 ClockController
+                    when String.Equals(name, "TimeAdjustmentReportingThreshold", StringComparison.OrdinalIgnoreCase)
+                    => new Item(Index, Entry, Kind.ReportingThreshold, NTSGroup.LegalId, null, name, value, null, false),
+
+                ClockController
                     when String.Equals(name, "TimeSource", StringComparison.OrdinalIgnoreCase)
                     => new Item(Index, Entry, Kind.TimeSource, null, null, name, value, null, false),
 
@@ -1212,6 +1229,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             Group,
             Client,
             NtpServerUri,
+            ReportingThreshold,
             TimeSource
         }
 

@@ -1296,6 +1296,7 @@ Every key of the `nts` section, and what it is when absent:
 | `legalTimeAuthority` | - | who the operator says stands behind it |
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
+| `offsetReportingThresholdSeconds` | `5` | how far off a check may find the clock before the CSMS is told; `false` for never |
 
 Servers sharing a priority are **one band** and are asked together; a lower
 priority is asked first. The four it asks by default share one, because they are peers -
@@ -1337,6 +1338,15 @@ Any one of them missing and the display says the time is unverified **and why**:
 yet`, `last check too long ago`, or `clock is -347 ms out`. A true statement
 about a station that has not checked is worth more than the word "legal" over a
 clock nobody verified.
+
+A check that finds the clock at least `offsetReportingThresholdSeconds` off -
+five seconds unless said otherwise, whole seconds up to a day, `false` for
+never - is written into the metrological log as security critical, and the CSMS
+is told `SettingSystemTime`. It reads and writes the threshold as
+`ClockCtrlr.TimeAdjustmentReportingThreshold`, and OCPP 1.6 as
+`ntp.timeAdjustmentReportingThreshold`, where "" is never. That is told once,
+and again only after a check found the clock closer: the station does not set
+its clock, so an offset stays until the operating system corrects it.
 
 The check runs by itself every `nts.checkEverySeconds` (fifteen minutes by
 default), the first one a minute after starting - everything else is still

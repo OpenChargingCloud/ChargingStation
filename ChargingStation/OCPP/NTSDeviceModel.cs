@@ -120,6 +120,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("DateTime",            (node, instance) => DateTimeOf (node.TimeProvider.GetUtcNow())),
             ("NtpServerUri",        (node, instance) => NtpServerUriOf(node, instance)),
             ("NtpSource",           (node, instance) => "manual"),
+            ("TimeAdjustmentReportingThreshold",
+                                    (node, instance) => SecondsOf(node.NTSGroupOf(NTSGroup.LegalId)?.OffsetReportingThreshold)),
             ("TimeSource",          (node, instance) => node.NTSEnabled ? "NTP,RealTimeClock" : "RealTimeClock")
         ];
 

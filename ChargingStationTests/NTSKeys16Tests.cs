@@ -263,6 +263,47 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region TheReportingThresholdIsTheCommonKey()
+
+        /// <summary>
+        /// "ntp.timeAdjustmentReportingThreshold" is ClockCtrlr's threshold and
+        /// so the legal group's: five seconds where nothing says otherwise,
+        /// changed as 2.1 changes it, and emptied for never.
+        /// </summary>
+        [Test]
+        public async Task TheReportingThresholdIsTheCommonKey()
+        {
+
+            var listed  = Keys.Keys.ToArray();
+            var five    = Value("NTP.TIMEADJUSTMENTREPORTINGTHRESHOLD");
+            var named   = Keys.Get("NTP.TIMEADJUSTMENTREPORTINGTHRESHOLD")?.Key;
+
+            var nine    = await Change("ntp.timeAdjustmentReportingThreshold", " 9 ");
+            var nineOn  = OnDisk()?["offsetReportingThresholdSeconds"]?.Value<Int32>();
+
+            var zero    = await Change("ntp.timeAdjustmentReportingThreshold", "0");
+            var never   = await Change("ntp.timeAdjustmentReportingThreshold", "");
+
+            Assert.Multiple(() => {
+
+                Assert.That(listed,  Does.Contain("ntp.timeAdjustmentReportingThreshold"));
+                Assert.That(five,    Is.EqualTo("5"));
+                Assert.That(named,   Is.EqualTo("ntp.timeAdjustmentReportingThreshold"),  "named as the paper writes it");
+
+                Assert.That(nine,    Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(nineOn,  Is.EqualTo(9));
+                Assert.That(zero,    Is.EqualTo(OCPP16.ConfigurationStatus.Rejected));
+                Assert.That(never,   Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(Value("ntp.timeAdjustmentReportingThreshold"),  Is.EqualTo(""));
+                Assert.That(station!.LegalTime.OffsetReportingThreshold,    Is.Null);
+
+            });
+
+        }
+
+        #endregion
+
+
         #region (private) OnDisk()
 
         private JObject? OnDisk()
