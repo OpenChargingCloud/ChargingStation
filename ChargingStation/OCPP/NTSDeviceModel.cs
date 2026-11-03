@@ -61,8 +61,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// follows the node's OnNTSGroupAdded, OnNTSGroupRemoved and
     /// OnNTSGroupChanged - see ChargingStation.ConfigureNTS.
     /// </para>
+    /// <para>
+    /// Made with a log, it takes the writes of a SetVariables request as well,
+    /// and makes the groups and servers a request names anew - see
+    /// NTSDeviceModel.Writing.cs.
+    /// </para>
     /// </remarks>
-    public sealed class NTSDeviceModel : protocols.OCPPv2_1.INTPControllerSource,
+    public sealed partial class NTSDeviceModel : protocols.OCPPv2_1.INTPControllerSource,
                                          protocols.OCPPv2_1.IClockControllerSource
     {
 

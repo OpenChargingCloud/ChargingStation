@@ -1541,8 +1541,9 @@ namespace cloud.charging.open.ChargingStation
         /// first use is what the next GetVariables reads. Which groups and
         /// servers there are changes while the node stays, though, so the
         /// components follow every group made, taken away or changed - see
-        /// FollowNTSGroups - on the node built last. Read-only until the
-        /// setters exist that go through TryUpdateNTSConfigurations.
+        /// FollowNTSGroups - on the node built last. A CSMS changes them through
+        /// the node, as the page does, and makes groups and servers by naming
+        /// them in ClientGroups and Clients - see NTSDeviceModel.Writing.cs.
         /// </remarks>
         private void ConfigureNTS(OCPPv2_1.CS.TestChargingStationNode Node)
         {
@@ -1550,6 +1551,10 @@ namespace cloud.charging.open.ChargingStation
             {
 
                 ntsNode = Node;
+
+                // A group or server a request names anew is made by the
+                // model, from the entries of the same request.
+                Node.AddNewInstancesSource(ntsDeviceModel);
 
                 Node.AddComponent(new OCPPv2_1.ClockController(ntsDeviceModel));
                 Node.AddComponent(new OCPPv2_1.NTPController  (ntsDeviceModel));

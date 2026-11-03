@@ -749,7 +749,7 @@ namespace cloud.charging.open.ChargingStation
             // What OCPP 2.1 shows of the time servers is read from this node at
             // every read; which components there are for them follows each
             // group made, taken away or changed.
-            ntsDeviceModel     = new NTSDeviceModel(this);
+            ntsDeviceModel     = new NTSDeviceModel(this, sentence => this.Log.Notice(sentence, "nts", "ocpp"));
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
             OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
