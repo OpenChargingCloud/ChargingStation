@@ -1916,6 +1916,11 @@ namespace cloud.charging.open.ChargingStation
             ConfigureNTS        (chargingStation);
             ConfigureNTS        (chargePoint);
 
+            // The station's queues and monitors, whichever node this is.
+            chargePoint.    OfflineQueue      = ocppQueue16;
+            chargingStation.OfflineQueue      = ocppQueue21;
+            chargingStation.VariableMonitors  = ocppMonitors;
+
             // Every back end this station dials is dialled again after a drop,
             // and until it answers at all: the node gives each client the
             // policy before its first attempt, so that a CSMS that is down

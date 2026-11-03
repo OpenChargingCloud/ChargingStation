@@ -208,6 +208,19 @@ namespace cloud.charging.open.ChargingStation
         private readonly  Lock                                 ntsComponentsLock = new();
         private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
 
+        // What each OCPP node keeps for the CSMS while it is out of reach, and
+        // the monitors the CSMS set - one of each for the station, handed to
+        // every node built for it, so that a node built anew keeps them.
+        private readonly  protocols.OCPP.OfflineQueue          ocppQueue16;
+        private readonly  protocols.OCPP.OfflineQueue          ocppQueue21;
+        private readonly  OCPPv2_1.VariableMonitors            ocppMonitors = new();
+
+        /// <summary>
+        /// The directory beside the configuration file the OCPP nodes keep
+        /// their queues for the CSMS in.
+        /// </summary>
+        public const String OCPPQueueDirectoryName = "ocpp-queue";
+
         #endregion
 
         #region Properties
@@ -755,6 +768,14 @@ namespace cloud.charging.open.ChargingStation
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
             OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
+
+            // Security events and monitor events wait in a file beside the
+            // configuration while the CSMS is out of reach.
+            var queues          = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".", OCPPQueueDirectoryName);
+            ocppQueue16         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-1.6.jsonl"), Clock: this.TimeProvider);
+            ocppQueue21         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-2.1.jsonl"), Clock: this.TimeProvider);
+
+            FollowNTSEvents();
 
             // Built from the EVSEs above, and rebuilt whenever those change -
             // see BuildOCPPNodes, which is the one place that knows how an EVSE
