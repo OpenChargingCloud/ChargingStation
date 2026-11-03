@@ -1574,11 +1574,14 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// What OCPP 1.6 sees of how this station keeps its time: the roots for
         /// time servers a central system installs, lists and deletes as
-        /// NetworkTimeRootCertificate, kept in the node's store as for 2.1.
+        /// NetworkTimeRootCertificate, kept in the node's store as for 2.1, and
+        /// the configuration keys of the Secure Time Synchronization paper,
+        /// read from the node and changed as 2.1 changes them.
         /// </summary>
         private void ConfigureNTS(OCPPv1_6.TestChargePointNode ChargePoint)
         {
             ChargePoint.CertificateSources.Add(ntsRootCertificates);
+            ChargePoint.AddConfigurationKeySource(ntsDeviceModel);
         }
 
         #endregion
