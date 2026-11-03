@@ -21,6 +21,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using cloud.charging.open.ChargingStation.OCPP;
+
 using OCPP16 = cloud.charging.open.protocols.OCPPv1_6;
 
 #endregion
@@ -82,7 +84,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
 
         private OCPP16.CP.IConfigurationKeySource Keys
-            => station!.OCPPv1_6Node.ConfigurationKeySources.Single();
+            => station!.OCPPv1_6Node.ConfigurationKeySources.OfType<NTSDeviceModel>().Single();
 
         private String? Value(String Key)
             => Keys.Get(Key)?.Value;

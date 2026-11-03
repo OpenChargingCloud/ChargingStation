@@ -138,14 +138,16 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) TellCSMS(Type, TechInfo)
+        #region (private) TellCSMS(Type, TechInfo, Service = NTS)
 
         /// <summary>
         /// Queue a security event at each OCPP node a connection of its version
-        /// is configured for, and write the whole of it into the log.
+        /// is configured for, and write the whole of it into the log, tagged
+        /// with the service it is of: the time servers' or the name servers'.
         /// </summary>
         private void TellCSMS(String  Type,
-                              String  TechInfo)
+                              String  TechInfo,
+                              String  Service   = CertificateUsages.NTS)
         {
 
             var versions = Connections.Connections.Select(connection => connection.OCPPVersion).Distinct().ToArray();
@@ -153,7 +155,7 @@ namespace cloud.charging.open.ChargingStation
             if (versions.Length == 0)
                 return;
 
-            Log.Notice($"Security event {Type} for the CSMS: {TechInfo}", "nts", "ocpp", "security");
+            Log.Notice($"Security event {Type} for the CSMS: {TechInfo}", Service, "ocpp", "security");
 
             if (versions.Contains(OCPPVersion.OCPP2_1))
                 Observe(cs02.QueueSecurityEventAsync(OCPPv2_1.SecurityEventType.Parse(Type), TechInfo), Type);

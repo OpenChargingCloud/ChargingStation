@@ -27,6 +27,8 @@ using NUnit.Framework;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
+using cloud.charging.open.ChargingStation.OCPP;
+
 using OCPP16 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPP21 = cloud.charging.open.protocols.OCPPv2_1;
 
@@ -147,7 +149,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                         Group("MaxInterval",  "600"));
 
             var viaOCPP16   = Twin();
-            var keys        = viaOCPP16.OCPPv1_6Node.ConfigurationKeySources.Single();
+            var keys        = viaOCPP16.OCPPv1_6Node.ConfigurationKeySources.OfType<NTSDeviceModel>().Single();
             var changed     = new[] {
                                   await keys.ChangeAsync("ntp.legal.minServers",   "3",    "CS-16"),
                                   await keys.ChangeAsync("ntp.legal.maxDeviation", "0.25", "CS-16"),

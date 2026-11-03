@@ -1497,17 +1497,9 @@ namespace cloud.charging.open.ChargingStation
 
             Node.CertificateSources.Add(dnsRootCertificates);
 
-            var source = new OCPP.DNSDeviceModel(
-                             DNSConfigurationJSON,
-                             TryUpdateDNSConfiguration,
-                             (change, names, within, cancellationToken) => ResolveWithAsync(change, names, within, cancellationToken),
-                             CSMSNames,
-                             sentence => Log.Notice(sentence, "dns", "ocpp")
-                         );
+            Node.AddComponent(new OCPPv2_1.DNSClientController(dnsDeviceModel));
 
-            Node.AddComponent(new OCPPv2_1.DNSClientController(source));
-
-            foreach (var server in OCPPv2_1.DNSServerController.AllOf(source))
+            foreach (var server in OCPPv2_1.DNSServerController.AllOf(dnsDeviceModel))
                 Node.AddComponent(server);
 
         }
@@ -1519,11 +1511,14 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// What OCPP 1.6 sees of how this station resolves names: the roots for
         /// name servers a central system installs, lists and deletes as
-        /// NameServerRootCertificate, kept in the node's store as for 2.1.
+        /// NameServerRootCertificate, kept in the node's store as for 2.1, and
+        /// the configuration keys of the Secure DNS paper, read from the node
+        /// and changed as 2.1 changes them.
         /// </summary>
         private void ConfigureDNS(OCPPv1_6.TestChargePointNode ChargePoint)
         {
             ChargePoint.CertificateSources.Add(dnsRootCertificates);
+            ChargePoint.AddConfigurationKeySource(dnsDeviceModel);
         }
 
         #endregion

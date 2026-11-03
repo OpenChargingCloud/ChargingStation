@@ -207,8 +207,9 @@ namespace cloud.charging.open.ChargingStation
         private readonly  NTSRootCertificates                  ntsRootCertificates;
         private readonly  Lock                                 ntsComponentsLock = new();
 
-        // The roots for name servers a CSMS installs, lists and deletes - see
-        // ConfigureDNS.
+        // What OCPP 2.1 and 1.6 read and change of the name servers, and the
+        // roots for them a CSMS installs, lists and deletes - see ConfigureDNS.
+        private readonly  DNSDeviceModel                       dnsDeviceModel;
         private readonly  DNSRootCertificates                  dnsRootCertificates;
         private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
 
@@ -769,6 +770,11 @@ namespace cloud.charging.open.ChargingStation
             // group made, taken away or changed.
             ntsDeviceModel     = new NTSDeviceModel(this, sentence => this.Log.Notice(sentence, "nts", "ocpp"));
             ntsRootCertificates = new NTSRootCertificates(this);
+            dnsDeviceModel      = new DNSDeviceModel(DNSConfigurationJSON,
+                                                     TryUpdateDNSConfiguration,
+                                                     (change, names, within, cancellationToken) => ResolveWithAsync(change, names, within, cancellationToken),
+                                                     CSMSNames,
+                                                     sentence => this.Log.Notice(sentence, "dns", "ocpp"));
             dnsRootCertificates = new DNSRootCertificates(this, CSMSNames);
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
@@ -781,6 +787,7 @@ namespace cloud.charging.open.ChargingStation
             ocppQueue21         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-2.1.jsonl"), Clock: this.TimeProvider);
 
             FollowNTSEvents();
+            FollowDNSEvents();
 
             // Built from the EVSEs above, and rebuilt whenever those change -
             // see BuildOCPPNodes, which is the one place that knows how an EVSE
