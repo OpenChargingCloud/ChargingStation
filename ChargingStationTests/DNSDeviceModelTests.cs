@@ -210,7 +210,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                     Assert.That(model.ServerValue(17, variable), Is.Null,        variable);
                 }
 
-                foreach (var notYet in new[] { "AuthenticationName", "RootCAs", "Enabled", "Priority" })
+                foreach (var notYet in new[] { "AuthenticationName", "Enabled", "Priority" })
                     Assert.That(model.ServerValue(1, notYet), Is.Null, notYet);
 
                 foreach (var notYet in new[] { "ServerSource", "EncryptedOnly", "NoSuchThing" })

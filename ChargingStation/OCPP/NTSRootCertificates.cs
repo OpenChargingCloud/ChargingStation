@@ -169,10 +169,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region CheckDeletion(Hashes)
+        #region CheckDeletionAsync(Hashes, CancellationToken = default)
 
         /// <inheritdoc/>
-        public CertificateAnswer? CheckDeletion(CertificateHashes Hashes)
+        public Task<CertificateAnswer?> CheckDeletionAsync(CertificateHashes  Hashes,
+                                                           CancellationToken  CancellationToken = default)
+
+            => Task.FromResult(CheckDeletion(Hashes));
+
+        #endregion
+
+        #region (private) CheckDeletion(Hashes)
+
+        private CertificateAnswer? CheckDeletion(CertificateHashes Hashes)
         {
 
             if (Named(Hashes) is not CertificateEntry entry)

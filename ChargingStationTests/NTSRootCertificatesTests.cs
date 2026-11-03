@@ -202,8 +202,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ARootIsDeletedForTheTimeServersAndStaysForAnotherService()
 
         /// <summary>
-        /// A root for the time servers alone is deleted; one kept for the name
-        /// servers as well loses the time servers and its marks and stays; one
+        /// A root for the time servers alone is deleted; one kept for the
+        /// meters as well loses the time servers and its marks and stays; one
         /// for every use is not deleted for the time servers alone, and stays.
         /// </summary>
         [Test]
@@ -213,7 +213,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             using var everyUse = Root("Every Use CA");
 
             Import(root,     [ "nts", "ntsca-legalca" ]);
-            Import(other,    [ "nts", "ntsca-legalca", "dns" ]);
+            Import(other,    [ "nts", "ntsca-legalca", "meter" ]);
             Import(everyUse, null);
 
             var sources  = station!.OCPPv2_1Node.CertificateSources;
@@ -229,7 +229,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(TLSRoot(root),    Is.Null);
 
                 Assert.That(shared.Status,    Is.EqualTo(OCPPC.CertificateAnswerStatus.Accepted));
-                Assert.That(TLSRoot(other)?.Usages?.Select(usage => usage.ToString()),  Is.EqualTo(new[] { "dns" }));
+                Assert.That(TLSRoot(other)?.Usages?.Select(usage => usage.ToString()),  Is.EqualTo(new[] { "meter" }));
 
                 Assert.That(forAll.Status,      Is.EqualTo(OCPPC.CertificateAnswerStatus.Failed));
                 Assert.That(forAll.ReasonCode,  Is.EqualTo("ForEveryUse"));

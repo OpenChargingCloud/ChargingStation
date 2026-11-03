@@ -42,7 +42,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// Every variable of the paper that the node can answer is here; the rest
-    /// (AuthenticationName, RootCAs, Enabled and Priority of a server,
+    /// (AuthenticationName, Enabled and Priority of a server,
     /// ServerSource and EncryptedOnly) is not, so that a CSMS asking for them
     /// learns they are unknown rather than reading an empty value as an answer.
     /// SecureDNS-DeviceModel-Concept.md B.7 and B.8 say where each value
@@ -97,6 +97,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("RootPins",                server => PinsOf     (server, "rootFingerprint")),
             ("OnPinMismatch",           server => OptionOf   (server["onMismatch"],      "Refuse")),
             ("TrustOnFirstUse",         server => OptionOf   (server["trustOnFirstUse"], "None")),
+            ("RootCAs",                 server => TextOf     (server["rootGroup"])),
             ("Problem",                 server => ProblemOf  (server["judgement"])),
             ("CertificateStatus",       server => OptionOf   (Child(server["judgement"], "outcome"), "")),
             ("CertificateFingerprint",  server => TextOf     (Child(server["judgement"], "certificate"))),

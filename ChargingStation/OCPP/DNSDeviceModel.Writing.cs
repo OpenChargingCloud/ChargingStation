@@ -124,7 +124,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         ];
 
         private static readonly String[] writableServerVariables = [
-            "Address", "Port", "Transport", "QueryTimeout", "CertificatePins", "RootPins", "OnPinMismatch", "TrustOnFirstUse"
+            "Address", "Port", "Transport", "QueryTimeout", "CertificatePins", "RootPins", "OnPinMismatch", "TrustOnFirstUse", "RootCAs"
         ];
 
         /// <summary>
@@ -435,6 +435,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                     case "trustonfirstuse":
                         server.TrustOnFirstUse = item.Value.ToLowerInvariant();
+                        break;
+
+                    // The certificateGroup of the roots, as far as the store can
+                    // mark a group of that name; an empty one is none.
+                    case "rootcas":
+
+                        var group = item.Value.Trim();
+
+                        if (group.Length > 0 && !ServerPins.IsRootGroup(group))
+                        {
+                            Refuse(Change, [ item ], Results, Atomic, "InvalidValue",
+                                   $"'{ServerComponent}[{slot}].RootCAs': '{group}' cannot name a group of roots here: up to {ServerPins.MaxRootGroupLength} letters, digits, '-' or '_'.");
+                            return;
+                        }
+
+                        server.RootGroup       = group.Length > 0 ? group : null;
                         break;
 
                 }

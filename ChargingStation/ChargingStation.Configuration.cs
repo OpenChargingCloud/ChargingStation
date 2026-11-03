@@ -1489,15 +1489,18 @@ namespace cloud.charging.open.ChargingStation
         /// reads, and a node rebuilt for new EVSEs reads the same. A CSMS
         /// changes them through TryUpdateDNSConfiguration, as the page does,
         /// and only after the names of the CSMS connections were resolved with
-        /// the change: one that would stop them resolving is refused.
+        /// the change: one that would stop them resolving is refused. The roots
+        /// for name servers are the node's store's, as on the certificate page.
         /// </remarks>
         private void ConfigureDNS(OCPPv2_1.CS.TestChargingStationNode Node)
         {
 
+            Node.CertificateSources.Add(dnsRootCertificates);
+
             var source = new OCPP.DNSDeviceModel(
                              DNSConfigurationJSON,
                              TryUpdateDNSConfiguration,
-                             ResolveWithAsync,
+                             (change, names, within, cancellationToken) => ResolveWithAsync(change, names, within, cancellationToken),
                              CSMSNames,
                              sentence => Log.Notice(sentence, "dns", "ocpp")
                          );
@@ -1507,6 +1510,20 @@ namespace cloud.charging.open.ChargingStation
             foreach (var server in OCPPv2_1.DNSServerController.AllOf(source))
                 Node.AddComponent(server);
 
+        }
+
+        #endregion
+
+        #region (private) ConfigureDNS(ChargePoint)
+
+        /// <summary>
+        /// What OCPP 1.6 sees of how this station resolves names: the roots for
+        /// name servers a central system installs, lists and deletes as
+        /// NameServerRootCertificate, kept in the node's store as for 2.1.
+        /// </summary>
+        private void ConfigureDNS(OCPPv1_6.TestChargePointNode ChargePoint)
+        {
+            ChargePoint.CertificateSources.Add(dnsRootCertificates);
         }
 
         #endregion
@@ -1916,6 +1933,7 @@ namespace cloud.charging.open.ChargingStation
 
             ConfigureWebPayments(chargingStation);
             ConfigureDNS        (chargingStation);
+            ConfigureDNS        (chargePoint);
             ConfigureNTS        (chargingStation);
             ConfigureNTS        (chargePoint);
 

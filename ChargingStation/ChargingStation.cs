@@ -206,6 +206,10 @@ namespace cloud.charging.open.ChargingStation
         private readonly  NTSDeviceModel                       ntsDeviceModel;
         private readonly  NTSRootCertificates                  ntsRootCertificates;
         private readonly  Lock                                 ntsComponentsLock = new();
+
+        // The roots for name servers a CSMS installs, lists and deletes - see
+        // ConfigureDNS.
+        private readonly  DNSRootCertificates                  dnsRootCertificates;
         private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
 
         // What each OCPP node keeps for the CSMS while it is out of reach, and
@@ -765,6 +769,7 @@ namespace cloud.charging.open.ChargingStation
             // group made, taken away or changed.
             ntsDeviceModel     = new NTSDeviceModel(this, sentence => this.Log.Notice(sentence, "nts", "ocpp"));
             ntsRootCertificates = new NTSRootCertificates(this);
+            dnsRootCertificates = new DNSRootCertificates(this, CSMSNames);
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
             OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();

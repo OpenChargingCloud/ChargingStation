@@ -736,6 +736,45 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region RootCAsIsTheGroupOfRootsAServerIsHeldTo()
+
+        /// <summary>
+        /// RootCAs is the group of roots a server is held to: written into its
+        /// entry beside its pins, read back as it was written, taken away by an
+        /// empty value - and refused, before the node is asked, where the store
+        /// could not mark a group of that name.
+        /// </summary>
+        [Test]
+        public async Task RootCAsIsTheGroupOfRootsAServerIsHeldTo()
+        {
+
+            var set      = await Set(null, ("1", "RootCAs", "CPO"));
+            var written  = station!.DNSConfigurationJSON()["servers"]?[0];
+            var read     = model.ServerValue(1, "RootCAs");
+
+            var wrong    = await Set(null, ("1", "RootCAs", "the CPO"));
+            var emptied  = await Set(null, ("1", "RootCAs", ""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(set.Single().AttributeStatus,                         Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(written?["rootGroup"]?.Value<String>(),               Is.EqualTo("CPO"));
+                Assert.That(written?["rootFingerprint"]?.Value<String>(),         Is.EqualTo(ARoot), "the pin beside it");
+                Assert.That(read,                                                 Is.EqualTo("CPO"));
+
+                Assert.That(wrong.Single().AttributeStatus,                       Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(wrong.Single().AttributeStatusInfo?.AdditionalInfo,   Does.Contain("cannot name a group of roots here"));
+
+                Assert.That(emptied.Single().AttributeStatus,                     Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(station.DNSConfigurationJSON()["servers"]?[0]?["rootGroup"],  Is.Null);
+                Assert.That(model.ServerValue(1, "RootCAs"),                      Is.EqualTo(""));
+
+            });
+
+        }
+
+        #endregion
+
 
         #region (private) Set(Model, params Entries)
 
