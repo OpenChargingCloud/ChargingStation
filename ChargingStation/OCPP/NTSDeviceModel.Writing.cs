@@ -95,7 +95,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
         ];
 
         private static readonly String[] writableClientVariables = [
-            "Enabled", "ServerURL", "ServerPort", "NTSKEServerPort", "Priority", "CertificatePins", "RootPins", "OnPinMismatch", "TrustOnFirstUse"
+            "Enabled", "ServerURL", "ServerPort", "NTSKEServerPort", "Priority", "CertificatePins", "RootPins", "OnPinMismatch", "TrustOnFirstUse",
+            "RootCAs"
         ];
 
         private static readonly String[] writableClockVariables = [
@@ -1309,6 +1310,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             public List<String>  Roots            { get; private set; } = [];
             public String        OnMismatch       { get; private set; } = "refuse";
             public String?       TrustOnFirstUse  { get; private set; }
+            public String?       RootGroup        { get; private set; }
             public JObject?      Shown            { get; private set; }
             public Boolean       Renamed          { get; private set; }
 
@@ -1332,7 +1334,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                  Certificates     = PinsIn(heldTo, "certificate"),
                                  Roots            = PinsIn(heldTo, "root"),
                                  OnMismatch       = heldTo?["onMismatch"]?.Value<String>() ?? "refuse",
-                                 TrustOnFirstUse  = heldTo?["trustOnFirstUse"]?.Value<String>() is String learn && learn is "root" or "certificate" ? learn : null
+                                 TrustOnFirstUse  = heldTo?["trustOnFirstUse"]?.Value<String>() is String learn && learn is "root" or "certificate" ? learn : null,
+                                 RootGroup        = heldTo?["rootGroup"]?.Value<String>()
                              };
 
                 server.Key   = server.Id ?? $"#{Interlocked.Increment(ref made)}";
@@ -1371,6 +1374,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                        Roots            = [.. Roots],
                        OnMismatch       = OnMismatch,
                        TrustOnFirstUse  = TrustOnFirstUse,
+                       RootGroup        = RootGroup,
                        Shown            = Shown,
                        Renamed          = Renamed,
                        Key              = Key
@@ -1452,6 +1456,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         TrustOnFirstUse = String.Equals(Value, "None", StringComparison.OrdinalIgnoreCase) ? null : Value.ToLowerInvariant();
                         break;
 
+                    // The group of the roots installed as NetworkTimeRootCertificate
+                    // with that certificateGroup: the node holds the server to the
+                    // roots of its store marked for the group, and to no other.
+                    case "rootcas":
+                        if (Value.Length > 0 && !ServerPins.IsRootGroup(Value))
+                        {
+                            Problem = $"{Where}: '{Value}' cannot name a group of roots here: up to {ServerPins.MaxRootGroupLength} letters, digits, '-' or '_'.";
+                            return false;
+                        }
+                        RootGroup = Value.Length > 0 ? Value : null;
+                        break;
+
                 }
 
                 return true;
@@ -1482,6 +1498,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 if (TrustOnFirstUse is not null)
                     json["trustOnFirstUse"] = TrustOnFirstUse;
+
+                // No pin, so nothing a mismatch comes to is said for it alone.
+                if (RootGroup is not null)
+                    json["rootGroup"] = RootGroup;
 
                 return json;
 

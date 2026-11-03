@@ -1556,12 +1556,29 @@ namespace cloud.charging.open.ChargingStation
                 // model, from the entries of the same request.
                 Node.AddNewInstancesSource(ntsDeviceModel);
 
+                // The roots for time servers are the node's store's.
+                Node.CertificateSources.Add(ntsRootCertificates);
+
                 Node.AddComponent(new OCPPv2_1.ClockController(ntsDeviceModel));
                 Node.AddComponent(new OCPPv2_1.NTPController  (ntsDeviceModel));
 
                 FollowNTSGroups(Node);
 
             }
+        }
+
+        #endregion
+
+        #region (private) ConfigureNTS(ChargePoint)
+
+        /// <summary>
+        /// What OCPP 1.6 sees of how this station keeps its time: the roots for
+        /// time servers a central system installs, lists and deletes as
+        /// NetworkTimeRootCertificate, kept in the node's store as for 2.1.
+        /// </summary>
+        private void ConfigureNTS(OCPPv1_6.TestChargePointNode ChargePoint)
+        {
+            ChargePoint.CertificateSources.Add(ntsRootCertificates);
         }
 
         #endregion
@@ -1640,7 +1657,14 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (internal) OCPPv2_1Node
+        #region (internal) OCPPv1_6Node / OCPPv2_1Node
+
+        /// <summary>
+        /// The OCPP 1.6 node that speaks for this station now, for a test about
+        /// what it says.
+        /// </summary>
+        internal OCPPv1_6.TestChargePointNode OCPPv1_6Node
+            => cs01;
 
         /// <summary>
         /// The OCPP 2.1 node that speaks for this station now, for a test about
@@ -1890,6 +1914,7 @@ namespace cloud.charging.open.ChargingStation
             ConfigureWebPayments(chargingStation);
             ConfigureDNS        (chargingStation);
             ConfigureNTS        (chargingStation);
+            ConfigureNTS        (chargePoint);
 
             // Every back end this station dials is dialled again after a drop,
             // and until it answers at all: the node gives each client the

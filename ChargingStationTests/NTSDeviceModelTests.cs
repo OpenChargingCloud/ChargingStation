@@ -191,6 +191,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(model.ClientValue("ptb-a",    "LastKeyExchange"),         Is.EqualTo(""));
                 Assert.That(model.ClientValue("ptb-a",    "Cookies"),                 Is.EqualTo(""));
                 Assert.That(model.ClientValue("ptb-a",    "AEADAlgorithm"),           Is.EqualTo(""));
+                Assert.That(model.ClientValue("ptb-a",    "RootCAs"),                 Is.EqualTo(""),  "held to no group of roots");
 
             });
 
@@ -211,7 +212,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(model.ClientValue    ("nobody",  "Enabled"),         Is.Null);
-                Assert.That(model.ClientValue    ("ptb-a",   "RootCAs"),         Is.Null);
+                Assert.That(model.ClientValue    ("ptb-a",   "SignedResponses"), Is.Null);
                 Assert.That(model.ClientValue    ("ptb-a",   "MinRefresh"),      Is.Null);
                 Assert.That(model.ClientValue    ("ptb-a",   "NTSKEServerURL"),  Is.Null);
                 Assert.That(model.GroupValue     ("grid",    "Enabled"),         Is.Null);

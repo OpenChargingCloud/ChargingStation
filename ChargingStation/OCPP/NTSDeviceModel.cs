@@ -49,7 +49,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// Every variable of the paper that the node can answer is here; the rest
-    /// (Preflight, the delay asymmetries, a separate NTS-KE server, RootCAs,
+    /// (Preflight, the delay asymmetries, a separate NTS-KE server,
     /// NoCertTimeCheckAfterReboot, MinRefresh and MaxRefresh, signed
     /// responses) is not, so that a CSMS asking for them learns they are
     /// unknown rather than reading an empty value as an answer.
@@ -108,6 +108,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("RootPins",                server       => PinsOf     (server["heldTo"], "roots")),
             ("OnPinMismatch",           server       => OptionOf   (Child(server["heldTo"], "onMismatch"),      "Refuse")),
             ("TrustOnFirstUse",         server       => OptionOf   (Child(server["heldTo"], "trustOnFirstUse"), "None")),
+            ("RootCAs",                 server       => TextOf     (Child(server["heldTo"], "rootGroup"))),
             ("AEADAlgorithm",           server       => AEADOf     (server["aeadAlgorithm"])),
             ("Problem",                 server       => ProblemOf  (server["judgement"])),
             ("CertificateFingerprint",  server       => TextOf     (server["certificate"])),

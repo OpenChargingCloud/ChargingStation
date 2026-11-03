@@ -204,6 +204,7 @@ namespace cloud.charging.open.ChargingStation
         // What OCPP 2.1 reads of the time servers, and the node whose
         // components for them follow the groups - see ConfigureNTS.
         private readonly  NTSDeviceModel                       ntsDeviceModel;
+        private readonly  NTSRootCertificates                  ntsRootCertificates;
         private readonly  Lock                                 ntsComponentsLock = new();
         private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
 
@@ -750,6 +751,7 @@ namespace cloud.charging.open.ChargingStation
             // every read; which components there are for them follows each
             // group made, taken away or changed.
             ntsDeviceModel     = new NTSDeviceModel(this, sentence => this.Log.Notice(sentence, "nts", "ocpp"));
+            ntsRootCertificates = new NTSRootCertificates(this);
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
             OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
