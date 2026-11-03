@@ -861,6 +861,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
             public String        TrustOnFirstUse  { get; set; } = "none";
 
             /// <summary>
+            /// The group of roots the server is held to, which no variable
+            /// says: it stays with the slot, as the fingerprints do, also where
+            /// the request makes the slot's server another one.
+            /// </summary>
+            public String?       RootGroup        { get; set; }
+
+            /// <summary>
             /// What the server was held to as last seen: null for a server new
             /// in this request, which the node has nothing to compare with.
             /// </summary>
@@ -887,7 +894,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                      CertificatePins  = ListOf(PinsOf(json, "certificateFingerprint")),
                                      RootPins         = ListOf(PinsOf(json, "rootFingerprint")),
                                      OnMismatch       = json.Value<String>("onMismatch")      ?? "refuse",
-                                     TrustOnFirstUse  = json.Value<String>("trustOnFirstUse") ?? "none"
+                                     TrustOnFirstUse  = json.Value<String>("trustOnFirstUse") ?? "none",
+                                     RootGroup        = json.Value<String>("rootGroup")
                                  };
 
                     server.ShownAsSent();
@@ -910,6 +918,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                        RootPins         = [.. RootPins],
                        OnMismatch       = OnMismatch,
                        TrustOnFirstUse  = TrustOnFirstUse,
+                       RootGroup        = RootGroup,
                        AsShown          = AsShown
                    };
 
@@ -923,7 +932,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             /// <summary>
             /// What it is held to, in the keys of the node's file. A mismatch
-            /// only where it can come about: with a pin, or one to be learned.
+            /// only where it can come about: with a pin, or one to be learned,
+            /// and not with a group of roots alone.
             /// </summary>
             private JObject PinsJSON()
             {
@@ -941,6 +951,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 if (OnMismatch != "refuse" && json.Count > 0)
                     json["onMismatch"]              = OnMismatch;
+
+                if (RootGroup is not null)
+                    json["rootGroup"]               = RootGroup;
 
                 return json;
 

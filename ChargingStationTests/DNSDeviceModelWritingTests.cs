@@ -689,6 +689,53 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AGroupOfRootsStaysWithItsSlot()
+
+        /// <summary>
+        /// A server held to a group of roots, which no variable of the CSMS
+        /// says, is still held to it after a change of another slot - and
+        /// after a change of its own port, which makes it another server to
+        /// the node, held to what the change sends.
+        /// </summary>
+        [Test]
+        public async Task AGroupOfRootsStaysWithItsSlot()
+        {
+
+            Assert.That(station!.TryUpdateDNSConfiguration(new JObject(
+                            new JProperty("servers", new JArray(
+                                new JObject(
+                                    new JProperty("address",    "192.0.2.53"),
+                                    new JProperty("transport",  "TLS"),
+                                    new JProperty("rootGroup",  "cpo")
+                                ),
+                                new JObject(
+                                    new JProperty("address",    "2001:db8::53"),
+                                    new JProperty("transport",  "UDP")
+                                )
+                            ))
+                        ), out var error), Is.True, error);
+
+            var elsewhere = await Set(null, ("2", "Port", "5353"));
+            var groupNow  = station.DNSConfigurationJSON()["servers"]?[0]?["rootGroup"]?.Value<String>();
+
+            var moved     = await Set(null, ("1", "Port", "8853"));
+            var server    = station.DNSConfigurationJSON()["servers"]?[0];
+
+            Assert.Multiple(() => {
+
+                Assert.That(StatusesOf([.. elsewhere, .. moved]),    Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+
+                Assert.That(groupNow,                                Is.EqualTo("cpo"), "after a change of another slot");
+                Assert.That(server?["port"]?.Value<Int32>(),         Is.EqualTo(8853));
+                Assert.That(server?["rootGroup"]?.Value<String>(),   Is.EqualTo("cpo"), "after a change of its own port");
+                Assert.That(server?["onMismatch"],                   Is.Null,           "a group has no mismatch to come to");
+
+            });
+
+        }
+
+        #endregion
+
 
         #region (private) Set(Model, params Entries)
 
