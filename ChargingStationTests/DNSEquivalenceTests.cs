@@ -439,8 +439,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ANameServerTheCSMSWouldNotResolveThroughIsRefusedByEitherVersion()
         {
 
-            using var trustedCertificate    = ServerCertificate();
-            using var untrustedCertificate  = ServerCertificate();
+            using var trustedCertificate    = ServerCertificate("A trusted name server");
+            using var untrustedCertificate  = ServerCertificate("An untrusted name server");
 
             var trusted    = NameServer(trustedCertificate);
             var untrusted  = NameServer(untrustedCertificate);
@@ -488,7 +488,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                     Assert.That(after,                                                 Is.EqualTo(before), "nothing was changed");
 
                     Assert.That(installed.Status,                                      Is.EqualTo(OCPPC.CertificateAnswerStatus.Accepted));
-                    Assert.That(accepted.Single().AttributeStatus,                     Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                    Assert.That(accepted.Single().AttributeStatus,                     Is.EqualTo(OCPP21.SetVariableStatus.Accepted), accepted.Single().AttributeStatusInfo?.AdditionalInfo);
                     Assert.That(station.DNSConfigurationJSON()["servers"]?[0]?.Value<String>("port"),  Is.EqualTo(port));
 
                 });
@@ -756,7 +756,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private static) NameServer(Certificate) / ServerCertificate() / SelfSigned() / Fingerprint(Certificate)
+        #region (private static) NameServer(Certificate) / ServerCertificate(Name) / SelfSigned() / Fingerprint(Certificate)
 
         /// <summary>
         /// A name server on the loopback, over TLS and nothing else, that knows
@@ -788,12 +788,19 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A certificate for the loopback that signed itself, with its key: a
         /// name server's own, and its root.
         /// </summary>
-        private static X509Certificate2 ServerCertificate()
+        /// <remarks>
+        /// Each with a name of its own. Two that signed themselves under the same
+        /// name, without key identifiers, are one issuer to the chain on Linux:
+        /// it took the first root of that name in the store, whose signature does
+        /// not fit, and the second server stayed untrusted with its root
+        /// installed - red in the Debian job only.
+        /// </remarks>
+        private static X509Certificate2 ServerCertificate(String Name)
         {
 
             using var rsa  = RSA.Create(2048);
 
-            var request    = new CertificateRequest("CN=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            var request    = new CertificateRequest($"CN={Name}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
             var names      = new SubjectAlternativeNameBuilder();
 
             names.AddDnsName  ("localhost");
