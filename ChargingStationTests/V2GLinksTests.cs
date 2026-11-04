@@ -375,7 +375,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                          ServerCertificateValidation  = (_, _, _, _) => true
                                                                      });
 
-            await Until(() => link.StatusJSON()["connection"]?["tls"] is JObject, "the TLS connection was not said");
+            // The client's handshake can be over before the link has taken the
+            // vehicle in, and until then "connection" is a JSON null, whose
+            // ["tls"] throws instead of giving null.
+            await Until(() => link.StatusJSON()["connection"] is JObject connection && connection["tls"] is JObject,
+                        "the TLS connection was not said");
 
             var status = link.StatusJSON();
 
