@@ -1117,7 +1117,15 @@ namespace cloud.charging.open.ChargingStation
                 try
                 {
 
+                    var (old16, old21) = (cs01, cs02);
+
                     (cs01, cs02) = BuildOCPPNodes(evses);
+
+                    // Not stopped now: what they are connected to stays on
+                    // them. Stopped when this station is let go of, or their
+                    // timers would go on ticking.
+                    lock (replacedNodes)
+                        replacedNodes.AddRange([old16, old21]);
 
                     CarryOverToNewNode(wasCharging, wasReserved, wasSaying, Change);
 

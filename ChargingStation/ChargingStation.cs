@@ -40,6 +40,7 @@ using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.ChargingStation.Web;
 
+using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
@@ -200,6 +201,10 @@ namespace cloud.charging.open.ChargingStation
 
         private           OCPPv1_6.   TestChargePointNode      cs01;
         private           OCPPv2_1.CS.TestChargingStationNode  cs02;
+
+        // The OCPP nodes a change of the EVSEs replaced: stopped with the two
+        // above when this station is let go of - see StopTheOCPPNodes.
+        private readonly  List<AWWCPNetworkingNode>            replacedNodes = [];
 
         // What OCPP 2.1 reads of the time servers, and the node whose
         // components for them follow the groups - see ConfigureNTS.
@@ -968,6 +973,82 @@ namespace cloud.charging.open.ChargingStation
                 await Take("stopping the local app server", () => localAppServer.Stop());
 
             failed?.Throw();
+
+        }
+
+        #endregion
+
+        #region DisposeAsync()
+
+        /// <summary>
+        /// Stop, stop the OCPP nodes, and let go of what the node below holds.
+        /// </summary>
+        /// <remarks>
+        /// An OCPP node's heartbeat and maintenance timers tick until the node
+        /// is stopped. Its maintenance ticks every second, and each tick holds
+        /// a thread of the thread pool while it waits for one lock that every
+        /// node of the process shares. A station let go of without stopping
+        /// its nodes left them ticking for as long as the process ran; a test
+        /// run makes a station for nearly every test, and on a machine with
+        /// four cores the thread pool ran dry and the station's tests hung,
+        /// in whichever test came next.
+        ///
+        /// Here rather than when the station stops, which a start may follow:
+        /// the nodes are made once, with the station, and a node that was
+        /// stopped stays stopped.
+        /// </remarks>
+        public override async ValueTask DisposeAsync()
+        {
+
+            try
+            {
+                await Stop();
+            }
+            finally
+            {
+                try
+                {
+                    await StopTheOCPPNodes();
+                }
+                finally
+                {
+                    await base.DisposeAsync();
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region (private) StopTheOCPPNodes()
+
+        /// <summary>
+        /// Stop both OCPP nodes, and every one a change of the EVSEs replaced:
+        /// their timers, and the connections still on them - which a node
+        /// replaced keeps, as nothing moves them to the new one.
+        /// </summary>
+        /// <remarks>
+        /// Each is stopped even where one before it failed, which is logged.
+        /// </remarks>
+        private async Task StopTheOCPPNodes()
+        {
+
+            AWWCPNetworkingNode[] nodes;
+
+            lock (replacedNodes)
+                nodes = [.. replacedNodes, cs01, cs02];
+
+            foreach (var node in nodes)
+            {
+                try
+                {
+                    await node.Stop(Message: "The charging station is stopping.");
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"Stopping the OCPP node '{node.Id}' failed: {e.Message}", "ocpp");
+                }
+            }
 
         }
 

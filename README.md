@@ -132,6 +132,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `ConfigurationAPITests` | the station's own sections, and both OCPP nodes |
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ShutdownTests`         | a station that is told to stop stops - without a display, or with an app on the WebSocket |
+| `OCPPNodeTimersTests`   | a station that is let go of stops its OCPP nodes, and those a change of its EVSEs replaced: none of their timers ticks on |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, that it lets go of the others, and that the ports a test gives it are given to nobody else in the run |
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
@@ -155,6 +156,15 @@ entry rather than for its socket, so the server closing that socket underneath
 it does not end it; a station with one browser on the Logs page used to take a
 kill timeout to shut down instead of stopping. `Stop()` ends the streams
 first, and these say it still does.
+
+`OCPPNodeTimersTests` has one as well. An OCPP node's maintenance ticks every
+second, and each tick holds a thread of the thread pool while it waits for a
+lock every node of the process shares. A station used to leave its two nodes
+ticking when it was let go of, so a test run that makes a station for nearly
+every test had hundreds of them ticking by the time it reached the meters,
+and on GitHub's Windows runners, with four cores, the thread pool ran dry and
+the run hung - in a different test each time. A station now stops its nodes
+when it is let go of, and these say it does.
 
 Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for what a station writes: its
