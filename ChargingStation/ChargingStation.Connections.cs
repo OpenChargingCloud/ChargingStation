@@ -31,6 +31,8 @@ using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using cloud.charging.open.protocols.WWCP.NetworkingNode;
+
 using cloud.charging.open.ChargingStation.OCPP;
 
 #endregion
@@ -310,24 +312,34 @@ namespace cloud.charging.open.ChargingStation
                 Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
                          $"{Connection.ConnectionType}.", "ocpp", "connections");
 
+                // To the CSMS, whatever its type says: the type is a label. A
+                // node sends what it has to say - a security event, an event
+                // of a monitor - to its CSMS by name, "CentralSystem" in 1.6
+                // and "CSMS" in 2.1, and answers a request by the name of the
+                // connection it came over. A connection without that name was
+                // neither: the CSMS's requests went unanswered, and every
+                // event waited in the queue for a CSMS the node did not know
+                // how to reach.
                 var response = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
 
                                    ? await cs01.ConnectOCPPWebSocketClient(
-                                             RemoteURL:           Connection.URL,
-                                             HTTPAuthentication:  basic,
-                                             ClientCertificates:  certificates,
-                                             TOTPConfig:          totp,
-                                             DNSClient:           DNSClient,
-                                             CancellationToken:   CancellationToken
+                                             RemoteURL:                Connection.URL,
+                                             NextHopNetworkingNodeId:  NetworkingNode_Id.CentralSystem,
+                                             HTTPAuthentication:       basic,
+                                             ClientCertificates:       certificates,
+                                             TOTPConfig:               totp,
+                                             DNSClient:                DNSClient,
+                                             CancellationToken:        CancellationToken
                                          )
 
                                    : await cs02.ConnectOCPPWebSocketClient(
-                                             RemoteURL:           Connection.URL,
-                                             HTTPAuthentication:  basic,
-                                             ClientCertificates:  certificates,
-                                             TOTPConfig:          totp,
-                                             DNSClient:           DNSClient,
-                                             CancellationToken:   CancellationToken
+                                             RemoteURL:                Connection.URL,
+                                             NextHopNetworkingNodeId:  NetworkingNode_Id.CSMS,
+                                             HTTPAuthentication:       basic,
+                                             ClientCertificates:       certificates,
+                                             TOTPConfig:               totp,
+                                             DNSClient:                DNSClient,
+                                             CancellationToken:        CancellationToken
                                          );
 
                 // 101 and nothing else: an HTTP answer that is not an upgrade
@@ -382,6 +394,8 @@ namespace cloud.charging.open.ChargingStation
                                  "so nothing could be said about what becomes of it.", "ocpp", "connections");
 
                 Note(Connection, "Connected, and will come back by itself if it drops.");
+
+                SendWhatWaits(Connection);
 
             }
             catch (Exception e)
@@ -512,9 +526,36 @@ namespace cloud.charging.open.ChargingStation
 
                 connectedBefore = true;
 
+                SendWhatWaits(Connection);
+
                 return Task.CompletedTask;
 
             };
+
+        }
+
+        #endregion
+
+        #region (private) SendWhatWaits(Connection)
+
+        /// <summary>
+        /// Send what waits in the queue of the connection's version of OCPP,
+        /// now that the CSMS can be reached: what was said while it could not
+        /// is not left until the next thing there is to say.
+        /// </summary>
+        /// <remarks>
+        /// Not waited for. A CSMS slow to answer holds up the queue and not the
+        /// connection, and what it does not take stays in the queue.
+        /// </remarks>
+        private void SendWhatWaits(ConnectionEntry Connection)
+        {
+
+            var sending = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
+                              ? cs01.FlushOfflineQueueAsync()
+                              : cs02.FlushOfflineQueueAsync();
+
+            _ = sending.ContinueWith(task => Log.Warning($"Sending what waited for '{Connection.Description}' failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
+                                     TaskContinuationOptions.OnlyOnFaulted);
 
         }
 

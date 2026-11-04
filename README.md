@@ -140,6 +140,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
+| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1 |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -165,6 +166,12 @@ every test had hundreds of them ticking by the time it reached the meters,
 and on GitHub's Windows runners, with four cores, the thread pool ran dry and
 the run hung - in a different test each time. A station now stops its nodes
 when it is let go of, and these say it does.
+
+So does `TalkingToTheCSMSTests`. The station dialled its connections without
+telling its OCPP nodes that the CSMS was at the other end, so it answered none
+of the CSMS's requests, and its security events and the events of its monitors
+never left the queue. Every test that dialled asked only whether the
+connection was made; these ask what goes over it.
 
 Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for what a station writes: its
