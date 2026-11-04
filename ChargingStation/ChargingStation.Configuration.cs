@@ -1027,9 +1027,10 @@ namespace cloud.charging.open.ChargingStation
         ///
         /// The OCPP nodes are rebuilt from the new list, because they are told
         /// what they are made of when they are built and there is no way to
-        /// tell them otherwise afterwards. Nothing is connected to a CSMS yet,
-        /// so this costs nothing today; the day it does, this is the one place
-        /// that has to learn to say goodbye first.
+        /// tell them otherwise afterwards. What they were connected to is said
+        /// goodbye to: the old nodes hang up and are stopped, and what this
+        /// station dials is dialled again through the new ones - see
+        /// DialAgain. A CSMS sees the connection close and come back.
         /// </remarks>
         /// <param name="JSON">The new list.</param>
         /// <param name="IsAllowed">Asked with the kind of change this turns out to be.</param>
@@ -1114,16 +1115,15 @@ namespace cloud.charging.open.ChargingStation
 
                 EVSEs = evses;
 
+                var (old16, old21) = (cs01, cs02);
+
                 try
                 {
 
-                    var (old16, old21) = (cs01, cs02);
-
                     (cs01, cs02) = BuildOCPPNodes(evses);
 
-                    // Not stopped now: what they are connected to stays on
-                    // them. Stopped when this station is let go of, or their
-                    // timers would go on ticking.
+                    // Stopped by DialAgain below, and kept so that a station
+                    // let go of before that is done stops them all the same.
                     lock (replacedNodes)
                         replacedNodes.AddRange([old16, old21]);
 
@@ -1172,6 +1172,15 @@ namespace cloud.charging.open.ChargingStation
                 // to wait.
                 _ = FollowTheMeters().
                         ContinueWith(task => Log.Warning($"Following the meters of the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "meter", "config"),
+                                     TaskContinuationOptions.OnlyOnFaulted);
+
+                // And what the old nodes were connected to is hung up and
+                // dialled again through the new ones, for the same reason not
+                // waited for: the old nodes would go on answering a CSMS with
+                // the EVSEs as they were, and nothing said from now on goes
+                // through them.
+                _ = DialAgain(old16, old21).
+                        ContinueWith(task => Log.Warning($"Dialling again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
                 return true;

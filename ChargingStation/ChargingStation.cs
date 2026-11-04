@@ -1024,8 +1024,9 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Stop both OCPP nodes, and every one a change of the EVSEs replaced:
-        /// their timers, and the connections still on them - which a node
-        /// replaced keeps, as nothing moves them to the new one.
+        /// their timers, and the connections still on them. A node replaced
+        /// is stopped once it has hung up - see DialAgain - and here again,
+        /// which does no harm, for a station let go of before that was done.
         /// </summary>
         /// <remarks>
         /// Each is stopped even where one before it failed, which is logged.

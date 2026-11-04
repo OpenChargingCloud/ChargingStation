@@ -140,7 +140,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
-| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1 |
+| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so

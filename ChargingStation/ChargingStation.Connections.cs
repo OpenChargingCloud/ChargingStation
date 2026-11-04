@@ -72,6 +72,11 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         public static readonly TimeSpan TestHoldsFor = TimeSpan.FromSeconds(2);
 
+        /// <summary>
+        /// One DialAgain at a time - see there.
+        /// </summary>
+        private readonly SemaphoreSlim dialAgainLock = new (1, 1);
+
         #endregion
 
         #region Properties
@@ -965,6 +970,87 @@ namespace cloud.charging.open.ChargingStation
                     catch
                     { }
                 }
+            }
+
+        }
+
+        #endregion
+
+        #region (private) DialAgain(Old16, Old21)
+
+        /// <summary>
+        /// After a change of the EVSEs: hang up what the OCPP nodes it replaced
+        /// were connected to, stop them, and dial again through the new ones
+        /// what this station dials at its start.
+        /// </summary>
+        /// <remarks>
+        /// A connection belongs to the node that made it, and nothing moves it
+        /// to another. Left where it was, the old node went on answering the
+        /// CSMS with the EVSEs as they had been, and nothing this station said
+        /// afterwards reached the CSMS: it went through the new nodes, which
+        /// had no connection. So it is hung up and dialled again, and the CSMS
+        /// sees the connection close and come back.
+        ///
+        /// Dialled again only where this station is started and the old nodes
+        /// had dialled something. One at a time, so that a second change does
+        /// not hang up what the first is still dialling, but after it: the
+        /// first one's dialling goes through the nodes the second one replaces.
+        /// </remarks>
+        private async Task DialAgain(OCPPv1_6.   TestChargePointNode      Old16,
+                                     OCPPv2_1.CS.TestChargingStationNode  Old21)
+        {
+
+            await dialAgainLock.WaitAsync();
+
+            try
+            {
+
+                var clients = Old16.OCPPWebSocketClients.OfType<WebSocketClient>().
+                                  Concat(Old21.OCPPWebSocketClients.OfType<WebSocketClient>()).
+                                  ToArray();
+
+                // As HangUp does: without its policy first, so that the close
+                // is neither a loss nor something to come back from.
+                foreach (var client in clients)
+                {
+                    try
+                    {
+                        client.ReconnectPolicy = null;
+                        await client.Close(WebSocketFrame.ClosingStatusCode.NormalClosure,
+                                           "The EVSEs of this charging station changed; it connects again.");
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Debug($"A connection to {client.RemoteURL} did not close cleanly: {e.Message}", "ocpp", "connections");
+                    }
+                }
+
+                foreach (var node in new AWWCPNetworkingNode[] { Old16, Old21 })
+                {
+                    try
+                    {
+                        await node.Stop(Message: "The EVSEs of this charging station changed.");
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Warning($"Stopping the OCPP node '{node.Id}' the EVSEs replaced failed: {e.Message}", "ocpp");
+                    }
+                }
+
+                if (started && clients.Length > 0)
+                {
+
+                    Log.Notice($"The EVSEs changed, so what the OCPP nodes they replaced were connected to was hung up " +
+                               $"({clients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
+
+                    await DialConfiguredConnections();
+
+                }
+
+            }
+            finally
+            {
+                dialAgainLock.Release();
             }
 
         }

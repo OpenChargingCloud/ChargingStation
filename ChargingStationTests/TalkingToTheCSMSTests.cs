@@ -67,6 +67,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             private readonly ConcurrentQueue<JArray> received = new();
+            private          Int32                   accepted;
 
             public WebSocketServer  Server   { get; }
             public IPPort           Port     { get; }
@@ -76,6 +77,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Port    = IPPort.Parse(TestPorts.Free());
                 Server  = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
+
+                Server.OnNewWebSocketConnection += (timestamp, server, connection, sharedSubprotocols, selectedSubprotocol, eventTrackingId, cancellationToken) => {
+                    Interlocked.Increment(ref accepted);
+                    return Task.CompletedTask;
+                };
 
                 Server.OnTextMessageReceived += async (timestamp, server, connection, frame, eventTrackingId, text, cancellationToken) => {
 
@@ -89,6 +95,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                 };
 
             }
+
+            /// <summary>
+            /// How many connections it took, ever.
+            /// </summary>
+            public Int32 Accepted
+                => Volatile.Read(ref accepted);
 
             /// <summary>
             /// How many connections it has.
@@ -208,7 +220,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private static) Within(Condition)
+        #region (private static) RequestOf(Version) / (private static) Within(Condition)
+
+        /// <summary>
+        /// A request a CSMS of the given version may send, by the id "asked".
+        /// </summary>
+        private static String RequestOf(String Version)
+
+            => Version == "1.6"
+                   ? """[2,"asked","GetConfiguration",{}]"""
+                   : """[2,"asked","GetVariables",{"getVariableData":[{"component":{"name":"ClockCtrlr"},"variable":{"name":"TimeSource"}}]}]""";
 
         /// <summary>
         /// Whether the condition comes true within ten seconds.
@@ -229,6 +250,31 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
 
             return true;
+
+        }
+
+        #endregion
+
+        #region (private) SwitchTheEVSEs()
+
+        /// <summary>
+        /// Take every EVSE out of service, or put it back: a change that builds
+        /// the OCPP nodes anew.
+        /// </summary>
+        private void SwitchTheEVSEs()
+        {
+
+            var switched = new JObject(
+                               new JProperty("evses", new JArray(
+                                   station!.EVSEs.Select(evse => {
+                                       var json = evse.ToJSON();
+                                       json["operative"] = !evse.Operative;
+                                       return json;
+                                   })
+                               ))
+                           );
+
+            Assert.That(station.TryUpdateEVSEConfiguration(switched, _ => true, out _, out var error, out _), Is.True, error);
 
         }
 
@@ -260,14 +306,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// A request of the CSMS is answered over the connection it came over.
         /// </summary>
-        [TestCase("2.1", """[2,"asked","GetVariables",{"getVariableData":[{"component":{"name":"ClockCtrlr"},"variable":{"name":"TimeSource"}}]}]""")]
-        [TestCase("1.6", """[2,"asked","GetConfiguration",{}]""")]
-        public async Task TheCSMSIsAnswered(String Version, String Request)
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task TheCSMSIsAnswered(String Version)
         {
 
             await Connected(Version);
 
-            await csms!.Ask(Request);
+            await csms!.Ask(RequestOf(Version));
 
             var answer = await csms.Sent(message => message[0].Value<Int32>() == 3 && message[1].Value<String>() == "asked");
 
@@ -343,6 +389,95 @@ namespace cloud.charging.open.ChargingStation.Tests
             await QueueSecurityEvent(Version, "WhileItWasGone");
 
             Assert.That(await csms.SentRequest("SecurityEventNotification", "WhileItWasGone"), Is.Not.Null, "the CSMS was not told once the connection was back");
+
+        }
+
+        #endregion
+
+        #region AfterAChangeOfTheEVSEsTheStationConnectsAgainThroughItsNewNodes(Version)
+
+        /// <summary>
+        /// A change of the EVSEs, which builds the OCPP nodes anew, hangs up
+        /// and dials again: the CSMS is answered, and told what the station
+        /// says, by the new nodes.
+        /// </summary>
+        /// <remarks>
+        /// The connection used to stay on the node that made it. That node
+        /// answered the CSMS with the EVSEs as they had been, and what the
+        /// station said afterwards went through the new nodes, which had no
+        /// connection.
+        /// </remarks>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AfterAChangeOfTheEVSEsTheStationConnectsAgainThroughItsNewNodes(String Version)
+        {
+
+            await Connected(Version);
+
+            SwitchTheEVSEs();
+
+            Assert.That(await Within(() => csms!.Accepted == 2 && csms.Connections == 1), Is.True,
+                        $"the station did not hang up and connect again: {csms!.Accepted} connection(s) taken, {csms.Connections} open");
+
+            Assert.That(station!.OCPPWebSocketClientCount, Is.EqualTo(1), "the new nodes do not hold the connection");
+
+            await QueueSecurityEvent(Version, "AfterTheChange");
+
+            Assert.That(await csms.SentRequest("SecurityEventNotification", "AfterTheChange"), Is.Not.Null, "the CSMS was not told");
+
+            await csms.Ask(RequestOf(Version));
+
+            Assert.That(await csms.Sent(message => message[0].Value<Int32>() == 3 && message[1].Value<String>() == "asked"), Is.Not.Null,
+                        "the request was not answered");
+
+        }
+
+        #endregion
+
+        #region AStationStoppedAfterAChangeOfTheEVSEsHangsUp(Version)
+
+        /// <summary>
+        /// A station stopped after a change of its EVSEs hangs up: what it is
+        /// connected to is on the nodes it has.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AStationStoppedAfterAChangeOfTheEVSEsHangsUp(String Version)
+        {
+
+            await Connected(Version);
+
+            SwitchTheEVSEs();
+
+            Assert.That(await Within(() => csms!.Accepted == 2 && csms.Connections == 1), Is.True, "the station did not connect again");
+
+            await station!.Stop();
+
+            Assert.That(await Within(() => csms!.Connections == 0), Is.True, "the CSMS is still connected to a station that stopped");
+
+        }
+
+        #endregion
+
+        #region AStationNotStartedDialsNothingWhenItsEVSEsChange()
+
+        /// <summary>
+        /// A station that was never started dials nothing when its EVSEs change,
+        /// although it has a connection set to connect by itself.
+        /// </summary>
+        [Test]
+        public async Task AStationNotStartedDialsNothingWhenItsEVSEsChange()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("A CSMS", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", true, null, null,
+                                                              out _, out var error, OCPPVersion: "2.1"),
+                        Is.True, error);
+
+            SwitchTheEVSEs();
+
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            Assert.That(csms.Accepted, Is.Zero);
 
         }
 
