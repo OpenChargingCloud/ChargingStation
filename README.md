@@ -701,9 +701,10 @@ charging ad hoc has no provider, and the name over that session is the
 operator's, because that is who they are buying from.
 
 A logo is better kept as a file on the station than as a URL the screen has
-to reach over LTE, or a `data:` URI that makes the file hard to read. With SFTP
-switched on (`"ssh": { "sftp": true }`, see WWCP_Node's "Files over SFTP"),
-whoever may edit `providers` - the CPO, the installer - puts one up:
+to reach over LTE, or a `data:` URI that makes the file hard to read.
+ChargingStationCLI serves SFTP unless the file says `"ssh": { "sftp": false }`
+(see WWCP_Node's "Files over SFTP"), and over it whoever may edit `providers` -
+the CPO, the installer - puts one up:
 
 ```
 /logos/operator.svg
