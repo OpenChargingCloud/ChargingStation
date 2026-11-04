@@ -137,6 +137,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(model.ClientValue("RecursionDesired"),  Is.EqualTo("Set"));
                 Assert.That(model.ClientValue("FollowCNAMEs"),      Is.EqualTo("true"));
                 Assert.That(model.ClientValue("ClientSubnet"),      Is.EqualTo(""),   "no subnet is sent");
+                Assert.That(model.ClientValue("ServerSource"),      Is.EqualTo("Manual"), "the file's servers");
 
                 Assert.That(model.ClientValue("MaxServers"),        Is.EqualTo("16"));
                 Assert.That(model.Slots,                            Is.EqualTo(16));
@@ -213,7 +214,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 foreach (var notYet in new[] { "AuthenticationName", "Enabled", "Priority" })
                     Assert.That(model.ServerValue(1, notYet), Is.Null, notYet);
 
-                foreach (var notYet in new[] { "ServerSource", "EncryptedOnly", "NoSuchThing" })
+                foreach (var notYet in new[] { "EncryptedOnly", "NoSuchThing" })
                     Assert.That(model.ClientValue(notYet), Is.Null, notYet);
 
             });

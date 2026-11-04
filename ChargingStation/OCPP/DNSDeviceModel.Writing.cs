@@ -80,6 +80,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// that a pin learned on first use in the meantime is kept.
     /// </para>
     /// <para>
+    /// ServerSource says where the list is from. System gives it back to the
+    /// servers the station was started with, the operating system's, and
+    /// takes it out of the file; it cannot be one change with a slot, and a
+    /// slot changed after it in the same request is one of those servers.
+    /// Manual writes the servers asked now into the file, as a change of a
+    /// slot does anyway.
+    /// </para>
+    /// <para>
     /// With IndependentRequests every entry is a change of its own, in the
     /// order of the request, except that the entries of a slot unused at the
     /// start are one change, made where its Address stands: a new encrypted
@@ -120,7 +128,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private const Int32 MaxAdditionalInfo = 1024;
 
         private static readonly String[] writableClientVariables = [
-            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows"
+            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows", "ServerSource"
         ];
 
         private static readonly String[] writableServerVariables = [
@@ -381,8 +389,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 if (item.Slot is not UInt16 slot)
                 {
-                    section[clientKeys[item.Name]] = ClientJSON(item.Name, item.Value);
+
+                    // Said with the list of servers - see below.
+                    if (!item.Is("ServerSource"))
+                        section[clientKeys[item.Name]] = ClientJSON(item.Name, item.Value);
+
                     continue;
+
                 }
 
                 var at = slot - 1;
@@ -468,7 +481,26 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     server.Port = null;
                 }
 
-            if (Change.Any(item => item.Slot is not null))
+            // Where the servers are from: System gives them back to the ones
+            // the station was started with - the operating system's - which the
+            // node reads in "servers": null; Manual writes the ones it asks now
+            // into the file, where a change of a slot writes them anyway.
+            var source    = Change.FirstOrDefault(item => item.Slot is null && item.Is("ServerSource"));
+            var toSystem  = String.Equals(source?.Value, "System", StringComparison.OrdinalIgnoreCase);
+            var toManual  = String.Equals(source?.Value, "Manual", StringComparison.OrdinalIgnoreCase);
+            var fromFile  = String.Equals(this.section()["serversFrom"]?.Value<String>(), "file", StringComparison.OrdinalIgnoreCase);
+
+            if (toSystem && Change.Any(item => item.Slot is not null))
+            {
+                Refuse(Change, [ source! ], Results, Atomic, "InvalidValue",
+                       $"'{ClientComponent}.ServerSource' System gives the name servers back to those this charging station was started with, which cannot be one change with an entry of {ServerComponent}!");
+                return;
+            }
+
+            if (toSystem)
+                section["servers"] = JValue.CreateNull();
+
+            else if (Change.Any(item => item.Slot is not null) || toManual)
             {
 
                 if (candidate.All(server => server is null))
@@ -484,7 +516,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             #endregion
 
-            if (!SomethingChanges(section, Table))
+            if (!SomethingChanges(section, Table, toSystem && fromFile || toManual && !fromFile))
             {
                 foreach (var item in Change)
                     Results[item.Index] = Result(item.Entry, SetVariableStatus.Accepted);
@@ -578,10 +610,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return;
             }
 
-            // In effect: from now on the servers are held to what was sent.
+            // In effect: from now on the servers are held to what was sent - or,
+            // given back, are the ones the node was started with.
+            var held = toSystem
+                           ? SlotServer.TableOf(this.section(), (UInt16) Table.Length)
+                           : candidate;
+
             for (var at = 0; at < Table.Length; at++)
             {
-                Table[at] = candidate[at];
+                Table[at] = held[at];
                 Table[at]?.ShownAsSent();
             }
 
@@ -596,12 +633,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         /// <summary>
         /// Whether the given change says anything the node does not have yet:
-        /// a setting of the client, or another list of servers.
+        /// a setting of the client, another list of servers, or another place
+        /// they are from.
         /// </summary>
         private static Boolean SomethingChanges(JObject        Section,
-                                                SlotServer?[]  Table)
+                                                SlotServer?[]  Table,
+                                                Boolean        SourceChanges)
 
-            => Section.Properties().Any(property => property.Name != "servers") ||
+            => SourceChanges ||
+               Section.Properties().Any(property => property.Name != "servers") ||
                (Section["servers"] is JArray servers &&
                 !JToken.DeepEquals(servers, new JArray(Table.OfType<SlotServer>().Select(server => server.ToJSON()))));
 

@@ -42,9 +42,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// Every variable of the paper that the node can answer is here; the rest
-    /// (AuthenticationName, Enabled and Priority of a server,
-    /// ServerSource and EncryptedOnly) is not, so that a CSMS asking for them
-    /// learns they are unknown rather than reading an empty value as an answer.
+    /// (AuthenticationName, Enabled and Priority of a server, and
+    /// EncryptedOnly) is not, so that a CSMS asking for them learns they are
+    /// unknown rather than reading an empty value as an answer.
     /// SecureDNS-DeviceModel-Concept.md B.7 and B.8 say where each value
     /// comes from.
     /// </para>
@@ -83,6 +83,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("DNSSECOK",          dns    => BooleanOf  (Child(dns["settings"], "dnssecOK"))),
             ("FollowCNAMEs",      dns    => BooleanOf  (Child(dns["settings"], "followCNAMEs"))),
             ("MaxCNAMEFollows",   dns    => IntegerOf  (Child(dns["settings"], "maxCNAMEFollows"))),
+            ("ServerSource",      dns    => SourceOf   (dns["serversFrom"])),
             ("MaxServers",        dns    => SlotsIn    (dns).ToString(CultureInfo.InvariantCulture)),
             ("UDPPayloadSize",    dns    => IntegerOf  (Child(dns["fixed"],    "udpPayloadSize"))),
             ("ClientSubnet",      dns    => TextOf     (Child(dns["fixed"],    "clientSubnet")))
@@ -343,6 +344,23 @@ namespace cloud.charging.open.ChargingStation.OCPP
             => Token?.Type == JTokenType.Boolean
                    ? (Token.Value<Boolean>() ? "Set" : "Unset")
                    : "Default";
+
+        #endregion
+
+        #region (private static) SourceOf(Token)
+
+        /// <summary>
+        /// Where the node says its name servers are from, as ServerSource says
+        /// it: "Manual" for the file's, "System" for the ones it was started
+        /// with - the operating system's, for the station's own client.
+        /// </summary>
+        private static String SourceOf(JToken? Token)
+
+            => TextOf(Token).ToLowerInvariant() switch {
+                   "file"   => "Manual",
+                   "start"  => "System",
+                   _        => ""
+               };
 
         #endregion
 

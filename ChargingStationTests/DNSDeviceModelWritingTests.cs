@@ -776,6 +776,160 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region TheServersGoBackToThoseTheStationWasStartedWithAndComeBack()
+
+        /// <summary>
+        /// ServerSource System gives the name servers back to the ones the
+        /// station was started with - held to nothing, out of the file, told as
+        /// the CSMS's change - and Manual writes those into the file again.
+        /// Each read says where the servers are from.
+        /// </summary>
+        [Test]
+        public async Task TheServersGoBackToThoseTheStationWasStartedWithAndComeBack()
+        {
+
+            var told     = new List<(IReadOnlyList<String> Changes, String? Origin)>();
+
+            station!.OnDNSConfigurationChanged += (changes, origin) => {
+                lock (told)
+                    told.Add((changes, origin));
+            };
+
+            var before   = model.ClientValue("ServerSource");
+
+            var system   = await Set(null, (null, "ServerSource", "System"));
+            var given    = (Source: model.ClientValue("ServerSource"), Transport: model.ServerValue(1, "Transport"), RootPins: model.ServerValue(1, "RootPins"),
+                            InTheFile: OnDisk()["dns"]?["servers"]);
+
+            var manual   = await Set(null, (null, "ServerSource", "Manual"));
+            var written  = OnDisk()["dns"]?["servers"] as JArray;
+
+            Assert.Multiple(() => {
+
+                Assert.That(before,                                  Is.EqualTo("Manual"));
+
+                Assert.That(system.Single().AttributeStatus,         Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(given.Source,                            Is.EqualTo("System"));
+                Assert.That(given.Transport,                         Is.EqualTo("UDP"), "the station's own, from TestStations.Resolver");
+                Assert.That(given.RootPins,                          Is.EqualTo(""),    "held to nothing");
+                Assert.That(given.InTheFile,                         Is.Null);
+
+                Assert.That(manual.Single().AttributeStatus,         Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(model.ClientValue("ServerSource"),       Is.EqualTo("Manual"));
+                Assert.That(written?.Select(server => server.Value<String>("address")),  Is.EqualTo(new[] { "192.0.2.53", "2001:db8::53" }));
+                Assert.That(written?[0]?.Value<String>("transport"),                     Is.EqualTo("UDP"), "the one it was started with, not the file's before");
+                Assert.That(written?[0]?["rootFingerprint"],                             Is.Null);
+
+                Assert.That(told.Select(change => change.Origin),    Is.EqualTo(new[] { "ocpp:CSMS", "ocpp:CSMS" }));
+                Assert.That(told[0].Changes,                         Has.Some.EndsWith(", the ones it was started with"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ServersGivenBackAreNotSetInTheSameRequest()
+
+        /// <summary>
+        /// ServerSource System and a slot as one change cannot both be meant:
+        /// with ACID the source is refused, and the slot rolled back with it.
+        /// </summary>
+        [Test]
+        public async Task ServersGivenBackAreNotSetInTheSameRequest()
+        {
+
+            var results = await Set(OCPP21.DataConsistencyModel.ACID,
+                                    (null, "ServerSource", "System"),
+                                    ("2",  "Port",         "5353"));
+
+            Assert.Multiple(() => {
+                Assert.That(StatusesOf(results),                                       Is.EqualTo(new[] { OCPP21.SetVariableStatus.Rejected, OCPP21.SetVariableStatus.Rolledback }));
+                Assert.That(results[0].AttributeStatusInfo?.ReasonCode,                Is.EqualTo("InvalidValue"));
+                Assert.That(results[0].AttributeStatusInfo?.AdditionalInfo,            Does.Contain("cannot be one change with an entry of DNSServerController"));
+                Assert.That(model.ClientValue("ServerSource"),                         Is.EqualTo("Manual"));
+                Assert.That(model.ServerValue(2, "Port"),                              Is.EqualTo("53"));
+            });
+
+        }
+
+        #endregion
+
+        #region ASlotChangedAfterTheServersAreGivenBackIsOneOfThem()
+
+        /// <summary>
+        /// Entry by entry, a slot changed after ServerSource System is a server
+        /// the station was started with: over UDP and held to nothing, not the
+        /// file's server over TLS held to a root that the slot held before -
+        /// and the change writes them into the file again.
+        /// </summary>
+        [Test]
+        public async Task ASlotChangedAfterTheServersAreGivenBackIsOneOfThem()
+        {
+
+            var results = await Set(OCPP21.DataConsistencyModel.IndependentRequests,
+                                    (null, "ServerSource", "System"),
+                                    ("1",  "Port",         "5353"));
+
+            Assert.Multiple(() => {
+                Assert.That(StatusesOf(results),                     Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(model.ServerValue(1, "Address"),         Is.EqualTo("192.0.2.53"));
+                Assert.That(model.ServerValue(1, "Transport"),       Is.EqualTo("UDP"));
+                Assert.That(model.ServerValue(1, "Port"),            Is.EqualTo("5353"));
+                Assert.That(model.ServerValue(1, "RootPins"),        Is.EqualTo(""));
+                Assert.That(model.ClientValue("ServerSource"),       Is.EqualTo("Manual"));
+            });
+
+        }
+
+        #endregion
+
+        #region ServersGivenBackAreTriedAgainstTheNamesOfTheCSMSFirst()
+
+        /// <summary>
+        /// Servers given back to those the station was started with must still
+        /// resolve the CSMS: where they would not, System is CSMSUnreachable and
+        /// nothing is put into the node; where they would, "servers": null is.
+        /// </summary>
+        [Test]
+        public async Task ServersGivenBackAreTriedAgainstTheNamesOfTheCSMSFirst()
+        {
+
+            var node      = new ANodeOfWords { ResolvesThen = false };
+
+            node.Section["serversFrom"] = "file";
+
+            var refused   = await SetIn(node.Source(), null, (null, "ServerSource", "System"));
+            var nothing   = node.Changes.Count;
+
+            node.ResolvesThen = true;
+
+            var accepted  = await SetIn(node.Source(), null, (null, "ServerSource", "System"));
+
+            Assert.Multiple(() => {
+                Assert.That(refused.Single().AttributeStatus,                          Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(refused.Single().AttributeStatusInfo?.ReasonCode,          Is.EqualTo("CSMSUnreachable"));
+                Assert.That(nothing,                                                   Is.Zero);
+                Assert.That(accepted.Single().AttributeStatus,                         Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(node.Changes.Single()["servers"]?.Type,                    Is.EqualTo(JTokenType.Null));
+            });
+
+        }
+
+        #endregion
+
+
+        #region (private) OnDisk()
+
+        /// <summary>
+        /// The station's file as it is now.
+        /// </summary>
+        private JObject OnDisk()
+
+            => JObject.Parse(File.ReadAllText(station!.ConfigFile.Path));
+
+        #endregion
+
         #region (private) Set(Model, params Entries)
 
         /// <summary>
