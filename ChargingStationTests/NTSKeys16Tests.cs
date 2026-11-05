@@ -197,6 +197,69 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheAEADAlgorithmIsAListWhoseEmptyEntryOffersEveryOne()
+
+        /// <summary>
+        /// "ntske.&lt;group&gt;.aead" is a list per server like the others, but
+        /// for an empty entry: a server whose key exchange offers every
+        /// algorithm, not the one before it. Read, a server whose entry names
+        /// none reads what its last key exchange agreed on - "" before the
+        /// first.
+        /// </summary>
+        [Test]
+        public async Task TheAEADAlgorithmIsAListWhoseEmptyEntryOffersEveryOne()
+        {
+
+            var before   = Value("ntske.legal.aead");
+
+            var set      = await Change("ntske.legal.aead", "AES-SIV-CMAC-256,,aes-128-gcm-siv");
+            var after    = Value("ntske.legal.aead");
+            var written  = OnDisk()?["servers"]?.Select(server => server is JObject entry ? entry.Value<String>("aead") : null).ToArray();
+
+            var other    = await Change("ntske.legal.aead", "AES-256-GCM-SIV");
+            var cleared  = await Change("ntske.legal.aead", "");
+
+            Assert.Multiple(() => {
+
+                Assert.That(before,                       Is.EqualTo(",,,"));
+                Assert.That(set,                          Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(after,                        Is.EqualTo("AES-SIV-CMAC-256,,AES-128-GCM-SIV,AES-128-GCM-SIV"),  "the last value holds for the rest");
+                Assert.That(written,                      Is.EqualTo(new String?[] { "AES-SIV-CMAC-256", null, "AES-128-GCM-SIV", "AES-128-GCM-SIV" }));
+
+                Assert.That(other,                        Is.EqualTo(OCPP16.ConfigurationStatus.Rejected));
+                Assert.That(cleared,                      Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(Value("ntske.legal.aead"),    Is.EqualTo(",,,"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ANewServerOffersWhatTheLastOnesEntryNames()
+
+        /// <summary>
+        /// A server added by the list of servers offers what the last one's
+        /// entry names - and not what its last key exchange agreed on, which
+        /// would hold the new server to that one algorithm.
+        /// </summary>
+        [Test]
+        public async Task ANewServerOffersWhatTheLastOnesEntryNames()
+        {
+
+            await Change("ntske.legal.aead", ",,,AES-SIV-CMAC-256");
+
+            var grown    = await Change("ntp.legal.servers", "ptbtime1.example.invalid,ptbtime2.example.invalid,ptbtime3.example.invalid,ptbtime4.example.invalid,ptbtime5.example.invalid");
+
+            Assert.Multiple(() => {
+                Assert.That(grown,                        Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(Value("ntske.legal.aead"),    Is.EqualTo(",,,AES-SIV-CMAC-256,AES-SIV-CMAC-256"));
+            });
+
+        }
+
+        #endregion
+
         #region TheServersAreRenamedAddedAndTakenAwayByTheirPlaces()
 
         /// <summary>

@@ -185,9 +185,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A server's priority, another's certificate pin and group of roots,
-        /// changed on the page - which sends the whole list, each server with
-        /// what it showed it held to - and through SetVariables leave the same
-        /// servers in the file.
+        /// and a third's AEAD algorithm, changed on the page - which sends the
+        /// whole list, each server with what it showed it held to - and through
+        /// SetVariables leave the same servers in the file.
         /// </summary>
         [Test]
         public async Task TheSameServersLeaveTheSameFileWhicheverWayTheyCame()
@@ -202,7 +202,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                   "trustOnFirstUse": "certificate", "rootGroup": "legalCA",
                                   "pinsAsShown": { "rootFingerprint": "{{ARoot}}", "onMismatch": "record", "trustOnFirstUse": "certificate" } },
                                 { "id": "legal-2", "hostname": "ptbtime2.example.invalid", "priority": 2, "pinsAsShown": { } },
-                                { "id": "legal-3", "hostname": "ptbtime3.example.invalid", "ntsKEPort": 4461, "pinsAsShown": { } },
+                                { "id": "legal-3", "hostname": "ptbtime3.example.invalid", "ntsKEPort": 4461, "aead": "AES-SIV-CMAC-256", "pinsAsShown": { } },
                                 { "id": "legal-4", "hostname": "ptbtime4.example.invalid", "enabled": false, "pinsAsShown": { } } ] }
                             """),
                         Is.EqualTo(HttpStatusCode.OK));
@@ -212,7 +212,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             var set       = await Set(viaOCPP21, OCPP21.DataConsistencyModel.ACID,
                                       Client("legal-2", "Priority",        "2"),
                                       Client("ptb-a",   "CertificatePins", APin),
-                                      Client("ptb-a",   "RootCAs",         "legalCA"));
+                                      Client("ptb-a",   "RootCAs",         "legalCA"),
+                                      Client("legal-3", "AEADAlgorithm",   "AES-SIV-CMAC-256"));
 
             Assert.Multiple(() => {
                 Assert.That(set.Select(result => result.AttributeStatus),  Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));

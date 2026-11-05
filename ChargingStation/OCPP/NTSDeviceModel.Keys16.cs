@@ -60,10 +60,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// OCPP 1.6 changes one key at a time, so minInterval and maxInterval each
     /// set the one interval the node checks at, where 2.1 has to set both at
     /// once. Keys of the paper the node does not have - the delay asymmetries,
-    /// preflight, separate NTS-KE servers, the cookie refresh, the AEAD
-    /// algorithm, signed responses and the common "ntp.reboot.*" - are not
-    /// listed, and a change of one is NotSupported. Groups cannot be made or
-    /// taken away through 1.6.
+    /// preflight, separate NTS-KE servers, the cookie refresh, signed
+    /// responses and the common "ntp.reboot.*" - are not listed, and a change
+    /// of one is NotSupported. Groups cannot be made or taken away through 1.6.
+    /// </para>
+    /// <para>
+    /// "ntske.&lt;group&gt;.aead" is a list like the others but for an empty
+    /// entry, which is a server whose key exchange offers every algorithm, the
+    /// server choosing - not the one before it. Read, a server reads as
+    /// AEADAlgorithm does: what its entry names, or else what its last key
+    /// exchange agreed on.
     /// </para>
     /// <para>
     /// The common "ntp.timeAdjustmentReportingThreshold" is ClockCtrlr's
@@ -97,7 +103,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("ntp.rootCAs",              "RootCAs",          true,   ""),
             ("ntske.ports",              "NTSKEServerPort",  true,   "4460"),
             ("ntske.onPinMismatch",      "OnPinMismatch",    true,   "Refuse"),
-            ("ntske.trustOnFirstUse",    "TrustOnFirstUse",  true,   "None")
+            ("ntske.trustOnFirstUse",    "TrustOnFirstUse",  true,   "None"),
+            ("ntske.aead",               "AEADAlgorithm",    true,   "")
         ];
 
         /// <summary>
@@ -271,7 +278,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             else if (perServer)
             {
 
-                if (!TryList(Value, clients.Length, DefaultOf(variable), out var values))
+                if (!TryList(Value, clients.Length, DefaultOf(variable), out var values, EmptyIsUnset: variable == "AEADAlgorithm"))
                     return OCPP16.ConfigurationStatus.Rejected;
 
                 for (var index = 0; index < clients.Length; index++)
@@ -374,9 +381,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 Entries.Add(ClientEntry(id, "ServerURL", hosts[index]));
 
                 if (Clients.Length > 0)
+                {
+
                     foreach (var variable in new[] { "ServerPort", "NTSKEServerPort", "Priority", "RootCAs", "OnPinMismatch", "TrustOnFirstUse" })
                         if (ClientValue(Clients[^1], variable) is String last && last.Length > 0)
                             Entries.Add(ClientEntry(id, variable, last));
+
+                    // The AEAD algorithm its entry offers, and not what
+                    // AEADAlgorithm reads where it names none - the one its
+                    // last key exchange agreed on, which the new server would
+                    // then be held to offer alone.
+                    if (AEADSetFor(Clients[^1]) is { Length: > 0 } aead)
+                        Entries.Add(ClientEntry(id, "AEADAlgorithm", aead));
+
+                }
 
             }
 
@@ -397,10 +415,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// given, a shorter list's last value holds for the rest, and a longer
         /// one is no list for it.
         /// </summary>
+        /// <param name="EmptyIsUnset">Whether an empty entry is a server for which nothing is set, rather than the one before it: for the AEAD algorithm, where "" offers every one.</param>
         private static Boolean TryList(String                 Value,
                                        Int32?                 Count,
                                        String                 Default,
-                                       out List<String>       Values)
+                                       out List<String>       Values,
+                                       Boolean                EmptyIsUnset = false)
         {
 
             Values = [];
@@ -414,7 +434,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             foreach (var entry in written)
             {
-                previous = entry.Length > 0 ? entry : previous;
+                previous = entry.Length > 0 || EmptyIsUnset ? entry : previous;
                 Values.Add(previous);
             }
 

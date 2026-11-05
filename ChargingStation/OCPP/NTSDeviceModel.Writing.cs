@@ -96,7 +96,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         private static readonly String[] writableClientVariables = [
             "Enabled", "ServerURL", "ServerPort", "NTSKEServerPort", "Priority", "CertificatePins", "RootPins", "OnPinMismatch", "TrustOnFirstUse",
-            "RootCAs"
+            "RootCAs", "AEADAlgorithm"
         ];
 
         private static readonly String[] writableClockVariables = [
@@ -1329,6 +1329,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             public String        OnMismatch       { get; private set; } = "refuse";
             public String?       TrustOnFirstUse  { get; private set; }
             public String?       RootGroup        { get; private set; }
+            public String?       AEAD             { get; private set; }
             public JObject?      Shown            { get; private set; }
             public Boolean       Renamed          { get; private set; }
 
@@ -1353,7 +1354,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                  Roots            = PinsIn(heldTo, "root"),
                                  OnMismatch       = heldTo?["onMismatch"]?.Value<String>() ?? "refuse",
                                  TrustOnFirstUse  = heldTo?["trustOnFirstUse"]?.Value<String>() is String learn && learn is "root" or "certificate" ? learn : null,
-                                 RootGroup        = heldTo?["rootGroup"]?.Value<String>()
+                                 RootGroup        = heldTo?["rootGroup"]?.Value<String>(),
+                                 // What its own entry offers, which the node
+                                 // shows beside what was agreed on: carried
+                                 // through every change of the list, or a
+                                 // change of anything else would take it away.
+                                 AEAD             = JSON["aead"]?.Value<String>() is { Length: > 0 } aead ? aead : null
                              };
 
                 server.Key   = server.Id ?? $"#{Interlocked.Increment(ref made)}";
@@ -1393,6 +1399,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                        OnMismatch       = OnMismatch,
                        TrustOnFirstUse  = TrustOnFirstUse,
                        RootGroup        = RootGroup,
+                       AEAD             = AEAD,
                        Shown            = Shown,
                        Renamed          = Renamed,
                        Key              = Key
@@ -1486,6 +1493,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         RootGroup = Value.Length > 0 ? Value : null;
                         break;
 
+                    // The one algorithm its key exchange offers, written as the
+                    // node names it, whatever its case; "" offers every one
+                    // again, the server choosing.
+                    case "aeadalgorithm":
+                        if (Value.Length == 0)
+                            AEAD = null;
+                        else if (NTSServerConfiguration.TryParseAEAD(Value, out var aead))
+                            AEAD = NTSServerConfiguration.AEADNameOf(aead);
+                        else
+                        {
+                            Problem = $"{Where}: '{Value}' is not an AEAD algorithm this charging station offers, which are " +
+                                      $"{String.Join(" and ", NTSServerConfiguration.AEADAlgorithmsOffered.Select(NTSServerConfiguration.AEADNameOf))}.";
+                            return false;
+                        }
+                        break;
+
                 }
 
                 return true;
@@ -1540,6 +1563,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (NTSKEPort is UInt16 keyPort && keyPort != DefaultNTSKEPort) json["ntsKEPort"]  = keyPort;
                 if (NTPPort   is UInt16 ntpPort && ntpPort != DefaultNTPPort)   json["ntpPort"]    = ntpPort;
                 if (!Enabled)                                                  json["enabled"]    = false;
+                if (AEAD is not null)                                          json["aead"]       = AEAD;
 
                 json.Merge(PinsJSON());
 

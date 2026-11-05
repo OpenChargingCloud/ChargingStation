@@ -126,6 +126,55 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AServerIsOfferedOneAEADAlgorithmOrEveryOne()
+
+        /// <summary>
+        /// AEADAlgorithm sets the one algorithm a server's key exchange offers:
+        /// in effect, written as the node names it whatever its case, read
+        /// back - and kept by a change of anything else of the server, which
+        /// writes its entry anew. "" offers every one again, and an algorithm
+        /// the station does not offer is refused.
+        /// </summary>
+        [Test]
+        public async Task AServerIsOfferedOneAEADAlgorithmOrEveryOne()
+        {
+
+            var a        = station!.NTSGroupOf("legal")!.Sources.Sources.Single(source => source.Hostname.ToString().StartsWith("ptbtime1."));
+
+            var set      = await Set(null, Client("ptb-a", "AEADAlgorithm", "aes-siv-cmac-256"));
+            var read     = model.ClientValue("ptb-a", "AEADAlgorithm");
+            var written  = OnDisk("legal")?["servers"]?[0]?.Value<String>("aead");
+            var offered  = station.NTSGroupOf("legal")!.Sources.Sources.Single(source => source.Hostname.Equals(a.Hostname)).OfferedAEADAlgorithms?.ToArray();
+
+            var other    = await Set(null, Client("ptb-a", "Priority", "2"));
+            var kept     = OnDisk("legal")?["servers"]?[0]?.Value<String>("aead");
+
+            var refused  = await Set(null, Client("ptb-a", "AEADAlgorithm", "AES-256-GCM-SIV"));
+
+            var unset    = await Set(null, Client("ptb-a", "AEADAlgorithm", ""));
+
+            Assert.Multiple(() => {
+
+                Assert.That(StatusesOf(set),                               Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(read,                                          Is.EqualTo("AES-SIV-CMAC-256"));
+                Assert.That(written,                                       Is.EqualTo("AES-SIV-CMAC-256"));
+                Assert.That(offered,                                       Is.EqualTo(new[] { org.GraphDefined.Vanaheimr.Norn.NTS.AEADAlgorithms.AES_SIV_CMAC_256 }));
+
+                Assert.That(StatusesOf(other),                             Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(kept,                                          Is.EqualTo("AES-SIV-CMAC-256"),  "a change of the server's priority took it away");
+
+                Assert.That(StatusesOf(refused),                           Is.All.EqualTo(OCPP21.SetVariableStatus.Rejected));
+
+                Assert.That(StatusesOf(unset),                             Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(OnDisk("legal")?["servers"]?[0]?["aead"],     Is.Null);
+                Assert.That(model.ClientValue("ptb-a", "AEADAlgorithm"),   Is.EqualTo(""),  "what the last key exchange agreed on, and there was none");
+
+            });
+
+        }
+
+        #endregion
+
         #region BothIntervalsAreTheOneTheNodeChecksAt()
 
         /// <summary>

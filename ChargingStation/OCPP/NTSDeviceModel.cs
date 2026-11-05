@@ -109,7 +109,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("OnPinMismatch",           server       => OptionOf   (Child(server["heldTo"], "onMismatch"),      "Refuse")),
             ("TrustOnFirstUse",         server       => OptionOf   (Child(server["heldTo"], "trustOnFirstUse"), "None")),
             ("RootCAs",                 server       => TextOf     (Child(server["heldTo"], "rootGroup"))),
-            ("AEADAlgorithm",           server       => AEADOf     (server["aeadAlgorithm"])),
+            ("AEADAlgorithm",           server       => AEADOf     (server["aead"], server["aeadAlgorithm"])),
             ("Problem",                 server       => ProblemOf  (server["judgement"])),
             ("CertificateFingerprint",  server       => TextOf     (server["certificate"])),
             ("LastKeyExchange",         server       => DateTimeOf (server["lastExchange"])),
@@ -271,17 +271,39 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!clientVariableNamed.TryGetValue(Variable, out var value))
                 return null;
 
-            var group = node.NTSGroups.FirstOrDefault(group => group.ServerIds.Contains(Client, StringComparer.OrdinalIgnoreCase));
-
-            if (group is null)
-                return null;
-
-            return node.NTSConfigurationJSON(group)["timeSources"] is JArray servers &&
-                   servers.OfType<JObject>().FirstOrDefault(server => String.Equals(TextOf(server["id"]), Client, StringComparison.OrdinalIgnoreCase)) is JObject server
+            return ServerOf(Client) is JObject server
                        ? value(server)
                        : null;
 
         }
+
+        #endregion
+
+        #region (private) ServerOf(Client) / AEADSetFor(Client)
+
+        /// <summary>
+        /// The server of that id as its group shows it, or null.
+        /// </summary>
+        private JObject? ServerOf(String Client)
+        {
+
+            var group = node.NTSGroups.FirstOrDefault(group => group.ServerIds.Contains(Client, StringComparer.OrdinalIgnoreCase));
+
+            return group is not null &&
+                   node.NTSConfigurationJSON(group)["timeSources"] is JArray servers
+                       ? servers.OfType<JObject>().FirstOrDefault(server => String.Equals(TextOf(server["id"]), Client, StringComparison.OrdinalIgnoreCase))
+                       : null;
+
+        }
+
+        /// <summary>
+        /// The one AEAD algorithm the server's own entry offers, or "" where it
+        /// names none - not what AEADAlgorithm reads then, which is what the
+        /// last key exchange agreed on.
+        /// </summary>
+        private String AEADSetFor(String Client)
+
+            => TextOf(ServerOf(Client)?["aead"]);
 
         #endregion
 
@@ -498,16 +520,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private static) AEADOf(Token)
+        #region (private static) AEADOf(Set, Agreed)
 
         /// <summary>
-        /// The AEAD algorithm the last key exchange agreed on, as the paper
-        /// spells it ("AES-SIV-CMAC-256" for the node's "AES_SIV_CMAC_256"),
-        /// or "" before the first one.
+        /// The one AEAD algorithm the server's entry offers, where it names
+        /// one; otherwise the one its last key exchange agreed on, as the paper
+        /// spells it ("AES-SIV-CMAC-256" for the node's "AES_SIV_CMAC_256"), or
+        /// "" before the first one.
         /// </summary>
-        private static String AEADOf(JToken? Token)
+        /// <param name="Set">What the server's own entry names, as the node shows it: "aead".</param>
+        /// <param name="Agreed">What the last key exchange agreed on: "aeadAlgorithm".</param>
+        private static String AEADOf(JToken?  Set,
+                                     JToken?  Agreed)
 
-            => TextOf(Token).Replace('_', '-');
+            => TextOf(Set) is { Length: > 0 } set
+                   ? set
+                   : TextOf(Agreed).Replace('_', '-');
 
         #endregion
 
