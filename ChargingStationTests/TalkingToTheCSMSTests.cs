@@ -73,9 +73,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         internal sealed class CSMS : IAsyncDisposable
         {
 
-            private readonly ConcurrentQueue<JArray>             received    = new();
-            private readonly ConcurrentDictionary<String, Byte>  refuseOnce  = new();
-            private          Int32                               accepted;
+            private readonly ConcurrentQueue<JArray>                         received    = new();
+            private readonly ConcurrentQueue<(String Action, TimeSpan At)>  arrivals    = new();
+            private readonly Stopwatch                                       clock       = Stopwatch.StartNew();
+            private readonly ConcurrentDictionary<String, Byte>              refuseOnce  = new();
+            private          Int32                                           accepted;
 
             public WebSocketServer  Server         { get; }
             public IPPort           Port           { get; }
@@ -110,6 +112,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                     // before a test can see that it arrived and tell it
                     // otherwise.
                     var answer  = message[0].Value<Int32>() == 2 ? AnswerTo(message) : null;
+
+                    // When it came, before the answer goes and before a test
+                    // can count it.
+                    if (message[0].Value<Int32>() == 2)
+                        arrivals.Enqueue((message[2].Value<String>() ?? "", clock.Elapsed));
 
                     received.Enqueue(message);
 
@@ -165,6 +172,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             public JArray[] Requests(String Action)
                 => [.. received.Where(message => message[0].Value<Int32>() == 2 &&
                                                  message[2].Value<String>() == Action)];
+
+            /// <summary>
+            /// When the requests of the given action came, in the order they
+            /// came, counted from when this CSMS was made.
+            /// </summary>
+            public TimeSpan[] Arrivals(String Action)
+                => [.. arrivals.Where(arrival => arrival.Action == Action).Select(arrival => arrival.At)];
 
             /// <summary>
             /// How many connections it took, ever.
@@ -694,14 +708,20 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await QueueSecurityEvent(Version, "WhileRejected");
 
-            await Task.Delay(TimeSpan.FromSeconds(1));
+            Assert.That(await Within(() => csms.Requests("BootNotification").Length >= 2), Is.True, "a rejected station did not ask again once its time was up");
+
+            // Measured where the CSMS took the two, not by when this test
+            // looks: a runner slow enough to take seconds between the
+            // rejection and a look at what came would see the second one,
+            // on time, and call it early. A timer may fire a tick of the
+            // clock before its time, hence the little that is let off.
+            var asked = csms.Arrivals("BootNotification");
 
             Assert.Multiple(() => {
-                Assert.That(csms.Requests("BootNotification"),           Has.Length.EqualTo(1),  "a rejected station asked again before its time");
+                Assert.That(asked[1] - asked[0],                         Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(csms.BootInterval) - TimeSpan.FromMilliseconds(100)),
+                                                                                                 "a rejected station asked again before its time");
                 Assert.That(csms.Requests("SecurityEventNotification"),  Is.Empty,               "a rejected station sent its event");
             });
-
-            Assert.That(await Within(() => csms.Requests("BootNotification").Length == 2), Is.True, "a rejected station did not ask again once its time was up");
 
         }
 
