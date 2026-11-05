@@ -50,8 +50,15 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// waited in the queue. Every test that dialled asked only whether the
     /// connection was made.
     ///
-    /// A plain WebSocket server stands in for the CSMS, one that answers every
-    /// request with an empty answer and keeps every frame it is sent.
+    /// A plain WebSocket server stands in for the CSMS, one that answers a
+    /// BootNotification as it is told to, a Heartbeat with its time and every
+    /// other request with an empty answer, and keeps every frame it is sent.
+    ///
+    /// And registering: the station sends its BootNotification once it is
+    /// connected, tells the CSMS nothing else until it is accepted, then
+    /// sends a heartbeat at the interval it was given; it registers again
+    /// after its OCPP nodes were built anew, and not when a connection that
+    /// was accepted comes back.
     /// </remarks>
     [TestFixture]
     public class TalkingToTheCSMSTests
@@ -61,16 +68,28 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A CSMS of the least kind: it takes every request, answers it with
-        /// nothing, and keeps what it was sent.
+        /// what is least, and keeps what it was sent.
         /// </summary>
         internal sealed class CSMS : IAsyncDisposable
         {
 
-            private readonly ConcurrentQueue<JArray> received = new();
-            private          Int32                   accepted;
+            private readonly ConcurrentQueue<JArray>             received    = new();
+            private readonly ConcurrentDictionary<String, Byte>  refuseOnce  = new();
+            private          Int32                               accepted;
 
-            public WebSocketServer  Server   { get; }
-            public IPPort           Port     { get; }
+            public WebSocketServer  Server         { get; }
+            public IPPort           Port           { get; }
+
+            /// <summary>
+            /// How it answers a BootNotification: "Accepted", "Pending" or
+            /// "Rejected" - or, null, with an error, and "Silent", not at all.
+            /// </summary>
+            public String?          BootStatus     { get; set; } = "Accepted";
+
+            /// <summary>
+            /// The interval it answers a BootNotification with, in seconds.
+            /// </summary>
+            public Int32            BootInterval   { get; set; } = 300;
 
             public CSMS()
             {
@@ -87,14 +106,65 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                     var message = JArray.Parse(text);
 
+                    // Answered as it is told to when the request arrives -
+                    // before a test can see that it arrived and tell it
+                    // otherwise.
+                    var answer  = message[0].Value<Int32>() == 2 ? AnswerTo(message) : null;
+
                     received.Enqueue(message);
 
-                    if (message[0].Value<Int32>() == 2)
-                        await Server.SendTextMessage(connection, new JArray(3, message[1], new JObject()).ToString(Formatting.None));
+                    if (answer is not null)
+                        await Server.SendTextMessage(connection, answer.ToString(Formatting.None));
 
                 };
 
             }
+
+            /// <summary>
+            /// The answer to a request: an error where it is to be refused, and
+            /// none where it is not to be answered.
+            /// </summary>
+            private JArray? AnswerTo(JArray Request)
+            {
+
+                var action = Request[2].Value<String>() ?? "";
+
+                if (action == "BootNotification" && BootStatus == "Silent")
+                    return null;
+
+                if (refuseOnce.TryRemove(action, out _) || (action == "BootNotification" && BootStatus is null))
+                    return new JArray(4, Request[1], "InternalError", "Refused by the test CSMS.", new JObject());
+
+                return new JArray(3, Request[1], action switch {
+
+                           "BootNotification"  => new JObject(
+                                                      new JProperty("status",       BootStatus),
+                                                      new JProperty("currentTime",  DateTimeOffset.UtcNow.ToString("o")),
+                                                      new JProperty("interval",     BootInterval)
+                                                  ),
+
+                           "Heartbeat"         => new JObject(
+                                                      new JProperty("currentTime",  DateTimeOffset.UtcNow.ToString("o"))
+                                                  ),
+
+                           _                   => new JObject()
+
+                       });
+
+            }
+
+            /// <summary>
+            /// Refuse the next request of the given action, and take the one after.
+            /// </summary>
+            public void RefuseOnce(String Action)
+                => refuseOnce[Action] = 0;
+
+            /// <summary>
+            /// The requests of the given action it was sent so far.
+            /// </summary>
+            public JArray[] Requests(String Action)
+                => [.. received.Where(message => message[0].Value<Int32>() == 2 &&
+                                                 message[2].Value<String>() == Action)];
 
             /// <summary>
             /// How many connections it took, ever.
@@ -203,7 +273,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// The station started, connected to this test's CSMS with the given
-        /// version of OCPP.
+        /// version of OCPP - and registered with it, where the CSMS accepts
+        /// stations: until then, the station tells it nothing.
         /// </summary>
         private async Task Connected(String Version)
         {
@@ -215,6 +286,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             station = await TestStations.Started(station, directory);
 
             Assert.That(station.DialledConnections[id!], Does.StartWith("Connected"), "the station did not get connected to begin with");
+
+            if (csms.BootStatus == "Accepted")
+                Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station did not register: it is {Registration(Version)}");
 
         }
 
@@ -478,6 +552,381 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Task.Delay(TimeSpan.FromSeconds(2));
 
             Assert.That(csms.Accepted, Is.Zero);
+
+        }
+
+        #endregion
+
+
+        #region (private) Registration(Version) / (private static) IsRequest(Message, Action) / (private static) Said(BootNotification, Version)
+
+        /// <summary>
+        /// Where the station's node of the given version stands with its CSMS.
+        /// </summary>
+        private String? Registration(String Version)
+            => station!.RegistrationJSON()[Version]?["state"]?.Value<String>();
+
+        private static Boolean IsRequest(JArray Message, String Action)
+            => Message[0].Value<Int32>() == 2 && Message[2].Value<String>() == Action;
+
+        /// <summary>
+        /// What a BootNotification says the station is, under the names its
+        /// version gives them.
+        /// </summary>
+        private static (String? Vendor, String? Model, String? SerialNumber, String? Firmware) Said(JArray BootNotification, String Version)
+        {
+
+            var payload = (BootNotification[3] as JObject)!;
+
+            if (Version == "1.6")
+                return (payload.Value<String>("chargePointVendor"),
+                        payload.Value<String>("chargePointModel"),
+                        payload.Value<String>("chargePointSerialNumber"),
+                        payload.Value<String>("firmwareVersion"));
+
+            var station = (payload["chargingStation"] as JObject)!;
+
+            return (station.Value<String>("vendorName"),
+                    station.Value<String>("model"),
+                    station.Value<String>("serialNumber"),
+                    station.Value<String>("firmwareVersion"));
+
+        }
+
+        #endregion
+
+
+        #region TheStationRegistersWithWhatItSaysItIs(Version)
+
+        /// <summary>
+        /// Once connected, the station sends its BootNotification: who made it,
+        /// which model it is and the firmware it was built from - and, in 2.1,
+        /// that it powered up. The CSMS accepts it.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task TheStationRegistersWithWhatItSaysItIs(String Version)
+        {
+
+            await Connected(Version);
+
+            var boot = await csms!.Sent(message => IsRequest(message, "BootNotification"));
+
+            Assert.That(boot, Is.Not.Null, "no BootNotification was sent");
+
+            var said = Said(boot!, Version);
+
+            Assert.Multiple(() => {
+
+                Assert.That(said.Vendor,        Is.EqualTo("GraphDefined"));
+                Assert.That(said.Model,         Is.EqualTo("ChargingStationCLI"));
+                Assert.That(said.SerialNumber,  Is.Null, "a station whose file says no serial number said one");
+                Assert.That(said.Firmware,      Is.Not.Null.And.Not.Empty);
+
+                if (Version == "2.1")
+                    Assert.That(boot![3]!.Value<String>("reason"), Is.EqualTo("PowerUp"));
+
+            });
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+
+        }
+
+        #endregion
+
+        #region NothingElseIsSentUntilTheCSMSAccepts(Version)
+
+        /// <summary>
+        /// A CSMS that answers Pending is told nothing else - no event, no
+        /// heartbeat - and asked again after the interval it gave. Once it
+        /// accepts the station, what waited is sent.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task NothingElseIsSentUntilTheCSMSAccepts(String Version)
+        {
+
+            csms!.BootStatus    = "Pending";
+            csms. BootInterval  = 1;
+
+            await QueueSecurityEvent(Version, "BeforeConnected");
+
+            await Connected(Version);
+
+            // And one while connected, which the node would send at once.
+            await QueueSecurityEvent(Version, "WhilePending");
+
+            Assert.That(await Within(() => csms.Requests("BootNotification").Length >= 2), Is.True, "a pending station did not ask again after the interval");
+
+            Assert.Multiple(() => {
+                Assert.That(csms.Requests("SecurityEventNotification"),  Is.Empty,          "a pending station sent its events");
+                Assert.That(csms.Requests("Heartbeat"),                  Is.Empty,          "a pending station sent a heartbeat");
+                Assert.That(Waiting(Version),                            Is.EqualTo(2),     "the events do not wait");
+            });
+
+            csms.BootStatus = "Accepted";
+
+            Assert.That(await csms.SentRequest("SecurityEventNotification", "BeforeConnected"), Is.Not.Null, "what waited was not sent once the station was accepted");
+            Assert.That(await csms.SentRequest("SecurityEventNotification", "WhilePending"),    Is.Not.Null, "what waited was not sent once the station was accepted");
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+
+        }
+
+        #endregion
+
+        #region ARejectedStationWaitsTheIntervalBeforeItAsksAgain(Version)
+
+        /// <summary>
+        /// A CSMS that rejects the station is told nothing else, and asked
+        /// again only once the interval it gave is up.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task ARejectedStationWaitsTheIntervalBeforeItAsksAgain(String Version)
+        {
+
+            csms!.BootStatus    = "Rejected";
+            csms. BootInterval  = 3;
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => Registration(Version) == "Rejected"), Is.True, $"the station is {Registration(Version)}");
+
+            await QueueSecurityEvent(Version, "WhileRejected");
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() => {
+                Assert.That(csms.Requests("BootNotification"),           Has.Length.EqualTo(1),  "a rejected station asked again before its time");
+                Assert.That(csms.Requests("SecurityEventNotification"),  Is.Empty,               "a rejected station sent its event");
+            });
+
+            Assert.That(await Within(() => csms.Requests("BootNotification").Length == 2), Is.True, "a rejected station did not ask again once its time was up");
+
+        }
+
+        #endregion
+
+        #region AnUnansweredBootNotificationLeavesTheStationUnregistered(Version)
+
+        /// <summary>
+        /// A CSMS that answers the BootNotification with an error leaves the
+        /// station unregistered: it says why and when it asks again, sends no
+        /// heartbeat, and keeps what it has to say.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AnUnansweredBootNotificationLeavesTheStationUnregistered(String Version)
+        {
+
+            csms!.BootStatus = null;
+
+            await QueueSecurityEvent(Version, "Unregistered");
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => Registration(Version) == "Unanswered"), Is.True, $"the station is {Registration(Version)}");
+
+            // And one while connected, which the node would send at once.
+            await QueueSecurityEvent(Version, "StillUnregistered");
+
+            var registration = station!.RegistrationJSON()[Version]!;
+
+            Assert.Multiple(() => {
+                Assert.That(registration.Value<String>("problem"),       Is.Not.Null.And.Not.Empty);
+                Assert.That(registration.Value<String>("nextTry"),       Is.Not.Null);
+                Assert.That(csms.Requests("SecurityEventNotification"),  Is.Empty,  "an unregistered station sent its events");
+                Assert.That(Version == "1.6"
+                                ? station.OCPPv1_6Node.DisableSendHeartbeats
+                                : station.OCPPv2_1Node.DisableSendHeartbeats,  Is.True,  "an unregistered station sends heartbeats");
+                Assert.That(Waiting(Version),                            Is.EqualTo(2));
+            });
+
+        }
+
+        #endregion
+
+        #region AnAcceptedStationSendsHeartbeatsAtItsInterval(Version)
+
+        /// <summary>
+        /// Accepted, the station sends a heartbeat at the interval it was given.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AnAcceptedStationSendsHeartbeatsAtItsInterval(String Version)
+        {
+
+            // The shortest a node takes.
+            csms!.BootInterval = 5;
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+            Assert.That(await csms.Sent(message => IsRequest(message, "Heartbeat")), Is.Not.Null, "no heartbeat was sent");
+
+        }
+
+        #endregion
+
+        #region AStationAcceptedDoesNotRegisterAgainWhenTheConnectionComesBack(Version)
+
+        /// <summary>
+        /// A connection that comes back to a CSMS that accepted the station is
+        /// not registered again - OCPP asks for a BootNotification at a start -
+        /// and what the station has to say goes at once.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AStationAcceptedDoesNotRegisterAgainWhenTheConnectionComesBack(String Version)
+        {
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+
+            await csms!.Drop();
+
+            Assert.That(await Within(() => csms.Accepted == 2 && csms.Connections == 1), Is.True, "the connection did not come back");
+
+            await QueueSecurityEvent(Version, "AfterComingBack");
+
+            Assert.That(await csms.SentRequest("SecurityEventNotification", "AfterComingBack"), Is.Not.Null, "the CSMS was not told");
+            Assert.That(csms.Requests("BootNotification"), Has.Length.EqualTo(1), "the station registered again");
+
+        }
+
+        #endregion
+
+        #region ABootNotificationLostWithItsConnectionIsAskedAgainWhenItComesBack(Version)
+
+        /// <summary>
+        /// A BootNotification asked over a connection that is lost before the
+        /// answer comes is asked again over the connection that comes back,
+        /// rather than waited for until it times out.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task ABootNotificationLostWithItsConnectionIsAskedAgainWhenItComesBack(String Version)
+        {
+
+            csms!.BootStatus = "Silent";
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => csms.Requests("BootNotification").Length == 1), Is.True, "no BootNotification was sent");
+
+            // Nothing has answered, so nothing has switched the heartbeats
+            // off: a node built with them would send them now.
+            Assert.That(Version == "1.6"
+                            ? station!.OCPPv1_6Node.DisableSendHeartbeats
+                            : station!.OCPPv2_1Node.DisableSendHeartbeats,  Is.True,  "a station not registered sends heartbeats");
+
+            csms.BootStatus = "Accepted";
+
+            await csms.Drop();
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+            Assert.That(csms.Requests("BootNotification"), Has.Length.EqualTo(2));
+
+        }
+
+        #endregion
+
+        #region AfterAChangeOfTheEVSEsTheStationRegistersAgain(Version)
+
+        /// <summary>
+        /// After a change of the EVSEs the new nodes register again - in 2.1 as
+        /// a local reset - and are accepted.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AfterAChangeOfTheEVSEsTheStationRegistersAgain(String Version)
+        {
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+
+            SwitchTheEVSEs();
+
+            Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 2), Is.True, "the new nodes did not register");
+
+            if (Version == "2.1")
+                Assert.That(csms!.Requests("BootNotification")[1][3]!.Value<String>("reason"), Is.EqualTo("LocalReset"));
+
+            Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station is {Registration(Version)}");
+
+        }
+
+        #endregion
+
+        #region AChangeOfWhatTheStationSaysItIsRegistersAgainWithIt(Version)
+
+        /// <summary>
+        /// A change of what the station says it is hangs up, dials again and
+        /// registers with what it says now.
+        /// </summary>
+        [TestCase("2.1")]
+        [TestCase("1.6")]
+        public async Task AChangeOfWhatTheStationSaysItIsRegistersAgainWithIt(String Version)
+        {
+
+            await Connected(Version);
+
+            Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 1), Is.True, "the station did not register to begin with");
+
+            Assert.That(station!.TryUpdateNameplateConfiguration(new JObject(
+                                                                     new JProperty("vendor",           "Test Vendor"),
+                                                                     new JProperty("model",            "Test Model"),
+                                                                     new JProperty("serialNumber",     "SN-4711"),
+                                                                     new JProperty("firmwareVersion",  "fw-1.2.3")
+                                                                 ),
+                                                                 out var error,
+                                                                 out _),
+                        Is.True, error);
+
+            Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 2), Is.True, "the station did not register again");
+            Assert.That(csms!.Accepted, Is.EqualTo(2), "the station did not hang up and dial again");
+
+            var said = Said(csms.Requests("BootNotification")[1], Version);
+
+            Assert.Multiple(() => {
+                Assert.That(said.Vendor,        Is.EqualTo("Test Vendor"));
+                Assert.That(said.Model,         Is.EqualTo("Test Model"));
+                Assert.That(said.SerialNumber,  Is.EqualTo("SN-4711"));
+                Assert.That(said.Firmware,      Is.EqualTo("fw-1.2.3"));
+            });
+
+        }
+
+        #endregion
+
+        #region TheOCPP21NodeTriesItsQueueAgainByTheClock()
+
+        /// <summary>
+        /// The OCPP 2.1 node keeps its maintenance: an event the CSMS refused is
+        /// sent again by the clock, without anything else happening.
+        /// </summary>
+        /// <remarks>
+        /// Its maintenance used to be switched off, so a message the CSMS did
+        /// not take waited for the next one, or for the connection to come back.
+        /// </remarks>
+        [Test]
+        public async Task TheOCPP21NodeTriesItsQueueAgainByTheClock()
+        {
+
+            await Connected("2.1");
+
+            Assert.That(await Within(() => Registration("2.1") == "Accepted"), Is.True, $"the station is {Registration("2.1")}");
+
+            station!.OCPPv2_1Node.OfflineQueueRetry = TimeSpan.FromSeconds(1);
+
+            csms!.RefuseOnce("SecurityEventNotification");
+
+            await QueueSecurityEvent("2.1", "RefusedOnce");
+
+            Assert.That(await Within(() => csms.Requests("SecurityEventNotification").Length == 2), Is.True, "the event was not tried again");
+            Assert.That(await Within(() => Waiting("2.1") == 0), Is.True, "the event still waits");
 
         }
 

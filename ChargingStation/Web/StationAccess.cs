@@ -155,10 +155,23 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Providers     = "providers";
 
         /// <summary>
+        /// Its nameplate, what this station tells a CSMS it is: who made it,
+        /// which model, its serial number and its firmware. Read, by everybody; edited, by the
+        /// system administrator alone.
+        /// </summary>
+        /// <remarks>
+        /// Not the operator's nor the installer's, for the reason the shape of
+        /// a socket is not: it says what the equipment is, a claim nothing
+        /// further down can check, and a CSMS believes it.
+        /// </remarks>
+        public const String  Nameplate     = "nameplate";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
-                                                                    Display, Session, Connections, V2G, Meters, Providers ];
+                                                                    Display, Session, Connections, V2G, Meters, Providers,
+                                                                    Nameplate ];
 
         #endregion
 

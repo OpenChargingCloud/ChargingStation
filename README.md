@@ -140,7 +140,8 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
-| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up |
+| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
+| `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -171,7 +172,9 @@ So does `TalkingToTheCSMSTests`. The station dialled its connections without
 telling its OCPP nodes that the CSMS was at the other end, so it answered none
 of the CSMS's requests, and its security events and the events of its monitors
 never left the queue. Every test that dialled asked only whether the
-connection was made; these ask what goes over it.
+connection was made; these ask what goes over it. They also ask whether it
+registers as OCPP has it: the station sent no BootNotification and no
+heartbeat at all, and its OCPP 2.1 node tried nothing again by the clock.
 
 Each test builds its own station, on ports the operating system has just
 confirmed are free and with its own directory for what a station writes: its
@@ -305,7 +308,8 @@ Everything this station can be told in writing lives in one file,
   "operator": { "name": "Stadtwerke Musterstadt",
                 "emps": [ { "id": "emp-one", "name": "Elektro Mobil GmbH", "tokenPrefixes": [ "04A2" ] } ] },
   "webPayments": { "enabled": true, "urlTemplate": "https://pay.example.org/{evseId}/{TOTP}",
-                   "sharedSecret": "..." }
+                   "sharedSecret": "..." },
+  "nameplate": { "vendor": "GraphDefined", "model": "ChargingStationCLI", "serialNumber": "CS-0001" }
 }
 ```
 
@@ -375,6 +379,7 @@ interface will not delete the part it did not understand.
 | `/configuration/evses`       | the EVSEs: add, remove, renumber, the cables and their limits |
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
 | `/configuration/calibration` | the calibration certificates this station runs under |
+| `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
 | `/configuration/client-keys` | the keys it dials its back ends with: made here, a signing request, and the certificate that came back |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
@@ -453,7 +458,7 @@ A role is a list of permissions, each an operation on a resource and written
 on a vehicle. The operations are three: `read`, `edit` for what stays changed,
 and `run` for what is done now - a test, a message on the screen, a session.
 The resources are the node's - `configuration`, `dns`, `nts`, `certificates` -
-and the station's nine, in `Web/StationAccess.cs`:
+and the station's twelve, in `Web/StationAccess.cs`:
 
 | | |
 |---|---|
@@ -468,6 +473,7 @@ and the station's nine, in `Web/StationAccess.cs`:
 | `v2g`          | the wire below the charging cable |
 | `meters`       | how each meter is read and what it measures; edited, where it is read and whom it is believed to be; run, a request that writes to it |
 | `providers`    | read, the e-mobility providers and their logos; edited, a logo put up, replaced or removed over SFTP |
+| `nameplate`    | read, what the station tells a CSMS it is and whether it is accepted; edited, by the system administrator alone - it says what the equipment is |
 
 Asked of the node, which answers from the roles it put together at the start:
 its own two, the station's two, and whatever the configuration file adds.
@@ -792,6 +798,42 @@ below the list, one removed here that the station is still on.
 
 "Since" and "next" are counted on the station's clock, which the answer
 carries, and not on the browser's.
+
+### Registering, and the nameplate
+
+Once a connection is up, the OCPP node that made it sends its
+BootNotification, and until the CSMS accepts it the station tells the CSMS
+nothing else: its security events and the events of its monitors wait in the
+queue, and it sends no heartbeat. A CSMS that answers Pending may still ask
+the station things, and is answered. Pending and Rejected come with how long to
+wait before asking again; where that is 0, and where the CSMS does not answer
+at all, it is a minute. Accepted comes with how often to send a heartbeat, and
+what waited is sent.
+
+A node registers once: after the start, when its first connection is up, and
+when a connection comes back only where it was not accepted yet - one that got
+no answer asks at once, one told to wait waits. A change of the EVSEs, or of
+the nameplate, builds the nodes anew: they hang up, dial again and register
+again, in OCPP 2.1 with the reason `LocalReset` rather than `PowerUp`.
+
+What the BootNotification says is the `nameplate` section:
+
+```json
+"nameplate": { "vendor": "GraphDefined", "model": "ChargingStationCLI",
+               "serialNumber": "CS-0001", "firmwareVersion": "1.0.0" }
+```
+
+Every field may be left out: the vendor is then GraphDefined, the model
+ChargingStationCLI, the firmware the version and commit the station was built
+from, and there is no serial number. Each is held to what both OCPP 1.6 and 2.1
+take - a vendor and a model of 20 characters, a serial number of 25, a firmware
+of 50 - and to printable ASCII, which is all OCPP 1.6 takes.
+`/configuration/nameplate` changes it, and says where each node stands:
+
+    GET  /api/v1/configuration/nameplate
+    {"vendor": null, ..., "said": {"vendor": "GraphDefined", ...},
+     "registration": {"1.6": {"state": "Accepted", "since": "...", "interval": 300, ...},
+                      "2.1": {"state": "Pending",  "nextTry": "...", ...}}}
 
 ### Certificates
 

@@ -312,6 +312,11 @@ namespace cloud.charging.open.ChargingStation
         public OperatorConfiguration          Operator               { get; private set; }
 
         /// <summary>
+        /// What this charging station tells a CSMS it is: its nameplate.
+        /// </summary>
+        public NameplateConfiguration         Nameplate              { get; private set; }
+
+        /// <summary>
         /// Whether a QR code to pay by is shown on the display.
         /// </summary>
         /// <remarks>
@@ -631,7 +636,8 @@ namespace cloud.charging.open.ChargingStation
 
             LogRFIDReaders(this.RFIDReaders);
 
-            this.Operator = configuration.Operator ?? new OperatorConfiguration();
+            this.Operator   = configuration.Operator  ?? new OperatorConfiguration();
+            this.Nameplate  = configuration.Nameplate ?? new NameplateConfiguration();
 
             // The logos the display shows, as files put up over SFTP.
             AddLogoAreas();
@@ -1043,6 +1049,8 @@ namespace cloud.charging.open.ChargingStation
             lock (replacedNodes)
                 nodes = [.. replacedNodes, cs01, cs02];
 
+            EndRegistrations(nodes);
+
             foreach (var node in nodes)
             {
                 try
@@ -1075,6 +1083,10 @@ namespace cloud.charging.open.ChargingStation
 
             // First, because it is the card the page leads with.
             json.AddFirst(new JProperty("station",    new JObject(
+                              new JProperty("vendor",         Nameplate.VendorToSay),
+                              new JProperty("model",          Nameplate.ModelToSay),
+                              new JProperty("serialNumber",   Nameplate.SerialNumber),
+                              new JProperty("firmware",       Nameplate.FirmwareVersionToSay(BuiltFirmwareVersion())),
                               new JProperty("version",        Version),
                               new JProperty("createdAt",      CreatedAt.ToString("o")),
                               new JProperty("machine",        Environment.MachineName),

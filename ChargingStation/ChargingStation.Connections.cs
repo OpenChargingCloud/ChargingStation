@@ -400,7 +400,7 @@ namespace cloud.charging.open.ChargingStation
 
                 Note(Connection, "Connected, and will come back by itself if it drops.");
 
-                SendWhatWaits(Connection);
+                ConnectionIsUp(Connection);
 
             }
             catch (Exception e)
@@ -531,7 +531,7 @@ namespace cloud.charging.open.ChargingStation
 
                 connectedBefore = true;
 
-                SendWhatWaits(Connection);
+                ConnectionIsUp(Connection);
 
                 return Task.CompletedTask;
 
@@ -545,8 +545,8 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Send what waits in the queue of the connection's version of OCPP,
-        /// now that the CSMS can be reached: what was said while it could not
-        /// is not left until the next thing there is to say.
+        /// now that the CSMS can be reached and has accepted this station: what
+        /// was said before is not left until the next thing there is to say.
         /// </summary>
         /// <remarks>
         /// Not waited for. A CSMS slow to answer holds up the queue and not the
@@ -976,12 +976,13 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) DialAgain(Old16, Old21)
+        #region (private) DialAgain(Old16, Old21, Changed)
 
         /// <summary>
-        /// After a change of the EVSEs: hang up what the OCPP nodes it replaced
-        /// were connected to, stop them, and dial again through the new ones
-        /// what this station dials at its start.
+        /// After a change of the EVSEs, or of what this station says it is:
+        /// hang up what the OCPP nodes it replaced were connected to, stop
+        /// them, and dial again through the new ones what this station dials
+        /// at its start.
         /// </summary>
         /// <remarks>
         /// A connection belongs to the node that made it, and nothing moves it
@@ -989,16 +990,24 @@ namespace cloud.charging.open.ChargingStation
         /// CSMS with the EVSEs as they had been, and nothing this station said
         /// afterwards reached the CSMS: it went through the new nodes, which
         /// had no connection. So it is hung up and dialled again, and the CSMS
-        /// sees the connection close and come back.
+        /// sees the connection close and come back - and the new nodes'
+        /// BootNotification, which says what this station is now.
         ///
         /// Dialled again only where this station is started and the old nodes
         /// had dialled something. One at a time, so that a second change does
         /// not hang up what the first is still dialling, but after it: the
         /// first one's dialling goes through the nodes the second one replaces.
         /// </remarks>
+        /// <param name="Old16">The OCPP 1.6 node replaced.</param>
+        /// <param name="Old21">The OCPP 2.1 node replaced.</param>
+        /// <param name="Changed">What changed, as the start of a sentence: "The EVSEs of this charging station".</param>
         private async Task DialAgain(OCPPv1_6.   TestChargePointNode      Old16,
-                                     OCPPv2_1.CS.TestChargingStationNode  Old21)
+                                     OCPPv2_1.CS.TestChargingStationNode  Old21,
+                                     String                               Changed)
         {
+
+            // Nothing more is asked of a CSMS for nodes let go of.
+            EndRegistrations(Old16, Old21);
 
             await dialAgainLock.WaitAsync();
 
@@ -1017,7 +1026,7 @@ namespace cloud.charging.open.ChargingStation
                     {
                         client.ReconnectPolicy = null;
                         await client.Close(WebSocketFrame.ClosingStatusCode.NormalClosure,
-                                           "The EVSEs of this charging station changed; it connects again.");
+                                           $"{Changed} changed; it connects again.");
                     }
                     catch (Exception e)
                     {
@@ -1029,18 +1038,18 @@ namespace cloud.charging.open.ChargingStation
                 {
                     try
                     {
-                        await node.Stop(Message: "The EVSEs of this charging station changed.");
+                        await node.Stop(Message: $"{Changed} changed.");
                     }
                     catch (Exception e)
                     {
-                        Log.Warning($"Stopping the OCPP node '{node.Id}' the EVSEs replaced failed: {e.Message}", "ocpp");
+                        Log.Warning($"Stopping the OCPP node '{node.Id}' that was replaced failed: {e.Message}", "ocpp");
                     }
                 }
 
                 if (started && clients.Length > 0)
                 {
 
-                    Log.Notice($"The EVSEs changed, so what the OCPP nodes they replaced were connected to was hung up " +
+                    Log.Notice($"{Changed} changed, so what the OCPP nodes it replaced were connected to was hung up " +
                                $"({clients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
 
                     await DialConfiguredConnections();
@@ -1070,6 +1079,9 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         private async Task HangUp()
         {
+
+            // Nothing more is asked of a CSMS, nor waited for.
+            EndRegistrations(cs01, cs02);
 
             foreach (var client in cs01.OCPPWebSocketClients.OfType<WebSocketClient>().
                                    Concat(cs02.OCPPWebSocketClients.OfType<WebSocketClient>()))

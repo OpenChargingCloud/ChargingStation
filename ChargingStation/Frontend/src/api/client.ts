@@ -25,11 +25,12 @@ export * from '@node/api/client';
 
 /**
  * What a role may be allowed to touch on this charging station: the node's
- * four resources, and the station's eleven - see StationAccess.
+ * four resources, and the station's twelve - see StationAccess.
  */
 export type Resource = NodeResource
                      | 'evses' | 'rfid' | 'availability' | 'power' | 'calibration'
-                     | 'display' | 'session' | 'connections' | 'v2g' | 'meters' | 'providers';
+                     | 'display' | 'session' | 'connections' | 'v2g' | 'meters' | 'providers'
+                     | 'nameplate';
 
 /** What somebody signed in to this station may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;
@@ -587,6 +588,47 @@ export interface PowerUpdate {
     uplinkPowerLimit_kW:  number | null;
 }
 
+/**
+ * Where one OCPP node of the station stands with its CSMS: not asked yet,
+ * asking, accepted, told to wait - Pending or Rejected - or not answered.
+ */
+export interface Registration {
+    state:     'NotAsked' | 'Asking' | 'Accepted' | 'Pending' | 'Rejected' | 'Unanswered';
+    /** When the CSMS last answered. */
+    since:     string | null;
+    /** Accepted, how often a heartbeat goes, in seconds; otherwise how long until it asks again. */
+    interval:  number | null;
+    /** When it asks again, where it does. */
+    nextTry:   string | null;
+    /** Why the last BootNotification got no answer. */
+    problem:   string | null;
+}
+
+/**
+ * The station's nameplate: what it tells a CSMS it is in its BootNotification,
+ * as the file says it - null where the file says nothing - and as it is said,
+ * the defaults filled in. Each field is held to what both OCPP 1.6 and 2.1
+ * take, and to printable ASCII.
+ */
+export interface NameplateConfiguration {
+    vendor:           string | null;
+    model:            string | null;
+    serialNumber:     string | null;
+    firmwareVersion:  string | null;
+    said:             { vendor: string; model: string; serialNumber: string | null; firmwareVersion: string };
+    limits:           { vendor: number; model: number; serialNumber: number; firmwareVersion: number };
+    registration:     { '1.6': Registration; '2.1': Registration };
+    file:             string;
+}
+
+/** What a PUT to the nameplate carries: the whole section, a null being the default. */
+export interface NameplateUpdate {
+    vendor:           string | null;
+    model:            string | null;
+    serialNumber:     string | null;
+    firmwareVersion:  string | null;
+}
+
 
 /**
  * One calibration certificate this station runs under.
@@ -890,6 +932,15 @@ export const api = {
          * SLAC match goes down with it.
          */
         save:  (update: V2GUpdate)   => request<V2GConfiguration>('PUT', '/configuration/v2g', update, 30_000)
+    },
+
+    nameplate: {
+        get:   ()                          => request<NameplateConfiguration>('GET', '/configuration/nameplate'),
+        /**
+         * The whole section at once. The station builds its OCPP nodes anew,
+         * hangs up and dials again, so that a CSMS is told.
+         */
+        save:  (update: NameplateUpdate)   => request<NameplateConfiguration>('PUT', '/configuration/nameplate', update)
     },
 
     power: {

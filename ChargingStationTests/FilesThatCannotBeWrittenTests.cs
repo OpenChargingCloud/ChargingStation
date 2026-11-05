@@ -155,6 +155,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                 case "v2g":
                     return JSONBody(new JProperty("port", Now.Value<Int32?>("port") == 15119 ? 15120 : 15119));
 
+                case "nameplate":
+                    return JSONBody(new JProperty("vendor", Now.Value<String?>("vendor") == "Test Vendor" ? "Other Vendor" : "Test Vendor"));
+
                 default:
                     throw new ArgumentException($"No section '{Section}' here.", nameof(Section));
 
@@ -175,6 +178,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                    "evses"        => JSON["evses"]!.ToString(Formatting.None),
                    "rfid"         => JSON["readers"]!.ToString(Formatting.None),
                    "v2g"          => $"{JSON["port"]}",
+                   "nameplate"     => $"{JSON["vendor"]} / {JSON["said"]?["vendor"]}",
                    _              => throw new ArgumentException($"No section '{Section}' here.", nameof(Section))
                };
 
@@ -194,6 +198,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         [TestCase("evses")]
         [TestCase("rfid")]
         [TestCase("v2g")]
+        [TestCase("nameplate")]
         public async Task AChangeTheConfigurationFileCannotTakeIsAServerError(String Section)
         {
 
@@ -240,6 +245,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var evses        = await http.PutAsync("api/v1/configuration/evses",        JSONBody(new JProperty("evses",                "none")));
             var rfid         = await http.PutAsync("api/v1/configuration/rfid",         JSONBody(new JProperty("readers",              new JArray(new JObject(new JProperty("id", "no-kind"))))));
             var v2g          = await http.PutAsync("api/v1/configuration/v2g",          JSONBody(new JProperty("port",                 70000)));
+            var nameplate    = await http.PutAsync("api/v1/configuration/nameplate",    JSONBody(new JProperty("vendor",               new String('x', 21))));
 
             Assert.Multiple(() => {
                 Assert.That(display.    StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "hours that are none");
@@ -248,6 +254,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(evses.      StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "EVSEs that are no list");
                 Assert.That(rfid.       StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a reader of no kind");
                 Assert.That(v2g.        StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a port beyond the last");
+                Assert.That(nameplate.  StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a vendor longer than OCPP 1.6 takes");
             });
 
         }

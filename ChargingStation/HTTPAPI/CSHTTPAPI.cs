@@ -134,6 +134,9 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/display",    GetDisplayConfiguration,      HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/display",    PutDisplayConfiguration,      HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   GetNameplateConfiguration,     HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   PutNameplateConfiguration,     HTTPMethod.PUT);
+
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
 
@@ -225,6 +228,51 @@ namespace cloud.charging.open.ChargingStation
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error ?? "The display configuration could not be changed.", notSaved);
 
             return JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON());
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/configuration/nameplate: what this station tells a CSMS it
+        /// is, and where each OCPP node stands with its CSMS.
+        /// </summary>
+        private Task<HTTPResponse> GetNameplateConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Nameplate), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.NameplateConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/nameplate with {"vendor", "model",
+        /// "serialNumber", "firmwareVersion"}: what this station tells a CSMS it
+        /// is. Its OCPP nodes hang up, dial again and say so in their
+        /// BootNotification.
+        /// </summary>
+        /// <remarks>
+        /// The system administrator's alone - see StationAccess.Nameplate. The
+        /// whole section at once, and an empty object is a station that says
+        /// the defaults.
+        /// </remarks>
+        private Task<HTTPResponse> PutNameplateConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Nameplate), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateNameplateConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.NameplateConfigurationJSON())
+                   );
 
         }
 

@@ -633,6 +633,129 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region NameplateConfigurationJSON() / TryUpdateNameplateConfiguration(JSON, out Error, out NotSaved)
+
+        /// <summary>
+        /// What this station tells a CSMS it is, as the web interface reads it:
+        /// what the file says, what is said where it says nothing, and where
+        /// each OCPP node stands with its CSMS.
+        /// </summary>
+        public JObject NameplateConfigurationJSON()
+
+            => new (
+
+                   new JProperty("vendor",           Nameplate.Vendor),
+                   new JProperty("model",            Nameplate.Model),
+                   new JProperty("serialNumber",     Nameplate.SerialNumber),
+                   new JProperty("firmwareVersion",  Nameplate.FirmwareVersion),
+
+                   // What a CSMS is told, the defaults filled in, so that a page
+                   // can show it beside a field left empty.
+                   new JProperty("said",             new JObject(
+                                                         new JProperty("vendor",           Nameplate.VendorToSay),
+                                                         new JProperty("model",            Nameplate.ModelToSay),
+                                                         new JProperty("serialNumber",     Nameplate.SerialNumber),
+                                                         new JProperty("firmwareVersion",  Nameplate.FirmwareVersionToSay(BuiltFirmwareVersion()))
+                                                     )),
+
+                   new JProperty("limits",           new JObject(
+                                                         new JProperty("vendor",           NameplateConfiguration.MaxVendorLength),
+                                                         new JProperty("model",            NameplateConfiguration.MaxModelLength),
+                                                         new JProperty("serialNumber",     NameplateConfiguration.MaxSerialNumberLength),
+                                                         new JProperty("firmwareVersion",  NameplateConfiguration.MaxFirmwareVersionLength)
+                                                     )),
+
+                   new JProperty("registration",     RegistrationJSON()),
+
+                   new JProperty("file",             ConfigFile.Path)
+
+               );
+
+        /// <summary>
+        /// Change what this station tells a CSMS it is.
+        /// </summary>
+        /// <remarks>
+        /// The whole section at once, and an empty object is a station that
+        /// says the defaults. A CSMS learns what a station is only from its
+        /// BootNotification, so the OCPP nodes are built anew, as for a change
+        /// of the EVSEs: they hang up, dial again and register with what this
+        /// station is now.
+        /// </remarks>
+        /// <param name="JSON">The new section.</param>
+        /// <param name="Error">What is wrong with it, or what stood in the way.</param>
+        /// <param name="NotSaved">True where the configuration file could not be read or written: nothing about the change was wrong, and nothing was changed.</param>
+        public Boolean TryUpdateNameplateConfiguration(JObject                           JSON,
+                                                       [NotNullWhen(false)] out String?  Error,
+                                                       out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
+
+            if (!NameplateConfiguration.TryParse(JSON, out var wanted, out Error))
+                return false;
+
+            reconfigureLock.Wait();
+
+            try
+            {
+
+                if (wanted == Nameplate)
+                    return true;
+
+                // Everything this refuses is the file's: read, replaced, written.
+                if (!ConfigFile.TryReplaceSection(NameplateConfiguration.SectionName, wanted.ToJSON(), out Error))
+                {
+                    NotSaved = true;
+                    return false;
+                }
+
+                var previous = Nameplate;
+
+                Nameplate = wanted;
+
+                OCPPv1_6.   TestChargePointNode      old16;
+                OCPPv2_1.CS.TestChargingStationNode  old21;
+
+                try
+                {
+                    (old16, old21) = RebuildTheOCPPNodes(EVSEChange.None);
+                }
+                catch (Exception e)
+                {
+
+                    // As for the EVSEs: the file is right and this station is
+                    // not, which a restart repairs.
+                    Log.Critical(
+                        $"What this station says it is was saved, but the OCPP nodes could not be rebuilt: {e.Message} " +
+                        $"It still says it is {previous}; restart it.",
+                        "ocpp", "config"
+                    );
+
+                    Nameplate = previous;
+                    Error     = $"What this station says it is was written to '{ConfigFile.Path}', but the OCPP nodes could not be rebuilt: {e.Message} Restart it to pick it up.";
+                    return false;
+
+                }
+
+                Log.Notice($"This station now says it is {wanted}.", "ocpp", "config");
+
+                // Not waited for, as after a change of the EVSEs.
+                _ = DialAgain(old16, old21, "What this charging station says it is").
+                        ContinueWith(task => Log.Warning($"Dialling again after what this station says it is changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
+                                     TaskContinuationOptions.OnlyOnFaulted);
+
+                return true;
+
+            }
+            finally
+            {
+                reconfigureLock.Release();
+            }
+
+        }
+
+        #endregion
+
         #region TryUpdatePowerConfiguration(JSON, out Error [, out NotSaved])
 
         /// <summary>
@@ -1104,31 +1227,16 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
-                var previous     = EVSEs;
-
-                // Captured before the nodes are thrown away. Everything the old
-                // node knew that is not in the configuration file lives in it,
-                // and the new one starts knowing nothing.
-                var wasReserved  = cs02.Reservations.ToArray();
-                var wasSaying    = cs02.DisplayMessages.ToArray();
-                var wasCharging  = sessions.Keys.ToArray();
+                var previous = EVSEs;
 
                 EVSEs = evses;
 
-                var (old16, old21) = (cs01, cs02);
+                OCPPv1_6.   TestChargePointNode      old16;
+                OCPPv2_1.CS.TestChargingStationNode  old21;
 
                 try
                 {
-
-                    (cs01, cs02) = BuildOCPPNodes(evses);
-
-                    // Stopped by DialAgain below, and kept so that a station
-                    // let go of before that is done stops them all the same.
-                    lock (replacedNodes)
-                        replacedNodes.AddRange([old16, old21]);
-
-                    CarryOverToNewNode(wasCharging, wasReserved, wasSaying, Change);
-
+                    (old16, old21) = RebuildTheOCPPNodes(Change);
                 }
                 catch (Exception e)
                 {
@@ -1179,7 +1287,7 @@ namespace cloud.charging.open.ChargingStation
                 // waited for: the old nodes would go on answering a CSMS with
                 // the EVSEs as they were, and nothing said from now on goes
                 // through them.
-                _ = DialAgain(old16, old21).
+                _ = DialAgain(old16, old21, "The EVSEs of this charging station").
                         ContinueWith(task => Log.Warning($"Dialling again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
@@ -1190,6 +1298,40 @@ namespace cloud.charging.open.ChargingStation
             {
                 reconfigureLock.Release();
             }
+
+        }
+
+        #endregion
+
+        #region (private) RebuildTheOCPPNodes(Change)
+
+        /// <summary>
+        /// Build both OCPP nodes anew from what this station is now - its EVSEs
+        /// and what it says it is - and carry over what only the old ones knew.
+        /// Answers the old ones, for DialAgain to hang up and stop.
+        /// </summary>
+        private (OCPPv1_6.TestChargePointNode Old16, OCPPv2_1.CS.TestChargingStationNode Old21) RebuildTheOCPPNodes(EVSEChange Change)
+        {
+
+            // Captured before the nodes are thrown away. Everything the old
+            // node knew that is not in the configuration file lives in it,
+            // and the new one starts knowing nothing.
+            var wasReserved  = cs02.Reservations.ToArray();
+            var wasSaying    = cs02.DisplayMessages.ToArray();
+            var wasCharging  = sessions.Keys.ToArray();
+
+            var (old16, old21) = (cs01, cs02);
+
+            (cs01, cs02) = BuildOCPPNodes(EVSEs);
+
+            // Stopped by DialAgain, and kept so that a station let go of
+            // before that is done stops them all the same.
+            lock (replacedNodes)
+                replacedNodes.AddRange([old16, old21]);
+
+            CarryOverToNewNode(wasCharging, wasReserved, wasSaying, Change);
+
+            return (old16, old21);
 
         }
 
@@ -1920,9 +2062,17 @@ namespace cloud.charging.open.ChargingStation
         /// is the only place in either protocol where the per-cable limits
         /// currently arrive. OCPP 2.1 is told the shapes of the connectors but
         /// has nowhere in its EVSE specification to put their limits.
+        ///
+        /// Both are told what this station says it is, which their
+        /// BootNotification says, and both send no heartbeat and hold their
+        /// queue until a CSMS accepted that - see ChargingStation.Registration.cs.
+        /// The 2.1 node keeps its maintenance: it tries its queue again and
+        /// reads the variables its monitors watch, by the clock.
         /// </remarks>
         private (OCPPv1_6.TestChargePointNode, OCPPv2_1.CS.TestChargingStationNode) BuildOCPPNodes(IReadOnlyList<EVSEConfig> EVSEs)
         {
+
+            var firmware        = Nameplate.FirmwareVersionToSay(BuiltFirmwareVersion());
 
             var chargePoint     = new OCPPv1_6.TestChargePointNode(
                                       ChargeBoxId:               NetworkingNode_Id.Parse("test01"),
@@ -1937,24 +2087,25 @@ namespace cloud.charging.open.ChargingStation
                                                                         EnergyMeter:         null
                                                                     )))],
                                       Description:               null,
-                                      ChargePointVendor:         null,
-                                      ChargePointModel:          null,
-                                      ChargePointSerialNumber:   null,
+                                      ChargePointVendor:         Nameplate.VendorToSay,
+                                      ChargePointModel:          Nameplate.ModelToSay,
+                                      ChargePointSerialNumber:   Nameplate.SerialNumber,
                                       ChargeBoxSerialNumber:     null,
-                                      FirmwareVersion:           null,
+                                      FirmwareVersion:           firmware,
                                       Iccid:                     null,
                                       IMSI:                      null,
                                       UplinkEnergyMeter:         null,
+                                      DisableSendHeartbeats:     true,
                                       Clock:                     TimeProvider
                                   );
 
             var chargingStation = new OCPPv2_1.CS.TestChargingStationNode(
                                       Id:                             NetworkingNode_Id.Parse("test02"),
-                                      VendorName:                     "gef",
-                                      Model:                          "cs1",
+                                      VendorName:                     Nameplate.VendorToSay,
+                                      Model:                          Nameplate.ModelToSay,
                                       Description:                    I18NString.Empty,
-                                      SerialNumber:                   null,
-                                      FirmwareVersion:                null,
+                                      SerialNumber:                   Nameplate.SerialNumber,
+                                      FirmwareVersion:                firmware,
                                       Modem:                          null,
 
                                       EVSEs:                          [.. EVSEs.Select(evse =>
@@ -1991,7 +2142,7 @@ namespace cloud.charging.open.ChargingStation
                                       DisableSendHeartbeats:          true,
                                       SendHeartbeatsEvery:            null,
 
-                                      DisableMaintenanceTasks:        true,
+                                      DisableMaintenanceTasks:        false,
                                       MaintenanceEvery:               null,
 
                                       CustomData:                     null,
@@ -2024,7 +2175,40 @@ namespace cloud.charging.open.ChargingStation
             chargePoint.    ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
             chargingStation.ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
 
+            NewRegistrations(chargePoint, chargingStation);
+
             return (chargePoint, chargingStation);
+
+        }
+
+        #endregion
+
+        #region (private) BuiltFirmwareVersion()
+
+        /// <summary>
+        /// The firmware of a station whose file says none: the version and the
+        /// commit it was built from, "1.0.0+62e7b65", with "-dirty" where the
+        /// files it was built from had changed - and the version alone where no
+        /// commit was stamped.
+        /// </summary>
+        private String BuiltFirmwareVersion()
+        {
+
+            var name     = typeof(ChargingStation).Assembly.GetName().Name;
+            var own      = BuiltFrom.Assemblies.Where (assembly => assembly.Name == name).
+                                                Select(assembly => (protocols.WWCP.Node.LoadedAssembly?) assembly).
+                                                FirstOrDefault();
+
+            var version  = own?.Version ?? Version;
+            var commit   = own?.Commit;
+
+            var built    = commit is null || commit == "unknown"
+                               ? version
+                               : $"{version}+{commit}";
+
+            return built.Length > NameplateConfiguration.MaxFirmwareVersionLength
+                       ? built[..NameplateConfiguration.MaxFirmwareVersionLength]
+                       : built;
 
         }
 

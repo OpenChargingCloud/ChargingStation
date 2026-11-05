@@ -16,6 +16,7 @@ import { displayPage }         from './pages/display';
 import { evsesPage }           from './pages/evses';
 import { metersPage }          from './pages/meters';
 import { rfidPage }            from './pages/rfid';
+import { nameplatePage }       from './pages/nameplate';
 import { authenticationPage }  from './pages/authentication';
 import { connectionsPage }     from './pages/connections';
 import { clientKeysPage }      from './pages/clientKeys';
@@ -24,8 +25,9 @@ import { evseStatusPage }      from './pages/evseStatus';
 
 // What a charging station has pages for beside what every node has: the
 // vehicle below the cable, what it may draw, the screen on its front, its
-// EVSEs, their meters and its card readers, the back ends it dials and what
-// it proves itself with, and what it is calibrated under - and, outside the
+// EVSEs, their meters and its card readers, what it tells its back ends it is,
+// the back ends it dials and what it proves itself with, and what it is
+// calibrated under - and, outside the
 // configuration, how each of its EVSEs stands right now. Each entry is shown to whoever may
 // read what its page reads, as CSHTTPAPI asks it - the three pages about
 // dialling out all read the connections. The sign-in, the log, the name
@@ -48,6 +50,7 @@ startNode({
             { path: '/configuration/evses',           label: 'EVSEs',            icon: 'fa-plug',            permission: [ 'evses:read' ]        },
             { path: '/configuration/meters',          label: 'Meters',           icon: 'fa-gauge',           permission: [ 'meters:read' ]       },
             { path: '/configuration/rfid',            label: 'RFID',             icon: 'fa-id-card',         permission: [ 'rfid:read' ]         },
+            { path: '/configuration/nameplate',       label: 'Nameplate',        icon: 'fa-tag',             permission: [ 'nameplate:read' ]    },
             { path: '/configuration/authentication',  label: 'Authentication',   icon: 'fa-user-lock',       permission: [ 'connections:read' ]  },
             { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
             { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
@@ -95,6 +98,7 @@ startNode({
         '/configuration/evses':           evsesPage,
         '/configuration/meters':          metersPage,
         '/configuration/rfid':            rfidPage,
+        '/configuration/nameplate':       nameplatePage,
         '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
         '/configuration/client-keys':     clientKeysPage,

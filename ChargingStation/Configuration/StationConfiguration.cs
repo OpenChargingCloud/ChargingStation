@@ -61,6 +61,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Display">The quiet hours the screen on the front keeps.</param>
     /// <param name="V2G">What each EVSE of this station offers a vehicle on the wire below its charging cable.</param>
     /// <param name="Meters">How the meter of each EVSE that has one read is read.</param>
+    /// <param name="Nameplate">What this station tells a CSMS it is.</param>
     public sealed record StationConfiguration(PowerConfiguration?                      Power         = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs         = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
@@ -69,7 +70,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               WebPaymentsConfiguration?                WebPayments   = null,
                                               DisplayConfiguration?                    Display       = null,
                                               V2GLinksConfiguration?                   V2G           = null,
-                                              MetersConfiguration?                     Meters        = null)
+                                              MetersConfiguration?                     Meters        = null,
+                                              NameplateConfiguration?                  Nameplate     = null)
     {
 
         #region Data
@@ -98,7 +100,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public Boolean IsEmpty
             => Power is null && EVSEs is null && Calibration is null && RFID is null &&
-               Operator is null && WebPayments is null && Display is null && V2G is null && Meters is null;
+               Operator is null && WebPayments is null && Display is null && V2G is null && Meters is null &&
+               Nameplate is null;
 
         #endregion
 
@@ -297,7 +300,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters);
+            #region Nameplate
+
+            NameplateConfiguration? nameplate = null;
+
+            if (JSON[NameplateConfiguration.SectionName] is JToken nameplateToken && nameplateToken.Type != JTokenType.Null)
+            {
+
+                if (nameplateToken is not JObject nameplateJSON)
+                {
+                    Error = $"'{NameplateConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!NameplateConfiguration.TryParse(nameplateJSON, out nameplate, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters, nameplate);
             return true;
 
         }
@@ -342,6 +365,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (Meters is not null)
                 json.Add(MetersConfiguration.SectionName,       Meters.ToJSON());
 
+            if (Nameplate is not null)
+                json.Add(NameplateConfiguration.SectionName,    Nameplate.ToJSON());
+
             return json;
 
         }
@@ -363,7 +389,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              Operator    is not null ? Operator.ToString()                      : null,
                              WebPayments is not null ? WebPayments.ToString()                   : null,
                              V2G         is not null ? V2G.ToString()                           : null,
-                             Meters      is not null ? Meters.ToString()                        : null
+                             Meters      is not null ? Meters.ToString()                        : null,
+                             Nameplate    is not null ? Nameplate.ToString()                      : null
                          }.Where(section => section is not null));
 
         #endregion

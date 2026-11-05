@@ -93,6 +93,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             ("GET",    "api/v1/configuration/display",                   Everybody),
             ("PUT",    "api/v1/configuration/display",                   TheOperator),
+            ("GET",    "api/v1/configuration/nameplate",                 Everybody),
+            ("PUT",    "api/v1/configuration/nameplate",                 TheAdministrator),
 
             ("GET",    "api/v1/configuration/evses",                     Everybody),
             ("PUT",    "api/v1/configuration/evses",                     Everybody),
