@@ -37,6 +37,8 @@ using cloud.charging.open.ChargingStation.Kiosk;
 using cloud.charging.open.ChargingStation.Meters;
 using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.ISO15118;
+using cloud.charging.open.protocols.OCPP.Node;
+
 using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.ChargingStation.Web;
 
@@ -206,20 +208,11 @@ namespace cloud.charging.open.ChargingStation
         // above when this station is let go of - see StopTheOCPPNodes.
         private readonly  List<AWWCPNetworkingNode>            replacedNodes = [];
 
-        // What OCPP 2.1 reads of the time servers, and the node whose
-        // components for them follow the groups - see ConfigureNTS.
-        private readonly  NTSDeviceModel                       ntsDeviceModel;
-        private readonly  NTSRootCertificates                  ntsRootCertificates;
-        private readonly  Lock                                 ntsComponentsLock = new();
-
-        // What OCPP 2.1 and 1.6 read and change of the name servers, the roots
-        // for them a CSMS installs, lists and deletes, and the node whose
-        // components for them follow the servers - see ConfigureDNS.
-        private readonly  DNSDeviceModel                       dnsDeviceModel;
-        private readonly  DNSRootCertificates                  dnsRootCertificates;
-        private readonly  Lock                                 dnsComponentsLock = new();
-        private           OCPPv2_1.CS.TestChargingStationNode? dnsNode;
-        private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
+        // What OCPP 2.1 and 1.6 read and change of the name servers and the
+        // time servers, the roots for them a CSMS installs, lists and deletes,
+        // and the security events of both - handed every node built for this
+        // station, see BuildOCPPNodes.
+        private readonly  DeviceModelBridge                    deviceModelBridge;
 
         // What each OCPP node keeps for the CSMS while it is out of reach, and
         // the monitors the CSMS set - one of each for the station, handed to
@@ -782,30 +775,20 @@ namespace cloud.charging.open.ChargingStation
 
             #region The OCPP nodes
 
-            // What OCPP 2.1 shows of the time servers is read from this node at
-            // every read; which components there are for them follows each
-            // group made, taken away or changed.
-            ntsDeviceModel     = new NTSDeviceModel(this, sentence => this.Log.Notice(sentence, "nts", "ocpp"));
-            ntsRootCertificates = new NTSRootCertificates(this);
-            dnsDeviceModel      = new DNSDeviceModel(DNSConfigurationJSON,
-                                                     TryUpdateDNSConfiguration,
-                                                     (change, names, within, cancellationToken) => ResolveWithAsync(change, names, within, cancellationToken),
-                                                     CSMSNames,
-                                                     sentence => this.Log.Notice(sentence, "dns", "ocpp"));
-            dnsRootCertificates = new DNSRootCertificates(this, CSMSNames);
-            OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
-            OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
-            OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
-            OnDNSConfigurationChanged += (changes, origin) => FollowDNSServers();
+            // What OCPP shows of the name servers and the time servers is read
+            // from this node at every read; which components there are for them
+            // follows each change. Security events go to every version a
+            // connection is configured for.
+            deviceModelBridge   = new DeviceModelBridge(this,
+                                                        CSMSNames,
+                                                        DialsOCPP2_1: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1),
+                                                        DialsOCPP1_6: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP1_6));
 
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.
             var queues          = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".", OCPPQueueDirectoryName);
             ocppQueue16         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-1.6.jsonl"), Clock: this.TimeProvider);
             ocppQueue21         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-2.1.jsonl"), Clock: this.TimeProvider);
-
-            FollowNTSEvents();
-            FollowDNSEvents();
 
             // Built from the EVSEs above, and rebuilt whenever those change -
             // see BuildOCPPNodes, which is the one place that knows how an EVSE

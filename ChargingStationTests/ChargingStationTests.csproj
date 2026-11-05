@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ChargingStation\ChargingStation.csproj" />
     <ProjectReference Include="..\..\WWCP_Node\WWCP_Node_TestKit\WWCP_Node_TestKit.csproj" />
+    <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPP_Node_TestKit\WWCP_OCPP_Node_TestKit.csproj" />
   </ItemGroup>
 
 </Project>

@@ -34,6 +34,7 @@ using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.OCPP.Node;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
@@ -1635,120 +1636,13 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) ConfigureDNS(Node)
-
-        /// <summary>
-        /// Show OCPP 2.1 how this station resolves names: DNSClientController,
-        /// and a DNSServerController for every name server, by its id.
-        /// </summary>
-        /// <remarks>
-        /// Unlike the web payments above, nothing is copied: the controllers
-        /// read the node at every read, so a change from the page, the command
-        /// line or a pin learned on first use is what the next GetVariables
-        /// reads, and a node rebuilt for new EVSEs reads the same. Which servers
-        /// there are changes while the node stays, though, so the components
-        /// follow every change - see FollowDNSServers - on the node built last.
-        /// A CSMS changes them through TryUpdateDNSConfiguration, as the page
-        /// does, and only after the names of the CSMS connections were resolved
-        /// with the change: one that would stop them resolving is refused. It
-        /// adds a server by naming it in DNSClientController.Servers. The roots
-        /// for name servers are the node's store's, as on the certificate page.
-        /// </remarks>
-        private void ConfigureDNS(OCPPv2_1.CS.TestChargingStationNode Node)
-        {
-            lock (dnsComponentsLock)
-            {
-
-                dnsNode = Node;
-
-                // A server a request names anew is made by the model, from the
-                // entries of the same request.
-                Node.AddNewInstancesSource(dnsDeviceModel);
-
-                Node.CertificateSources.Add(dnsRootCertificates);
-
-                Node.AddComponent(new OCPPv2_1.DNSClientController(dnsDeviceModel));
-
-                FollowDNSServers(Node);
-
-            }
-        }
-
-        #endregion
-
-        #region (private) ConfigureDNS(ChargePoint)
-
-        /// <summary>
-        /// What OCPP 1.6 sees of how this station resolves names: the roots for
-        /// name servers a central system installs, lists and deletes as
-        /// NameServerRootCertificate, kept in the node's store as for 2.1, and
-        /// the configuration keys of the Secure DNS paper, read from the node
-        /// and changed as 2.1 changes them.
-        /// </summary>
-        private void ConfigureDNS(OCPPv1_6.TestChargePointNode ChargePoint)
-        {
-            ChargePoint.CertificateSources.Add(dnsRootCertificates);
-            ChargePoint.AddConfigurationKeySource(dnsDeviceModel);
-        }
-
-        #endregion
-
-        #region (private) FollowDNSServers([Node])
-
-        /// <summary>
-        /// Give the OCPP 2.1 node built last a DNSServerController for every
-        /// name server there is now, and none for one there is not.
-        /// </summary>
-        /// <remarks>
-        /// Told by the node after every change of the name resolution, servers
-        /// added, taken away or given other ids among them, once it let go of
-        /// its configuration, so that what is read here is what was saved. A
-        /// node built for new EVSEs in the meantime is the one followed from then
-        /// on, as for the time servers - see FollowNTSGroups.
-        /// </remarks>
-        private void FollowDNSServers()
-        {
-            lock (dnsComponentsLock)
-            {
-                if (dnsNode is not null)
-                    FollowDNSServers(dnsNode);
-            }
-        }
-
-        private void FollowDNSServers(OCPPv2_1.CS.TestChargingStationNode Node)
-        {
-
-            var servers = dnsDeviceModel.ServerIds.
-                                         Distinct(StringComparer.OrdinalIgnoreCase).
-                                         ToArray ();
-
-            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.DNSServerController)).OfType<OCPPv2_1.DNSServerController>().ToArray())
-                if (!servers.Contains(shown.Server, StringComparer.OrdinalIgnoreCase))
-                    Node.RemoveComponent(shown.Name, shown.Instance);
-
-            // A component already there is kept: the node adds none twice. One
-            // taken away since it was read here is not added at all, and the
-            // node tells of that change next.
-            foreach (var server in servers)
-            {
-                try
-                {
-                    Node.AddComponent(new OCPPv2_1.DNSServerController(dnsDeviceModel, server));
-                }
-                catch (ArgumentException)
-                { }
-            }
-
-        }
-
-        #endregion
-
         #region (private) CSMSNames()
 
         /// <summary>
         /// The names the CSMS connections are dialled by - every configured one,
         /// whether it is dialled now or not - leaving out those dialled by an
-        /// address, which need no name resolution.
+        /// address, which need no name resolution: what a change of the name
+        /// servers through OCPP must keep resolving.
         /// </summary>
         private IEnumerable<String> CSMSNames()
 
@@ -1757,138 +1651,6 @@ namespace cloud.charging.open.ChargingStation
                            Where   (host       => !System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _)).
                            Distinct(StringComparer.OrdinalIgnoreCase).
                            ToArray ();
-
-        #endregion
-
-        #region (private) ConfigureNTS(Node)
-
-        /// <summary>
-        /// Show OCPP 2.1 how this station keeps its time: the standard
-        /// ClockCtrlr, NTPController, an NTPClientGroupController for every
-        /// group of time servers and an NTPClientController for every server.
-        /// </summary>
-        /// <remarks>
-        /// As for name resolution, nothing is copied: the controllers read the
-        /// node at every read, so a change from the page or a pin learned on
-        /// first use is what the next GetVariables reads. Which groups and
-        /// servers there are changes while the node stays, though, so the
-        /// components follow every group made, taken away or changed - see
-        /// FollowNTSGroups - on the node built last. A CSMS changes them through
-        /// the node, as the page does, and makes groups and servers by naming
-        /// them in ClientGroups and Clients - see NTSDeviceModel.Writing.cs.
-        /// </remarks>
-        private void ConfigureNTS(OCPPv2_1.CS.TestChargingStationNode Node)
-        {
-            lock (ntsComponentsLock)
-            {
-
-                ntsNode = Node;
-
-                // A group or server a request names anew is made by the
-                // model, from the entries of the same request.
-                Node.AddNewInstancesSource(ntsDeviceModel);
-
-                // The roots for time servers are the node's store's.
-                Node.CertificateSources.Add(ntsRootCertificates);
-
-                Node.AddComponent(new OCPPv2_1.ClockController(ntsDeviceModel));
-                Node.AddComponent(new OCPPv2_1.NTPController  (ntsDeviceModel));
-
-                FollowNTSGroups(Node);
-
-            }
-        }
-
-        #endregion
-
-        #region (private) ConfigureNTS(ChargePoint)
-
-        /// <summary>
-        /// What OCPP 1.6 sees of how this station keeps its time: the roots for
-        /// time servers a central system installs, lists and deletes as
-        /// NetworkTimeRootCertificate, kept in the node's store as for 2.1, and
-        /// the configuration keys of the Secure Time Synchronization paper,
-        /// read from the node and changed as 2.1 changes them.
-        /// </summary>
-        private void ConfigureNTS(OCPPv1_6.TestChargePointNode ChargePoint)
-        {
-            ChargePoint.CertificateSources.Add(ntsRootCertificates);
-            ChargePoint.AddConfigurationKeySource(ntsDeviceModel);
-        }
-
-        #endregion
-
-        #region (private) FollowNTSGroups([Node])
-
-        /// <summary>
-        /// Give the OCPP 2.1 node built last a component for every group of time
-        /// servers and every server there is now, and none for one there is not.
-        /// </summary>
-        /// <remarks>
-        /// Told by the node after every group made, taken away or changed, a
-        /// change of the servers' ids among them, and after it let go of its
-        /// configuration, so that what is read here is what was saved. A node
-        /// built for new EVSEs in the meantime is the one followed from then on:
-        /// it takes the lock to say so, and reads the groups as they are then.
-        /// </remarks>
-        private void FollowNTSGroups()
-        {
-            lock (ntsComponentsLock)
-            {
-                if (ntsNode is not null)
-                    FollowNTSGroups(ntsNode);
-            }
-        }
-
-        private void FollowNTSGroups(OCPPv2_1.CS.TestChargingStationNode Node)
-        {
-
-            var groups   = ntsDeviceModel.Groups.
-                                          Distinct  (StringComparer.OrdinalIgnoreCase).
-                                          ToArray   ();
-
-            // A server belongs to the first group naming it, as for
-            // NTPClientController.AllOf.
-            var clients  = groups.
-                               SelectMany(group  => ntsDeviceModel.ClientsOf(group).Select(client => (Group: group, Client: client))).
-                               DistinctBy(member => member.Client, StringComparer.OrdinalIgnoreCase).
-                               ToArray   ();
-
-            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.NTPClientGroupController)).OfType<OCPPv2_1.NTPClientGroupController>().ToArray())
-                if (!groups.Contains(shown.Group, StringComparer.OrdinalIgnoreCase))
-                    Node.RemoveComponent(shown.Name, shown.Instance);
-
-            // Gone from its group, or moved to another one, whose description
-            // it would otherwise go on giving.
-            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.NTPClientController)).OfType<OCPPv2_1.NTPClientController>().ToArray())
-                if (!clients.Any(member => String.Equals(member.Client, shown.Client, StringComparison.OrdinalIgnoreCase) &&
-                                           String.Equals(member.Group,  shown.Group,  StringComparison.OrdinalIgnoreCase)))
-                    Node.RemoveComponent(shown.Name, shown.Instance);
-
-            // A component already there is kept: the node adds none twice. One
-            // taken away since it was read here is not added at all, and the
-            // node tells of that change next.
-            foreach (var group in groups)
-            {
-                try
-                {
-                    Node.AddComponent(new OCPPv2_1.NTPClientGroupController(ntsDeviceModel, group));
-                }
-                catch (ArgumentException)
-                { }
-            }
-
-            foreach (var (group, client) in clients)
-            {
-                try
-                {
-                    Node.AddComponent(new OCPPv2_1.NTPClientController(ntsDeviceModel, group, client));
-                }
-                catch (ArgumentException)
-                { }
-            }
-
-        }
 
         #endregion
 
@@ -1907,6 +1669,18 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         internal OCPPv2_1.CS.TestChargingStationNode OCPPv2_1Node
             => cs02;
+
+        #endregion
+
+        #region (internal) DeviceModelBridge
+
+        /// <summary>
+        /// What OCPP reads and changes of this station's name servers and time
+        /// servers, handed every OCPP node built for it, for a test that says
+        /// what the node said.
+        /// </summary>
+        internal DeviceModelBridge DeviceModelBridge
+            => deviceModelBridge;
 
         #endregion
 
@@ -2163,10 +1937,11 @@ namespace cloud.charging.open.ChargingStation
                                   );
 
             ConfigureWebPayments(chargingStation);
-            ConfigureDNS        (chargingStation);
-            ConfigureDNS        (chargePoint);
-            ConfigureNTS        (chargingStation);
-            ConfigureNTS        (chargePoint);
+
+            // The name servers and the time servers, as WWCP_OCPP_Node shows
+            // them to every node of either version.
+            deviceModelBridge.Configure(chargingStation);
+            deviceModelBridge.Configure(chargePoint);
 
             // The station's queues and monitors, whichever node this is.
             chargePoint.    OfflineQueue      = ocppQueue16;
