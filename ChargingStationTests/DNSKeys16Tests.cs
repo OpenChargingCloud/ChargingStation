@@ -115,8 +115,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(keys,  Is.SupersetOf(new[] { "dns.enabled", "dns.servers", "dns.queryTimeouts", "dns.rootCAs", "dns.rootPins.1", "dns.certificatePins.2" }));
-                Assert.That(keys,  Has.None.EqualTo("dns.rootPins.3").And.None.EqualTo("dns.encryptedOnly"));
+                Assert.That(keys,  Is.SupersetOf(new[] { "dns.enabled", "dns.servers", "dns.queryTimeouts", "dns.rootCAs", "dns.encryptedOnly", "dns.rootPins.1", "dns.certificatePins.2" }));
+                Assert.That(keys,  Has.None.EqualTo("dns.rootPins.3"));
 
                 Assert.That(Value("dns.servers"),           Is.EqualTo("192.0.2.53,2001:db8::53"));
                 Assert.That(Value("dns.transports"),        Is.EqualTo("TLS,UDP"));
@@ -127,10 +127,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Value("dns.rootPins.2"),        Is.EqualTo(""));
                 Assert.That(Value("dns.maxRetries"),        Is.EqualTo("2"));
                 Assert.That(Value("dns.recursionDesired"),  Is.EqualTo("Set"));
+                Assert.That(Value("dns.encryptedOnly"),     Is.EqualTo("false"));
 
                 Assert.That(Keys.Get("DNS.MAXRETRIES")?.Key,  Is.EqualTo("dns.maxRetries"));
                 Assert.That(Keys.Get("DNS.ROOTPINS.1")?.Key,  Is.EqualTo("dns.rootPins.1"));
-                Assert.That(Keys.Get("dns.encryptedOnly"),    Is.Null,  "the node does not have it yet");
                 Assert.That(Keys.Get("dns.rootPins.3"),       Is.Null,  "a server the station does not have");
                 Assert.That(Keys.Get("ntp.legal.minServers"), Is.Null,  "the time servers' key");
 
@@ -177,6 +177,35 @@ namespace cloud.charging.open.ChargingStation.Tests
                             Is.Empty,
                             "the central system's own change told back");
 
+            });
+
+        }
+
+        #endregion
+
+        #region OnlyEncryptedServersAreAskedAsOCPP21AsksThem()
+
+        /// <summary>
+        /// "dns.encryptedOnly" is changed as DNSClientController.EncryptedOnly:
+        /// the server over UDP stays and is not asked, and one more server -
+        /// over UDP, as the last one, where "dns.transports" says no more - is
+        /// Rejected, and none is added.
+        /// </summary>
+        [Test]
+        public async Task OnlyEncryptedServersAreAskedAsOCPP21AsksThem()
+        {
+
+            var on       = await Change("dns.encryptedOnly", "true");
+            var asked    = station!.DNSClient.DNSServers.Select(server => server.ToString()).ToArray();
+            var another  = await Change("dns.servers", "192.0.2.53,2001:db8::53,192.0.2.54");
+
+            Assert.Multiple(() => {
+                Assert.That(on,                          Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(Value("dns.encryptedOnly"),  Is.EqualTo("true"));
+                Assert.That(asked,                       Is.EqualTo(new[] { "tls://192.0.2.53:853" }));
+                Assert.That(Value("dns.servers"),        Is.EqualTo("192.0.2.53,2001:db8::53"), "the server over UDP was taken away, or another one added");
+                Assert.That(another,                     Is.EqualTo(OCPP16.ConfigurationStatus.Rejected));
+                Assert.That(OnDisk()?["encryptedOnly"]?.Value<Boolean>(),  Is.True);
             });
 
         }

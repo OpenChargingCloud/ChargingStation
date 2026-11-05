@@ -45,8 +45,8 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// order of entries in one request (T1, T2, T2a), a certificate for
     /// another address (T3), which roots vouch for a name server (T4, T5),
     /// which logs a mismatch goes into (T6), what is learned on first use and
-    /// when nothing is (T7, T8), and emptying every address while switched off
-    /// (T14).
+    /// when nothing is (T7, T8), a server in clear text beside an encrypted
+    /// one (T12), and emptying every address while switched off (T14).
     /// </summary>
     /// <remarks>
     /// The station is built and never started: a handshake is the node's
@@ -399,6 +399,54 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Value("dns-1", "CertificateStatus"),  Is.EqualTo("Accepted"));
                 Assert.That(told,                             Is.Empty);
                 Assert.That(Value("dns-1", "RootPins"),           Is.EqualTo(Fingerprint(certificate)).IgnoreCase);
+            });
+
+        }
+
+        #endregion
+
+        #region OnlyEncryptedServersAreAskedAndNoneComesInClearText()
+
+        /// <summary>
+        /// One server over TLS and one over UDP, where whoever is on the path
+        /// answers first: with EncryptedOnly, the one over UDP stays and is no
+        /// longer asked, a new one over UDP and the one over TLS moved to TCP
+        /// are Rejected, naming them, and nothing is changed; switched off, the
+        /// one over UDP is asked again (T12).
+        /// </summary>
+        [Test]
+        public async Task OnlyEncryptedServersAreAskedAndNoneComesInClearText()
+        {
+
+            var on       = await Set(null, (null, "EncryptedOnly", "true"));
+            var asked    = station!.DNSClient.DNSServers.Select(server => server.ToString()).ToArray();
+
+            var added    = await Set(OCPP21.DataConsistencyModel.ACID,
+                                     (null,     "Servers",   "dns-1,dns-2,office"),
+                                     ("office", "Address",   "203.0.113.53"));
+
+            var moved    = await Set(null, ("dns-1", "Transport", "TCP"));
+
+            var off      = await Set(null, (null, "EncryptedOnly", "false"));
+
+            Assert.Multiple(() => {
+
+                Assert.That(on.Single().AttributeStatus,                    Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(asked,                                          Is.EqualTo(new[] { "tls://192.0.2.53:853" }));
+
+                Assert.That(StatusesOf(added),                              Is.All.Not.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(added[1].AttributeStatusInfo?.AdditionalInfo,   Does.StartWith("'DNSServerController[office]' would be asked over UDP, in clear text"));
+
+                Assert.That(moved.Single().AttributeStatus,                 Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(moved.Single().AttributeStatusInfo?.AdditionalInfo,  Does.StartWith("'DNSServerController[dns-1]' would be asked over TCP, in clear text"));
+
+                Assert.That(Value(null,    "Servers"),                      Is.EqualTo("dns-1,dns-2"));
+                Assert.That(Value("dns-1", "Transport"),                    Is.EqualTo("TLS"));
+                Assert.That(Value("dns-2", "Address"),                      Is.EqualTo("2001:db8::53"));
+
+                Assert.That(off.Single().AttributeStatus,                   Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(station.DNSClient.DNSServers.Count(),           Is.EqualTo(2));
+
             });
 
         }

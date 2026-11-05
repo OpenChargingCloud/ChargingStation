@@ -146,7 +146,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private const String ClientUnit = "client";
 
         private static readonly String[] writableClientVariables = [
-            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows", "ServerSource", "Servers"
+            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows", "EncryptedOnly", "ServerSource", "Servers"
         ];
 
         private static readonly String[] writableServerVariables = [
@@ -165,7 +165,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ["UseCache"]         = "useCache",
             ["DNSSECOK"]         = "dnssecOK",
             ["FollowCNAMEs"]     = "followCNAMEs",
-            ["MaxCNAMEFollows"]  = "maxCNAMEFollows"
+            ["MaxCNAMEFollows"]  = "maxCNAMEFollows",
+            ["EncryptedOnly"]    = "encryptedOnly"
         };
 
         private static readonly Regex serverInError = new (@"dns\.servers\[(\d*)\]", RegexOptions.CultureInvariant);

@@ -65,9 +65,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// ids, adds new servers at the end, each with the next free id, which take
     /// the transport, pin rules and group of roots of the last one as the lists
     /// say, but none of its pins, and takes away the ones beyond its end - all
-    /// through DNSClientController.Servers as OCPP 2.1 would. "dns.encryptedOnly"
-    /// is not listed and a change of it is NotSupported, as the node does not
-    /// have it yet.
+    /// through DNSClientController.Servers as OCPP 2.1 would.
     /// </para>
     /// </remarks>
     public sealed partial class DNSDeviceModel : OCPP16.CP.IConfigurationKeySource
@@ -92,6 +90,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("dns.dnssecOK",          "DNSSECOK",          false,  ""),
             ("dns.followCNAMEs",      "FollowCNAMEs",      false,  ""),
             ("dns.maxCNAMEFollows",   "MaxCNAMEFollows",   false,  ""),
+            ("dns.encryptedOnly",     "EncryptedOnly",     false,  ""),
             ("dns.onPinMismatch",     "OnPinMismatch",     true,   "Refuse"),
             ("dns.trustOnFirstUse",   "TrustOnFirstUse",   true,   "None"),
             ("dns.rootCAs",           "RootCAs",           true,   "")

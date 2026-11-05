@@ -155,6 +155,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                 settings["recursionDesired"]     = false;
                                                                 settings["queryTimeoutSeconds"]  = 5;
                                                                 settings["maxCNAMEFollows"]      = 4;
+                                                                settings["encryptedOnly"]        = true;
                                                             }),
                         Is.EqualTo(HttpStatusCode.OK));
 
@@ -167,7 +168,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                         Client("DNSSECOK",          "true"),
                                         Client("RecursionDesired",  "Unset"),
                                         Client("QueryTimeout",      "5"),
-                                        Client("MaxCNAMEFollows",   "4"));
+                                        Client("MaxCNAMEFollows",   "4"),
+                                        Client("EncryptedOnly",     "true"));
 
             var viaOCPP16   = Twin();
             var keys        = KeysOf(viaOCPP16);
@@ -177,7 +179,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                   await keys.ChangeAsync("dns.dnssecOK",          "true",   "CS-16"),
                                   await keys.ChangeAsync("dns.recursionDesired",  "Unset",  "CS-16"),
                                   await keys.ChangeAsync("dns.queryTimeout",      "5",      "CS-16"),
-                                  await keys.ChangeAsync("dns.maxCNAMEFollows",   "4",      "CS-16")
+                                  await keys.ChangeAsync("dns.maxCNAMEFollows",   "4",      "CS-16"),
+                                  await keys.ChangeAsync("dns.encryptedOnly",     "true",   "CS-16")
                               };
 
             var pageLine          = ChangeLine(Station,   pageLog);
@@ -600,7 +603,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var shown    = JObject.Parse(await Http.GetStringAsync(DNSPath))["settings"] as JObject ?? [];
             var settings = new JObject();
 
-            foreach (var name in new[] { "useCache", "dnssecOK", "followCNAMEs", "recursionDesired", "queryTimeoutSeconds", "maxCNAMEFollows", "maxRetries" })
+            foreach (var name in new[] { "encryptedOnly", "useCache", "dnssecOK", "followCNAMEs", "recursionDesired", "queryTimeoutSeconds", "maxCNAMEFollows", "maxRetries" })
                 settings[name] = shown[name]?.DeepClone() ?? JValue.CreateNull();
 
             Settings?.Invoke(settings);

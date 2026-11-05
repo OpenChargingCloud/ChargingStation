@@ -494,6 +494,80 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region OnlyEncryptedServersAreAskedWhenTheCSMSSaysSo()
+
+        /// <summary>
+        /// EncryptedOnly is set as the file would say it: the server over UDP
+        /// stays, and is no longer asked; set back, it is asked again.
+        /// </summary>
+        [Test]
+        public async Task OnlyEncryptedServersAreAskedWhenTheCSMSSaysSo()
+        {
+
+            var on     = await Set(null, (null, "EncryptedOnly", "true"));
+            var asked  = station!.DNSClient.DNSServers.Select(server => server.ToString()).ToArray();
+            var read   = model.ClientValue("EncryptedOnly");
+            var saved  = OnDisk()["dns"]?["encryptedOnly"]?.Value<Boolean>();
+
+            var off    = await Set(null, (null, "EncryptedOnly", "false"));
+
+            Assert.Multiple(() => {
+                Assert.That(on.Single().AttributeStatus,         Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(asked,                               Is.EqualTo(new[] { "tls://192.0.2.53:853" }));
+                Assert.That(read,                                Is.EqualTo("true"));
+                Assert.That(saved,                               Is.True);
+                Assert.That(model.ServerIds,                     Is.EqualTo(new[] { "dns-1", "dns-2" }), "the server over UDP was taken away");
+                Assert.That(off.Single().AttributeStatus,        Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(station.DNSClient.DNSServers.Count(),  Is.EqualTo(2), "switched off, the server over UDP is not asked again");
+            });
+
+        }
+
+        #endregion
+
+        #region ANewServerInClearTextIsRefusedForWhatItIsWhileTheCSMSIsDialledByName()
+
+        /// <summary>
+        /// While only encrypted servers are asked, a new one over UDP is
+        /// refused as the node refuses it, naming it - and so it is while a
+        /// CSMS is dialled by its name, where the pre-flight says so before it
+        /// would ask anything, and not that the CSMS would be cut off.
+        /// </summary>
+        [Test]
+        public async Task ANewServerInClearTextIsRefusedForWhatItIsWhileTheCSMSIsDialledByName()
+        {
+
+            // Quick to give up on the servers nobody answers on: the pre-flight
+            // asks the configuration as it is as well.
+            Assert.That(station!.TryUpdateDNSConfiguration(JObject.Parse("""{ "encryptedOnly": true, "queryTimeoutSeconds": 0.2, "maxRetries": 0 }"""), out var error),
+                        Is.True,
+                        error);
+
+            Assert.That(station.Connections.TryAddConnection(
+                            "By name",
+                            "ws://csms.example.test/cs001",
+                            "CSMS",
+                            false, null, null, out _, out error),
+                        Is.True, error);
+
+            var results = await Set(OCPP21.DataConsistencyModel.ACID,
+                                    (null,     "Servers",    "dns-1,dns-2,office"),
+                                    ("office", "Address",    "203.0.113.53"),
+                                    ("office", "Transport",  "UDP"));
+
+            Assert.Multiple(() => {
+                Assert.That(StatusesOf(results),                                   Is.All.Not.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(results[1].AttributeStatus,                            Is.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(results[1].AttributeStatusInfo?.ReasonCode,            Is.EqualTo("InvalidValue"));
+                Assert.That(results[1].AttributeStatusInfo?.AdditionalInfo,        Does.StartWith("'DNSServerController[office]' would be asked over UDP, in clear text"));
+                Assert.That(model.ServerIds,                                       Is.EqualTo(new[] { "dns-1", "dns-2" }));
+            });
+
+        }
+
+        #endregion
+
+
         #region (class) ANodeOfWords
 
         /// <summary>

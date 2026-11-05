@@ -42,9 +42,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// Every variable of the paper that the node can answer is here; the rest
-    /// (AuthenticationName, Enabled and Priority of a server, and
-    /// EncryptedOnly) is not, so that a CSMS asking for them learns they are
-    /// unknown rather than reading an empty value as an answer.
+    /// (AuthenticationName, Enabled and Priority of a server) is not, so that
+    /// a CSMS asking for them learns they are unknown rather than reading an
+    /// empty value as an answer.
     /// SecureDNS-DeviceModel-Concept.md B.7 and B.8 say where each value
     /// comes from.
     /// </para>
@@ -87,7 +87,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("Servers",           dns    => String.Join(",", IdsIn(dns))),
             ("MaxServers",        dns    => MaxServersIn(dns).ToString(CultureInfo.InvariantCulture)),
             ("UDPPayloadSize",    dns    => IntegerOf  (Child(dns["fixed"],    "udpPayloadSize"))),
-            ("ClientSubnet",      dns    => TextOf     (Child(dns["fixed"],    "clientSubnet")))
+            ("ClientSubnet",      dns    => TextOf     (Child(dns["fixed"],    "clientSubnet"))),
+            ("EncryptedOnly",     dns    => BooleanOf  (Child(dns["settings"], "encryptedOnly")))
         ];
 
         private static readonly (String Name, Func<JObject, String> Value)[] serverVariables = [
