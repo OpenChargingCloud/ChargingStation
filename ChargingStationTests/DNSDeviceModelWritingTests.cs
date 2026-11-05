@@ -143,16 +143,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ANewServerComesWithItsAddress()
 
         /// <summary>
-        /// A server named anew in Servers is one change with its entries, made
-        /// where the Servers entry stands, even with independent entries: a
-        /// server over TLS held to a root, from the start, by the id the CSMS
-        /// gave it - written into the file with the others' ids.
+        /// A server named anew in Servers is one change with its entries, with
+        /// ACID: a server over TLS held to a root, from the start, by the id
+        /// the CSMS gave it - written into the file with the others' ids.
         /// </summary>
         [Test]
         public async Task ANewServerComesWithItsAddress()
         {
 
-            var results = await Set(null,
+            var results = await Set(OCPP21.DataConsistencyModel.ACID,
                                     ("office", "Transport", "TLS"),
                                     ("office", "RootPins",  AnotherRoot),
                                     ("office", "Address",   "203.0.113.53"),
@@ -188,7 +187,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ANewServerHasNothingToSetWithoutAnAddress()
         {
 
-            var results  = await Set(null,
+            var results  = await Set(OCPP21.DataConsistencyModel.ACID,
                                      (null,     "Servers", "dns-1,dns-2,office"),
                                      ("office", "Port",    "5353"));
 
@@ -199,6 +198,35 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(results.Select(result => result.AttributeStatusInfo?.ReasonCode), Is.All.EqualTo("InvalidValue"));
                 Assert.That(results[0].AttributeStatusInfo?.AdditionalInfo,            Does.Contain("'DNSServerController[office]' is new: set its Address"));
                 Assert.That(StatusesOf(unnamed),                                       Is.EqualTo(new[] { OCPP21.SetVariableStatus.UnknownComponent }));
+                Assert.That(model.ClientValue("Servers"),                              Is.EqualTo("dns-1,dns-2"));
+            });
+
+        }
+
+        #endregion
+
+        #region ANewServerNeedsACIDOrBASE()
+
+        /// <summary>
+        /// Entry by entry, a new server cannot be made: the Servers entry that
+        /// names it has no Address to make it with, and its own entries have no
+        /// server to be set on. Both say to use ACID or BASE, as for a new time
+        /// server, and nothing changes.
+        /// </summary>
+        [Test]
+        public async Task ANewServerNeedsACIDOrBASE()
+        {
+
+            var results = await Set(OCPP21.DataConsistencyModel.IndependentRequests,
+                                    (null,     "Servers", "dns-1,dns-2,office"),
+                                    ("office", "Address", "203.0.113.53"));
+
+            Assert.Multiple(() => {
+                Assert.That(StatusesOf(results),                                       Is.All.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(results.Select(result => result.AttributeStatusInfo?.ReasonCode), Is.All.EqualTo("InvalidValue"));
+                Assert.That(results.Select(result => result.AttributeStatusInfo?.AdditionalInfo),
+                                                                                       Is.All.Contains("with the DataConsistencyModel ACID or BASE"));
+                Assert.That(results[1].AttributeStatusInfo?.AdditionalInfo,            Does.StartWith("'DNSServerController[office].Address' is not there yet"));
                 Assert.That(model.ClientValue("Servers"),                              Is.EqualTo("dns-1,dns-2"));
             });
 
@@ -821,14 +849,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var results = await Set(null,
-                                    (null,    "Servers", "dns-1,dns-2,dns-3"),
-                                    ("dns-3", "Address", "2001:DB8:0:0:0:0:0:5353"),
+                                    ("dns-2", "Address", "2001:DB8:0:0:0:0:0:5353"),
                                     ("dns-1", "Port",    "5300"));
 
             Assert.Multiple(() => {
                 Assert.That(StatusesOf(results),                     Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
-                Assert.That(model.ServerValue("dns-3", "Address"),         Is.EqualTo("2001:db8::5353"));
-                Assert.That(model.ServerValue("dns-3", "Port"),            Is.EqualTo("53"));
+                Assert.That(model.ServerValue("dns-2", "Address"),         Is.EqualTo("2001:db8::5353"));
+                Assert.That(model.ServerValue("dns-2", "Port"),            Is.EqualTo("53"));
                 Assert.That(model.ServerValue("dns-1", "Port"),            Is.EqualTo("5300"));
             });
 

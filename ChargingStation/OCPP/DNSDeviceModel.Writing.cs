@@ -98,12 +98,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// With IndependentRequests every entry is a change of its own, in the
-    /// order of the request, except that the entries of a server the request
-    /// adds are one change with the Servers entry that adds it, made where
-    /// that entry stands: a new encrypted server never starts as a server over
-    /// UDP. With ACID and BASE all entries handed over at once are one change,
-    /// all of it or nothing; with BASE, DNSClientController is one with the
-    /// servers it adds.
+    /// order of the request. A new server cannot be one: it needs its Address
+    /// in the same change, so it needs ACID or BASE, as a new time server does
+    /// - see NTSDeviceModel.Writing.cs. That way a new encrypted server never
+    /// starts as a server over UDP either. With ACID and BASE all entries
+    /// handed over at once are one change, all of it or nothing; with BASE,
+    /// DNSClientController is one with the servers it adds.
     /// </para>
     /// <para>
     /// Before a change is put into effect, the names of the CSMS connections
@@ -381,7 +381,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 }
 
                 else
-                    foreach (var change in IndependentChanges(items, table, results))
+                    foreach (var change in IndependentChanges(items, results))
                         await ApplyAsync(change, table, results, false, CancellationToken).ConfigureAwait(false);
 
                 return [.. results.Select(result => result!)];
@@ -428,43 +428,29 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private) IndependentChanges(Items, Table, Results)
+        #region (private static) IndependentChanges(Items, Results)
 
         /// <summary>
         /// The changes of a request of independent entries: every entry by
-        /// itself, except that the entries of a server the request adds are one
-        /// change with the Servers entry that adds it, made where that entry
-        /// stands. Entries of a server neither there nor added are refused: there
-        /// is nothing to set them on.
+        /// itself. An entry of a server the request adds is refused: a new server
+        /// is made together with its Address, with ACID or BASE - and a Servers
+        /// entry that adds one, alone, has no Address to make it with.
         /// </summary>
-        private static IEnumerable<IReadOnlyList<Item>> IndependentChanges(IReadOnlyList<Item>     Items,
-                                                                          List<TableServer>       Table,
-                                                                          SetVariableResult?[]    Results)
+        private static IEnumerable<IReadOnlyList<Item>> IndependentChanges(IReadOnlyList<Item>   Items,
+                                                                          SetVariableResult?[]  Results)
         {
-
-            var servers  = Items.FirstOrDefault(item => item.Server is null && item.Is("Servers"));
-            var added    = servers is not null
-                               ? ListOf(servers.Value).Where(id => !Has(Table, id)).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                               : [];
 
             foreach (var item in Items)
             {
 
-                if (ReferenceEquals(item, servers))
+                if (item.Entry.Component is DNSServerController { IsNew: true })
                 {
-                    yield return [ item, .. Items.Where(other => other.Server is String id && added.Contains(id)) ];
-                    continue;
-                }
-
-                if (item.Server is not String server || Has(Table, server))
-                {
-                    yield return [ item ];
-                    continue;
-                }
-
-                if (!added.Contains(server))
                     Results[item.Index] = Result(item.Entry, SetVariableStatus.Rejected, "InvalidValue",
-                                                 $"'{ServerComponent}[{server}]' is not a name server of this charging station: add it through {ClientComponent}.Servers in the same request!");
+                                                 $"'{Where(item.Entry)}' is not there yet: a new name server is made together with its Address, with the DataConsistencyModel ACID or BASE!");
+                    continue;
+                }
+
+                yield return [ item ];
 
             }
 
@@ -505,7 +491,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     if (!Change.Any(item => Is(item.Server, id) && item.IsAddress))
                     {
                         Refuse(Change, [ servers, .. Change.Where(item => Is(item.Server, id)) ], Results, Atomic, "InvalidValue",
-                               $"'{ServerComponent}[{id}]' is new: set its Address in the same request!");
+                               $"'{ServerComponent}[{id}]' is new: set its Address in the same request, with the DataConsistencyModel ACID or BASE!");
                         return;
                     }
 

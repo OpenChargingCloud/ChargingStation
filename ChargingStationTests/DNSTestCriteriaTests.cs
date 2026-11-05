@@ -196,10 +196,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ANewServerIsNeverAskedInClearText()
 
         /// <summary>
-        /// A new server named in Servers, and its root, TLS and address, entry
-        /// by entry and in this order: all accepted, and the node is changed
-        /// once, to a server over TLS held to the root - never to one asked in
-        /// clear text (T2a).
+        /// A new server named in Servers, and its root, TLS and address: entry
+        /// by entry, all refused and nothing changed, as each needs the others;
+        /// as one change with ACID, all accepted, and the node is changed once,
+        /// to a server over TLS held to the root - never to one asked in clear
+        /// text (T2a).
         /// </summary>
         [Test]
         public async Task ANewServerIsNeverAskedInClearText()
@@ -212,15 +213,26 @@ namespace cloud.charging.open.ChargingStation.Tests
                     told.AddRange(changes);
             };
 
-            var results = await Set(OCPP21.DataConsistencyModel.IndependentRequests,
-                                    (null,     "Servers",   "dns-1,dns-2,office"),
-                                    ("office", "RootPins",  ARoot),
-                                    ("office", "Transport", "TLS"),
-                                    ("office", "Address",   "203.0.113.53"));
+            (String?, String, String)[] entries = [
+                (null,     "Servers",   "dns-1,dns-2,office"),
+                ("office", "RootPins",  ARoot),
+                ("office", "Transport", "TLS"),
+                ("office", "Address",   "203.0.113.53")
+            ];
+
+            var independent  = await Set(OCPP21.DataConsistencyModel.IndependentRequests, entries);
+            var toldBefore   = told.Count;
+
+            var atomic       = await Set(OCPP21.DataConsistencyModel.ACID, entries);
 
             Assert.Multiple(() => {
 
-                Assert.That(StatusesOf(results),                     Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
+                Assert.That(StatusesOf(independent),                 Is.All.EqualTo(OCPP21.SetVariableStatus.Rejected));
+                Assert.That(independent.Select(result => result.AttributeStatusInfo?.AdditionalInfo),
+                                                                     Is.All.Contains("with the DataConsistencyModel ACID or BASE"));
+                Assert.That(toldBefore,                              Is.Zero, "nothing was changed entry by entry");
+
+                Assert.That(StatusesOf(atomic),                      Is.All.EqualTo(OCPP21.SetVariableStatus.Accepted));
 
                 Assert.That(told.Where(change => change.StartsWith("servers = ", StringComparison.Ordinal)),
                             Has.Exactly(1).Contains("tls://203.0.113.53:853"));
