@@ -57,10 +57,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             var roles        = me["roles"]?.      Values<String>().ToArray() ?? [];
             var permissions  = me["permissions"]?.Values<String>().ToArray() ?? [];
 
-            // Every operation on every resource, spelled out: the node's five and
+            // Every operation on every resource, spelled out: the node's six and
             // the station's twelve - what a page asks "dns:edit" of, rather than
             // having to know that "*" means that too.
-            var resources = new[] { "configuration", "dns", "nts", "certificates", "ssh",
+            var resources = new[] { "configuration", "dns", "nts", "certificates", "ssh", "log",
                                     "evses", "rfid", "availability", "power", "calibration",
                                     "display", "session", "connections", "v2g", "meters",
                                     "providers", "nameplate" };
