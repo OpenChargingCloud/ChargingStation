@@ -2096,6 +2096,13 @@ namespace cloud.charging.open.ChargingStation
                                       IMSI:                      null,
                                       UplinkEnergyMeter:         null,
                                       DisableSendHeartbeats:     true,
+
+                                      // The station's own, as the 2.1 node has it. Handed
+                                      // none, a node made one of its own, whose cache's
+                                      // timer ticked on after the node was stopped - one
+                                      // for every station, and for every change of its EVSEs.
+                                      DNSClient:                 this.DNSClient,
+
                                       Clock:                     TimeProvider
                                   );
 

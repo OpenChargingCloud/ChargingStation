@@ -132,7 +132,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `ConfigurationAPITests` | the station's own sections, and both OCPP nodes |
 | `FileLogTests`          | a station's log on disk: its files called what they always were, with the first line of a run in them |
 | `ShutdownTests`         | a station that is told to stop stops - without a display, or with an app on the WebSocket |
-| `OCPPNodeTimersTests`   | a station that is let go of stops its OCPP nodes, and those a change of its EVSEs replaced: none of their timers ticks on |
+| `OCPPNodeTimersTests`   | a station that is let go of stops its OCPP nodes, and those a change of its EVSEs replaced: none of their timers ticks on; and both nodes resolve names with the station's DNS client rather than one of their own, whose cache's timer nothing stopped |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, that it lets go of the others, and that the ports a test gives it are given to nobody else in the run |
 | `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |

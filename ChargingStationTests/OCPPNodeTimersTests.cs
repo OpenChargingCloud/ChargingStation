@@ -34,20 +34,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     /// <summary>
     /// Whether a charging station that is let go of stops the timers of its
-    /// OCPP nodes.
+    /// OCPP nodes, and whether its nodes bring no timers of their own.
     /// </summary>
     /// <remarks>
     /// An OCPP node's heartbeat and maintenance timers tick until the node is
-    /// stopped, and its maintenance ticks every second, holding a thread of the
-    /// thread pool while it waits for a lock every node of the process shares.
-    /// A station used to leave its two nodes ticking when it was let go of, and
-    /// those of every change of its EVSEs as well. A test run makes a station
-    /// for nearly every test; on GitHub's Windows runners, with four cores, the
-    /// thread pool ran dry and the run hung, in whichever test came next.
+    /// stopped, and its maintenance ticked every second, holding a thread of
+    /// the thread pool while it waited for a lock every node of the process
+    /// shared. A station used to leave its two nodes ticking when it was let go
+    /// of, and those of every change of its EVSEs as well. A test run makes a
+    /// station for nearly every test; on GitHub's Windows runners, with four
+    /// cores, the thread pool ran dry and the run hung, in whichever test came
+    /// next.
     ///
     /// The timers are the node's own, and nothing a node says in public tells
     /// whether it was stopped, so these tests look at the timers themselves:
-    /// a timer that was disposed of answers a change with false.
+    /// a timer that was disposed of answers a change with false. A DNS client
+    /// a node made itself brings a cache whose timer nothing stops, so the
+    /// nodes are asked whose DNS client they have.
     /// </remarks>
     [TestFixture]
     public class OCPPNodeTimersTests
@@ -181,6 +184,55 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
 
             Assert.That(StillTicking(nodes), Is.Empty);
+
+        }
+
+        #endregion
+
+        #region BothOCPPNodesResolveNamesWithTheStationsDNSClient()
+
+        /// <summary>
+        /// Both OCPP nodes resolve names with the station's DNS client, and so
+        /// do the nodes a change of the EVSEs builds anew.
+        /// </summary>
+        /// <remarks>
+        /// The OCPP 1.6 node was handed none, and made one of its own: a cache
+        /// of its own with a timer of its own, which nothing stopped - one more
+        /// ticking timer for every station, and for every change of its EVSEs.
+        /// </remarks>
+        [Test]
+        public async Task BothOCPPNodesResolveNamesWithTheStationsDNSClient()
+        {
+
+            var station = TestStations.New(directory);
+
+            try
+            {
+
+                Assert.Multiple(() => {
+                    Assert.That(station.OCPPv1_6Node.DNSClient,  Is.SameAs(station.DNSClient), "the OCPP 1.6 node has a DNS client of its own");
+                    Assert.That(station.OCPPv2_1Node.DNSClient,  Is.SameAs(station.DNSClient), "the OCPP 2.1 node has a DNS client of its own");
+                });
+
+                var switched = new JObject(
+                                   new JProperty("evses", new JArray(
+                                       station.EVSEs.Select(evse => {
+                                           var json = evse.ToJSON();
+                                           json["operative"] = !evse.Operative;
+                                           return json;
+                                       })
+                                   ))
+                               );
+
+                Assert.That(station.TryUpdateEVSEConfiguration(switched, _ => true, out _, out var error, out _), Is.True, error);
+
+                Assert.That(station.OCPPv1_6Node.DNSClient, Is.SameAs(station.DNSClient), "the OCPP 1.6 node built anew has a DNS client of its own");
+
+            }
+            finally
+            {
+                await station.DisposeAsync();
+            }
 
         }
 
