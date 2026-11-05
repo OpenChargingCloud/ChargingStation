@@ -140,7 +140,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(model.ClientValue("ServerSource"),      Is.EqualTo("Manual"), "the file's servers");
 
                 Assert.That(model.ClientValue("MaxServers"),        Is.EqualTo("16"));
-                Assert.That(model.Slots,                            Is.EqualTo(16));
+                Assert.That(model.ClientValue("Servers"),           Is.EqualTo("dns-1,dns-2"), "named by their places, as the file names none");
+                Assert.That(model.ServerIds,                        Is.EqualTo(new[] { "dns-1", "dns-2" }));
 
                 Assert.That(Int32.Parse(model.ClientValue("UDPPayloadSize")!), Is.GreaterThan(0));
                 Assert.That(Int32.Parse(model.ClientValue("MaxCNAMEFollows")!), Is.GreaterThan(0));
@@ -151,38 +152,39 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region EachServerIsASlot()
+        #region EachServerIsAnInstanceByItsId()
 
         /// <summary>
-        /// The n-th server of the file is the slot n, with what it is held to,
-        /// its port filled in for its transport and its address written short.
+        /// Each server of the file is an instance by its id - "dns-n" for the
+        /// n-th, as the file gives none - with what it is held to, its port
+        /// filled in for its transport and its address written short.
         /// </summary>
         [Test]
-        public void EachServerIsASlot()
+        public void EachServerIsAnInstanceByItsId()
         {
 
             Assert.Multiple(() => {
 
-                Assert.That(model.ServerValue(1, "Address"),          Is.EqualTo("192.0.2.53"));
-                Assert.That(model.ServerValue(1, "Transport"),        Is.EqualTo("TLS"));
-                Assert.That(model.ServerValue(1, "Port"),             Is.EqualTo("853"));
-                Assert.That(model.ServerValue(1, "QueryTimeout"),     Is.EqualTo("2.5"));
-                Assert.That(model.ServerValue(1, "RootPins"),         Is.EqualTo(ARoot), "in the form the node keeps");
-                Assert.That(model.ServerValue(1, "CertificatePins"),  Is.EqualTo(""));
-                Assert.That(model.ServerValue(1, "OnPinMismatch"),    Is.EqualTo("Record"));
-                Assert.That(model.ServerValue(1, "TrustOnFirstUse"),  Is.EqualTo("Certificate"));
+                Assert.That(model.ServerValue("dns-1", "Address"),          Is.EqualTo("192.0.2.53"));
+                Assert.That(model.ServerValue("dns-1", "Transport"),        Is.EqualTo("TLS"));
+                Assert.That(model.ServerValue("dns-1", "Port"),             Is.EqualTo("853"));
+                Assert.That(model.ServerValue("dns-1", "QueryTimeout"),     Is.EqualTo("2.5"));
+                Assert.That(model.ServerValue("dns-1", "RootPins"),         Is.EqualTo(ARoot), "in the form the node keeps");
+                Assert.That(model.ServerValue("dns-1", "CertificatePins"),  Is.EqualTo(""));
+                Assert.That(model.ServerValue("dns-1", "OnPinMismatch"),    Is.EqualTo("Record"));
+                Assert.That(model.ServerValue("dns-1", "TrustOnFirstUse"),  Is.EqualTo("Certificate"));
 
-                Assert.That(model.ServerValue(2, "Address"),          Is.EqualTo("2001:db8::53"));
-                Assert.That(model.ServerValue(2, "Transport"),        Is.EqualTo("UDP"));
-                Assert.That(model.ServerValue(2, "Port"),             Is.EqualTo("53"));
-                Assert.That(model.ServerValue(2, "QueryTimeout"),     Is.EqualTo(""), "the client's");
-                Assert.That(model.ServerValue(2, "OnPinMismatch"),    Is.EqualTo("Refuse"));
-                Assert.That(model.ServerValue(2, "TrustOnFirstUse"),  Is.EqualTo("None"));
+                Assert.That(model.ServerValue("dns-2", "Address"),          Is.EqualTo("2001:db8::53"));
+                Assert.That(model.ServerValue("dns-2", "Transport"),        Is.EqualTo("UDP"));
+                Assert.That(model.ServerValue("dns-2", "Port"),             Is.EqualTo("53"));
+                Assert.That(model.ServerValue("dns-2", "QueryTimeout"),     Is.EqualTo(""), "the client's");
+                Assert.That(model.ServerValue("dns-2", "OnPinMismatch"),    Is.EqualTo("Refuse"));
+                Assert.That(model.ServerValue("dns-2", "TrustOnFirstUse"),  Is.EqualTo("None"));
 
                 // No handshake yet.
-                Assert.That(model.ServerValue(1, "Problem"),            Is.EqualTo("false"));
-                Assert.That(model.ServerValue(1, "CertificateStatus"),  Is.EqualTo(""));
-                Assert.That(model.ServerValue(1, "KnownSince"),         Is.EqualTo(""));
+                Assert.That(model.ServerValue("dns-1", "Problem"),            Is.EqualTo("false"));
+                Assert.That(model.ServerValue("dns-1", "CertificateStatus"),  Is.EqualTo(""));
+                Assert.That(model.ServerValue("dns-1", "KnownSince"),         Is.EqualTo(""));
 
             });
 
@@ -190,29 +192,30 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AnEmptySlotIsThereAndSaysNothing()
+        #region WhatIsNotThereIsNotThere()
 
         /// <summary>
-        /// A slot no server is in answers "" for every variable, so that a CSMS
-        /// can put a server there; a slot beyond the last and a variable the
-        /// node cannot answer are not there at all.
+        /// A server the station does not have - the slots "1" and "16" of
+        /// before among them - and a variable the node cannot answer are not
+        /// there at all; ids are read in any case, as OCPP reads instances.
         /// </summary>
         [Test]
-        public void AnEmptySlotIsThereAndSaysNothing()
+        public void WhatIsNotThereIsNotThere()
         {
 
             Assert.Multiple(() => {
 
                 foreach (var variable in DNSDeviceModel.ServerVariables)
                 {
-                    Assert.That(model.ServerValue( 3, variable), Is.EqualTo(""), variable);
-                    Assert.That(model.ServerValue(16, variable), Is.EqualTo(""), variable);
-                    Assert.That(model.ServerValue( 0, variable), Is.Null,        variable);
-                    Assert.That(model.ServerValue(17, variable), Is.Null,        variable);
+                    Assert.That(model.ServerValue("dns-3", variable), Is.Null, variable);
+                    Assert.That(model.ServerValue("1",     variable), Is.Null, variable);
+                    Assert.That(model.ServerValue("16",    variable), Is.Null, variable);
                 }
 
+                Assert.That(model.ServerValue("DNS-2", "Transport"), Is.EqualTo("UDP"), "in any case");
+
                 foreach (var notYet in new[] { "AuthenticationName", "Enabled", "Priority" })
-                    Assert.That(model.ServerValue(1, notYet), Is.Null, notYet);
+                    Assert.That(model.ServerValue("dns-1", notYet), Is.Null, notYet);
 
                 foreach (var notYet in new[] { "EncryptedOnly", "NoSuchThing" })
                     Assert.That(model.ClientValue(notYet), Is.Null, notYet);
@@ -234,7 +237,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(model.ClientValue("dnssecok"),         Is.EqualTo("true"));
-                Assert.That(model.ServerValue(1, "TRANSPORT"),     Is.EqualTo("TLS"));
+                Assert.That(model.ServerValue("dns-1", "TRANSPORT"),     Is.EqualTo("TLS"));
             });
 
         }
@@ -246,7 +249,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// Nothing is kept: what the page changes is what the next GetVariables
         /// reads, the three ways recursion can be set included, and a server
-        /// removed moves the one behind it up a slot.
+        /// the page takes away is gone - here the second, as a page sending its
+        /// first back without an id leaves it "dns-1".
         /// </summary>
         [Test]
         public void AChangeElsewhereIsReadAtTheNextAsk()
@@ -271,9 +275,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.True, error);
 
             Assert.Multiple(() => {
-                Assert.That(model.ServerValue(1, "Address"),          Is.EqualTo("2001:db8::53"));
-                Assert.That(model.ServerValue(1, "CertificatePins"),  Is.EqualTo($"{ACertificate},{AnotherOne}"));
-                Assert.That(model.ServerValue(2, "Address"),          Is.EqualTo(""));
+                Assert.That(model.ServerValue("dns-1", "Address"),          Is.EqualTo("2001:db8::53"));
+                Assert.That(model.ServerValue("dns-1", "CertificatePins"),  Is.EqualTo($"{ACertificate},{AnotherOne}"));
+                Assert.That(model.ServerValue("dns-2", "Address"),          Is.Null);
+                Assert.That(model.ClientValue("Servers"),                   Is.EqualTo("dns-1"));
             });
 
         }
@@ -284,8 +289,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// Name resolution switched off holds no servers in its client, yet the
-        /// slots keep the servers the file has, which are what comes back when
-        /// it is switched on again.
+        /// instances keep the servers the file has, which are what comes back
+        /// when it is switched on again.
         /// </summary>
         [Test]
         public void SwitchedOffTheServersStillRead()
@@ -295,8 +300,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(model.ClientValue("Enabled"),     Is.EqualTo("false"));
-                Assert.That(model.ServerValue(1, "Address"),  Is.EqualTo("192.0.2.53"));
-                Assert.That(model.ServerValue(2, "Address"),  Is.EqualTo("2001:db8::53"));
+                Assert.That(model.ServerValue("dns-1", "Address"),  Is.EqualTo("192.0.2.53"));
+                Assert.That(model.ServerValue("dns-2", "Address"),  Is.EqualTo("2001:db8::53"));
             });
 
         }
@@ -308,8 +313,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// The station's OCPP 2.1 node answers GetVariables for the DNS
         /// controllers from the station's node: a change made elsewhere is what
-        /// it reads next, a slot no server is in is there, and a node rebuilt
-        /// for changed EVSEs has them again.
+        /// it reads next, a server added or taken away on the page comes or goes
+        /// as an instance, and a node rebuilt for changed EVSEs has them again.
         /// </summary>
         [Test]
         public void TheOCPPNodeReadsTheStationsNameResolution()
@@ -333,14 +338,32 @@ namespace cloud.charging.open.ChargingStation.Tests
             var before = station!.OCPPv2_1Node;
 
             Assert.Multiple(() => {
-                Assert.That(ValueIn(before, "dnsclientcontroller", null, "DNSSECOK"),  Is.EqualTo("true"));
-                Assert.That(ValueIn(before, "DNSServerController", "2",  "Address"),   Is.EqualTo("2001:db8::53"));
-                Assert.That(ValueIn(before, "DNSServerController", "16", "Address"),   Is.EqualTo(""));
+                Assert.That(ValueIn(before, "dnsclientcontroller", null, "DNSSECOK"),     Is.EqualTo("true"));
+                Assert.That(ValueIn(before, "DNSServerController", "dns-2",  "Address"),  Is.EqualTo("2001:db8::53"));
+                Assert.That(ValueIn(before, "DNSServerController", "dns-3",  "Address"),  Is.Null, "no such server");
             });
 
             Assert.That(station.TryUpdateDNSConfiguration(new JObject(new JProperty("dnssecOK", false)), out var error), Is.True, error);
 
             Assert.That(ValueIn(before, "DNSClientController", null, "DNSSECOK"), Is.EqualTo("false"), "read again, not kept");
+
+            // The page takes the first away and adds one, sending back the
+            // ids it was shown: the second keeps its own, and the new one is
+            // the next free.
+            Assert.That(station.TryUpdateDNSConfiguration(JObject.Parse("""
+                                                                        { "servers": [ { "id": "dns-2", "address": "2001:db8::53" },
+                                                                                       { "address": "198.51.100.53" } ] }
+                                                                        """),
+                                                          out error),
+                        Is.True, error);
+
+            Assert.Multiple(() => {
+                Assert.That(before.AllComponentConfigs.Where (component => component.Name == nameof(protocols.OCPPv2_1.DNSServerController)).
+                                                       Select(component => component.Instance),  Is.EquivalentTo(new[] { "dns-2", "dns-3" }));
+                Assert.That(ValueIn(before, "DNSServerController", "dns-3",  "Address"),         Is.EqualTo("198.51.100.53"));
+                Assert.That(ValueIn(before, "DNSServerController", "dns-1",  "Address"),         Is.Null, "taken away");
+                Assert.That(ValueIn(before, "DNSClientController", null,     "Servers"),         Is.EqualTo("dns-2,dns-3"));
+            });
 
             var outOfService = new JObject(
                                    new JProperty("evses", new JArray(
@@ -359,8 +382,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(after,                                                     Is.Not.SameAs(before), "the node was rebuilt");
-                Assert.That(after.AllComponentConfigs.Count(component => component.Name == nameof(protocols.OCPPv2_1.DNSServerController)), Is.EqualTo(16));
-                Assert.That(ValueIn(after, "DNSServerController", "1",  "RootPins"),   Is.EqualTo(ARoot));
+                Assert.That(after.AllComponentConfigs.Where (component => component.Name == nameof(protocols.OCPPv2_1.DNSServerController)).
+                                                      Select(component => component.Instance),  Is.EquivalentTo(new[] { "dns-2", "dns-3" }));
+                Assert.That(ValueIn(after, "DNSServerController", "dns-3",  "Address"),         Is.EqualTo("198.51.100.53"));
             });
 
         }
@@ -406,18 +430,18 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "Problem"),                 Is.EqualTo("true"));
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "CertificateStatus"),       Is.EqualTo("PinMismatch"));
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "CertificateFingerprint"),  Is.EqualTo(ACertificate));
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "RootFingerprint"),         Is.EqualTo(AnotherOne));
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "KnownSince"),              Is.EqualTo("2026-10-29T13:03:07.123Z"));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "Problem"),                 Is.EqualTo("true"));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "CertificateStatus"),       Is.EqualTo("PinMismatch"));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "CertificateFingerprint"),  Is.EqualTo(ACertificate));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "RootFingerprint"),         Is.EqualTo(AnotherOne));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "KnownSince"),              Is.EqualTo("2026-10-29T13:03:07.123Z"));
 
                 // A server believed is no problem.
                 server["judgement"]!["accepted"] = true;
                 server["judgement"]!["outcome"]  = "accepted";
 
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "Problem"),                 Is.EqualTo("false"));
-                Assert.That(DNSDeviceModel.ServerValueIn(section, 1, "CertificateStatus"),       Is.EqualTo("Accepted"));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "Problem"),                 Is.EqualTo("false"));
+                Assert.That(DNSDeviceModel.ServerValueIn(section, "dns-1", "CertificateStatus"),       Is.EqualTo("Accepted"));
 
             });
 

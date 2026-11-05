@@ -214,11 +214,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// The first server taken away, the one behind it moved to TLS to learn
         /// its root on first use, and the last given another timeout: on the
-        /// page, which sends what is left of the list, and through SetVariables,
-        /// which empties the first slot and changes the two behind it in the same
-        /// request, with the port of TLS left to the transport. The same file as
-        /// the next start reads it, the same servers, the same log line but for
-        /// who.
+        /// page, which sends what is left of the list with the ids it was shown,
+        /// and through SetVariables, which leaves the first out of Servers and
+        /// changes the two behind it by their ids in the same request, with the
+        /// port of TLS left to the transport. The same file as the next start
+        /// reads it, the same servers with the same ids, the same log line but
+        /// for who.
         /// </summary>
         [Test]
         public async Task TheSameServersLeaveTheSameFileWhicheverWayTheyCame()
@@ -229,9 +230,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             var pageLog     = Station.Log.LastId;
 
             Assert.That(await SaveOnThePage(http, """
-                                                  [ { "address": "2001:db8::53",  "port": 853,  "transport": "TLS", "queryTimeoutSeconds": null,
+                                                  [ { "id": "dns-2", "address": "2001:db8::53",  "port": 853,  "transport": "TLS", "queryTimeoutSeconds": null,
                                                       "trustOnFirstUse": "root", "pinsAsShown": { } },
-                                                    { "address": "198.51.100.53", "port": 5353, "transport": "TCP", "queryTimeoutSeconds": 4, "pinsAsShown": { } } ]
+                                                    { "id": "dns-3", "address": "198.51.100.53", "port": 5353, "transport": "TCP", "queryTimeoutSeconds": 4, "pinsAsShown": { } } ]
                                                   """),
                         Is.EqualTo(HttpStatusCode.OK));
 
@@ -239,10 +240,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             var ocppLog     = viaOCPP21.Log.LastId;
 
             var set         = await Set(viaOCPP21, OCPP21.DataConsistencyModel.ACID,
-                                        Server("1", "Address",          ""),
-                                        Server("2", "Transport",        "TLS"),
-                                        Server("2", "TrustOnFirstUse",  "Root"),
-                                        Server("3", "QueryTimeout",     "4"));
+                                        Client("Servers",                   "dns-2,dns-3"),
+                                        Server("dns-2", "Transport",        "TLS"),
+                                        Server("dns-2", "TrustOnFirstUse",  "Root"),
+                                        Server("dns-3", "QueryTimeout",     "4"));
 
             var pageLine          = ChangeLine(Station,   pageLog);
             var ocppLine          = ChangeLine(viaOCPP21, ocppLog);
@@ -284,7 +285,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var read21      = Get(Station, null, "MaxRetries");
             var read16      = KeysOf(Station).Get("dns.maxRetries")?.Value;
 
-            var set         = await Set(Station, null, Server("2", "Port", "5300"));
+            var set         = await Set(Station, null, Server("dns-2", "Port", "5300"));
 
             var page        = JObject.Parse(await http.GetStringAsync(DNSPath));
 
@@ -312,11 +313,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http  = await SignedIn();
 
-            var seen        = Get(Station, "2", "Port").AttributeValue;
+            var seen        = Get(Station, "dns-2", "Port").AttributeValue;
 
             await SaveOnThePage(http, AsLoaded(SecondPort: 5300));
 
-            var set         = await Set(Station, null, Server("2", "Port", "5353", Old: seen));
+            var set         = await Set(Station, null, Server("dns-2", "Port", "5353", Old: seen));
 
             Assert.Multiple(() => {
                 Assert.That(seen,                                                     Is.EqualTo("53"));
@@ -345,7 +346,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http  = await SignedIn();
 
-            var set         = await Set(Station, null, Server("1", "CertificatePins", APin));
+            var set         = await Set(Station, null, Server("dns-1", "CertificatePins", APin));
 
             await SaveOnThePage(http, AsLoaded(SecondPort: 5300));
 
@@ -389,20 +390,20 @@ namespace cloud.charging.open.ChargingStation.Tests
             using var http        = await SignedIn();
 
             await SaveOnThePage(http, """
-                                      [ { "address": "192.0.2.53", "port": 853, "transport": "TLS", "queryTimeoutSeconds": null,
+                                      [ { "id": "dns-1", "address": "192.0.2.53", "port": 853, "transport": "TLS", "queryTimeoutSeconds": null,
                                           "trustOnFirstUse": "certificate", "pinsAsShown": { "rootFingerprint": "{{ARoot}}", "onMismatch": "record" } } ]
                                       """.Replace("{{ARoot}}", ARoot));
 
             TrustForNameServers(certificate);
 
-            var seen     = Get(Station, "1", "CertificatePins").AttributeValue;
+            var seen     = Get(Station, "dns-1", "CertificatePins").AttributeValue;
 
             Judge(certificate);
 
-            var learned  = Get(Station, "1", "CertificatePins").AttributeValue;
+            var learned  = Get(Station, "dns-1", "CertificatePins").AttributeValue;
 
-            var moved    = await Set(Station, null, Server("1", "Port", "8853"));
-            var unseen   = await Set(Station, null, Server("1", "CertificatePins", "", Old: seen));
+            var moved    = await Set(Station, null, Server("dns-1", "Port", "8853"));
+            var unseen   = await Set(Station, null, Server("dns-1", "CertificatePins", "", Old: seen));
 
             var server   = DNSOnDisk(Station)["servers"]?[0];
 
@@ -470,14 +471,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var before     = station.DNSConfigurationJSON().ToString();
 
-                var refused21  = await Set(station, OCPP21.DataConsistencyModel.ACID, Server("1", "Port", port));
+                var refused21  = await Set(station, OCPP21.DataConsistencyModel.ACID, Server("dns-1", "Port", port));
                 var refused16  = await KeysOf(station).ChangeAsync("dns.ports", port, "CS-16");
                 var after      = station.DNSConfigurationJSON().ToString();
 
                 var installed  = await station.OCPPv2_1Node.CertificateSources.InstallAsync(DNSRootCertificates.CertificateType, null,
                                                                                             OCPPC.Certificate.Parse(untrustedCertificate.ExportCertificatePem()), "CSMS");
 
-                var accepted   = await Set(station, OCPP21.DataConsistencyModel.ACID, Server("1", "Port", port));
+                var accepted   = await Set(station, OCPP21.DataConsistencyModel.ACID, Server("dns-1", "Port", port));
 
                 Assert.Multiple(() => {
 
@@ -527,7 +528,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var page        = await SaveOnThePage(http, AsLoaded(), settings => settings["maxRetries"] = 4);
             var set         = await Set(Station, OCPP21.DataConsistencyModel.ACID,
                                         Client("MaxRetries", "4"),
-                                        Server("2", "Port",  "5300"));
+                                        Server("dns-2", "Port",  "5300"));
             var changed     = await KeysOf(Station).ChangeAsync("dns.maxRetries", "4", "CS-16");
 
             Assert.Multiple(() => {
@@ -559,10 +560,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                               : "";
 
             return $$"""
-                   [ { "address": "192.0.2.53",    "port": 853,  "transport": "TLS", "queryTimeoutSeconds": null, {{itsRoot}}
+                   [ { "id": "dns-1", "address": "192.0.2.53",    "port": 853,  "transport": "TLS", "queryTimeoutSeconds": null, {{itsRoot}}
                        "pinsAsShown": { "rootFingerprint": "{{ARoot}}", "onMismatch": "record" } },
-                     { "address": "2001:db8::53",  "port": {{SecondPort}}, "transport": "UDP", "queryTimeoutSeconds": null, "pinsAsShown": { } },
-                     { "address": "198.51.100.53", "port": 5353, "transport": "TCP", "queryTimeoutSeconds": 3,    "pinsAsShown": { } } ]
+                     { "id": "dns-2", "address": "2001:db8::53",  "port": {{SecondPort}}, "transport": "UDP", "queryTimeoutSeconds": null, "pinsAsShown": { } },
+                     { "id": "dns-3", "address": "198.51.100.53", "port": 5353, "transport": "TCP", "queryTimeoutSeconds": 3,    "pinsAsShown": { } } ]
                    """;
 
         }
@@ -612,15 +613,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private static) Set(Station, Model, Entries) / Get(Station, Slot, Variable) / KeysOf(Station)
+        #region (private static) Set(Station, Model, Entries) / Get(Station, Server, Variable) / KeysOf(Station)
 
-        private sealed record Entry(String? Slot, String Variable, String Value, String? Old);
+        private sealed record Entry(String? Server, String Variable, String Value, String? Old);
 
         private static Entry Client(String Variable, String Value, String? Old = null)
             => new (null, Variable, Value, Old);
 
-        private static Entry Server(String Slot, String Variable, String Value, String? Old = null)
-            => new (Slot, Variable, Value, Old);
+        private static Entry Server(String Id, String Variable, String Value, String? Old = null)
+            => new (Id, Variable, Value, Old);
 
         /// <summary>
         /// SetVariables of the DNS controllers as the station's OCPP 2.1 node
@@ -637,26 +638,28 @@ namespace cloud.charging.open.ChargingStation.Tests
                                  new OCPP21.CSMS.SetVariablesRequest(
                                      Destination:           SourceRouting.To(node.Id),
                                      VariableData:          [.. Entries.Select(entry => new OCPP21.SetVariableData(
-                                                                                            Component:          new OCPP21.Component(entry.Slot is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent,
-                                                                                                                                     entry.Slot),
+                                                                                            Component:          new OCPP21.Component(entry.Server is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent,
+                                                                                                                                     entry.Server),
                                                                                             Variable:           new OCPP21.Variable(entry.Variable),
                                                                                             AttributeValue:     entry.Value,
                                                                                             OldAttributeValue:  entry.Old
                                                                                         ))],
                                      DataConsistencyModel:  Model
                                  ),
-                                 (name, evse) => node.GetComponentConfigs(name, evse))];
+                                 (name, evse) => node.GetComponentConfigs(name, evse),
+                                 default,
+                                 node.NewInstanceOf)];
 
         }
 
         private static OCPP21.GetVariableResult Get(ChargingStation  Station,
-                                                    String?          Slot,
+                                                    String?          Server,
                                                     String           Variable)
         {
 
             var node = Station.OCPPv2_1Node;
 
-            return OCPP21.DeviceModel.GetVariables([ new OCPP21.GetVariableData(new OCPP21.Component(Slot is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent, Slot),
+            return OCPP21.DeviceModel.GetVariables([ new OCPP21.GetVariableData(new OCPP21.Component(Server is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent, Server),
                                                                                 new OCPP21.Variable(Variable)) ],
                                                    (name, evse) => node.GetComponentConfigs(name, evse)).Single();
 

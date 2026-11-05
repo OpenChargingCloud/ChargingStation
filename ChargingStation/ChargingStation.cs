@@ -212,10 +212,13 @@ namespace cloud.charging.open.ChargingStation
         private readonly  NTSRootCertificates                  ntsRootCertificates;
         private readonly  Lock                                 ntsComponentsLock = new();
 
-        // What OCPP 2.1 and 1.6 read and change of the name servers, and the
-        // roots for them a CSMS installs, lists and deletes - see ConfigureDNS.
+        // What OCPP 2.1 and 1.6 read and change of the name servers, the roots
+        // for them a CSMS installs, lists and deletes, and the node whose
+        // components for them follow the servers - see ConfigureDNS.
         private readonly  DNSDeviceModel                       dnsDeviceModel;
         private readonly  DNSRootCertificates                  dnsRootCertificates;
+        private readonly  Lock                                 dnsComponentsLock = new();
+        private           OCPPv2_1.CS.TestChargingStationNode? dnsNode;
         private           OCPPv2_1.CS.TestChargingStationNode? ntsNode;
 
         // What each OCPP node keeps for the CSMS while it is out of reach, and
@@ -787,6 +790,7 @@ namespace cloud.charging.open.ChargingStation
             OnNTSGroupAdded   += (group, origin)          => FollowNTSGroups();
             OnNTSGroupRemoved += (group, origin)          => FollowNTSGroups();
             OnNTSGroupChanged += (group, changes, origin) => FollowNTSGroups();
+            OnDNSConfigurationChanged += (changes, origin) => FollowDNSServers();
 
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.

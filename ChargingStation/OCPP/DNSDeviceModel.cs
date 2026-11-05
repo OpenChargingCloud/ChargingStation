@@ -29,8 +29,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// <summary>
     /// What the OCPP Device Model shows of how this station resolves names: the
     /// component DNSClientController for name resolution as a whole, and the
-    /// component DNSServerController in the instances "1" to "16", one slot per
-    /// name server - read from the node each time, never kept here.
+    /// component DNSServerController once per name server, its id the instance
+    /// - read from the node each time, never kept here.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -64,15 +64,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public const String  ClientComponent  = "DNSClientController";
 
         /// <summary>
-        /// The component of one name server, in the instances "1" to "16".
+        /// The component of one name server, its id the instance.
         /// </summary>
         public const String  ServerComponent  = "DNSServerController";
 
         /// <summary>
-        /// How many slots there are when the node does not say: the 16 servers
-        /// its file takes.
+        /// How many name servers there may be when the node does not say: the
+        /// 16 its file takes.
         /// </summary>
-        public const UInt16  DefaultSlots     = 16;
+        public const UInt16  DefaultMaxServers = 16;
 
         private static readonly (String Name, Func<JObject, String> Value)[] clientVariables = [
             ("Enabled",           dns    => BooleanOf  (dns["enabled"])),
@@ -84,7 +84,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             ("FollowCNAMEs",      dns    => BooleanOf  (Child(dns["settings"], "followCNAMEs"))),
             ("MaxCNAMEFollows",   dns    => IntegerOf  (Child(dns["settings"], "maxCNAMEFollows"))),
             ("ServerSource",      dns    => SourceOf   (dns["serversFrom"])),
-            ("MaxServers",        dns    => SlotsIn    (dns).ToString(CultureInfo.InvariantCulture)),
+            ("Servers",           dns    => String.Join(",", IdsIn(dns))),
+            ("MaxServers",        dns    => MaxServersIn(dns).ToString(CultureInfo.InvariantCulture)),
             ("UDPPayloadSize",    dns    => IntegerOf  (Child(dns["fixed"],    "udpPayloadSize"))),
             ("ClientSubnet",      dns    => TextOf     (Child(dns["fixed"],    "clientSubnet")))
         ];
@@ -131,10 +132,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
             => serverVariables.Select(variable => variable.Name);
 
         /// <summary>
-        /// How many DNSServerController instances there are: "1" to this.
+        /// The ids of the name servers, in the order the node keeps them: the
+        /// instances of DNSServerController.
         /// </summary>
-        public UInt16                      Slots
-            => SlotsIn(section());
+        public IEnumerable<String>         ServerIds
+            => IdsIn(section());
 
         IEnumerable<String> protocols.OCPPv2_1.IDNSControllerSource.ClientVariables
             => ClientVariables;
@@ -171,19 +173,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region ServerValue(Slot, Variable)
+        #region ServerValue(Server, Variable)
 
         /// <summary>
-        /// The value of a variable of the DNSServerController in the given slot,
-        /// as OCPP writes it: "" for every variable of a slot no server is in,
-        /// and null where there is no such slot or no such variable.
+        /// The value of a variable of the given name server, as OCPP writes it,
+        /// or null where there is no such server or no such variable.
         /// </summary>
-        /// <param name="Slot">The instance, from 1.</param>
+        /// <param name="Server">The id of the server, in any case.</param>
         /// <param name="Variable">The name of the variable, in any case.</param>
-        public String? ServerValue(UInt16  Slot,
+        public String? ServerValue(String  Server,
                                    String  Variable)
 
-            => ServerValueIn(section(), Slot, Variable);
+            => ServerValueIn(section(), Server, Variable);
 
         #endregion
 
@@ -206,49 +207,69 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (static) ServerValueIn(Section, Slot, Variable)
+        #region (static) ServerValueIn(Section, Server, Variable)
 
         /// <summary>
-        /// The value of a variable of the DNSServerController in the given slot
-        /// of the given description of name resolution: "" for every variable
-        /// of a slot no server is in, and null where there is no such slot or
-        /// no such variable.
+        /// The value of a variable of the given name server of the given
+        /// description of name resolution, or null where there is no such server
+        /// or no such variable.
         /// </summary>
         /// <remarks>
-        /// Slot n is the n-th server of the node's list. The node keeps its list
-        /// without gaps, so a server removed elsewhere moves the ones behind it
-        /// up a slot.
+        /// A server is found by the id the node names it with, which it keeps
+        /// whichever servers are added or taken away around it, where the file
+        /// gives it one; the node gives it one by its place where it does not -
+        /// see DNSConfiguration.Ids.
         /// </remarks>
         /// <param name="Section">How a node resolves names, as WWCPNode.DNSConfigurationJSON says it.</param>
-        /// <param name="Slot">The instance, from 1.</param>
+        /// <param name="Server">The id of the server, in any case.</param>
         /// <param name="Variable">The name of the variable, in any case.</param>
         public static String? ServerValueIn(JObject  Section,
-                                            UInt16   Slot,
+                                            String   Server,
                                             String   Variable)
-        {
 
-            if (Slot < 1 || Slot > SlotsIn(Section) ||
-                !serverVariableNamed.TryGetValue(Variable, out var value))
-            {
-                return null;
-            }
+            => serverVariableNamed.TryGetValue(Variable, out var value) &&
+               ServerIn(Section, Server) is JObject server
+                   ? value(server)
+                   : null;
 
-            return Section["servers"] is JArray servers && Slot <= servers.Count && servers[Slot - 1] is JObject server
-                       ? value(server)
-                       : "";
+        #endregion
 
-        }
+        #region (static) IdsIn(Section)
+
+        /// <summary>
+        /// The ids of the name servers of the given description of name
+        /// resolution, in its order.
+        /// </summary>
+        /// <param name="Section">How a node resolves names, as WWCPNode.DNSConfigurationJSON says it.</param>
+        public static IReadOnlyList<String> IdsIn(JObject Section)
+
+            => [.. (Section["servers"] as JArray ?? []).OfType<JObject>().
+                                                       Select(server => server.Value<String>("id")).
+                                                       OfType<String>()];
 
         #endregion
 
 
-        #region (private static) SlotsIn(Section)
+        #region (private static) ServerIn(Section, Server)
 
-        private static UInt16 SlotsIn(JObject Section)
+        /// <summary>
+        /// The entry of the given name server, or null.
+        /// </summary>
+        private static JObject? ServerIn(JObject  Section,
+                                         String   Server)
 
-            => Child(Section["limits"], "maxServers") is JValue { Type: JTokenType.Integer } slots
-                   ? slots.Value<UInt16>()
-                   : DefaultSlots;
+            => (Section["servers"] as JArray ?? []).OfType<JObject>().
+                                                    FirstOrDefault(server => String.Equals(server.Value<String>("id"), Server, StringComparison.OrdinalIgnoreCase));
+
+        #endregion
+
+        #region (private static) MaxServersIn(Section)
+
+        private static UInt16 MaxServersIn(JObject Section)
+
+            => Child(Section["limits"], "maxServers") is JValue { Type: JTokenType.Integer } most
+                   ? most.Value<UInt16>()
+                   : DefaultMaxServers;
 
         #endregion
 

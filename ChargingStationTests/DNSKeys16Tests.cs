@@ -264,10 +264,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region TheServersAreChangedAddedAndTakenAwayByTheirPlaces()
 
         /// <summary>
-        /// The list of servers gives a slot another address - which keeps what
-        /// the slot is held to - adds a server at the end with the transport of
-        /// the last but none of its pins, and takes away the ones beyond its
-        /// end; it cannot take all of them away.
+        /// The list of servers gives a server another address at its place -
+        /// which keeps its id and what it is held to - adds a server at the end
+        /// with the next free id and the transport of the last but none of its
+        /// pins, and takes away the ones beyond its end; it cannot take all of
+        /// them away. What OCPP 2.1 reads of them is the same servers by their
+        /// ids.
         /// </summary>
         [Test]
         public async Task TheServersAreChangedAddedAndTakenAwayByTheirPlaces()
@@ -280,6 +282,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var transports  = Value("dns.transports");
             var pinOfFirst  = Value("dns.rootPins.1");
             var pinOfNew    = Value("dns.rootPins.3");
+            var grownIds    = DNSDeviceModel.IdsIn(station!.DNSConfigurationJSON());
 
             var shrunk      = await Change("dns.servers", "192.0.2.54");
             var none        = await Change("dns.servers", "");
@@ -289,13 +292,44 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(grown,                     Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
                 Assert.That(servers,                   Is.EqualTo("192.0.2.54,2001:db8::53,192.0.2.55"));
                 Assert.That(transports,                Is.EqualTo("TLS,TLS,TLS"),  "the new server took the last one's transport");
-                Assert.That(pinOfFirst,                Is.EqualTo(ARoot),          "the slot given another address lost its root pin");
+                Assert.That(pinOfFirst,                Is.EqualTo(ARoot),          "the server given another address kept its root pin");
                 Assert.That(pinOfNew,                  Is.EqualTo(""),             "the new server took another one's pins");
+                Assert.That(grownIds,                  Is.EqualTo(new[] { "dns-1", "dns-2", "dns-3" }));
 
                 Assert.That(shrunk,                    Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
                 Assert.That(none,                      Is.EqualTo(OCPP16.ConfigurationStatus.Rejected));
                 Assert.That(Value("dns.servers"),      Is.EqualTo("192.0.2.54"));
+                Assert.That(DNSDeviceModel.IdsIn(station.DNSConfigurationJSON()),  Is.EqualTo(new[] { "dns-1" }));
 
+            });
+
+        }
+
+        #endregion
+
+        #region ANewServerTakesAnIdNoOtherHas()
+
+        /// <summary>
+        /// A server added at the end takes the next id no other server has: where
+        /// a CSMS named the second one "dns-3", the new third one is "dns-4".
+        /// </summary>
+        [Test]
+        public async Task ANewServerTakesAnIdNoOtherHas()
+        {
+
+            Assert.That(station!.TryUpdateDNSConfiguration(JObject.Parse("""
+                                                                         { "servers": [ { "id": "dns-1", "address": "192.0.2.53",   "transport": "TCP" },
+                                                                                        { "id": "dns-3", "address": "2001:db8::53", "transport": "UDP" } ] }
+                                                                         """),
+                                                           out var error),
+                        Is.True, error);
+
+            var grown = await Change("dns.servers", "192.0.2.53,2001:db8::53,192.0.2.55");
+
+            Assert.Multiple(() => {
+                Assert.That(grown,                                                  Is.EqualTo(OCPP16.ConfigurationStatus.Accepted));
+                Assert.That(DNSDeviceModel.IdsIn(station.DNSConfigurationJSON()),  Is.EqualTo(new[] { "dns-1", "dns-3", "dns-4" }));
+                Assert.That(Value("dns.servers"),                                   Is.EqualTo("192.0.2.53,2001:db8::53,192.0.2.55"));
             });
 
         }

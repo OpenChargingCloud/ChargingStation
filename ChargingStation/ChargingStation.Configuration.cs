@@ -1497,28 +1497,39 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Show OCPP 2.1 how this station resolves names: DNSClientController,
-        /// and a DNSServerController for every slot, the unused ones included.
+        /// and a DNSServerController for every name server, by its id.
         /// </summary>
         /// <remarks>
         /// Unlike the web payments above, nothing is copied: the controllers
         /// read the node at every read, so a change from the page, the command
         /// line or a pin learned on first use is what the next GetVariables
-        /// reads, and a node rebuilt for new EVSEs reads the same. A CSMS
-        /// changes them through TryUpdateDNSConfiguration, as the page does,
-        /// and only after the names of the CSMS connections were resolved with
-        /// the change: one that would stop them resolving is refused. The roots
+        /// reads, and a node rebuilt for new EVSEs reads the same. Which servers
+        /// there are changes while the node stays, though, so the components
+        /// follow every change - see FollowDNSServers - on the node built last.
+        /// A CSMS changes them through TryUpdateDNSConfiguration, as the page
+        /// does, and only after the names of the CSMS connections were resolved
+        /// with the change: one that would stop them resolving is refused. It
+        /// adds a server by naming it in DNSClientController.Servers. The roots
         /// for name servers are the node's store's, as on the certificate page.
         /// </remarks>
         private void ConfigureDNS(OCPPv2_1.CS.TestChargingStationNode Node)
         {
+            lock (dnsComponentsLock)
+            {
 
-            Node.CertificateSources.Add(dnsRootCertificates);
+                dnsNode = Node;
 
-            Node.AddComponent(new OCPPv2_1.DNSClientController(dnsDeviceModel));
+                // A server a request names anew is made by the model, from the
+                // entries of the same request.
+                Node.AddNewInstancesSource(dnsDeviceModel);
 
-            foreach (var server in OCPPv2_1.DNSServerController.AllOf(dnsDeviceModel))
-                Node.AddComponent(server);
+                Node.CertificateSources.Add(dnsRootCertificates);
 
+                Node.AddComponent(new OCPPv2_1.DNSClientController(dnsDeviceModel));
+
+                FollowDNSServers(Node);
+
+            }
         }
 
         #endregion
@@ -1536,6 +1547,56 @@ namespace cloud.charging.open.ChargingStation
         {
             ChargePoint.CertificateSources.Add(dnsRootCertificates);
             ChargePoint.AddConfigurationKeySource(dnsDeviceModel);
+        }
+
+        #endregion
+
+        #region (private) FollowDNSServers([Node])
+
+        /// <summary>
+        /// Give the OCPP 2.1 node built last a DNSServerController for every
+        /// name server there is now, and none for one there is not.
+        /// </summary>
+        /// <remarks>
+        /// Told by the node after every change of the name resolution, servers
+        /// added, taken away or given other ids among them, once it let go of
+        /// its configuration, so that what is read here is what was saved. A
+        /// node built for new EVSEs in the meantime is the one followed from then
+        /// on, as for the time servers - see FollowNTSGroups.
+        /// </remarks>
+        private void FollowDNSServers()
+        {
+            lock (dnsComponentsLock)
+            {
+                if (dnsNode is not null)
+                    FollowDNSServers(dnsNode);
+            }
+        }
+
+        private void FollowDNSServers(OCPPv2_1.CS.TestChargingStationNode Node)
+        {
+
+            var servers = dnsDeviceModel.ServerIds.
+                                         Distinct(StringComparer.OrdinalIgnoreCase).
+                                         ToArray ();
+
+            foreach (var shown in Node.GetComponentConfigs(nameof(OCPPv2_1.DNSServerController)).OfType<OCPPv2_1.DNSServerController>().ToArray())
+                if (!servers.Contains(shown.Server, StringComparer.OrdinalIgnoreCase))
+                    Node.RemoveComponent(shown.Name, shown.Instance);
+
+            // A component already there is kept: the node adds none twice. One
+            // taken away since it was read here is not added at all, and the
+            // node tells of that change next.
+            foreach (var server in servers)
+            {
+                try
+                {
+                    Node.AddComponent(new OCPPv2_1.DNSServerController(dnsDeviceModel, server));
+                }
+                catch (ArgumentException)
+                { }
+            }
+
         }
 
         #endregion

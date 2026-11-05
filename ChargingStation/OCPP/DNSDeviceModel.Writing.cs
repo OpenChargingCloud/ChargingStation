@@ -27,6 +27,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
 using cloud.charging.open.protocols.OCPPv2_1;
+using cloud.charging.open.protocols.OCPPv2_1.CSMS;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
@@ -71,28 +72,38 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </summary>
     /// <remarks>
     /// <para>
+    /// Every name server is known by its id, the instance of its
+    /// DNSServerController, which it keeps whatever its address becomes and
+    /// whichever servers are added or taken away around it. DNSClientController
+    /// .Servers says which servers there are, in their order: an id named anew
+    /// adds a server, whose Address the same change must set, and an id left
+    /// out takes its server away. The entries of a server the request adds
+    /// reach this model through a stand-in for it - see NewInstance.
+    /// </para>
+    /// <para>
     /// The node replaces its list of name servers as a whole, so every change
-    /// that touches a server sends the whole list, in slot order. Slots are
-    /// held in a table of their own for the whole request: the node closes the
-    /// gap an emptied slot leaves, and a later entry for the slot behind it
-    /// must still mean the server it meant at the start. What each server
-    /// was held to is sent along as the request found it ("pinsAsShown"), so
-    /// that a pin learned on first use in the meantime is kept.
+    /// that touches a server sends the whole list, each server with its id.
+    /// The servers are held in a table of their own for the whole request.
+    /// What each server was held to is sent along as the request found it
+    /// ("pinsAsShown"), so that a pin learned on first use in the meantime is
+    /// kept.
     /// </para>
     /// <para>
     /// ServerSource says where the list is from. System gives it back to the
     /// servers the station was started with, the operating system's, and
-    /// takes it out of the file; it cannot be one change with a slot, and a
-    /// slot changed after it in the same request is one of those servers.
-    /// Manual writes the servers asked now into the file, as a change of a
-    /// slot does anyway.
+    /// takes it out of the file; it cannot be one change with a server or with
+    /// Servers, and a server changed after it in the same request is one of
+    /// those servers. Manual writes the servers asked now into the file, as a
+    /// change of a server does anyway.
     /// </para>
     /// <para>
     /// With IndependentRequests every entry is a change of its own, in the
-    /// order of the request, except that the entries of a slot unused at the
-    /// start are one change, made where its Address stands: a new encrypted
-    /// server never starts as a server over UDP. With ACID and BASE all
-    /// entries handed over at once are one change, all of it or nothing.
+    /// order of the request, except that the entries of a server the request
+    /// adds are one change with the Servers entry that adds it, made where
+    /// that entry stands: a new encrypted server never starts as a server over
+    /// UDP. With ACID and BASE all entries handed over at once are one change,
+    /// all of it or nothing; with BASE, DNSClientController is one with the
+    /// servers it adds.
     /// </para>
     /// <para>
     /// Before a change is put into effect, the names of the CSMS connections
@@ -103,15 +114,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </para>
     /// <para>
     /// The node is handed each change together with its list as it is while
-    /// nothing else can change it. A list that is no longer the one the slot
-    /// table holds - a server added on the page while the request was being
-    /// made - would be written away by the whole list sent back, so the
-    /// change is refused as ValueChanged instead: the CSMS reads again and
-    /// decides. Each change names the CSMS that made it, as the node writes
-    /// it down: "ocpp:" and the start of the request's network path.
+    /// nothing else can change it. A list that is no longer the one the table
+    /// holds - a server added on the page while the request was being made -
+    /// would be written away by the whole list sent back, so the change is
+    /// refused as ValueChanged instead: the CSMS reads again and decides. Each
+    /// change names the CSMS that made it, as the node writes it down: "ocpp:"
+    /// and the start of the request's network path.
     /// </para>
     /// </remarks>
-    public sealed partial class DNSDeviceModel : ISetVariablesSource
+    public sealed partial class DNSDeviceModel : ISetVariablesSource,
+                                                 INewInstancesSource
     {
 
         #region Data
@@ -127,8 +139,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         private const Int32 MaxAdditionalInfo = 1024;
 
+        /// <summary>
+        /// What DNSClientController is set as one with in BASE, together with
+        /// the servers its Servers adds.
+        /// </summary>
+        private const String ClientUnit = "client";
+
         private static readonly String[] writableClientVariables = [
-            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows", "ServerSource"
+            "Enabled", "QueryTimeout", "MaxRetries", "RecursionDesired", "UseCache", "DNSSECOK", "FollowCNAMEs", "MaxCNAMEFollows", "ServerSource", "Servers"
         ];
 
         private static readonly String[] writableServerVariables = [
@@ -158,8 +176,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private readonly Action<String>?                     log;
 
         /// <summary>
-        /// One request at a time: two would each hold a slot table that the
-        /// other one's changes make wrong.
+        /// One request at a time: two would each hold a table of the servers
+        /// that the other one's changes make wrong.
         /// </summary>
         private readonly SemaphoreSlim                       oneRequestAtATime = new (1, 1);
 
@@ -172,6 +190,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         IEnumerable<String> IDNSControllerSource.WritableServerVariables
             => update is not null ? writableServerVariables : [];
+
+        /// <summary>
+        /// The component of which a request may name an instance this station
+        /// does not have yet: a name server its DNSClientController.Servers
+        /// names anew.
+        /// </summary>
+        public IEnumerable<String> NewInstanceComponents
+            => update is not null ? [ ServerComponent ] : [];
 
         #endregion
 
@@ -206,6 +232,53 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #endregion
 
 
+        #region NewInstance(Component, Request)
+
+        /// <summary>
+        /// The controller a request makes of a name server this station does not
+        /// have yet, standing in for it while the request is set: a server the
+        /// request's DNSClientController.Servers names - and nothing else.
+        /// </summary>
+        /// <param name="Component">DNSServerController, with an instance this station does not have.</param>
+        /// <param name="Request">The whole request.</param>
+        public ComponentConfig? NewInstance(Component            Component,
+                                            SetVariablesRequest  Request)
+        {
+
+            if (update is null ||
+                Component.Instance is not String instance ||
+                !String.Equals(Component.Name, ServerComponent, StringComparison.OrdinalIgnoreCase) ||
+                !DNSConfiguration.IsServerId(instance) ||
+                ServerIds.Contains(instance, StringComparer.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return Request.VariableData.Any(entry => String.Equals(entry.Component.Name, ClientComponent, StringComparison.OrdinalIgnoreCase) &&
+                                                     String.Equals(entry.Variable. Name, "Servers",       StringComparison.OrdinalIgnoreCase) &&
+                                                     ListOf(entry.AttributeValue ?? "").Contains(instance))
+                       ? DNSServerController.NewInstance(this, instance)
+                       : null;
+
+        }
+
+        #endregion
+
+        #region BaseUnitOf(Component)
+
+        /// <summary>
+        /// What is set as one with BASE: each name server the station has by
+        /// itself, and DNSClientController with the servers its Servers adds.
+        /// </summary>
+        /// <param name="Component">A component of this source.</param>
+        public Object BaseUnitOf(ComponentConfig Component)
+
+            => Component is DNSServerController { IsNew: false } server
+                   ? "server:" + server.Server.ToLowerInvariant()
+                   : ClientUnit;
+
+        #endregion
+
         #region SetVariablesAsync(Entries, DataConsistencyModel, CancellationToken)
 
         /// <summary>
@@ -234,7 +307,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             {
 
                 var read   = section();
-                var table  = SlotServer.TableOf(read, SlotsIn(read));
+                var table  = TableServer.TableOf(read);
                 var items  = new List<Item>();
 
                 #region Every entry by itself
@@ -243,19 +316,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 {
 
                     var entry  = Entries[index];
-                    var slot   = (entry.Component as DNSServerController)?.Slot;
+                    var server = (entry.Component as DNSServerController)?.Server;
                     var name   = entry.Variable.Name;
                     var value  = entry.Data.AttributeValue ?? "";
 
-                    var writes = (slot is null ? writableClientVariables : writableServerVariables).Contains(name, StringComparer.OrdinalIgnoreCase);
+                    var writes = (server is null ? writableClientVariables : writableServerVariables).Contains(name, StringComparer.OrdinalIgnoreCase);
 
-                    var fits   = slot is UInt16 inSlot
-                                     ? DNSServerController.TryCheck(inSlot, name, value, out var refusal)
+                    var fits   = server is not null
+                                     ? DNSServerController.TryCheck(server, name, value, out var refusal)
                                      : DNSClientController.TryCheck(        name, value, out refusal);
 
-                    var now    = slot is UInt16 at
-                                     ? ServerValueIn(read, at, name)
-                                     : ClientValueIn(read,     name);
+                    // A server the request adds has nothing to read yet.
+                    var now    = server is not null
+                                     ? ServerValueIn(read, server, name) ?? ""
+                                     : ClientValueIn(read,         name);
 
                     if (!writes)
                         results[index] = Result(entry, SetVariableStatus.Rejected, "ReadOnly", $"'{Where(entry)}' is read-only!");
@@ -267,13 +341,21 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     else if (entry.Data.OldAttributeValue is String old && old != now)
                         results[index] = Result(entry, SetVariableStatus.Rejected, "ValueChanged", $"'{Where(entry)}' is \"{now}\" now, not \"{old}\"!");
 
+                    else if (server is not null && String.Equals(name, "Address", StringComparison.OrdinalIgnoreCase) && value.Trim().Length == 0)
+                        results[index] = Result(entry, SetVariableStatus.Rejected, "InvalidValue",
+                                                $"'{Where(entry)}' cannot be empty: a name server is taken away by leaving its id out of {ClientComponent}.Servers!");
+
+                    else if (server is null && String.Equals(name, "Servers", StringComparison.OrdinalIgnoreCase) &&
+                             ServersRefusal(value, MaxServersIn(read)) is (String reasonCode, String why))
+                        results[index] = Result(entry, SetVariableStatus.Rejected, reasonCode, why);
+
                     else
-                        items.Add(new Item(index, entry, slot, name, value));
+                        items.Add(new Item(index, entry, server, name, value));
 
                 }
 
                 // Which of two values is meant cannot be told.
-                foreach (var twice in items.GroupBy(item => (item.Slot, Name: item.Name.ToLowerInvariant())).Where(group => group.Count() > 1).ToArray())
+                foreach (var twice in items.GroupBy(item => (Server: item.Server?.ToLowerInvariant(), Name: item.Name.ToLowerInvariant())).Where(group => group.Count() > 1).ToArray())
                     foreach (var item in twice)
                     {
                         results[item.Index] = Result(item.Entry, SetVariableStatus.Rejected, "InvalidValue", $"'{Where(item.Entry)}' is set more than once in this request!");
@@ -315,46 +397,74 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #endregion
 
 
+        #region (private static) ServersRefusal(Value, MaxServers)
+
+        /// <summary>
+        /// Why a value of DNSClientController.Servers cannot be the servers of
+        /// this station, as the reason code and the sentence of a result - or
+        /// null where it can.
+        /// </summary>
+        private static (String ReasonCode, String Why)? ServersRefusal(String  Value,
+                                                                       UInt16  MaxServers)
+        {
+
+            var ids = ListOf(Value);
+
+            if (ids.Count == 0)
+                return ("InvalidValue", $"'{ClientComponent}.Servers' names no name server, and without one this charging station cannot reach its CSMS by name!");
+
+            if (ids.FirstOrDefault(id => !DNSConfiguration.IsServerId(id)) is String wrong)
+                return ("InvalidValue", $"'{ClientComponent}.Servers': '{wrong}' cannot be the id of a name server, which is lower-case letters, digits and hyphens, beginning with a letter, and at most {NTSServerConfiguration.MaxIdLength} of them!");
+
+            if (ids.GroupBy(id => id).FirstOrDefault(group => group.Count() > 1) is { } twice)
+                return ("InvalidValue", $"'{ClientComponent}.Servers' names '{twice.Key}' more than once!");
+
+            if (ids.Count > MaxServers)
+                return ("ValueOutOfRange", $"'{ClientComponent}.Servers' names {ids.Count} name servers, and this charging station takes at most {MaxServers}!");
+
+            return null;
+
+        }
+
+        #endregion
+
         #region (private) IndependentChanges(Items, Table, Results)
 
         /// <summary>
         /// The changes of a request of independent entries: every entry by
-        /// itself, except that the entries of a slot unused at the start are
-        /// one change, made where its Address stands. Without an Address they
-        /// are refused: a slot without a server has nothing to set them on.
+        /// itself, except that the entries of a server the request adds are one
+        /// change with the Servers entry that adds it, made where that entry
+        /// stands. Entries of a server neither there nor added are refused: there
+        /// is nothing to set them on.
         /// </summary>
         private static IEnumerable<IReadOnlyList<Item>> IndependentChanges(IReadOnlyList<Item>     Items,
-                                                                          SlotServer?[]           Table,
+                                                                          List<TableServer>       Table,
                                                                           SetVariableResult?[]    Results)
         {
 
-            var addressOf = Items.Where (item => item.Slot is UInt16 slot && Table[slot - 1] is null && item.IsAddress && item.Value.Length > 0).
-                                  GroupBy(item => item.Slot!.Value).
-                                  ToDictionary(group => group.Key, group => group.First());
+            var servers  = Items.FirstOrDefault(item => item.Server is null && item.Is("Servers"));
+            var added    = servers is not null
+                               ? ListOf(servers.Value).Where(id => !Has(Table, id)).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                               : [];
 
             foreach (var item in Items)
             {
 
-                if (item.Slot is not UInt16 slot || Table[slot - 1] is not null)
+                if (ReferenceEquals(item, servers))
+                {
+                    yield return [ item, .. Items.Where(other => other.Server is String id && added.Contains(id)) ];
+                    continue;
+                }
+
+                if (item.Server is not String server || Has(Table, server))
                 {
                     yield return [ item ];
                     continue;
                 }
 
-                if (addressOf.TryGetValue(slot, out var address))
-                {
-                    if (ReferenceEquals(item, address))
-                        yield return [.. Items.Where(other => other.Slot == slot)];
-                    continue;
-                }
-
-                // An unused slot emptied: nothing to do, and nothing wrong.
-                if (item.IsAddress)
-                    yield return [ item ];
-
-                else
+                if (!added.Contains(server))
                     Results[item.Index] = Result(item.Entry, SetVariableStatus.Rejected, "InvalidValue",
-                                                 $"'{ServerComponent}[{slot}]' is unused: set its Address in the same request!");
+                                                 $"'{ServerComponent}[{server}]' is not a name server of this charging station: add it through {ClientComponent}.Servers in the same request!");
 
             }
 
@@ -366,59 +476,81 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         /// <summary>
         /// Put one change into the node, after the pre-flight, and say for each
-        /// of its entries what came of it. The slot table is what the node holds
+        /// of its entries what came of it. The table is what the node holds
         /// afterwards, where the change went in.
         /// </summary>
         private async Task ApplyAsync(IReadOnlyList<Item>   Change,
-                                      SlotServer?[]         Table,
+                                      List<TableServer>     Table,
                                       SetVariableResult?[]  Results,
                                       Boolean               Atomic,
                                       CancellationToken     CancellationToken)
         {
 
-            var candidate   = Table.Select(server => server?.Clone()).ToArray();
+            var candidate   = Table.Select(server => server.Clone()).ToList();
             var section     = new JObject();
-            var transported = new Dictionary<UInt16, String>();
+            var transported = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+            var servers     = Change.FirstOrDefault(item => item.Server is null && item.Is("Servers"));
 
             #region The change, in the shape of the "dns" section
 
-            // Addresses first, so that a server is there before anything is
-            // said about it.
+            // Which servers there are first, and in which order: a server added
+            // is there before anything is said about it, with the address its
+            // entry gives it below, and one left out is gone with its pins.
+            if (servers is not null)
+            {
+
+                var ids = ListOf(servers.Value);
+
+                foreach (var id in ids.Where(id => !Has(candidate, id)))
+                    if (!Change.Any(item => Is(item.Server, id) && item.IsAddress))
+                    {
+                        Refuse(Change, [ servers, .. Change.Where(item => Is(item.Server, id)) ], Results, Atomic, "InvalidValue",
+                               $"'{ServerComponent}[{id}]' is new: set its Address in the same request!");
+                        return;
+                    }
+
+                var gone = Change.Where(item => item.Server is String id && Has(candidate, id) && !ids.Contains(id, StringComparer.OrdinalIgnoreCase)).ToArray();
+
+                if (gone.Length > 0)
+                {
+                    Refuse(Change, [ servers, .. gone ], Results, Atomic, "InvalidValue",
+                           $"'{ServerComponent}[{gone[0].Server}]' is taken away by {ClientComponent}.Servers in the same change, and cannot be set as well!");
+                    return;
+                }
+
+                candidate = [.. ids.Select(id => candidate.FirstOrDefault(server => Is(server.Id, id)) ?? new TableServer(id, ""))];
+
+            }
+
+            // Addresses first, so that a server is where it is meant to be
+            // before anything is said about how it is asked.
             foreach (var item in Change.OrderBy(item => item.IsAddress ? 0 : 1))
             {
 
-                if (item.Slot is not UInt16 slot)
+                if (item.Server is not String id)
                 {
 
-                    // Said with the list of servers - see below.
-                    if (!item.Is("ServerSource"))
+                    // Said with the list of servers - see below and above.
+                    if (!item.Is("ServerSource") && !item.Is("Servers"))
                         section[clientKeys[item.Name]] = ClientJSON(item.Name, item.Value);
 
                     continue;
 
                 }
 
-                var at = slot - 1;
-
-                if (item.IsAddress)
+                if (candidate.FirstOrDefault(server => Is(server.Id, id)) is not TableServer server)
                 {
-
-                    if      (item.Value.Length == 0)       candidate[at] = null;
-                    else if (candidate[at] is null)        candidate[at] = new SlotServer(item.Value);
-                    else                                   candidate[at]!.Address = item.Value;
-
-                    continue;
-
-                }
-
-                if (candidate[at] is not SlotServer server)
-                {
-                    Refuse(Change, [ item ], Results, Atomic, "InvalidValue", $"'{ServerComponent}[{slot}]' is unused: set its Address in the same request!");
+                    Refuse(Change, [ item ], Results, Atomic, "InvalidValue",
+                           $"'{ServerComponent}[{id}]' is not a name server of this charging station: add it through {ClientComponent}.Servers in the same request!");
                     return;
                 }
 
                 switch (item.Name.ToLowerInvariant())
                 {
+
+                    case "address":
+                        server.Address         = item.Value.Trim();
+                        break;
 
                     case "port":
                         server.Port            = item.Value.Length > 0 ? UInt16.Parse(item.Value, CultureInfo.InvariantCulture) : null;
@@ -426,7 +558,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                     // The values of the paper in its own case: UDP, TLS, HTTPS_GET.
                     case "transport":
-                        transported.TryAdd(slot, server.Transport);
+                        transported.TryAdd(server.Id, server.Transport);
                         server.Transport       = item.Value.ToUpperInvariant();
                         break;
 
@@ -459,7 +591,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         if (group.Length > 0 && !ServerPins.IsRootGroup(group))
                         {
                             Refuse(Change, [ item ], Results, Atomic, "InvalidValue",
-                                   $"'{ServerComponent}[{slot}].RootCAs': '{group}' cannot name a group of roots here: up to {ServerPins.MaxRootGroupLength} letters, digits, '-' or '_'.");
+                                   $"'{ServerComponent}[{id}].RootCAs': '{group}' cannot name a group of roots here: up to {ServerPins.MaxRootGroupLength} letters, digits, '-' or '_'.");
                             return;
                         }
 
@@ -473,9 +605,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
             // The port rule: a server switched to another transport without
             // being given a port keeps its port only where it was not the one
             // of its old transport - "UDP on 53" must not become TLS on 53.
-            foreach (var (slot, before) in transported)
-                if (candidate[slot - 1] is SlotServer server &&
-                    !Change.Any(item => item.Slot == slot && item.Is("Port")) &&
+            foreach (var (id, before) in transported)
+                if (candidate.FirstOrDefault(server => Is(server.Id, id)) is TableServer server &&
+                    !Change.Any(item => Is(item.Server, id) && item.Is("Port")) &&
                     server.Port == DefaultPortOf(before))
                 {
                     server.Port = null;
@@ -484,35 +616,25 @@ namespace cloud.charging.open.ChargingStation.OCPP
             // Where the servers are from: System gives them back to the ones
             // the station was started with - the operating system's - which the
             // node reads in "servers": null; Manual writes the ones it asks now
-            // into the file, where a change of a slot writes them anyway.
-            var source    = Change.FirstOrDefault(item => item.Slot is null && item.Is("ServerSource"));
+            // into the file, where a change of a server writes them anyway.
+            var source    = Change.FirstOrDefault(item => item.Server is null && item.Is("ServerSource"));
             var toSystem  = String.Equals(source?.Value, "System", StringComparison.OrdinalIgnoreCase);
             var toManual  = String.Equals(source?.Value, "Manual", StringComparison.OrdinalIgnoreCase);
             var fromFile  = String.Equals(this.section()["serversFrom"]?.Value<String>(), "file", StringComparison.OrdinalIgnoreCase);
+            var listed    = servers is not null || Change.Any(item => item.Server is not null);
 
-            if (toSystem && Change.Any(item => item.Slot is not null))
+            if (toSystem && listed)
             {
                 Refuse(Change, [ source! ], Results, Atomic, "InvalidValue",
-                       $"'{ClientComponent}.ServerSource' System gives the name servers back to those this charging station was started with, which cannot be one change with an entry of {ServerComponent}!");
+                       $"'{ClientComponent}.ServerSource' System gives the name servers back to those this charging station was started with, which cannot be one change with an entry of {ServerComponent} or with {ClientComponent}.Servers!");
                 return;
             }
 
             if (toSystem)
                 section["servers"] = JValue.CreateNull();
 
-            else if (Change.Any(item => item.Slot is not null) || toManual)
-            {
-
-                if (candidate.All(server => server is null))
-                {
-                    Refuse(Change, [.. Change.Where(item => item.IsAddress)], Results, Atomic, "InvalidValue",
-                           "Every slot would be unused, and without a name server this charging station cannot reach its CSMS by name!");
-                    return;
-                }
-
-                section["servers"] = new JArray(candidate.OfType<SlotServer>().Select(server => server.ToJSON()));
-
-            }
+            else if (listed || toManual)
+                section["servers"] = new JArray(candidate.Select(server => server.ToJSON()));
 
             #endregion
 
@@ -553,12 +675,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (lost.Length > 0)
                 {
 
-                    var servers = then.Result.Judgements.Count > 0
-                                      ? String.Join(", ", then.Result.Judgements.Select(judgement => $"{judgement.Server} {judgement.Outcome}"))
-                                      : "no name server answered";
+                    var asked = then.Result.Judgements.Count > 0
+                                    ? String.Join(", ", then.Result.Judgements.Select(judgement => $"{judgement.Server} {judgement.Outcome}"))
+                                    : "no name server answered";
 
                     Refuse(Change, Change, Results, false, "CSMSUnreachable",
-                           $"'{String.Join("', '", lost)}' would not resolve: {servers}!");
+                           $"'{String.Join("', '", lost)}' would not resolve: {asked}!");
 
                     return;
 
@@ -574,8 +696,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
             log?.Invoke($"A CSMS changes the name resolution of this charging station (by {origin}): {section.ToString(Formatting.None)}");
 
             // Made from the list as the node holds it when nothing else can
-            // change it: a list changed elsewhere since the slot table was
-            // read would lose that change to the whole list sent back.
+            // change it: a list changed elsewhere since the table was read
+            // would lose that change to the whole list sent back.
             if (!update!(current => {
 
                              if (section["servers"] is not null && !SameServers(current, Table))
@@ -613,14 +735,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
             // In effect: from now on the servers are held to what was sent - or,
             // given back, are the ones the node was started with.
             var held = toSystem
-                           ? SlotServer.TableOf(this.section(), (UInt16) Table.Length)
+                           ? TableServer.TableOf(this.section())
                            : candidate;
 
-            for (var at = 0; at < Table.Length; at++)
-            {
-                Table[at] = held[at];
-                Table[at]?.ShownAsSent();
-            }
+            Table.Clear();
+            Table.AddRange(held);
+
+            foreach (var server in Table)
+                server.ShownAsSent();
 
             foreach (var item in Change)
                 Results[item.Index] = Result(item.Entry, SetVariableStatus.Accepted);
@@ -629,38 +751,38 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private static) SomethingChanges(Section, Table)
+        #region (private static) SomethingChanges(Section, Table, SourceChanges)
 
         /// <summary>
         /// Whether the given change says anything the node does not have yet:
         /// a setting of the client, another list of servers, or another place
         /// they are from.
         /// </summary>
-        private static Boolean SomethingChanges(JObject        Section,
-                                                SlotServer?[]  Table,
-                                                Boolean        SourceChanges)
+        private static Boolean SomethingChanges(JObject            Section,
+                                                List<TableServer>  Table,
+                                                Boolean            SourceChanges)
 
             => SourceChanges ||
                Section.Properties().Any(property => property.Name != "servers") ||
                (Section["servers"] is JArray servers &&
-                !JToken.DeepEquals(servers, new JArray(Table.OfType<SlotServer>().Select(server => server.ToJSON()))));
+                !JToken.DeepEquals(servers, new JArray(Table.Select(server => server.ToJSON()))));
 
         #endregion
 
         #region (private static) SameServers(Section, Table)
 
         /// <summary>
-        /// Whether the node holds the servers the slot table holds, in that
-        /// order and with those timeouts - as the node tells servers apart, so
-        /// that "2001:DB8::53" and its short form, or a port left out and the
+        /// Whether the node holds the servers the table holds, in that order,
+        /// with those ids and those timeouts - as the node tells servers apart,
+        /// so that "2001:DB8::53" and its short form, or a port left out and the
         /// port of its transport, are the same server.
         /// </summary>
-        private static Boolean SameServers(JObject        Section,
-                                           SlotServer?[]  Table)
+        private static Boolean SameServers(JObject            Section,
+                                           List<TableServer>  Table)
         {
 
             var held   = ServersIn(Section["servers"] as JArray ?? []);
-            var meant  = ServersIn(new JArray(Table.OfType<SlotServer>().Select(server => server.ToJSON())));
+            var meant  = ServersIn(new JArray(Table.Select(server => server.ToJSON())));
 
             return held is not null && meant is not null && held.SequenceEqual(meant);
 
@@ -669,10 +791,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <summary>
         /// The servers of a list, or null where one of them cannot be read.
         /// </summary>
-        private static (DNSServerConfig Server, TimeSpan? QueryTimeout)[]? ServersIn(JArray Servers)
+        private static (String? Id, DNSServerConfig Server, TimeSpan? QueryTimeout)[]? ServersIn(JArray Servers)
         {
 
-            var servers = new List<(DNSServerConfig Server, TimeSpan? QueryTimeout)>();
+            var servers = new List<(String? Id, DNSServerConfig Server, TimeSpan? QueryTimeout)>();
 
             foreach (var json in Servers)
             {
@@ -680,7 +802,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (!DNSConfiguration.TryParseServer(json, out var server, out _))
                     return null;
 
-                servers.Add((server, server.QueryTimeout));
+                servers.Add(((json as JObject)?.Value<String>("id"), server, server.QueryTimeout));
 
             }
 
@@ -742,19 +864,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         private static IReadOnlyList<Item> CausedBy(IReadOnlyList<Item>  Change,
                                                     String               Error,
-                                                    SlotServer?[]        Candidate)
+                                                    List<TableServer>    Candidate)
         {
 
             var match = serverInError.Match(Error);
 
-            if (!match.Success || !Int32.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var index))
+            if (!match.Success || !Int32.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var index) ||
+                index >= Candidate.Count)
+            {
                 return [];
+            }
 
-            var slot = SlotOf(index, Candidate);
-
-            return slot is UInt16 named
-                       ? [.. Change.Where(item => item.Slot == named)]
-                       : [];
+            return [.. Change.Where(item => Is(item.Server, Candidate[index].Id))];
 
         }
 
@@ -764,38 +885,38 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         /// <summary>
         /// A refusal of the node in the words of the Device Model: the server it
-        /// names by its place in the list that was sent becomes the slot it is in.
+        /// names by its place in the list that was sent becomes the server of
+        /// that id.
         /// </summary>
-        private static String Rewritten(String         Error,
-                                        SlotServer?[]  Candidate)
+        private static String Rewritten(String             Error,
+                                        List<TableServer>  Candidate)
 
             => serverInError.Replace(Error, match =>
                    Int32.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var index) &&
-                   SlotOf(index, Candidate) is UInt16 slot
-                       ? $"{ServerComponent}[{slot}]"
+                   index < Candidate.Count
+                       ? $"{ServerComponent}[{Candidate[index].Id}]"
                        : ServerComponent);
 
         #endregion
 
-        #region (private static) SlotOf(Index, Candidate)
+        #region (private static) Has(Servers, Id), Is(Id, Other)
 
         /// <summary>
-        /// The slot of the server at the given place of the list that was sent,
-        /// in which the unused slots are left out.
+        /// Whether a server of the given id is among the given ones.
         /// </summary>
-        private static UInt16? SlotOf(Int32          Index,
-                                      SlotServer?[]  Candidate)
-        {
+        private static Boolean Has(IEnumerable<TableServer>  Servers,
+                                   String                    Id)
 
-            var used = 0;
+            => Servers.Any(server => Is(server.Id, Id));
 
-            for (var at = 0; at < Candidate.Length; at++)
-                if (Candidate[at] is not null && used++ == Index)
-                    return (UInt16) (at + 1);
+        /// <summary>
+        /// Whether two ids name the same server, as an OCPP instance is named:
+        /// in any case.
+        /// </summary>
+        private static Boolean Is(String?  Id,
+                                  String   Other)
 
-            return null;
-
-        }
+            => String.Equals(Id, Other, StringComparison.OrdinalIgnoreCase);
 
         #endregion
 
@@ -855,7 +976,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private static String Where(SetVariableEntry Entry)
 
             => Entry.Component is DNSServerController server
-                   ? $"{ServerComponent}[{server.Slot}].{Entry.Variable.Name}"
+                   ? $"{ServerComponent}[{server.Server}].{Entry.Variable.Name}"
                    : $"{ClientComponent}.{Entry.Variable.Name}";
 
         private static SetVariableResult Result(SetVariableEntry   Entry,
@@ -879,17 +1000,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #region (private) Item
 
         /// <summary>
-        /// An entry that may be tried: which slot, or the client, and what.
+        /// An entry that may be tried: which server, or the client, and what.
         /// </summary>
         private sealed record Item(Int32             Index,
                                    SetVariableEntry  Entry,
-                                   UInt16?           Slot,
+                                   String?           Server,
                                    String            Name,
                                    String            Value)
         {
 
             public Boolean IsAddress
-                => Slot is not null && Is("Address");
+                => Server is not null && Is("Address");
 
             public Boolean Is(String Variable)
                 => String.Equals(Name, Variable, StringComparison.OrdinalIgnoreCase);
@@ -898,15 +1019,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private) SlotServer
+        #region (private) TableServer
 
         /// <summary>
-        /// The server in one slot, as the node's file says it - and what it was
-        /// held to when the request found it, or since this request set it.
+        /// One server of the table a request holds, as the node's file says it -
+        /// and what it was held to when the request found it, or since this
+        /// request set it.
         /// </summary>
-        private sealed class SlotServer(String Address)
+        private sealed class TableServer(String  Id,
+                                         String  Address)
         {
 
+            public String        Id               { get; } = Id;
             public String        Address          { get; set; } = Address;
             public UInt16?       Port             { get; set; }
             public String        Transport        { get; set; } = "UDP";
@@ -918,8 +1042,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             /// <summary>
             /// The group of roots the server is held to, which no variable
-            /// says: it stays with the slot, as the fingerprints do, also where
-            /// the request makes the slot's server another one.
+            /// says: it stays with the server, as the fingerprints do, also where
+            /// the request gives it another address.
             /// </summary>
             public String?       RootGroup        { get; set; }
 
@@ -930,20 +1054,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
             public JObject?      AsShown          { get; private set; }
 
 
-            public static SlotServer?[] TableOf(JObject  Section,
-                                                UInt16   Slots)
+            /// <summary>
+            /// The servers of a description of name resolution, in its order,
+            /// each by the id the node names it with.
+            /// </summary>
+            public static List<TableServer> TableOf(JObject Section)
             {
 
-                var table   = new SlotServer?[Slots];
-                var servers = Section["servers"] as JArray ?? [];
+                var table = new List<TableServer>();
 
-                for (var at = 0; at < Slots && at < servers.Count; at++)
+                foreach (var json in (Section["servers"] as JArray ?? []).OfType<JObject>())
                 {
 
-                    if (servers[at] is not JObject json)
-                        continue;
-
-                    var server = new SlotServer(json.Value<String>("address") ?? "") {
+                    var server = new TableServer(json.Value<String>("id") ?? "", json.Value<String>("address") ?? "") {
                                      Port             = json["port"]?.Type == JTokenType.Integer ? json.Value<UInt16>("port") : null,
                                      Transport        = json.Value<String>("transport") ?? "UDP",
                                      QueryTimeout     = json["queryTimeoutSeconds"]?.Type is JTokenType.Integer or JTokenType.Float ? json.Value<Decimal>("queryTimeoutSeconds") : null,
@@ -956,7 +1079,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                     server.ShownAsSent();
 
-                    table[at] = server;
+                    table.Add(server);
 
                 }
 
@@ -964,9 +1087,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
-            public SlotServer Clone()
+            public TableServer Clone()
 
-                => new (Address) {
+                => new (Id, Address) {
                        Port             = Port,
                        Transport        = Transport,
                        QueryTimeout     = QueryTimeout,
@@ -1015,10 +1138,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
+            /// <summary>
+            /// The server as the node's file keeps it, with its id: written into
+            /// the file, it stays the server's whatever is added or taken away
+            /// around it.
+            /// </summary>
             public JObject ToJSON()
             {
 
                 var json = new JObject(
+                               new JProperty("id",         Id),
                                new JProperty("address",    Address),
                                new JProperty("transport",  Transport)
                            );

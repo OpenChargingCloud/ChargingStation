@@ -301,7 +301,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AMonitorIsToldWhatChangedWithoutTheCSMS()
 
         /// <summary>
-        /// Delta monitors the CSMS set on DNSClientController and on a slot are
+        /// Delta monitors the CSMS set on DNSClientController and on a server are
         /// told a change made on the page and a server refused at a handshake:
         /// NotifyEvents in the queue, beside the security events, with the
         /// values as they read now.
@@ -317,7 +317,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                                 new OCPP21.Component(DNSDeviceModel.ClientComponent),
                                                                                 new OCPP21.Variable("MaxRetries")),
                                                    new OCPP21.SetMonitoringData(0, OCPP21.MonitorType.Delta, OCPP21.Severities.Alert,
-                                                                                new OCPP21.Component(DNSDeviceModel.ServerComponent, "1"),
+                                                                                new OCPP21.Component(DNSDeviceModel.ServerComponent, "dns-1"),
                                                                                 new OCPP21.Variable("Problem")) ],
                                                  (name, evse) => node.GetComponentConfigs(name, evse));
 

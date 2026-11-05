@@ -23,6 +23,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 using OCPP16 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPP21 = cloud.charging.open.protocols.OCPPv2_1;
@@ -42,27 +43,31 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// <remarks>
     /// <para>
     /// A key is turned into the entries of a SetVariables request of
-    /// DNSClientController and the DNSServerController slots and handed to
-    /// this model, with ACID where it is several: the same checks, the same
-    /// pre-flight for the names of the CSMS, the same log line naming the
-    /// central system. Where they are all accepted the key is, and rejected
-    /// otherwise - OCPP 1.6 has no reason to give.
+    /// DNSClientController and the DNSServerController of each server and
+    /// handed to this model, with ACID where it is several: the same checks,
+    /// the same pre-flight for the names of the CSMS, the same log line naming
+    /// the central system. Where they are all accepted the key is, and
+    /// rejected otherwise - OCPP 1.6 has no reason to give.
     /// </para>
     /// <para>
-    /// A list (CSL) is per server, in the order of "dns.servers". A shorter
-    /// list's last value holds for the servers after it, an empty entry takes
-    /// the one before it - the default for the first - and a longer list is
-    /// rejected. "dns.ports" and "dns.queryTimeouts" are the exceptions: an
-    /// empty or missing entry there means the port of that server's transport
-    /// and the timeout of "dns.queryTimeout", because one repeated from the
-    /// server before would be the wrong one as soon as the servers differ.
+    /// A list (CSL) is per server, in the order of "dns.servers", and the n-th
+    /// entry is the server of the n-th id of DNSClientController.Servers. A
+    /// shorter list's last value holds for the servers after it, an empty
+    /// entry takes the one before it - the default for the first - and a
+    /// longer list is rejected. "dns.ports" and "dns.queryTimeouts" are the
+    /// exceptions: an empty or missing entry there means the port of that
+    /// server's transport and the timeout of "dns.queryTimeout", because one
+    /// repeated from the server before would be the wrong one as soon as the
+    /// servers differ.
     /// </para>
     /// <para>
-    /// "dns.servers" changes the addresses at their places, adds new servers
-    /// at the end, which take the transport, pin rules and group of roots of
-    /// the last one as the lists say, but none of its pins, and takes away the
-    /// ones beyond its end. "dns.encryptedOnly" is not listed and a change of
-    /// it is NotSupported, as the node does not have it yet.
+    /// "dns.servers" changes the addresses at their places, which keep their
+    /// ids, adds new servers at the end, each with the next free id, which take
+    /// the transport, pin rules and group of roots of the last one as the lists
+    /// say, but none of its pins, and takes away the ones beyond its end - all
+    /// through DNSClientController.Servers as OCPP 2.1 would. "dns.encryptedOnly"
+    /// is not listed and a change of it is NotSupported, as the node does not
+    /// have it yet.
     /// </para>
     /// </remarks>
     public sealed partial class DNSDeviceModel : OCPP16.CP.IConfigurationKeySource
@@ -130,7 +135,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             {
 
                 var keys  = keys16.Select(key => key.Key).ToList();
-                var count = ServersIn(section());
+                var count = IdsIn(section()).Count;
 
                 foreach (var (key, _) in pinKeys16)
                     for (var n = 1; n <= count; n++)
@@ -156,14 +161,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return null;
 
             var now    = section();
-            var count  = ServersIn(now);
+            var ids    = IdsIn(now);
             String? value;
 
             if (number is UInt16 n)
-                value = n <= count ? ServerValueIn(now, n, variable) : null;
+                value = n >= 1 && n <= ids.Count ? ServerValueIn(now, ids[n - 1], variable) : null;
 
             else if (perServer)
-                value = String.Join(",", Enumerable.Range(1, count).Select(slot => ServerValueIn(now, (UInt16) slot, variable) ?? ""));
+                value = String.Join(",", ids.Select(id => ServerValueIn(now, id, variable) ?? ""));
 
             else
                 value = ClientValueIn(now, variable);
@@ -196,15 +201,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
             }
 
             var now      = section();
-            var count    = ServersIn(now);
+            var ids      = IdsIn(now);
             var entries  = new List<OCPP21.SetVariableData>();
 
             if (number is UInt16 n)
-                entries.Add(ServerEntry(n, variable, Value.Trim()));
+                entries.Add(ServerEntry(ids[n - 1], variable, Value.Trim()));
 
             else if (variable == "Address")
             {
-                if (!TryServers(now, count, Value, entries))
+                if (!TryServers(now, ids, Value, entries))
                     return OCPP16.ConfigurationStatus.Rejected;
             }
 
@@ -213,11 +218,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 var ownDefault = ownDefaults16.Contains(name, StringComparer.OrdinalIgnoreCase);
 
-                if (!TryList(Value, count, ownDefault ? null : DefaultOf(name), out var values))
+                if (!TryList(Value, ids.Count, ownDefault ? null : DefaultOf(name), out var values))
                     return OCPP16.ConfigurationStatus.Rejected;
 
-                for (var slot = 1; slot <= count; slot++)
-                    entries.Add(ServerEntry((UInt16) slot, variable, values[slot - 1]));
+                for (var at = 0; at < ids.Count; at++)
+                    entries.Add(ServerEntry(ids[at], variable, values[at]));
 
             }
 
@@ -239,7 +244,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                                                    : NetworkPath.Empty
                                     ),
                                     (componentName, evse) => components.Where(component => String.Equals(component.Name, componentName, StringComparison.OrdinalIgnoreCase)),
-                                    CancellationToken
+                                    CancellationToken,
+                                    NewInstance
                                 );
 
             return results.All(result => result.AttributeStatus == OCPP21.SetVariableStatus.Accepted)
@@ -251,49 +257,54 @@ namespace cloud.charging.open.ChargingStation.OCPP
         #endregion
 
 
-        #region (private) TryServers(Section, Count, Value, Entries)
+        #region (private) TryServers(Section, Ids, Value, Entries)
 
         /// <summary>
         /// The entries "dns.servers" stands for: a new address for a server at
-        /// its place, a new server at the end with what the lists give it, and
-        /// the slots beyond the end emptied.
+        /// its place, a new server at the end with the next free id and what the
+        /// lists give it, and the servers beyond the end taken away - the last
+        /// two by DNSClientController.Servers.
         /// </summary>
-        private static Boolean TryServers(JObject  Section,
-                                          Int32                         Count,
+        private static Boolean TryServers(JObject                       Section,
+                                          IReadOnlyList<String>         Ids,
                                           String                        Value,
                                           List<OCPP21.SetVariableData>  Entries)
         {
 
             var addresses = Value.Trim().Length == 0 ? [] : Value.Split(',').Select(entry => entry.Trim()).ToArray();
 
-            if (addresses.Any(address => address.Length == 0) || addresses.Length > SlotsIn(Section))
+            if (addresses.Any(address => address.Length == 0) || addresses.Length > MaxServersIn(Section))
                 return false;
 
-            for (var slot = 1; slot <= Math.Max(Count, addresses.Length); slot++)
+            // The ids the servers will have: those of the ones kept, and for each
+            // new one the id the node would give it at its place.
+            var ids = DNSConfiguration.IdsOf([.. Ids.Take(addresses.Length), .. Enumerable.Repeat<String?>(null, Math.Max(0, addresses.Length - Ids.Count))]);
+
+            if (!ids.SequenceEqual(Ids))
+                Entries.Add(ClientEntry("Servers", String.Join(",", ids)));
+
+            for (var at = 0; at < addresses.Length; at++)
             {
 
-                if (slot > addresses.Length)
-                    Entries.Add(ServerEntry((UInt16) slot, "Address", ""));
-
-                else if (slot <= Count)
+                if (at < Ids.Count)
                 {
-                    if (!String.Equals(ServerValueIn(Section, (UInt16) slot, "Address"), addresses[slot - 1], StringComparison.OrdinalIgnoreCase))
-                        Entries.Add(ServerEntry((UInt16) slot, "Address", addresses[slot - 1]));
+                    if (!String.Equals(ServerValueIn(Section, ids[at], "Address"), addresses[at], StringComparison.OrdinalIgnoreCase))
+                        Entries.Add(ServerEntry(ids[at], "Address", addresses[at]));
                 }
 
                 else
                 {
 
-                    Entries.Add(ServerEntry((UInt16) slot, "Address", addresses[slot - 1]));
+                    Entries.Add(ServerEntry(ids[at], "Address", addresses[at]));
 
                     // "The last value repeats": what every list says of a
                     // server after its end - but no pins, whose keys are the
                     // server's own, and no port or timeout, whose missing
                     // entry is the server's default.
-                    if (Count > 0)
+                    if (Ids.Count > 0)
                         foreach (var variable in repeatedForNewServers16)
-                            if (ServerValueIn(Section, (UInt16) Count, variable) is String last && last.Length > 0)
-                                Entries.Add(ServerEntry((UInt16) slot, variable, last));
+                            if (ServerValueIn(Section, Ids[^1], variable) is String last && last.Length > 0)
+                                Entries.Add(ServerEntry(ids[at], variable, last));
 
                 }
 
@@ -396,16 +407,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (private static) ServersIn / DefaultOf / ClientEntry / ServerEntry
-
-        /// <summary>
-        /// How many servers there are: the slots in use.
-        /// </summary>
-        private static Int32 ServersIn(JObject Section)
-
-            => Section["servers"] is JArray servers
-                   ? Math.Min(servers.Count, SlotsIn(Section))
-                   : 0;
+        #region (private static) DefaultOf / ClientEntry / ServerEntry
 
         private static String DefaultOf(String Key)
 
@@ -416,11 +418,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             => new (new OCPP21.Component(ClientComponent), new OCPP21.Variable(Variable), Value);
 
-        private static OCPP21.SetVariableData ServerEntry(UInt16  Slot,
+        private static OCPP21.SetVariableData ServerEntry(String  Server,
                                                           String  Variable,
                                                           String  Value)
 
-            => new (new OCPP21.Component(ServerComponent, Slot.ToString(CultureInfo.InvariantCulture)), new OCPP21.Variable(Variable), Value);
+            => new (new OCPP21.Component(ServerComponent, Server), new OCPP21.Variable(Variable), Value);
 
         #endregion
 

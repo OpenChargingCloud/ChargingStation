@@ -122,7 +122,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// With ACID, a server moved to UDP and held to a root in the same
         /// request, and the client changed beside it: the node refuses the
-        /// server, and both of its entries are Rejected, naming its slot - it
+        /// server, and both of its entries are Rejected, naming it - it
         /// is the two together that cannot be, as neither alone would be
         /// refused. The client's entry is Rolledback, and all is as it was (T1).
         /// </summary>
@@ -131,8 +131,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var results = await Set(OCPP21.DataConsistencyModel.ACID,
-                                    ("1",  "Transport",  "UDP"),
-                                    ("1",  "RootPins",   ARoot),
+                                    ("dns-1",  "Transport",  "UDP"),
+                                    ("dns-1",  "RootPins",   ARoot),
                                     (null, "MaxRetries", "4"));
 
             Assert.Multiple(() => {
@@ -141,10 +141,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                                                           OCPP21.SetVariableStatus.Rejected,
                                                                                                           OCPP21.SetVariableStatus.Rolledback }));
                 Assert.That(results.Take(2).Select(result => result.AttributeStatusInfo?.AdditionalInfo),
-                                                                                       Is.All.Contains("'DNSServerController[1]'"));
+                                                                                       Is.All.Contains("'DNSServerController[dns-1]'"));
 
-                Assert.That(Value("1",  "Transport"),                                  Is.EqualTo("TLS"));
-                Assert.That(Value("1",  "RootPins"),                                   Is.EqualTo(""));
+                Assert.That(Value("dns-1",  "Transport"),                                  Is.EqualTo("TLS"));
+                Assert.That(Value("dns-1",  "RootPins"),                                   Is.EqualTo(""));
                 Assert.That(Value(null, "MaxRetries"),                                 Is.EqualTo("2"));
 
             });
@@ -170,8 +170,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                           Boolean  PinsRefused)
         {
 
-            (String?, String, String) pins      = ("2", "RootPins",  ARoot);
-            (String?, String, String) transport = ("2", "Transport", "TLS");
+            (String?, String, String) pins      = ("dns-2", "RootPins",  ARoot);
+            (String?, String, String) transport = ("dns-2", "Transport", "TLS");
 
             var results = await Set(Atomic ? OCPP21.DataConsistencyModel.ACID : OCPP21.DataConsistencyModel.IndependentRequests,
                                     PinsFirst ? [ pins, transport ] : [ transport, pins ]);
@@ -184,8 +184,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(forPins.AttributeStatus,       Is.EqualTo(PinsRefused ? OCPP21.SetVariableStatus.Rejected : OCPP21.SetVariableStatus.Accepted));
                 Assert.That(forTransport.AttributeStatus,  Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
 
-                Assert.That(Value("2", "Transport"),       Is.EqualTo("TLS"));
-                Assert.That(Value("2", "RootPins"),        Is.EqualTo(PinsRefused ? "" : ARoot));
+                Assert.That(Value("dns-2", "Transport"),       Is.EqualTo("TLS"));
+                Assert.That(Value("dns-2", "RootPins"),        Is.EqualTo(PinsRefused ? "" : ARoot));
 
             });
 
@@ -196,10 +196,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ANewServerIsNeverAskedInClearText()
 
         /// <summary>
-        /// A root, TLS and an address for a slot no server is in, entry by entry
-        /// and in this order: all accepted, and the node is changed once, to a
-        /// server over TLS held to the root - never to one asked in clear text
-        /// (T2a).
+        /// A new server named in Servers, and its root, TLS and address, entry
+        /// by entry and in this order: all accepted, and the node is changed
+        /// once, to a server over TLS held to the root - never to one asked in
+        /// clear text (T2a).
         /// </summary>
         [Test]
         public async Task ANewServerIsNeverAskedInClearText()
@@ -213,9 +213,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             };
 
             var results = await Set(OCPP21.DataConsistencyModel.IndependentRequests,
-                                    ("3", "RootPins",  ARoot),
-                                    ("3", "Transport", "TLS"),
-                                    ("3", "Address",   "203.0.113.53"));
+                                    (null,     "Servers",   "dns-1,dns-2,office"),
+                                    ("office", "RootPins",  ARoot),
+                                    ("office", "Transport", "TLS"),
+                                    ("office", "Address",   "203.0.113.53"));
 
             Assert.Multiple(() => {
 
@@ -225,7 +226,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             Has.Exactly(1).Contains("tls://203.0.113.53:853"));
                 Assert.That(told,                                    Has.None.Contains("udp://203.0.113.53"));
 
-                Assert.That(Value("3", "RootPins"),                  Is.EqualTo(ARoot));
+                Assert.That(Value("office", "RootPins"),             Is.EqualTo(ARoot));
 
             });
 
@@ -258,8 +259,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                   Select(message => message.Payload.Value<String>("type"));
 
             Assert.Multiple(() => {
-                Assert.That(Value("1", "CertificateStatus"),  Is.EqualTo("WrongName"));
-                Assert.That(Value("1", "Problem"),            Is.EqualTo("true"));
+                Assert.That(Value("dns-1", "CertificateStatus"),  Is.EqualTo("WrongName"));
+                Assert.That(Value("dns-1", "Problem"),            Is.EqualTo("true"));
                 Assert.That(told,                             Is.EqualTo(new[] { "InvalidNameServerCertificate" }));
             });
 
@@ -293,7 +294,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Judge(SslPolicyErrors.RemoteCertificateChainErrors);
 
             Assert.Multiple(() => {
-                Assert.That(Value("1", "CertificateStatus"),                                              Is.EqualTo(Outcome));
+                Assert.That(Value("dns-1", "CertificateStatus"),                                              Is.EqualTo(Outcome));
                 Assert.That(station.Log.Recent(100, before, "security").Select(entry => entry.Message),   Has.Some.Contains(Fingerprint(certificate)).IgnoreCase);
                 Assert.That(station.Log.Recent(100, before, null).Any(entry => entry.Metrological),      Is.EqualTo(Metrological));
             });
@@ -322,7 +323,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(installed.Status,                 Is.EqualTo(OCPPC.CertificateAnswerStatus.Accepted));
-                Assert.That(Value("1", "CertificateStatus"),  Is.EqualTo(Outcome));
+                Assert.That(Value("dns-1", "CertificateStatus"),  Is.EqualTo(Outcome));
             });
 
         }
@@ -383,38 +384,37 @@ namespace cloud.charging.open.ChargingStation.Tests
             Judge(SslPolicyErrors.RemoteCertificateChainErrors);
 
             Assert.Multiple(() => {
-                Assert.That(Value("1", "CertificateStatus"),  Is.EqualTo("Accepted"));
+                Assert.That(Value("dns-1", "CertificateStatus"),  Is.EqualTo("Accepted"));
                 Assert.That(told,                             Is.Empty);
-                Assert.That(Value("1", "RootPins"),           Is.EqualTo(Fingerprint(certificate)).IgnoreCase);
+                Assert.That(Value("dns-1", "RootPins"),           Is.EqualTo(Fingerprint(certificate)).IgnoreCase);
             });
 
         }
 
         #endregion
 
-        #region EveryAddressEmptiedIsRefusedSwitchedOffToo()
+        #region NoServerAtAllIsRefusedSwitchedOffToo()
 
         /// <summary>
-        /// Name resolution switched off, then every address emptied: refused as
-        /// it is while switched on, and the servers are kept (T14; the first
-        /// half is DNSDeviceModelWritingTests.EveryAddressEmptiedIsRefused).
+        /// Name resolution switched off, then Servers naming none: refused as it
+        /// is while switched on, and the servers are kept (T14; the first half
+        /// is DNSDeviceModelWritingTests.NoServerAtAllIsRefused).
         /// </summary>
         [Test]
-        public async Task EveryAddressEmptiedIsRefusedSwitchedOffToo()
+        public async Task NoServerAtAllIsRefusedSwitchedOffToo()
         {
 
             var off      = await Set(null, (null, "Enabled", "false"));
 
             var emptied  = await Set(OCPP21.DataConsistencyModel.ACID,
-                                     ("1", "Address", ""),
-                                     ("2", "Address", ""));
+                                     (null, "Servers", ""));
 
             Assert.Multiple(() => {
                 Assert.That(off.Single().AttributeStatus,            Is.EqualTo(OCPP21.SetVariableStatus.Accepted));
                 Assert.That(StatusesOf(emptied),                     Is.All.EqualTo(OCPP21.SetVariableStatus.Rejected));
                 Assert.That(Value(null, "Enabled"),                  Is.EqualTo("false"));
-                Assert.That(Value("1",  "Address"),                  Is.EqualTo("192.0.2.53"));
-                Assert.That(Value("2",  "Address"),                  Is.EqualTo("2001:db8::53"));
+                Assert.That(Value("dns-1",  "Address"),                  Is.EqualTo("192.0.2.53"));
+                Assert.That(Value("dns-2",  "Address"),                  Is.EqualTo("2001:db8::53"));
             });
 
         }
@@ -422,15 +422,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region (private) Set(Model, params Entries) / Value(Slot, Variable)
+        #region (private) Set(Model, params Entries) / Value(Server, Variable)
 
         /// <summary>
         /// SetVariables of the DNS controllers as the station's OCPP 2.1 node
-        /// answers it: (null, variable, value) for the client, (slot, ...) for a
+        /// answers it: (null, variable, value) for the client, (id, ...) for a
         /// server.
         /// </summary>
         private async Task<OCPP21.SetVariableResult[]> Set(OCPP21.DataConsistencyModel?                             Model,
-                                                           params (String? Slot, String Variable, String Value)[]  Entries)
+                                                           params (String? Server, String Variable, String Value)[]  Entries)
         {
 
             var node    = station!.OCPPv2_1Node;
@@ -438,28 +438,28 @@ namespace cloud.charging.open.ChargingStation.Tests
             var request = new OCPP21.CSMS.SetVariablesRequest(
                               Destination:           SourceRouting.To(node.Id),
                               VariableData:          [.. Entries.Select(entry => new OCPP21.SetVariableData(
-                                                                                     Component:       new OCPP21.Component(Name:     entry.Slot is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent,
-                                                                                                                           Instance: entry.Slot),
+                                                                                     Component:       new OCPP21.Component(Name:     entry.Server is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent,
+                                                                                                                           Instance: entry.Server),
                                                                                      Variable:        new OCPP21.Variable(Name: entry.Variable),
                                                                                      AttributeValue:  entry.Value
                                                                                  ))],
                               DataConsistencyModel:  Model
                           );
 
-            return [.. await OCPP21.DeviceModel.SetVariablesAsync(request, (name, evse) => node.GetComponentConfigs(name, evse))];
+            return [.. await OCPP21.DeviceModel.SetVariablesAsync(request, (name, evse) => node.GetComponentConfigs(name, evse), default, node.NewInstanceOf)];
 
         }
 
         /// <summary>
         /// What a CSMS reads of a variable through GetVariables.
         /// </summary>
-        private String? Value(String?  Slot,
+        private String? Value(String?  Server,
                               String   Variable)
         {
 
             var node = station!.OCPPv2_1Node;
 
-            return OCPP21.DeviceModel.GetVariables([ new OCPP21.GetVariableData(new OCPP21.Component(Slot is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent, Slot),
+            return OCPP21.DeviceModel.GetVariables([ new OCPP21.GetVariableData(new OCPP21.Component(Server is null ? DNSDeviceModel.ClientComponent : DNSDeviceModel.ServerComponent, Server),
                                                                                 new OCPP21.Variable(Variable)) ],
                                                    (name, evse) => node.GetComponentConfigs(name, evse)).Single().AttributeValue;
 
