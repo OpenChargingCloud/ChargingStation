@@ -148,7 +148,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
             finally
             {
-                await backEnd.Shutdown();
+                await backEnd.DisposeAsync();
             }
 
         }
@@ -172,7 +172,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             closed.HandOver();
 
             var port     = closed.Number;
-            var first    = await Connected(port);
+
+            // Let go of when the test ends: shutting it down below does not.
+            await using var first = await Connected(port);
+
             var id       = station!.DialledConnections.Keys.Single();
 
             using var http = await SignedIn();
@@ -209,7 +212,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
             finally
             {
-                await again.Shutdown();
+                await again.DisposeAsync();
             }
 
         }
@@ -238,7 +241,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             closed.HandOver();
 
             var port     = closed.Number;
-            var first    = await Connected(port);
+
+            // Let go of when the test ends: shutting it down below does not.
+            await using var first = await Connected(port);
+
             var id       = station!.DialledConnections.Keys.Single();
 
             await first.Shutdown("Restarting.");
@@ -254,10 +260,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                          }.AsImmutable)
             );
 
-            await otherOne.Start();
-
             try
             {
+
+                await otherOne.Start();
 
                 var said = await Said(id, what => what.Contains("not tried again"), Within);
 
@@ -271,7 +277,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
             finally
             {
-                await otherOne.Stop();
+                await otherOne.DisposeAsync();
             }
 
         }
@@ -447,24 +453,40 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// A back end on the given port, and the station connected to it.
         /// </summary>
+        /// <remarks>
+        /// The test lets go of the back end, not only shuts it down or stops
+        /// it: a server ticks from when it is built until it is let go of. One
+        /// the station did not get connected to is let go of here, since the
+        /// test never gets it.
+        /// </remarks>
         private async Task<WebSocketServer> Connected(IPPort Port)
         {
 
             var backEnd = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
 
-            Assert.That(station!.Connections.TryAddConnection(
-                            "Restarts",
-                            $"ws://127.0.0.1:{Port}/cs001",
-                            "CSMS",
-                            true, null, null, out var connection, out var error),
-                        Is.True, error);
+            try
+            {
 
-            await Start();
+                Assert.That(station!.Connections.TryAddConnection(
+                                "Restarts",
+                                $"ws://127.0.0.1:{Port}/cs001",
+                                "CSMS",
+                                true, null, null, out var connection, out var error),
+                            Is.True, error);
 
-            Assert.That(station.DialledConnections[connection!], Does.StartWith("Connected"),
-                        "The station did not get connected to begin with.");
+                await Start();
 
-            return backEnd;
+                Assert.That(station.DialledConnections[connection!], Does.StartWith("Connected"),
+                            "The station did not get connected to begin with.");
+
+                return backEnd;
+
+            }
+            catch
+            {
+                await backEnd.DisposeAsync();
+                throw;
+            }
 
         }
 

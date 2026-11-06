@@ -238,8 +238,16 @@ namespace cloud.charging.open.ChargingStation.Tests
                                    message[2].Value<String>() == Action &&
                                    message[3]?["type"]?.Value<String>() == Type);
 
-            public async ValueTask DisposeAsync()
-                => await Server.Shutdown();
+            /// <summary>
+            /// Tell the station goodbye, and let go of the server.
+            /// </summary>
+            /// <remarks>
+            /// Let go of, not only shut down: a server ticks from when it is
+            /// built until it is let go of, and one only shut down ticked on
+            /// until the test run ended.
+            /// </remarks>
+            public ValueTask DisposeAsync()
+                => Server.DisposeAsync();
 
         }
 

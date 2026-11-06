@@ -313,7 +313,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
             finally
             {
-                await listening.Shutdown();
+                await listening.DisposeAsync();
             }
 
         }
@@ -590,7 +590,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
             finally
             {
-                await listening.Shutdown();
+                await listening.DisposeAsync();
             }
 
         }
