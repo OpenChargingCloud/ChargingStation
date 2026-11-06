@@ -256,22 +256,41 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region BehindATrustedProxyTheSignInsRationIsCountedPerClient()
 
         /// <summary>
-        /// Behind nginx, named with --trusted-proxy: ten guesses from one client
-        /// make that client wait, and another behind the same proxy signs in at
-        /// once - with a secure cookie, as the proxy says its leg was HTTPS. And
-        /// the station, listening on the loopback only behind it, says nothing
-        /// about plain HTTP.
+        /// Behind nginx, named with --trusted-proxy: a client that keeps guessing
+        /// is made to wait once it has had its ten, and another behind the same
+        /// proxy signs in at once - with a secure cookie, as the proxy says its
+        /// leg was HTTPS. And the station, listening on the loopback only behind
+        /// it, says nothing about plain HTTP.
         /// </summary>
+        /// <remarks>
+        /// Guessed until the client is made to wait, rather than ten times and
+        /// then once with the right password. The ration gives a guess back every
+        /// six seconds, and a runner that took nine for the ten let that sign-in
+        /// through. Each guess names another account, so that the client's
+        /// ration is what runs out and not one of an account's.
+        /// </remarks>
         [Test]
         public async Task BehindATrustedProxyTheSignInsRationIsCountedPerClient()
         {
 
-            var station = await Started(NodeArguments.Parse([ "--trusted-proxy", "127.0.0.1", "--trusted-proxy", "::1" ]));
+            var station  = await Started(NodeArguments.Parse([ "--trusted-proxy", "127.0.0.1", "--trusted-proxy", "::1" ]));
 
-            for (var guess = 1; guess <= 10; guess++)
-                using (await SignIn(station, "nobody", $"Not-The-Password-{guess}", ("X-Forwarded-For", "192.0.2.7"), ("X-Forwarded-Proto", "https"))) { }
+            var guesses  = 0;
+            var told     = (HttpStatusCode?) null;
+            var wait     = (String?) null;
 
-            using var guesser = await SignIn(station, ChargingStation.DefaultAdminUser, station.GeneratedPassword!, ("X-Forwarded-For", "192.0.2.7"),    ("X-Forwarded-Proto", "https"));
+            while (told != HttpStatusCode.TooManyRequests && guesses < 40)
+            {
+
+                guesses++;
+
+                using var guess = await SignIn(station, $"nobody-{guesses}", $"Not-The-Password-{guesses}", ("X-Forwarded-For", "192.0.2.7"), ("X-Forwarded-Proto", "https"));
+
+                told = guess.StatusCode;
+                wait = guess.Headers.RetryAfter?.ToString();
+
+            }
+
             using var other   = await SignIn(station, ChargingStation.DefaultAdminUser, station.GeneratedPassword!, ("X-Forwarded-For", "198.51.100.4"), ("X-Forwarded-Proto", "https"));
 
             var session       = other.Headers.TryGetValues("Set-Cookie", out var cookies)
@@ -279,7 +298,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                                     : null;
 
             Assert.Multiple(() => {
-                Assert.That(guesser.StatusCode,          Is.EqualTo(HttpStatusCode.TooManyRequests), "the client who guessed waits");
+                Assert.That(told,                        Is.EqualTo(HttpStatusCode.TooManyRequests), $"the client who guessed was not made to wait in {guesses} guesses");
+                Assert.That(guesses,                     Is.GreaterThan(10),                         "a client may guess ten times before it waits");
+                Assert.That(wait,                        Is.Not.Null,                                "and is told for how long");
                 Assert.That((Int32) other.StatusCode,    Is.InRange(200, 399),                       "another client behind the same proxy signs in");
                 Assert.That(session,                     Does.Contain("secure").IgnoreCase,           "its leg was HTTPS, as the proxy says");
                 Assert.That(station.PlainHTTPWarning,    Is.Null);

@@ -206,14 +206,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             /// <summary>
             /// The first frame it was sent that is what is looked for, once
-            /// there is one or ten seconds have passed.
+            /// there is one or Patience has passed.
             /// </summary>
             public async Task<JArray?> Sent(Func<JArray, Boolean> Wanted)
             {
 
                 var watch = Stopwatch.StartNew();
 
-                while (watch.Elapsed < TimeSpan.FromSeconds(10))
+                while (watch.Elapsed < Patience)
                 {
 
                     var found = received.FirstOrDefault(Wanted);
@@ -246,6 +246,23 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
         #region Data
+
+        /// <summary>
+        /// How long a test waits for what it waits for: a frame at the CSMS, a
+        /// state of the station.
+        /// </summary>
+        /// <remarks>
+        /// Ten seconds were enough wherever the machine kept up, where none of
+        /// these waits takes more than five. GitHub's runners stand still for
+        /// seconds now and then: a heartbeat due after five seconds had not
+        /// come after fifteen, a station answered a CSMS dropped seven seconds
+        /// later in one run and one in the next, and a first dial on the
+        /// loopback ran into its own timeout - a different test of these each
+        /// time, never one locally. Every wait here looks every 20 ms and ends
+        /// as soon as what it waits for is there, so a longer one costs a run
+        /// that passes nothing, and a test that fails still fails.
+        /// </remarks>
+        internal static readonly TimeSpan  Patience   = TimeSpan.FromSeconds(30);
 
         private String            directory  = "";
         private ChargingStation?  station;
@@ -297,9 +314,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: Version),
                         Is.True, error);
 
-            station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Started(station, directory);
 
-            Assert.That(station.DialledConnections[id!], Does.StartWith("Connected"), "the station did not get connected to begin with");
+            // Waited for rather than read at once: a first dial that ran into its
+            // own timeout on a runner that stood still is tried again by itself.
+            Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected to begin with: {started.DialledConnections[id!]}");
 
             if (csms.BootStatus == "Accepted")
                 Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station did not register: it is {Registration(Version)}");
@@ -320,7 +340,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                    : """[2,"asked","GetVariables",{"getVariableData":[{"component":{"name":"ClockCtrlr"},"variable":{"name":"TimeSource"}}]}]""";
 
         /// <summary>
-        /// Whether the condition comes true within ten seconds.
+        /// Whether the condition comes true within Patience.
         /// </summary>
         private static async Task<Boolean> Within(Func<Boolean> Condition)
         {
@@ -330,7 +350,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             while (!Condition())
             {
 
-                if (watch.Elapsed > TimeSpan.FromSeconds(10))
+                if (watch.Elapsed > Patience)
                     return false;
 
                 await Task.Delay(20);
