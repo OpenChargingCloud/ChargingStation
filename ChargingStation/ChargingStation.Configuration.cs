@@ -608,8 +608,19 @@ namespace cloud.charging.open.ChargingStation
                          out error))
                 {
 
-                    if (server is not null && started)
-                        await server.Stop();
+                    // Listening or not, the server opened for the move is done
+                    // with.
+                    if (server is not null)
+                    {
+                        try
+                        {
+                            await LetGoOf(server);
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Warning($"The display's server for port {moveTo}, which the file kept it from moving to, could not be let go of: {e.Message}", "kiosk");
+                        }
+                    }
 
                     return (false, error, true);
 
@@ -618,7 +629,7 @@ namespace cloud.charging.open.ChargingStation
                 Display = wanted;
 
                 if (server is not null && api is not null && moveTo.HasValue)
-                    HandOverTheDisplay(server, api, moveTo.Value);
+                    await HandOverTheDisplay(server, api, moveTo.Value);
 
                 Log.Notice($"The display is now {wanted}.", "kiosk", "config");
 

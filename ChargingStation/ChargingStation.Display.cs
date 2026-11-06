@@ -40,6 +40,13 @@ namespace cloud.charging.open.ChargingStation
     /// answering for a while, saying where the display went, because a screen
     /// in a car park is pointed at it and would otherwise show a dead page
     /// until somebody walked out to it.
+    ///
+    /// A server ticks from when it is built - its maintenance timer and its
+    /// Warden - until it is let go of, started or not, and stopping it does
+    /// not end that. So each server built for the display is let go of where
+    /// it is done with: one opened for a move that was refused, the one a move
+    /// before the start replaced, and one moved away from once its handover is
+    /// over or the station stops. Whatever is left goes with the station.
     /// </remarks>
     public partial class ChargingStation
     {
@@ -48,7 +55,8 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// The display's server and API on the given address and port, built
-        /// and not started.
+        /// and not started, and listed among those this station has to let go
+        /// of.
         /// </summary>
         /// <param name="Address">Where it listens.</param>
         /// <param name="Port">On which port.</param>
@@ -64,6 +72,9 @@ namespace cloud.charging.open.ChargingStation
                              HTTPServerName:  $"OpenChargingCloud ChargingStation Display v{Version}",
                              DNSClient:       this.DNSClient
                          );
+
+            lock (displayServers)
+                displayServers.Add(server);
 
             var api    = new KioskHTTPAPI(
                              HTTPServer:  server,
@@ -139,10 +150,12 @@ namespace cloud.charging.open.ChargingStation
 
                 try
                 {
-                    await server.Stop();
+                    await LetGoOf(server);
                 }
-                catch
-                { }
+                catch (Exception e)
+                {
+                    Log.Warning($"The display's server for port {Port}, which could not be had, could not be let go of: {e.Message}", "kiosk");
+                }
 
                 return (null, null, $"The display cannot move to port {Port}: {problem.Message} It stays on {KioskPort}.");
 
@@ -159,9 +172,9 @@ namespace cloud.charging.open.ChargingStation
         /// the old one answering for <see cref="DisplayHandover"/> - saying
         /// where the display went - before it is let go.
         /// </summary>
-        private void HandOverTheDisplay(HTTPServer    Server,
-                                        KioskHTTPAPI  API,
-                                        IPPort        Port)
+        private async Task HandOverTheDisplay(HTTPServer    Server,
+                                              KioskHTTPAPI  API,
+                                              IPPort        Port)
         {
 
             var oldServer  = kioskServer;
@@ -173,10 +186,27 @@ namespace cloud.charging.open.ChargingStation
             KioskPort      = Port;
             KioskURL       = URL.Parse($"http://{kioskAddress}:{Port}/");
 
-            // Before the start nothing was listening, and nothing is pointed
-            // at the port it would have had.
-            if (!started || oldServer is null)
+            if (oldServer is null)
                 return;
+
+            // Before the start nothing was listening, and nothing is pointed
+            // at the port it would have had: the server built for it is done
+            // with.
+            if (!started)
+            {
+
+                try
+                {
+                    await LetGoOf(oldServer);
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"The display's server for port {oldServer.TCPPort}, which it was moved away from, could not be let go of: {e.Message}", "kiosk");
+                }
+
+                return;
+
+            }
 
             if (oldAPI is not null)
                 oldAPI.MovedTo = Port;
@@ -194,7 +224,7 @@ namespace cloud.charging.open.ChargingStation
                     {
                         try
                         {
-                            await oldServer.Stop();
+                            await LetGoOf(oldServer);
                         }
                         catch (Exception e)
                         {
@@ -213,11 +243,61 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) LetGoOf(Server)
+
+        /// <summary>
+        /// Let go of a server of the display for good: stopped, its timer and
+        /// its Warden disposed of, and taken off the list of those this
+        /// station has to let go of.
+        /// </summary>
+        /// <param name="Server">A server built by BuildTheDisplay.</param>
+        private async Task LetGoOf(HTTPServer Server)
+        {
+
+            lock (displayServers)
+                displayServers.Remove(Server);
+
+            await Server.DisposeAsync();
+
+        }
+
+        #endregion
+
+        #region (private) LetGoOfTheDisplay()
+
+        /// <summary>
+        /// Let go of every server of the display still listed, each even where
+        /// one before it failed, which is logged.
+        /// </summary>
+        private async Task LetGoOfTheDisplay()
+        {
+
+            HTTPServer[] servers;
+
+            lock (displayServers)
+                servers = [.. displayServers];
+
+            foreach (var server in servers)
+            {
+                try
+                {
+                    await LetGoOf(server);
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"The display's server for port {server.TCPPort} could not be let go of: {e.Message}", "kiosk");
+                }
+            }
+
+        }
+
+        #endregion
+
         #region (private) Untake(Server) / TakeTheHandedOver()
 
         /// <summary>
         /// Take one server off the handed-over list: true for whoever took it,
-        /// who is then the one to stop it.
+        /// who is then the one to let go of it.
         /// </summary>
         private Boolean Untake(HTTPServer Server)
         {
@@ -226,7 +306,7 @@ namespace cloud.charging.open.ChargingStation
         }
 
         /// <summary>
-        /// Take every server off the handed-over list, to stop them.
+        /// Take every server off the handed-over list, to let go of them.
         /// </summary>
         private HTTPServer[] TakeTheHandedOver()
         {

@@ -176,7 +176,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// The display's server: replaced when the display is moved to another
-        /// port while running - see MoveTheDisplay.
+        /// port - see ChargingStation.Display.cs.
         /// </summary>
         private           HTTPServer?                          kioskServer;
 
@@ -193,9 +193,17 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Displays moved away from, still answering for a while to the screens
-        /// pointed at them - see MoveTheDisplay.
+        /// pointed at them - see ChargingStation.Display.cs.
         /// </summary>
         private readonly  List<HTTPServer>                     handedOver = [];
+
+        /// <summary>
+        /// Every server of the display this station built and has not let go
+        /// of: the display's, those moved away from that still answer, and
+        /// one opened for a move not yet decided. What is still here when the
+        /// station is let go of goes with it - see ChargingStation.Display.cs.
+        /// </summary>
+        private readonly  List<HTTPServer>                     displayServers = [];
 
         private readonly  HTTPServer?                          localAppServer;
 
@@ -953,8 +961,10 @@ namespace cloud.charging.open.ChargingStation
 
             // And the ports it moved away from, which are still telling a
             // screen where it went: on the way out there is nowhere left to go.
+            // They are let go of for good, not only stopped, since a start
+            // hands nothing over again.
             foreach (var old in TakeTheHandedOver())
-                await Take("stopping a port the display moved away from", () => old.Stop());
+                await Take("letting go of a port the display moved away from", () => LetGoOf(old));
 
             // Each app on the WebSocket told with a close frame that the station
             // is going, rather than left to find out from a broken connection -
@@ -974,7 +984,8 @@ namespace cloud.charging.open.ChargingStation
         #region DisposeAsync()
 
         /// <summary>
-        /// Stop, stop the OCPP nodes, and let go of what the node below holds.
+        /// Stop, stop the OCPP nodes, let go of the servers of the display and
+        /// of the local app, and let go of what the node below holds.
         /// </summary>
         /// <remarks>
         /// An OCPP node's heartbeat and maintenance timers tick until the node
@@ -989,6 +1000,13 @@ namespace cloud.charging.open.ChargingStation
         /// Here rather than when the station stops, which a start may follow:
         /// the nodes are made once, with the station, and a node that was
         /// stopped stays stopped.
+        ///
+        /// The servers of the display and of the local app are the same: a
+        /// server's maintenance timer and its Warden tick until it is let go
+        /// of, and stopping it does not end that. The node below lets go of
+        /// the web interface's server and knows nothing of these. They are
+        /// let go of before it, while the log they tell of a failure in is
+        /// still there.
         /// </remarks>
         public override async ValueTask DisposeAsync()
         {
@@ -1005,7 +1023,41 @@ namespace cloud.charging.open.ChargingStation
                 }
                 finally
                 {
-                    await base.DisposeAsync();
+                    try
+                    {
+                        await LetGoOfTheServers();
+                    }
+                    finally
+                    {
+                        await base.DisposeAsync();
+                    }
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region (private) LetGoOfTheServers()
+
+        /// <summary>
+        /// Let go of the servers of the display and of the local app, each even
+        /// where one before it failed, which is logged.
+        /// </summary>
+        private async Task LetGoOfTheServers()
+        {
+
+            await LetGoOfTheDisplay();
+
+            if (localAppServer is not null)
+            {
+                try
+                {
+                    await localAppServer.DisposeAsync();
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"The local app server could not be let go of: {e.Message}", "localapp");
                 }
             }
 
