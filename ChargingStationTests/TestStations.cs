@@ -17,7 +17,12 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
+
 using Newtonsoft.Json.Linq;
+
+using NUnit.Framework;
+using NUnit.Framework.Interfaces;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
@@ -38,6 +43,17 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// </summary>
     internal static class TestStations
     {
+
+        #region Data
+
+        /// <summary>
+        /// The name resolvers handed out and not let go of yet, by the id of
+        /// the test or the suite they were handed out in.
+        /// </summary>
+        private static readonly ConcurrentDictionary<String, ConcurrentBag<DNSClient>> resolvers = new();
+
+        #endregion
+
 
         #region New(Directory, Configuration = null, WithDisplay = true)
 
@@ -171,13 +187,50 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// ones from RFC 5737 and RFC 3849, so a query that escapes by mistake
         /// has nowhere to arrive.
         /// </para>
+        /// <para>
+        /// Let go of once the test it is handed out in is over, its TearDown
+        /// included (<see cref="LetGoOfTheResolversAttribute"/>), and not by
+        /// the station it is handed to: a station leaves a client it was handed
+        /// to whoever made it. Its cache tidies itself up on a timer, which
+        /// ticks until the client is let go of - one for nearly every test of a
+        /// run, before.
+        /// </para>
         /// </remarks>
         public static DNSClient Resolver()
+        {
 
-            => new ([
-                   new DNSServerConfig(IPv4Address.Parse("192.0.2.53"),  IPPort.DNS),
-                   new DNSServerConfig(IPv6Address.Parse("2001:db8::53"), IPPort.DNS)
-               ]);
+            var resolver = new DNSClient([
+                               new DNSServerConfig(IPv4Address.Parse("192.0.2.53"),  IPPort.DNS),
+                               new DNSServerConfig(IPv6Address.Parse("2001:db8::53"), IPPort.DNS)
+                           ]);
+
+            resolvers.GetOrAdd(TestContext.CurrentContext.Test.ID, _ => []).Add(resolver);
+
+            return resolver;
+
+        }
+
+        #endregion
+
+        #region LetGoOfTheResolversOf(Test)
+
+        /// <summary>
+        /// Let go of the name resolvers handed out in the given test, or in the
+        /// given suite and in any test or suite within it.
+        /// </summary>
+        /// <param name="Test">A test or a suite that is over.</param>
+        public static void LetGoOfTheResolversOf(ITest Test)
+        {
+
+            foreach (var id in IdsWithin(Test))
+                if (resolvers.TryRemove(id, out var handedOut))
+                    foreach (var resolver in handedOut)
+                        resolver.Dispose();
+
+            static IEnumerable<String> IdsWithin(ITest Test)
+                => [ Test.Id, .. Test.Tests.SelectMany(IdsWithin) ];
+
+        }
 
         #endregion
 
