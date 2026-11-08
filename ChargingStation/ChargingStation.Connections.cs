@@ -1276,7 +1276,7 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
-                addresses = await HostAddresses.Of(host, DNSClient, CancellationToken);
+                addresses = [.. await NameResolution.ResolveAsync(host, DNSClient, CancellationToken)];
 
                 if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _))
                     Step("info", $"'{host}' resolves to {String.Join(", ", addresses.Take(8).Select(address => address.ToString()))}.");

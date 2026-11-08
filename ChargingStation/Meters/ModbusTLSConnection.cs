@@ -128,7 +128,7 @@ namespace cloud.charging.open.ChargingStation.Meters
 
                     // The name is looked up by the station's DNS client, and the
                     // certificate is still checked against the name.
-                    await tcp.ConnectAsync(await HostAddresses.Of(Host, DNSClient, connecting.Token), Port, connecting.Token);
+                    await NameResolution.ConnectAsync(tcp, Host, Port, DNSClient, connecting.Token);
 
                 }
 
