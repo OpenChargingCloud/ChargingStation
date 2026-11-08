@@ -132,19 +132,26 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var (station, http) = await StartOne(WithDisplay: false);
 
-            using (http)
+            try
             {
+                using (http)
+                {
 
-                Assert.That(station.KioskURL, Is.Null,
-                            "This station was asked for no display and made one anyway.");
+                    Assert.That(station.KioskURL, Is.Null,
+                                "This station was asked for no display and made one anyway.");
 
-                using var stream = await EventStream.OpenAndSettle(station, http);
+                    using var stream = await EventStream.OpenAndSettle(station, http);
 
-                var elapsed = await TimeTheStop(station);
+                    var elapsed = await TimeTheStop(station);
 
-                Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                            $"A station without a display took {elapsed.TotalSeconds:F1} s to stop.");
+                    Assert.That(elapsed, Is.LessThan(MustStopWithin),
+                                $"A station without a display took {elapsed.TotalSeconds:F1} s to stop.");
 
+                }
+            }
+            finally
+            {
+                await LetGoOf(station);
             }
 
         }
@@ -171,37 +178,44 @@ namespace cloud.charging.open.ChargingStation.Tests
             var station = await TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, TestStations.Offline,
                                                                                      LocalAppPort: IPPort.Parse(TestPorts.Free())));
 
-            using var app = new ClientWebSocket();
-
-            await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
-                                   CancellationToken.None);
-
-            var told     = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
-
-            var elapsed  = await TimeTheStop(station);
-
-            Assert.That(elapsed, Is.LessThan(MustStopWithin),
-                        $"A station with an app on its WebSocket took {elapsed.TotalSeconds:F1} s to stop.");
-
-            Assert.That(await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))), Is.SameAs(told),
-                        "The station stopped and the app on its WebSocket heard nothing.");
-
             try
             {
+                using var app = new ClientWebSocket();
 
-                var goodbye = await told;
+                await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
+                                       CancellationToken.None);
 
-                Assert.Multiple(() => {
-                    Assert.That(goodbye.MessageType,             Is.EqualTo(WebSocketMessageType.Close),
-                                "The app was sent something other than goodbye.");
-                    Assert.That(goodbye.CloseStatus,             Is.EqualTo(WebSocketCloseStatus.EndpointUnavailable));
-                    Assert.That(goodbye.CloseStatusDescription,  Is.EqualTo("The charging station is stopping."));
-                });
+                var told     = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
 
+                var elapsed  = await TimeTheStop(station);
+
+                Assert.That(elapsed, Is.LessThan(MustStopWithin),
+                            $"A station with an app on its WebSocket took {elapsed.TotalSeconds:F1} s to stop.");
+
+                Assert.That(await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))), Is.SameAs(told),
+                            "The station stopped and the app on its WebSocket heard nothing.");
+
+                try
+                {
+
+                    var goodbye = await told;
+
+                    Assert.Multiple(() => {
+                        Assert.That(goodbye.MessageType,             Is.EqualTo(WebSocketMessageType.Close),
+                                    "The app was sent something other than goodbye.");
+                        Assert.That(goodbye.CloseStatus,             Is.EqualTo(WebSocketCloseStatus.EndpointUnavailable));
+                        Assert.That(goodbye.CloseStatusDescription,  Is.EqualTo("The charging station is stopping."));
+                    });
+
+                }
+                catch (WebSocketException broken)
+                {
+                    Assert.Fail($"The app found out from a broken connection rather than a close frame: {broken.Message}");
+                }
             }
-            catch (WebSocketException broken)
+            finally
             {
-                Assert.Fail($"The app found out from a broken connection rather than a close frame: {broken.Message}");
+                await LetGoOf(station);
             }
 
         }
@@ -233,62 +247,69 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await TestPorts.StartedOnFreshPorts(() => new AStationWhoseV2GLinkWillNotEnd(directory, IPPort.Parse(TestPorts.Free())));
 
-            var warnings  = new ConcurrentQueue<String>();
-
-            station.Log.OnLogged += entry => {
-                if (entry.Level == LogLevel.Warning)
-                    warnings.Enqueue(entry.Message);
-            };
-
-            var ports     = new (String What, UInt16 Port)[] {
-                                ("the web interface",     PortOf(station.WebInterfaceURL.ToString())),
-                                ("the display",           PortOf(station.KioskURL!.Value.ToString())),
-                                ("the local app server",  PortOf(station.LocalAppURL!.Value.ToString()))
-                            };
-
-            using var app = new ClientWebSocket();
-
-            await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
-                                   CancellationToken.None);
-
-            var told      = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
-
-            var stopping  = station.Stop();
-
-            if (await Task.WhenAny(stopping, Task.Delay(MustStopWithin)) != stopping)
+            try
             {
-                // Left running, for the reason TimeTheStop gives.
-                aStopWasLeftRunning = true;
-                Assert.Fail($"A station whose V2G link would not end took more than {MustStopWithin.TotalSeconds:F0} s to stop.");
+                var warnings  = new ConcurrentQueue<String>();
+
+                station.Log.OnLogged += entry => {
+                    if (entry.Level == LogLevel.Warning)
+                        warnings.Enqueue(entry.Message);
+                };
+
+                var ports     = new (String What, UInt16 Port)[] {
+                                    ("the web interface",     PortOf(station.WebInterfaceURL.ToString())),
+                                    ("the display",           PortOf(station.KioskURL!.Value.ToString())),
+                                    ("the local app server",  PortOf(station.LocalAppURL!.Value.ToString()))
+                                };
+
+                using var app = new ClientWebSocket();
+
+                await app.ConnectAsync(new Uri($"ws://{new Uri(station.LocalAppURL!.Value.ToString()).Authority}/localApp"),
+                                       CancellationToken.None);
+
+                var told      = app.ReceiveAsync(new Byte[1024], CancellationToken.None);
+
+                var stopping  = station.Stop();
+
+                if (await Task.WhenAny(stopping, Task.Delay(MustStopWithin)) != stopping)
+                {
+                    // Left running, for the reason TimeTheStop gives.
+                    aStopWasLeftRunning = true;
+                    Assert.Fail($"A station whose V2G link would not end took more than {MustStopWithin.TotalSeconds:F0} s to stop.");
+                }
+
+                Assert.That(async () => await stopping,
+                            Throws.InstanceOf<IOException>().With.Message.EqualTo(AStationWhoseV2GLinkWillNotEnd.Why),
+                            "What failed did not reach whoever stopped the station.");
+
+                var goodbye   = await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))) == told && told.IsCompletedSuccessfully
+                                    ? told.Result.MessageType
+                                    : (WebSocketMessageType?) null;
+
+                var asked     = await Task.WhenAll(ports.Select(async port => (port.What, port.Port, Listening: await Listeners.Listening(port.Port))));
+
+                var listening = asked.Where (port => port.Listening).
+                                      Select(port => $"{port.What} on port {port.Port}").
+                                      ToArray();
+
+                Assert.Multiple(() => {
+
+                    Assert.That(goodbye,    Is.EqualTo(WebSocketMessageType.Close),
+                                "The app on the WebSocket was not told that the station is going.");
+
+                    Assert.That(listening,  Is.Empty,
+                                "Still listening once the station had stopped: " + String.Join(", ", listening));
+
+                    Assert.That(warnings,   Has.Some.Matches<String>(warning => warning.Contains("ending the V2G link") &&
+                                                                                warning.Contains(AStationWhoseV2GLinkWillNotEnd.Why)),
+                                "The log does not say which step failed. Its warnings: " + String.Join(" | ", warnings));
+
+                });
             }
-
-            Assert.That(async () => await stopping,
-                        Throws.InstanceOf<IOException>().With.Message.EqualTo(AStationWhoseV2GLinkWillNotEnd.Why),
-                        "What failed did not reach whoever stopped the station.");
-
-            var goodbye   = await Task.WhenAny(told, Task.Delay(TimeSpan.FromSeconds(10))) == told && told.IsCompletedSuccessfully
-                                ? told.Result.MessageType
-                                : (WebSocketMessageType?) null;
-
-            var asked     = await Task.WhenAll(ports.Select(async port => (port.What, port.Port, Listening: await Listeners.Listening(port.Port))));
-
-            var listening = asked.Where (port => port.Listening).
-                                  Select(port => $"{port.What} on port {port.Port}").
-                                  ToArray();
-
-            Assert.Multiple(() => {
-
-                Assert.That(goodbye,    Is.EqualTo(WebSocketMessageType.Close),
-                            "The app on the WebSocket was not told that the station is going.");
-
-                Assert.That(listening,  Is.Empty,
-                            "Still listening once the station had stopped: " + String.Join(", ", listening));
-
-                Assert.That(warnings,   Has.Some.Matches<String>(warning => warning.Contains("ending the V2G link") &&
-                                                                            warning.Contains(AStationWhoseV2GLinkWillNotEnd.Why)),
-                            "The log does not say which step failed. Its warnings: " + String.Join(" | ", warnings));
-
-            });
+            finally
+            {
+                await LetGoOf(station);
+            }
 
         }
 
@@ -334,6 +355,24 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             return http;
 
+        }
+
+        #endregion
+
+        #region (private static) LetGoOf(Station)
+
+        /// <summary>
+        /// Let go of a station once its stop came back: its servers, their
+        /// Wardens and its OCPP nodes tick on until then, stopped or not.
+        /// </summary>
+        /// <remarks>
+        /// One whose stop was left running is left alone, for the reason
+        /// TimeTheStop gives: letting go of it would wait for that stop.
+        /// </remarks>
+        private static async Task LetGoOf(ChargingStation Station)
+        {
+            if (!aStopWasLeftRunning)
+                await Station.DisposeAsync();
         }
 
         #endregion

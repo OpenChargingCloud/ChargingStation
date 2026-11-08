@@ -57,12 +57,22 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private static readonly DateTimeOffset LastMarch = new (2026, 3, 14, 9, 26, 53, TimeSpan.Zero);
 
+        /// <summary>
+        /// A node on the given clock, handed a resolver of the test's own.
+        /// </summary>
+        /// <remarks>
+        /// A node handed no resolver makes one, whose cache tidies itself up on
+        /// a timer that ticks until the resolver is let go of, and nothing lets
+        /// go of a node's own. Its heartbeat and its maintenance tick until it
+        /// is stopped, which every test here does at its end.
+        /// </remarks>
         private static protocols.OCPPv2_1.CS.TestChargingStationNode Station(TimeProvider? Clock = null)
 
             => new (Id:           NetworkingNode_Id.Parse("clock01"),
                     VendorName:   "gef",
                     Model:        "cs1",
-                    Clock:        Clock);
+                    Clock:        Clock,
+                    DNSClient:    TestStations.Resolver());
 
         #endregion
 
@@ -73,13 +83,20 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A node handed a clock says what that clock says.
         /// </summary>
         [Test]
-        public void ANodeReadsTheClockItWasGiven()
+        public async Task ANodeReadsTheClockItWasGiven()
         {
 
             var node = Station(new StoppedClock(LastMarch));
 
-            Assert.That(node.Now,  Is.EqualTo(LastMarch),
-                        "A node was handed a clock standing in March and did not read it.");
+            try
+            {
+                Assert.That(node.Now,  Is.EqualTo(LastMarch),
+                            "A node was handed a clock standing in March and did not read it.");
+            }
+            finally
+            {
+                await node.Stop();
+            }
 
         }
 
@@ -96,17 +113,24 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// that have to be able to reach the node's clock at all.
         /// </remarks>
         [Test]
-        public void TheClockReachesEveryAdapter()
+        public async Task TheClockReachesEveryAdapter()
         {
 
             var node = Station(new StoppedClock(LastMarch));
 
-            Assert.Multiple(() => {
-                Assert.That(node.OCPP.Now,          Is.EqualTo(LastMarch), "The OCPP adapter is not on the node's clock.");
-                Assert.That(node.OCPP.IN.Now,       Is.EqualTo(LastMarch), "Incoming is not on the node's clock.");
-                Assert.That(node.OCPP.OUT.Now,      Is.EqualTo(LastMarch), "Outgoing is not on the node's clock.");
-                Assert.That(node.OCPP.FORWARD.Now,  Is.EqualTo(LastMarch), "Forwarding is not on the node's clock.");
-            });
+            try
+            {
+                Assert.Multiple(() => {
+                    Assert.That(node.OCPP.Now,          Is.EqualTo(LastMarch), "The OCPP adapter is not on the node's clock.");
+                    Assert.That(node.OCPP.IN.Now,       Is.EqualTo(LastMarch), "Incoming is not on the node's clock.");
+                    Assert.That(node.OCPP.OUT.Now,      Is.EqualTo(LastMarch), "Outgoing is not on the node's clock.");
+                    Assert.That(node.OCPP.FORWARD.Now,  Is.EqualTo(LastMarch), "Forwarding is not on the node's clock.");
+                });
+            }
+            finally
+            {
+                await node.Stop();
+            }
 
         }
 
@@ -128,7 +152,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// of change found a year later by somebody else.
         /// </remarks>
         [Test]
-        public void ANodeWithoutAClockKeepsTravellingInTime()
+        public async Task ANodeWithoutAClockKeepsTravellingInTime()
         {
 
             var node = Station();
@@ -149,6 +173,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             finally
             {
                 Timestamp.Reset();
+                await node.Stop();
             }
 
         }
