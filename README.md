@@ -142,7 +142,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
-| `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again, and a test that says which host key it saw and writes nothing |
+| `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 
 Two of them are about the station having more than one door. The display is a
@@ -792,8 +792,16 @@ that answers is believed and the key it showed is written in - from then on it
 is the only one taken. A save of the page leaves a key written down that way
 alone, unless the field was typed into. A server that shows another key is not
 believed, nothing is signed in, and it is not tried again; nor is one that does
-not let the station in. The connection test says which host key it was shown
+not let the station in - also while the station is still trying to reach it
+for the first time. The connection test says which host key it was shown
 and writes nothing down.
+
+**Names are resolved by the station's name servers, and by nothing else.** The
+host of a connection - WebSocket or SSH - and the host of a meter are looked
+up with the station's DNS client, the one `dns` configures; the resolver of the
+operating system is never asked. The connection test resolves the same way: a
+name the station's name servers do not know ends the test there, rather than
+being handed to the operating system to try anyway.
 
 "Not reached" and "refused" are told apart by whether anything answered. An
 attempt that ended before it could ask anything - nothing listening, a name

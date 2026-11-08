@@ -24,6 +24,7 @@ using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 using cloud.charging.open.ChargingStation.EVSEs;
@@ -181,6 +182,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         private readonly Func<X509Certificate2?, X509Chain?, SslPolicyErrors, MeterJudgement> judge;
         private readonly EventLog                                                            log;
         private readonly TimeProvider                                                        timeProvider;
+        private readonly IDNSClient?                                                         dnsClient;
         private readonly CancellationTokenSource                                             stopping     = new ();
         private          TaskCompletionSource                                                wake         = new (TaskCreationOptions.RunContinuationsAsynchronously);
         private          Task?                                                               loop;
@@ -252,6 +254,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// <param name="TimeProvider">The clock.</param>
         /// <param name="ReadInterval">How often it is read while connected.</param>
         /// <param name="RetryInterval">How long after a failure it is tried again.</param>
+        /// <param name="DNSClient">The DNS client a meter's host name is resolved with: the station's. Without one, only an IP address or "localhost" is reached - the resolver of the operating system is never asked.</param>
         public EVSEMeter(Byte                                                                 EVSE,
                          MeterEndpoint                                                        Endpoint,
                          String                                                               About,
@@ -260,8 +263,11 @@ namespace cloud.charging.open.ChargingStation.Meters
                          EventLog                                                             Log,
                          TimeProvider                                                         TimeProvider,
                          TimeSpan?                                                            ReadInterval   = null,
-                         TimeSpan?                                                            RetryInterval  = null)
+                         TimeSpan?                                                            RetryInterval  = null,
+                         IDNSClient?                                                          DNSClient      = null)
         {
+
+            this.dnsClient      = DNSClient;
 
             this.EVSE           = EVSE;
             this.Endpoint       = Endpoint;
@@ -389,6 +395,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                 await using var connection = await ModbusTLSConnection.Open(
                                                        Endpoint.Host,
                                                        Endpoint.Port,
+                                                       dnsClient,
                                                        identity.Certificate,
                                                        identity.Intermediates,
                                                        (sender, certificate, chain, errors) => {
@@ -516,6 +523,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                 await using var connection = await ModbusTLSConnection.Open(
                                                        Endpoint.Host,
                                                        Endpoint.Port,
+                                                       dnsClient,
                                                        identity.Certificate,
                                                        identity.Intermediates,
                                                        (sender, certificate, chain, errors) => {
@@ -691,6 +699,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                     await using var connection = await ModbusTLSConnection.Open(
                                                            Endpoint.Host,
                                                            Endpoint.Port,
+                                                           dnsClient,
                                                            identity.Certificate,
                                                            identity.Intermediates,
                                                            (sender, certificate, chain, errors) => {

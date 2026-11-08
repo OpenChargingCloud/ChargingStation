@@ -570,8 +570,11 @@ namespace cloud.charging.open.ChargingStation
                          Connection.URL.Port ?? IPPort.Parse(22)
                      );
 
+            // The station's DNS client resolves the server's name, as it
+            // resolves a WebSocket's: never the operating system's resolver.
             Login  = new SshClientOptions {
                          Username           = username,
+                         DNSClient          = DNSClient,
                          VerifyHostKey      = Trust.Verify,
                          Credentials        = [ Key ],
                          Password           = password,
@@ -635,6 +638,7 @@ namespace cloud.charging.open.ChargingStation
                                                                   ? NetworkingNode_Id.CentralSystem
                                                                   : NetworkingNode_Id.CSMS,
                                     Ssh:                      login,
+                                    DNSClient:                DNSClient,
                                     CancellationToken:        CancellationToken
                                 );
 
@@ -741,14 +745,9 @@ namespace cloud.charging.open.ChargingStation
         /// The client comes back by itself, after a drop and until it gets
         /// through at all. What it is told by the server that is final - a host
         /// key not believed, a login not taken - ends that: it is closed, and
-        /// said so. Nothing of it is said once this station let go of it.
-        ///
-        /// Except one thing, which is the library's to tell and it does not: a
-        /// login turned away while the client still tries to get through for
-        /// the first time. Its attempts before the first connection raise no
-        /// event, so such a connection goes on being "not reached" and tried
-        /// again. A host key not believed is heard of all the same - it is
-        /// asked here.
+        /// said so - before the first connection as after a drop, since the
+        /// client says of every attempt of its own that failed. Nothing of it
+        /// is said once this station let go of it.
         /// </remarks>
         private void FollowOverSSH(ConnectionEntry  Connection,
                                    URL              DialledURL,
@@ -804,8 +803,9 @@ namespace cloud.charging.open.ChargingStation
 
             };
 
-            // After an attempt to come back after a drop that failed.
-            Client.MessageClient.OnConnectFailed += (timestamp, sender, error, attempt, nextAttemptIn, cancellationToken) => {
+            // After every attempt the client made by itself that failed: before
+            // the first connection, and to come back after a drop.
+            Client.OnConnectFailed    += (timestamp, client, error, attempt, nextAttemptIn, cancellationToken) => {
 
                 if (IsLetGo(Client) || Trust.Refused)
                     return Task.CompletedTask;
@@ -1265,31 +1265,38 @@ namespace cloud.charging.open.ChargingStation
 
             var host = connection.URL.Host.ToString();
 
-            if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _))
+            // With this station's DNS client, as everything the station dials
+            // is: what it finds is what the probe below connects to. A name it
+            // finds nothing for ends the test here - the connection itself
+            // would not get further, and no other resolver is asked. The
+            // socket used to be handed the name, and the operating system
+            // answered for a station whose name servers did not.
+            System.Net.IPAddress[] addresses;
+
+            try
             {
-                try
-                {
 
-                    var lookedUp  = await DNSClient.Query(
-                                              DNSServiceName.Parse(host),
-                                              [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
-                                              CancellationToken: CancellationToken
-                                          );
+                addresses = await HostAddresses.Of(host, DNSClient, CancellationToken);
 
-                    var addresses = lookedUp.Answers.Take(8).Select(record => record.RText ?? record.ToString()).ToArray();
+                if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _))
+                    Step("info", $"'{host}' resolves to {String.Join(", ", addresses.Take(8).Select(address => address.ToString()))}.");
 
-                    Step(addresses.Length > 0 ? "info" : "warning",
-                         addresses.Length > 0
-                             ? $"'{host}' resolves to {String.Join(", ", addresses)}."
-                             : $"'{host}' resolved to nothing ({lookedUp.ResponseCode}). The connection below will not get far.");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
 
-                }
-                catch (Exception e)
-                {
-                    // Not fatal to the test: the socket layer has its own
-                    // resolver and may well succeed where this lookup did not.
-                    Step("warning", $"'{host}' could not be looked up here: {e.Message}. Trying to connect anyway.");
-                }
+                Step("error", $"'{host}' could not be looked up with this station's name servers: {e.Message} " +
+                              "Nothing else is asked, so the rest was not tried.");
+
+                Log.Warning($"The connection test for '{connection.Description}' could not look up '{host}': {e.Message}",
+                            "ocpp", "connections", "test");
+
+                return Done(connection, false);
+
             }
 
             #endregion
@@ -1314,7 +1321,7 @@ namespace cloud.charging.open.ChargingStation
 
                 using var probe = new TcpClient();
 
-                await probe.ConnectAsync(host.Trim('[', ']'), port, CancellationToken);
+                await probe.ConnectAsync(addresses, port, CancellationToken);
 
                 Step("info", $"A TCP connection to {host}:{port} was accepted.");
 
@@ -1358,6 +1365,7 @@ namespace cloud.charging.open.ChargingStation
 
                 client = new WebSocketClient(
                              connection.URL,
+                             DNSClient:              DNSClient,
                              HTTPAuthentication:     basic,
                              SecWebSocketProtocols:  SubProtocolsOf(connection.OCPPVersion),
                              ClientCertificates:     certificates,

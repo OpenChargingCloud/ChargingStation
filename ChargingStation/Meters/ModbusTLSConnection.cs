@@ -22,6 +22,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 #endregion
@@ -99,6 +100,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// </summary>
         /// <param name="Host">Where it is, and what its certificate has to be issued for.</param>
         /// <param name="Port">Its port.</param>
+        /// <param name="DNSClient">The DNS client a host name is resolved with: the station's, never the operating system's.</param>
         /// <param name="Identity">Who this station is to it, with its private key.</param>
         /// <param name="Intermediates">The CAs between that certificate and its root, sent along: SunSpec wants the whole chain from a peer.</param>
         /// <param name="Judge">Whether to go ahead with the certificate the meter showed.</param>
@@ -106,6 +108,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// <param name="CancellationToken">To give up.</param>
         public static async Task<ModbusTLSConnection> Open(String                               Host,
                                                            UInt16                               Port,
+                                                           IDNSClient?                          DNSClient,
                                                            X509Certificate2                     Identity,
                                                            IReadOnlyCollection<X509Certificate2> Intermediates,
                                                            RemoteCertificateValidationCallback  Judge,
@@ -120,8 +123,13 @@ namespace cloud.charging.open.ChargingStation.Meters
 
                 using (var connecting = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken))
                 {
+
                     connecting.CancelAfter(Timeout);
-                    await tcp.ConnectAsync(Host, Port, connecting.Token);
+
+                    // The name is looked up by the station's DNS client, and the
+                    // certificate is still checked against the name.
+                    await tcp.ConnectAsync(await HostAddresses.Of(Host, DNSClient, connecting.Token), Port, connecting.Token);
+
                 }
 
                 var tls = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false);

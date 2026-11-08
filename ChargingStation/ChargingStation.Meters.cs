@@ -472,7 +472,8 @@ namespace cloud.charging.open.ChargingStation
                                Log,
                                TimeProvider,
                                MeterReadInterval,
-                               MeterRetryInterval
+                               MeterRetryInterval,
+                               DNSClient
                            );
 
             meters[evse] = reader;

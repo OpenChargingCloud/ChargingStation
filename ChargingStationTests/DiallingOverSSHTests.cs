@@ -25,6 +25,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
 
@@ -62,7 +63,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             private readonly ConcurrentQueue<JArray>                      received   = new ();
             private readonly ConcurrentQueue<(String User, Byte[] Key)>  logins     = new ();
 
-            public ISshHostKey       HostKey        { get; } = SshHostKey.GenerateEd25519();
+            public ISshHostKey       HostKey        { get; }
             public SshServer         Server         { get; }
             public SshMessageServer  Messages       { get; }
 
@@ -77,8 +78,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             public String            Fingerprint
                 => SshFingerprint.Sha256(HostKey.PublicKeyBlob);
 
-            public SshCSMS()
+            public SshCSMS(ISshHostKey? Key = null)
             {
+
+                this.HostKey = Key ?? SshHostKey.GenerateEd25519();
 
                 Messages  = new SshMessageServer(new SshMessageServerOptions {
                                 Subsystem     = "ocpp@open.charging.cloud",
@@ -214,6 +217,21 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String SaidOf(String Id)
             => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
+        /// <summary>
+        /// Make the station's name servers know the given name as 127.0.0.1 -
+        /// a name of .invalid, which no resolver of an operating system
+        /// answers (RFC 6761): it reaches the test's CSMS only through them.
+        /// </summary>
+        private void TheStationsNameServersKnow(String Name)
+        {
+
+            var name = DomainName.Parse(Name);
+
+            station!.DNSClient.DNSCache.Add      (DNSServiceName.Parse(Name), new A(name, DNSQueryClasses.IN, TimeSpan.FromHours(1), IPv4Address.Localhost));
+            station. DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(Name), DNSResourceRecordTypes.AAAA, TimeSpan.FromHours(1));
+
+        }
+
         #endregion
 
 
@@ -322,6 +340,109 @@ namespace cloud.charging.open.ChargingStation.Tests
                         "Being turned away", () => SaidOf(id!));
 
             Assert.That(SaidOf(id!), Does.Contain("did not let this station in").And.Contain("not tried again"));
+
+        }
+
+        #endregion
+
+        #region AHostNameIsResolvedByTheStationsNameServers()
+
+        /// <summary>
+        /// The CSMS's host name is resolved with the station's DNS client - the
+        /// name servers a CSMS and the web interface configure - and not with
+        /// the resolver of the operating system, which does not know it.
+        /// </summary>
+        [Test]
+        public async Task AHostNameIsResolvedByTheStationsNameServers()
+        {
+
+            TheStationsNameServersKnow("csms.invalid");
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.invalid:{csms!.Port}", "CSMS", true, null, null,
+                                                              out var id, out var error),
+                        Is.True, error);
+
+            // The test button first: it resolves as the dialling does.
+            var test   = await station.TestConnection("CSMS over SSH", $"ssh://cs001@csms.invalid:{csms.Port}", "CSMS");
+            var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
+
+            Assert.That(test.Value<Boolean>("ok"), Is.True, steps);
+            Assert.That(steps,                      Does.Contain("'csms.invalid' resolves to 127.0.0.1"));
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting to a name only the station's name servers know", () => SaidOf(id!));
+
+        }
+
+        #endregion
+
+        #region ALoginTurnedAwayOnceTheCSMSIsUpIsFinal()
+
+        /// <summary>
+        /// A station that starts while its CSMS is down tries again by itself;
+        /// a CSMS that then turns its login away is an answer, said as one, and
+        /// not tried again. Before, attempts ahead of the first connection were
+        /// heard of by nobody, and the station went on trying.
+        /// </summary>
+        [Test]
+        public async Task ALoginTurnedAwayOnceTheCSMSIsUpIsFinal()
+        {
+
+            var port = csms!.Port;
+
+            await csms.DisposeAsync();
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{port}", "CSMS", true, null, null,
+                                                              out var id, out var error),
+                        Is.True, error);
+
+            await Start();
+
+            Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
+
+            csms        = new SshCSMS() { LetsIn = false };
+            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, IPPort.Parse(port)), CancellationToken.None);
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
+                        "Being turned away once the CSMS is up", () => SaidOf(id!));
+
+            Assert.That(SaidOf(id!), Does.Contain("did not let this station in").And.Contain("not tried again"));
+
+            var logins = csms.Logins.Length;
+
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            Assert.That(csms.Logins.Length, Is.EqualTo(logins), "The station went on trying a login that was turned away.");
+
+        }
+
+        #endregion
+
+        #region AWebSocketsNameIsAskedOfTheStationsNameServersOnly()
+
+        /// <summary>
+        /// The connection test of a WebSocket resolves with the station's name
+        /// servers as well, and goes no further where they know nothing: its
+        /// TCP probe used to hand the name to the operating system, and so did
+        /// its WebSocket client, which was given no DNS client.
+        /// </summary>
+        [Test]
+        public async Task AWebSocketsNameIsAskedOfTheStationsNameServersOnly()
+        {
+
+            var name = DomainName.Parse("nowhere.invalid");
+
+            station!.DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.A,    TimeSpan.FromHours(1));
+            station. DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.AAAA, TimeSpan.FromHours(1));
+
+            var test   = await station.TestConnection("Nowhere", "ws://nowhere.invalid/cs001", "CSMS");
+            var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
+
+            Assert.That(test.Value<Boolean>("ok"), Is.False, steps);
+            Assert.That(steps, Does.Contain("could not be looked up with this station's name servers"));
+            Assert.That(steps, Does.Not.Contain("TCP connection"), "Something was dialled although nothing was resolved.");
 
         }
 
