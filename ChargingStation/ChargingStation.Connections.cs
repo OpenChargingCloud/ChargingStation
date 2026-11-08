@@ -18,6 +18,7 @@
 #region Usings
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
@@ -26,11 +27,16 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
+using org.GraphDefined.Vanaheimr.Hermod.Messaging;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
-using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
-using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
+using OCPPCommon = cloud.charging.open.protocols.OCPP;
+using OCPPv1_6   = cloud.charging.open.protocols.OCPPv1_6;
+using OCPPv2_1   = cloud.charging.open.protocols.OCPPv2_1;
 
+using cloud.charging.open.protocols.WWCP.SSH;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.OCPP;
@@ -76,6 +82,29 @@ namespace cloud.charging.open.ChargingStation
         /// One DialAgain at a time - see there.
         /// </summary>
         private readonly SemaphoreSlim dialAgainLock = new (1, 1);
+
+        /// <summary>
+        /// The SSH clients this station closed, or is closing: what they say
+        /// from then on is not a loss, nor anything to come back from.
+        /// </summary>
+        /// <remarks>
+        /// What a WebSocket client's reconnect policy taken away is for those:
+        /// an SSH client keeps its policy, and is told to stop by being closed.
+        /// </remarks>
+        private readonly HashSet<WWCPSshClient> lettingGo = [];
+
+        /// <summary>
+        /// How long connecting over SSH may take - the TCP connection, the
+        /// version exchange and the key exchange - before an attempt fails.
+        /// </summary>
+        public static readonly TimeSpan SshConnectTimeout  = TimeSpan.FromSeconds(15);
+
+        /// <summary>
+        /// How often a connection over SSH asks its server whether it is still
+        /// there, so that a server gone without a word is noticed - and come
+        /// back to - rather than waited for.
+        /// </summary>
+        public static readonly TimeSpan SshKeepAliveEvery  = TimeSpan.FromSeconds(30);
 
         #endregion
 
@@ -308,6 +337,12 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
+                if (Connection.IsSSH)
+                {
+                    await DialOverSSH(Connection, where, CancellationToken);
+                    return;
+                }
+
                 if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var certificates, out _, out var wrong))
                 {
                     Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {wrong}.");
@@ -433,6 +468,431 @@ namespace cloud.charging.open.ChargingStation
                     : cs02.OCPPWebSocketClients).
                OfType<WebSocketClient>().
                LastOrDefault(one => one.RemoteURL == Connection.URL);
+
+        #endregion
+
+        #region (private) NodeOf(Version)
+
+        /// <summary>
+        /// The OCPP node that speaks the given version.
+        /// </summary>
+        private OCPPCommon.NetworkingNode.AOCPPNetworkingNode NodeOf(OCPP.OCPPVersion Version)
+
+            => Version == OCPP.OCPPVersion.OCPP1_6
+                   ? cs01
+                   : cs02;
+
+        #endregion
+
+        #region (private) SshLoginOf(Connection, Key, out Login, out Trust, out Says, out Error)
+
+        /// <summary>
+        /// Who an ssh:// connection signs in as, with what, and which host key
+        /// it believes.
+        /// </summary>
+        /// <remarks>
+        /// One place, for the same reason as WhatItProvesItselfWith: dialling
+        /// and testing a connection have to agree about what it shows.
+        ///
+        /// Always this station's own key. A password on top where the
+        /// connection names credentials - HTTP Basic ones, whose login and
+        /// password are what an SSH server asks for - and only sent where the
+        /// server asks for one, after it proved itself with its host key. Who
+        /// signs in is the URL's login, or the credentials', or else the name
+        /// of the OCPP node that dials.
+        /// </remarks>
+        private Boolean SshLoginOf(ConnectionEntry                            Connection,
+                                   ISshHostKey                                Key,
+                                   [NotNullWhen(true)]  out SshClientOptions? Login,
+                                   [NotNullWhen(true)]  out SshHostKeyTrust?  Trust,
+                                   out String                                 Says,
+                                   [NotNullWhen(false)] out String?           Error)
+        {
+
+            Login  = null;
+            Trust  = null;
+            Says   = "";
+            Error  = null;
+
+            if (Connection.CertificateId is not null)
+            {
+                Error = "it names a TLS client certificate, and an ssh:// connection makes no TLS handshake to show one in";
+                return false;
+            }
+
+            String? password       = null;
+            String? passwordLogin  = null;
+            String? passwordOf     = null;
+
+            if (Connection.AuthenticationId is not null)
+            {
+
+                var credentials = Connections.Authentications.
+                                      FirstOrDefault(entry => entry.Id == Connection.AuthenticationId);
+
+                if (credentials is null)
+                {
+                    Error = "it names credentials that are not configured here";
+                    return false;
+                }
+
+                if (credentials.Kind == AuthenticationKind.TOTP)
+                {
+                    Error = $"it uses '{credentials.Description}', a TOTP password, which is answered over HTTP and not over SSH";
+                    return false;
+                }
+
+                if (String.IsNullOrEmpty(credentials.Password))
+                {
+                    Error = $"it uses '{credentials.Description}', which has no secret set";
+                    return false;
+                }
+
+                password       = credentials.Password;
+                passwordLogin  = credentials.Login;
+                passwordOf     = credentials.Description;
+
+            }
+
+            var urlLogin = Connection.URL.Login;
+
+            if (urlLogin is not null && passwordLogin is not null && urlLogin != passwordLogin)
+            {
+                Error = $"the URL signs in as '{urlLogin}' and '{passwordOf}' as '{passwordLogin}', and it is one login";
+                return false;
+            }
+
+            var username  = urlLogin ?? passwordLogin ?? NodeOf(Connection.OCPPVersion).Id.ToString();
+
+            Trust  = new SshHostKeyTrust(
+                         Connection.SshHostKey,
+                         Connection.URL.Host.ToString(),
+                         Connection.URL.Port ?? IPPort.Parse(22)
+                     );
+
+            Login  = new SshClientOptions {
+                         Username           = username,
+                         VerifyHostKey      = Trust.Verify,
+                         Credentials        = [ Key ],
+                         Password           = password,
+                         ConnectTimeout     = SshConnectTimeout,
+                         KeepAliveInterval  = SshKeepAliveEvery
+                     };
+
+            Says   = $"this station's SSH key ({SshFingerprint.Sha256(Key.PublicKeyBlob)}) as '{username}'" +
+                     (passwordOf is not null
+                          ? $", and the password of '{passwordOf}' where the server asks for one"
+                          : "");
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private) DialOverSSH(Connection, Where, CancellationToken)
+
+        /// <summary>
+        /// One ssh:// connection: who it signs in as, and whether it got
+        /// through.
+        /// </summary>
+        /// <remarks>
+        /// What is final and what is tried again, as over a WebSocket: a server
+        /// not there yet is tried again by itself, and one that answered no is
+        /// not - a host key that is not the one believed, a login it did not
+        /// take, the OCPP subsystem refused. Trying again would not change the
+        /// answer, only fill the log with it.
+        /// </remarks>
+        private async Task DialOverSSH(ConnectionEntry    Connection,
+                                       String             Where,
+                                       CancellationToken  CancellationToken)
+        {
+
+            var node  = NodeOf(Connection.OCPPVersion);
+            var key   = await SshKey.MakeIfNeeded(CancellationToken);
+
+            if (!SshLoginOf(Connection, key, out var login, out var trust, out var says, out var wrong))
+            {
+                Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {Where} {wrong}.");
+                return;
+            }
+
+            // Where it went when it was dialled: a first host key is written
+            // down for this one, and not for wherever it was changed to since.
+            var dialledURL = Connection.URL;
+
+            Log.Info($"Dialling {Where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} {Connection.ConnectionType} over SSH, " +
+                     $"signing in with {says}; " +
+                     (trust.Pinned is not null
+                          ? $"its server must show the host key {trust.Pinned}."
+                          : "no host key is pinned, so the first one its server shows is believed, and written down."),
+                     "ocpp", "connections");
+
+            // To the CSMS, as over a WebSocket - see Dial.
+            var result  = await node.ConnectOCPPClient(
+                                    RemoteURL:                Connection.URL,
+                                    NextHopNetworkingNodeId:  Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
+                                                                  ? NetworkingNode_Id.CentralSystem
+                                                                  : NetworkingNode_Id.CSMS,
+                                    Ssh:                      login,
+                                    CancellationToken:        CancellationToken
+                                );
+
+            var client  = result.Client as WWCPSshClient;
+
+            if (!result.IsConnected)
+            {
+
+                var final        = trust.Refused || IsFinal(result.Error);
+                var keepsTrying  = !final && client is not null && node.ReconnectPolicy is not null;
+
+                if (final && client is not null)
+                    await LetGo(client, "Not tried again.");
+
+                Fail(Connection,
+                     keepsTrying ? ConnectionStatus.Trying
+                                 : final ? ConnectionStatus.Refused
+                                         : ConnectionStatus.Failed,
+                     WhyNotOverSSH(Where, trust, result.Error) +
+                     (keepsTrying
+                          ? "; it is tried again by itself, and said here when it gets through."
+                          : final
+                                ? "; that answer is final, and it is not tried again."
+                                : "; it is not tried again."));
+
+                if (keepsTrying)
+                    FollowOverSSH(Connection, dialledURL, client!, trust, Connected: false);
+
+                return;
+
+            }
+
+            PinIfFirst(Connection, dialledURL, trust);
+
+            if (client is not null)
+                FollowOverSSH(Connection, dialledURL, client, trust, Connected: true);
+
+            else
+                Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
+                             "so nothing could be said about what becomes of it.", "ocpp", "connections");
+
+            Note(Connection, "Connected, and will come back by itself if it drops.");
+
+            ConnectionIsUp(Connection);
+
+        }
+
+        #endregion
+
+        #region (private static) IsFinal(Error) / WhyNotOverSSH(Where, Trust, Error) / ReasonOf(Error)
+
+        /// <summary>
+        /// Whether an answer of the server is one that trying again would not
+        /// change: a login it did not take, or the OCPP subsystem refused.
+        /// </summary>
+        private static Boolean IsFinal(Exception? Error)
+
+            => Error?.GetBaseException() is SshAuthenticationException or SshMessageRefusedException ||
+               Error is SshAuthenticationException or SshMessageRefusedException;
+
+        /// <summary>
+        /// The sentence that says why an ssh:// connection did not get through.
+        /// </summary>
+        private static String WhyNotOverSSH(String Where, SshHostKeyTrust Trust, Exception? Error)
+        {
+
+            if (Trust.Refused)
+                return $"{Where} was not believed: {Trust.WhyRefused()}";
+
+            var error = Error is SshAuthenticationException or SshMessageRefusedException
+                            ? Error
+                            : Error?.GetBaseException();
+
+            return error switch {
+                       SshAuthenticationException  => $"{Where} did not let this station in: {error.Message} " +
+                                                       "Its authorized_keys needs this station's SSH key, which the Connections page shows",
+                       SshMessageRefusedException  => $"{Where} let this station in, and refused it the OCPP subsystem: {error.Message}",
+                       null                        => $"{Where} could not be reached over SSH",
+                       _                           => $"{Where} could not be reached over SSH: {ReasonOf(error)}"
+                   };
+
+        }
+
+        /// <summary>
+        /// What went wrong, in words that are the same on every station: the
+        /// name of a socket error rather than the operating system's own words
+        /// for it, which are translated.
+        /// </summary>
+        private static String ReasonOf(Exception Error)
+
+            => Error is SocketException socket
+                   ? socket.SocketErrorCode.ToString()
+                   : Error.Message;
+
+        #endregion
+
+        #region (private) FollowOverSSH(Connection, DialledURL, Client, Trust, Connected)
+
+        /// <summary>
+        /// Say what becomes of a connection dialled over SSH from here on - as
+        /// Follow does for one over a WebSocket.
+        /// </summary>
+        /// <remarks>
+        /// The client comes back by itself, after a drop and until it gets
+        /// through at all. What it is told by the server that is final - a host
+        /// key not believed, a login not taken - ends that: it is closed, and
+        /// said so. Nothing of it is said once this station let go of it.
+        ///
+        /// Except one thing, which is the library's to tell and it does not: a
+        /// login turned away while the client still tries to get through for
+        /// the first time. Its attempts before the first connection raise no
+        /// event, so such a connection goes on being "not reached" and tried
+        /// again. A host key not believed is heard of all the same - it is
+        /// asked here.
+        /// </remarks>
+        private void FollowOverSSH(ConnectionEntry  Connection,
+                                   URL              DialledURL,
+                                   WWCPSshClient    Client,
+                                   SshHostKeyTrust  Trust,
+                                   Boolean          Connected)
+        {
+
+            var connectedBefore = Connected;
+
+            Client.OnConnected        += (timestamp, transport, connection, networkingNodeId, networkingMode, eventTrackingId, cancellationToken) => {
+
+                if (IsLetGo(Client))
+                    return Task.CompletedTask;
+
+                PinIfFirst(Connection, DialledURL, Trust);
+
+                Note(Connection, connectedBefore
+                                     ? "Connected again, and will come back by itself if it drops."
+                                     : "Connected, and will come back by itself if it drops.");
+
+                connectedBefore = true;
+
+                ConnectionIsUp(Connection);
+
+                return Task.CompletedTask;
+
+            };
+
+            Client.OnConnectionClosed += (timestamp, transport, connection, networkingNodeId, close, cancellationToken) => {
+
+                if (!IsLetGo(Client))
+                    Fail(Connection, ConnectionStatus.Lost,
+                         $"'{Connection.Description}' was lost ({close.Code?.ToString() ?? "without a word"}" +
+                         $"{(String.IsNullOrWhiteSpace(close.Reason) ? "" : $": {close.Reason}")}); it comes back by itself.");
+
+                return Task.CompletedTask;
+
+            };
+
+            // Asked before every attempt, so this is where a server that shows
+            // another host key than before is noticed, whichever attempt it is.
+            Trust.OnRefused           += why => {
+
+                if (IsLetGo(Client))
+                    return;
+
+                Fail(Connection, ConnectionStatus.Refused,
+                     $"'{Connection.Description}' was not believed when it was tried again: {why}; " +
+                      "that answer is final, and it is not tried again.");
+
+                _ = Task.Run(() => LetGo(Client, "Not believed."));
+
+            };
+
+            // After an attempt to come back after a drop that failed.
+            Client.MessageClient.OnConnectFailed += (timestamp, sender, error, attempt, nextAttemptIn, cancellationToken) => {
+
+                if (IsLetGo(Client) || Trust.Refused)
+                    return Task.CompletedTask;
+
+                if (IsFinal(error))
+                {
+
+                    Fail(Connection, ConnectionStatus.Refused,
+                         WhyNotOverSSH($"'{Connection.Description}'", Trust, error) +
+                         " when it was tried again; that answer is final, and it is not tried again.");
+
+                    _ = Task.Run(() => LetGo(Client, "Not tried again."));
+
+                }
+
+                else if (nextAttemptIn is TimeSpan delay)
+                {
+                    Log.Debug($"'{Connection.Description}': trying again in {delay.TotalSeconds:F1} s (attempt {attempt + 1}).", "ocpp", "connections");
+                    NextAttempt(Connection, attempt + 1, delay);
+                }
+
+                else
+                    Fail(Connection, ConnectionStatus.Failed,
+                         $"{WhyNotOverSSH($"'{Connection.Description}'", Trust, error)}; it was tried {attempt} time(s), and is not tried again.");
+
+                return Task.CompletedTask;
+
+            };
+
+        }
+
+        #endregion
+
+        #region (private) PinIfFirst(Connection, DialledURL, Trust)
+
+        /// <summary>
+        /// Write down the host key the first connection of one that pinned none
+        /// was shown.
+        /// </summary>
+        private void PinIfFirst(ConnectionEntry  Connection,
+                                URL              DialledURL,
+                                SshHostKeyTrust  Trust)
+        {
+
+            if (Trust.Pinned is not null || Trust.Shown is not String shown)
+                return;
+
+            if (!Connections.TryPinHostKey(Connection.Id, DialledURL, shown, out var notWritten) && notWritten is not null)
+                Log.Warning($"'{Connection.Description}' was shown the host key {shown} on its first connection, and it could not be " +
+                            $"written down: {notWritten}. It is the only one believed until this station starts again.",
+                            "ocpp", "connections", "ssh", "security");
+
+        }
+
+        #endregion
+
+        #region (private) LetGo(Client, Reason) / IsLetGo(Client)
+
+        /// <summary>
+        /// Close an SSH client this station is done with, and say nothing more
+        /// of what it says from here on.
+        /// </summary>
+        private async Task LetGo(WWCPSshClient Client, String Reason)
+        {
+
+            lock (lettingGo)
+                lettingGo.Add(Client);
+
+            try
+            {
+                await Client.Close(MessageCloseCode.NormalClosure, Reason);
+            }
+            catch (Exception e)
+            {
+                Log.Debug($"A connection to {Client.TransportDescription} did not close cleanly: {e.Message}", "ocpp", "connections");
+            }
+
+        }
+
+        /// <summary>
+        /// Whether this station let go of the given SSH client.
+        /// </summary>
+        private Boolean IsLetGo(WWCPSshClient Client)
+        {
+            lock (lettingGo)
+                return lettingGo.Contains(Client);
+        }
 
         #endregion
 
@@ -668,6 +1128,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="AutoConnect">Whether this is one the station would connect to by itself, which the answer mentions but does not act on.</param>
         /// <param name="AuthenticationId">The credentials to prove itself with, by identification.</param>
         /// <param name="CertificateId">The client certificate to prove itself with, by identification.</param>
+        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show; none to be told which one it shows.</param>
         public async Task<JObject> TestConnection(String?            Description,
                                                   String?            URL,
                                                   String?            ConnectionType,
@@ -675,7 +1136,8 @@ namespace cloud.charging.open.ChargingStation
                                                   Boolean            AutoConnect           = false,
                                                   String?            AuthenticationId      = null,
                                                   String?            CertificateId         = null,
-                                                  CancellationToken  CancellationToken     = default)
+                                                  CancellationToken  CancellationToken     = default,
+                                                  String?            SshHostKey            = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -709,7 +1171,8 @@ namespace cloud.charging.open.ChargingStation
             // test of a half-filled form should say what is missing rather
             // than fail at a socket with something less useful.
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
-                                          out var url, out var type, out var version, out var notYet))
+                                          out var url, out var type, out var version, out var notYet) ||
+                !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet))
             {
                 Step("error", notYet);
                 return Done(null, false);
@@ -727,7 +1190,8 @@ namespace cloud.charging.open.ChargingStation
                                  OCPPVersion       = version,
                                  AutoConnect       = AutoConnect,
                                  AuthenticationId  = ConnectionEntry.Named(AuthenticationId),
-                                 CertificateId     = ConnectionEntry.Named(CertificateId)
+                                 CertificateId     = ConnectionEntry.Named(CertificateId),
+                                 SshHostKey        = hostKey
                              };
 
             #endregion
@@ -739,19 +1203,57 @@ namespace cloud.charging.open.ChargingStation
             Step("info", $"{ConnectionEntry.AsText(connection.OCPPVersion)} to {connection.URL}, " +
                          $"written down as {connection.ConnectionType}.");
 
-            Step(connection.IsSecure ? "info" : "warning",
-                 connection.IsSecure
-                     ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
-                     : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
+            IHTTPAuthentication?  basic         = null;
+            TOTPConfig?           totp          = null;
+            X509Certificate2[]?   certificates  = null;
+            SshClientOptions?     sshLogin      = null;
+            SshHostKeyTrust?      sshTrust      = null;
 
-            if (!WhatItProvesItselfWith(connection, out var basic, out var totp, out var certificates, out var proves, out var wrong))
+            if (connection.IsSSH)
             {
-                Step("error", $"Not tried: {wrong}.");
-                Log.Warning($"The connection test for '{connection.Description}' was not run: {wrong}.", "ocpp", "connections", "test");
-                return Done(connection, false);
-            }
 
-            Step("info", $"It will prove itself with {proves}.");
+                Step("info", $"The URL is an ssh:// one: OCPP goes over the SSH subsystem {OCPPCommon.SSH.OCPPSshServer.OCPPSubsystem}, " +
+                              "encrypted, and its server is known by its host key.");
+
+                // Made here where there is none yet: a test of an ssh://
+                // connection is a test of signing in with it.
+                var key = await SshKey.MakeIfNeeded(CancellationToken);
+
+                if (!SshLoginOf(connection, key, out sshLogin, out sshTrust, out var signsIn, out var notSSH))
+                {
+                    Step("error", $"Not tried: {notSSH}.");
+                    Log.Warning($"The connection test for '{connection.Description}' was not run: {notSSH}.", "ocpp", "connections", "test");
+                    return Done(connection, false);
+                }
+
+                Step("info", $"It will sign in with {signsIn}. The server lets it in where its authorized_keys has this line: " +
+                             $"{SshKey.PublicKeyLine}");
+
+                Step(sshTrust.Pinned is not null ? "info" : "warning",
+                     sshTrust.Pinned is not null
+                         ? $"Its server must show the host key {sshTrust.Pinned}."
+                         : "No host key is pinned. Whatever key the server shows is said below and believed for this test; " +
+                           "a test writes nothing down, so the first connection this station makes pins it.");
+
+            }
+            else
+            {
+
+                Step(connection.IsSecure ? "info" : "warning",
+                     connection.IsSecure
+                         ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
+                         : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
+
+                if (!WhatItProvesItselfWith(connection, out basic, out totp, out certificates, out var proves, out var wrong))
+                {
+                    Step("error", $"Not tried: {wrong}.");
+                    Log.Warning($"The connection test for '{connection.Description}' was not run: {wrong}.", "ocpp", "connections", "test");
+                    return Done(connection, false);
+                }
+
+                Step("info", $"It will prove itself with {proves}.");
+
+            }
 
             if (!connection.AutoConnect)
                 Step("info", "This is not one the station connects to by itself. A test that gets through does not " +
@@ -803,7 +1305,9 @@ namespace cloud.charging.open.ChargingStation
             // one. Measured, against a port nothing was listening on. So the
             // reachable-or-not question is settled here, before anything can
             // invent an answer to it.
-            var port = connection.URL.Port?.ToUInt16() ?? (connection.IsSecure ? (UInt16) 443 : (UInt16) 80);
+            var port = connection.URL.Port?.ToUInt16() ?? (connection.IsSSH    ? (UInt16)  22
+                                                         : connection.IsSecure ? (UInt16) 443
+                                                                               : (UInt16)  80);
 
             try
             {
@@ -831,7 +1335,7 @@ namespace cloud.charging.open.ChargingStation
                               : e.GetType().Name;
 
                 Step("error", $"Nothing accepted a TCP connection on {host}:{port} ({why}). " +
-                              "There is nothing to speak WebSocket to, so the rest was not tried.");
+                              $"There is nothing to speak {(connection.IsSSH ? "SSH" : "WebSocket")} to, so the rest was not tried.");
 
                 Log.Warning($"The connection test for '{connection.Description}' found nothing at {host}:{port}: {why}.",
                             "ocpp", "connections", "test");
@@ -841,6 +1345,9 @@ namespace cloud.charging.open.ChargingStation
             }
 
             #endregion
+
+            if (connection.IsSSH)
+                return await TestOverSSH(connection, sshLogin!, sshTrust!, Step, Done, CancellationToken);
 
             WebSocketClient? client = null;
 
@@ -976,6 +1483,130 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) TestOverSSH(Connection, Login, Trust, Step, Done, CancellationToken)
+
+        /// <summary>
+        /// The rest of a connection test over SSH, once a TCP connection could
+        /// be made: sign in, ask for the OCPP subsystem, hold it briefly, and
+        /// let go.
+        /// </summary>
+        /// <remarks>
+        /// Its own client, as over a WebSocket, and not one of the OCPP nodes':
+        /// nothing it is told reaches them, and nothing of it is left behind.
+        /// </remarks>
+        private async Task<JObject> TestOverSSH(ConnectionEntry                      Connection,
+                                                SshClientOptions                     Login,
+                                                SshHostKeyTrust                      Trust,
+                                                Action<String, String>               Step,
+                                                Func<ConnectionEntry?, Boolean, JObject>  Done,
+                                                CancellationToken                    CancellationToken)
+        {
+
+            var subprotocols  = SubProtocolsOf(Connection.OCPPVersion);
+
+            var client        = new WWCPSshClient(
+                                    NodeOf(Connection.OCPPVersion),
+                                    WWCPSshClient.OptionsFrom(Connection.URL, Login, OCPPCommon.SSH.OCPPSshServer.OCPPSubsystem, subprotocols),
+                                    ConnectAs: WWCPSshClient.ConnectAsFrom(Connection.URL)
+                                );
+
+            client.MessageClient.OnTextMessageReceived   += (timestamp, sender, connection, text, cancellationToken) => {
+                Step("info", $"Received: {(text.Length > 400 ? text[..400] + " ..." : text)}");
+                return Task.CompletedTask;
+            };
+
+            client.MessageClient.OnBinaryMessageReceived += (timestamp, sender, connection, bytes, cancellationToken) => {
+                Step("info", $"Received {bytes.Length} byte(s) of binary.");
+                return Task.CompletedTask;
+            };
+
+            client.OnConnectionClosed                    += (timestamp, transport, connection, networkingNodeId, close, cancellationToken) => {
+                if (close.ByPeer)
+                    Step("info", $"The other end closed the connection: {close.Code?.ToString() ?? "without a word"}" +
+                                 $"{(String.IsNullOrWhiteSpace(close.Reason) ? "" : $" ({close.Reason})")}.");
+                return Task.CompletedTask;
+            };
+
+            String ShownKey()
+                => $"{Trust.ShownKind} {Trust.Shown}";
+
+            try
+            {
+
+                Step("info", $"Connecting as '{Login.Username}', asking for {OCPPCommon.SSH.OCPPSshServer.OCPPSubsystem} " +
+                             $"and offering {String.Join(", ", subprotocols)} ...");
+
+                var connection = await client.Connect(CancellationToken);
+
+                Step("info", Trust.Pinned is not null
+                                 ? $"The server showed the host key {ShownKey()}, the one pinned."
+                                 : $"The server showed the host key {ShownKey()}. None is pinned, so it was believed. Pin it to decide yourself; " +
+                                    "otherwise the first connection this station makes writes it down.");
+
+                Step("notice", connection.Subprotocol is String agreedOn && agreedOn.Length > 0
+                                   ? $"Connected. The server let '{Login.Username}' in and took {agreedOn}."
+                                   : $"Connected, and the server let '{Login.Username}' in, but it named no OCPP version. Whatever is " +
+                                      "there took the connection without agreeing to speak OCPP.");
+
+                Step("info", $"Staying connected for {TestHoldsFor.TotalSeconds:0.#} second(s), to see whether anything is said.");
+
+                await Task.Delay(TestHoldsFor, CancellationToken);
+
+                Step("info", "Closing.");
+
+                await client.Close(MessageCloseCode.NormalClosure, "Connection test finished");
+
+                Step("notice", "Closed. The connection can be made.");
+
+                Log.Notice($"The connection test for '{Connection.Description}' got through.", "ocpp", "connections", "test");
+
+                return Done(Connection, true);
+
+            }
+            catch (Exception e)
+            {
+
+                if (Trust.Refused)
+                    Step("error", $"Not believed: {Trust.WhyRefused()}. Nothing was signed in.");
+
+                else
+                {
+
+                    if (Trust.Shown is not null)
+                        Step("info", $"The server showed the host key {ShownKey()}{(Trust.Pinned is not null ? ", the one pinned" : "")}.");
+
+                    var error = e is SshAuthenticationException or SshMessageRefusedException ? e : e.GetBaseException();
+
+                    Step("error", error switch {
+                                      SshAuthenticationException  => $"The server did not let '{Login.Username}' in: {error.Message} " +
+                                                                      $"Its authorized_keys needs this station's key: {SshKey.PublicKeyLine}",
+                                      SshMessageRefusedException  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: {error.Message}",
+                                      _                           => $"{error.GetType().Name}: {ReasonOf(error)}"
+                                  });
+
+                }
+
+                Log.Warning($"The connection test for '{Connection.Description}' failed: " +
+                            $"{(Trust.Refused ? Trust.WhyRefused() : ReasonOf(e.GetBaseException()))}", "ocpp", "connections", "test");
+
+                return Done(Connection, false);
+
+            }
+            finally
+            {
+                // Whatever happened, nothing of this test is left connected.
+                try
+                {
+                    await client.DisposeAsync();
+                }
+                catch
+                { }
+            }
+
+        }
+
+        #endregion
+
         #region (private) DialAgain(Old16, Old21, Changed)
 
         /// <summary>
@@ -1014,9 +1645,17 @@ namespace cloud.charging.open.ChargingStation
             try
             {
 
-                var clients = Old16.OCPPWebSocketClients.OfType<WebSocketClient>().
-                                  Concat(Old21.OCPPWebSocketClients.OfType<WebSocketClient>()).
-                                  ToArray();
+                var clients     = Old16.OCPPWebSocketClients.OfType<WebSocketClient>().
+                                      Concat(Old21.OCPPWebSocketClients.OfType<WebSocketClient>()).
+                                      ToArray();
+
+                var sshClients  = Old16.WWCPSshClients.
+                                      Concat(Old21.WWCPSshClients).
+                                      ToArray();
+
+                // Before the nodes stop, which closes them too - as a loss.
+                foreach (var sshClient in sshClients)
+                    await LetGo(sshClient, $"{Changed} changed; it connects again.");
 
                 // As HangUp does: without its policy first, so that the close
                 // is neither a loss nor something to come back from.
@@ -1046,11 +1685,11 @@ namespace cloud.charging.open.ChargingStation
                     }
                 }
 
-                if (started && clients.Length > 0)
+                if (started && clients.Length + sshClients.Length > 0)
                 {
 
                     Log.Notice($"{Changed} changed, so what the OCPP nodes it replaced were connected to was hung up " +
-                               $"({clients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
+                               $"({clients.Length + sshClients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
 
                     await DialConfiguredConnections();
 
@@ -1096,6 +1735,9 @@ namespace cloud.charging.open.ChargingStation
                     Log.Debug($"A connection to {client.RemoteURL} did not close cleanly: {e.Message}", "ocpp", "connections");
                 }
             }
+
+            foreach (var sshClient in cs01.WWCPSshClients.Concat(cs02.WWCPSshClients))
+                await LetGo(sshClient, "This station hangs up.");
 
             lock (dialled)
                 dialled.Clear();

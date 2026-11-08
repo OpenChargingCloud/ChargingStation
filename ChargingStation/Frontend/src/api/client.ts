@@ -742,9 +742,13 @@ export interface StationConnection {
     autoConnect:  boolean;
     /** Whether the URL makes a TLS connection, which decides what the rest can mean. */
     secure:              boolean;
+    /** Over an HTTP WebSocket, or over the SSH subsystem ocpp@open.charging.cloud. */
+    transport?:          'websocket' | 'ssh';
     createdAt:           string;
     authenticationId?:   string;
     certificateId?:      string;
+    /** The host key the server of an ssh:// connection must show; none for the first one it shows. */
+    sshHostKey?:         string;
     warnings?:           string[];
 }
 
@@ -758,6 +762,22 @@ export interface ConnectionToSave {
     autoConnect:  boolean;
     authenticationId:    string | null;
     certificateId:       string | null;
+    /** The host key typed: "" for none. */
+    sshHostKey?:         string;
+    /**
+     * The host key the page showed when it was drawn: where the one typed is
+     * still that one, the station keeps the one it has now - written down by
+     * the first connection meanwhile, perhaps.
+     */
+    sshHostKeyAsShown?:  string;
+}
+
+/** The key this station signs in with over SSH. */
+export interface StationSshKey {
+    /** Its public half, as a line of authorized_keys. */
+    publicKey:    string;
+    fingerprint:  string;
+    path:         string;
 }
 
 /** One line of what happened while a connection was being tested. */
@@ -830,6 +850,8 @@ export interface StationConnections extends ConnectionStates {
     authentications:       StationLogin[];
     connections:           StationConnection[];
     certificates:          ConnectionCertificate[];
+    /** Null until the first ssh:// connection made it. */
+    sshClientKey?:         StationSshKey | null;
     connectionTypes:       string[];
     ocppVersions:          string[];
     maxDescriptionLength:  number;

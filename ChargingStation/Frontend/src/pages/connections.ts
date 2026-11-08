@@ -26,6 +26,11 @@ import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStat
  * removed next door. None of it is refused, because a station on a bench
  * talking to a test back end over ws:// is a real thing to want.
  *
+ * An ssh:// connection signs in with this station's own SSH key, whose public
+ * half is shown here to be handed to the server, and checks the server by the
+ * host key written beside it - or, where none is, believes the first one and
+ * writes it in.
+ *
  * And where each connection stands - connected, lost and coming back, turned
  * away - asked again every few seconds while the page is in view, because this
  * is where somebody looks to find out whether the station is on its back end,
@@ -126,6 +131,8 @@ export const connectionsPage: Page = {
 
                 </section>
 
+                ${sshKeyView(state)}
+
                 <section class="card">
 
                     <h2><i class="fa-solid fa-list"></i> What is configured</h2>
@@ -175,6 +182,19 @@ export const connectionsPage: Page = {
                     <span class="hint">
                         Write the scheme. <code>wss://</code> is encrypted and <code>ws://</code> is not, and
                         this station will not decide that for you - everything below depends on which it is.
+                        <code>ssh://cs001@csms.example.org:2222</code> speaks the same OCPP over SSH, signed in
+                        with this station's own key.
+                    </span>
+                </label>
+
+                <label>Host key of its server
+                    <input type="text" name="sshHostKey" class="mono"
+                           placeholder="SHA256:... or ssh-ed25519 AAAA..." value="${entry?.sshHostKey ?? ''}"
+                           ?disabled=${!mayManage} />
+                    <span class="hint">
+                        For an <code>ssh://</code> URL only: the fingerprint or the public-key line its server must
+                        show. Left empty, the first server that answers is believed, and the key it shows is
+                        written in here. Testing says which key that is.
                     </span>
                 </label>
 
@@ -254,7 +274,9 @@ export const connectionsPage: Page = {
                     </select>
                     <span class="hint">
                         One of them. Credentials come from the Authentication page and certificates from the
-                        Certificates page; anything missing here is missing there.
+                        Certificates page; anything missing here is missing there. Over <code>ssh://</code> this
+                        station always signs in with its own SSH key, and HTTP Basic credentials add their
+                        login and password.
                     </span>
                 </label>
 
@@ -274,9 +296,11 @@ export const connectionsPage: Page = {
                         <strong>${entry.description}</strong>
                         <span class="chip">${entry.connectionType}</span>
                         <span class="chip">${entry.ocppVersion}</span>
-                        ${entry.secure
-                              ? html`<span class="chip on">TLS</span>`
-                              : html`<span class="chip warn">no TLS</span>`}
+                        ${entry.transport === 'ssh'
+                              ? html`<span class="chip on">SSH</span>`
+                              : entry.secure
+                                    ? html`<span class="chip on">TLS</span>`
+                                    : html`<span class="chip warn">no TLS</span>`}
                         ${entry.autoConnect
                               ? html`<span class="chip on">connects by itself</span>`
                               : html`<span class="chip">configured only</span>`}
@@ -288,14 +312,23 @@ export const connectionsPage: Page = {
                         <dt>Where</dt>   <dd><code>${entry.url}</code></dd>
                         <dt>Proves itself</dt>
                         <dd>
+                            ${entry.transport === 'ssh' ? html`This station's SSH key${credentials !== undefined ? ', and the password of ' : ''}` : nothing}
                             ${credentials !== undefined
                                   ? html`${credentials.description} (${credentials.kind === 'basic' ? 'HTTP Basic' : 'HTTP TOTP'})`
                                   : certificate !== undefined
                                         ? html`Client certificate ${certificate.subject || certificate.id}`
                                         : entry.authenticationId !== undefined || entry.certificateId !== undefined
                                               ? html`<span class="hint">something that is no longer here</span>`
-                                              : html`<span class="hint">nothing</span>`}
+                                              : entry.transport === 'ssh'
+                                                    ? nothing
+                                                    : html`<span class="hint">nothing</span>`}
                         </dd>
+                        ${entry.transport === 'ssh' ? html`
+                            <dt>Host key</dt>
+                            <dd>${entry.sshHostKey !== undefined
+                                      ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshHostKey}</code>`
+                                      : html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is believed</span>`}</dd>
+                        ` : nothing}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
                     </dl>
 
@@ -334,6 +367,58 @@ export const connectionsPage: Page = {
                 </div>
             `;
 
+        }
+
+        /**
+         * The key this station signs in with over SSH: its public half, for the
+         * authorized_keys of the servers it dials. Only where there is one, or
+         * an ssh:// connection that will make it.
+         */
+        function sshKeyView(state: StationConnections): TemplateResult | typeof nothing {
+
+            const key = state.sshClientKey ?? null;
+
+            if (key === null && !state.connections.some(one => one.transport === 'ssh'))
+                return nothing;
+
+            return html`
+                <section class="card" id="ssh-key">
+
+                    <h2><i class="fa-solid fa-key"></i> This station's SSH key</h2>
+
+                    ${key === null ? html`
+                        <p class="hint">
+                            None yet. It is made when an <code>ssh://</code> connection is written down, tested or
+                            dialled.
+                        </p>
+                    ` : html`
+                        <p class="hint">
+                            What this station signs in with over <code>ssh://</code>. This line goes into the
+                            <code>authorized_keys</code> of every server it dials that way. It is not a secret: the
+                            private half stays in <code>${key.path}</code>.
+                        </p>
+                        <textarea id="ssh-public-key" class="mono" rows="3" readonly .defaultValue=${key.publicKey}></textarea>
+                        <div class="form-actions">
+                            <button type="button" id="copy-ssh-key" class="btn small" @click=${copySshKey}>Copy</button>
+                            <span class="hint">${key.fingerprint}</span>
+                            <span id="copy-ssh-key-note" class="form-notice" role="status"></span>
+                        </div>
+                    `}
+
+                </section>
+            `;
+
+        }
+
+        function copySshKey(): void {
+            const box = content.querySelector<HTMLTextAreaElement>('#ssh-public-key');
+            if (box === null)
+                return;
+            box.select();
+            void navigator.clipboard?.writeText(box.value).then(
+                () => { must<HTMLElement>(content, '#copy-ssh-key-note').textContent = 'Copied.'; },
+                () => { must<HTMLElement>(content, '#copy-ssh-key-note').textContent = 'Select it and copy it by hand.'; }
+            );
         }
 
         /** Where one connection stands, as a chip, since when, and what the station said. */
@@ -454,9 +539,16 @@ export const connectionsPage: Page = {
          */
         function readFrom(form: HTMLFormElement, id?: string): ConnectionToSave {
 
-            const proves = field(form, 'proves');
+            const proves   = field(form, 'proves');
+
+            // As drawn, beside as typed: left as it was, the station keeps the
+            // one it has, which the first connection may have written down
+            // since this page last asked.
+            const hostKey  = form.querySelector<HTMLInputElement>('[name="sshHostKey"]');
 
             return {
+                sshHostKey:          hostKey?.value.trim() ?? '',
+                ...(id !== undefined && hostKey !== null ? { sshHostKeyAsShown: hostKey.defaultValue.trim() } : {}),
                 id,
                 description:         field(form, 'description'),
                 url:                 field(form, 'url'),

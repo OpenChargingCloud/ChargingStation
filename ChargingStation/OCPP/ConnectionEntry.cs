@@ -22,6 +22,7 @@ using System.Diagnostics.CodeAnalysis;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
 #endregion
 
@@ -125,13 +126,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// that way and means the same endpoint - refusing it would be
         /// pedantry, and taking it silently would hide which one is meant, so
         /// it is taken and said out loud on the page.
+        ///
+        /// And ssh: the same OCPP over the SSH subsystem
+        /// "ocpp@open.charging.cloud", signed in with this station's own key -
+        /// "ssh://cs001@csms.example.org:2222".
         /// </remarks>
         public static readonly URIScheme[] AllowedSchemes = [
                                                                 URIScheme.ws,
                                                                 URIScheme.wss,
                                                                 URIScheme.http,
-                                                                URIScheme.https
+                                                                URIScheme.https,
+                                                                URIScheme.ssh
                                                             ];
+
+        /// <summary>
+        /// The longest a host key may be written: a public-key line of an RSA
+        /// key of 4096 bits, and room to spare.
+        /// </summary>
+        public const Int32 MaxHostKeyLength      = 1000;
 
         #endregion
 
@@ -194,6 +206,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public String?         CertificateId        { get; internal set; }
 
         /// <summary>
+        /// The host key the server of an ssh:// connection must show: a
+        /// SHA-256 fingerprint ("SHA256:...") or a public-key line - or null.
+        /// </summary>
+        /// <remarks>
+        /// Null is trust on first use: the first connection that gets through
+        /// writes the key it was shown here, and from then on only that one is
+        /// taken. Written down rather than only remembered, so that it
+        /// survives a restart and can be read, and corrected, on the page.
+        /// </remarks>
+        public String?         SshHostKey           { get; internal set; }
+
+        /// <summary>
         /// When this was written down.
         /// </summary>
         public DateTimeOffset  CreatedAt            { get; }
@@ -206,6 +230,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             => URL.Scheme == URIScheme.wss ||
                URL.Scheme == URIScheme.https;
+
+        /// <summary>
+        /// Whether the connection is made over SSH rather than as an HTTP
+        /// WebSocket - encrypted, and the server known by its host key rather
+        /// than by a TLS certificate.
+        /// </summary>
+        public Boolean         IsSSH
+
+            => URL.Scheme == URIScheme.ssh;
 
         /// <summary>
         /// What is worth saying about this connection that is not an error:
@@ -401,7 +434,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             // to be secure because somebody left four characters out.
             if (!urlText.Contains("://", StringComparison.Ordinal))
             {
-                Error = "The URL says no scheme - write ws:// or wss:// in front of it. " +
+                Error = "The URL says no scheme - write ws://, wss:// or ssh:// in front of it. " +
                         "Which one it is decides whether this connection is encrypted, so it is not guessed at here.";
                 return false;
             }
@@ -414,13 +447,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             if (url.Scheme is null)
             {
-                Error = "The URL says no scheme - write ws:// or wss:// in front of it.";
+                Error = "The URL says no scheme - write ws://, wss:// or ssh:// in front of it.";
                 return false;
             }
 
             if (!AllowedSchemes.Contains(url.Scheme))
             {
-                Error = $"'{url.Scheme}' is not something this station dials. OCPP goes over ws or wss.";
+                Error = $"'{url.Scheme}' is not something this station dials. OCPP goes over ws, wss or ssh.";
                 return false;
             }
 
@@ -441,6 +474,67 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             URL   = url;
             Type  = type;
+
+            return true;
+
+        }
+
+        #endregion
+
+        #region (static) ValidateHostKey(URL, Text, out HostKey, out Error)
+
+        /// <summary>
+        /// The host key a connection pins, as it is written down - or the one
+        /// sentence that says what is wrong with it.
+        /// </summary>
+        /// <remarks>
+        /// Read as the SSH client reads it, so that what is taken here is what
+        /// is checked when the station dials: a fingerprint that starts with
+        /// "SHA256:" or "MD5:", or a public-key line. Only for ssh://: the
+        /// server of a WebSocket is known by its TLS certificate, and a host
+        /// key written down beside it would look like a check nothing makes.
+        /// </remarks>
+        /// <param name="URL">Where the connection goes.</param>
+        /// <param name="Text">The host key as written; nothing for none.</param>
+        /// <param name="HostKey">The host key, trimmed; null for none.</param>
+        /// <param name="Error">What is wrong with it.</param>
+        public static Boolean ValidateHostKey(URL                              URL,
+                                              String?                          Text,
+                                              out String?                      HostKey,
+                                              [NotNullWhen(false)] out String? Error)
+        {
+
+            HostKey  = Named(Text);
+            Error    = null;
+
+            if (HostKey is null)
+                return true;
+
+            if (URL.Scheme != URIScheme.ssh)
+            {
+                Error    = "A host key is what an ssh:// connection checks its server by. This one goes over a WebSocket, " +
+                           "whose server is known by its TLS certificate.";
+                HostKey  = null;
+                return false;
+            }
+
+            if (HostKey.Length > MaxHostKeyLength)
+            {
+                Error    = $"A host key may be written in at most {MaxHostKeyLength} characters.";
+                HostKey  = null;
+                return false;
+            }
+
+            try
+            {
+                HostKeyPolicy.Pin(HostKey);
+            }
+            catch (ArgumentException)
+            {
+                Error    = $"'{HostKey}' is neither a fingerprint (SHA256:...) nor a public-key line (ssh-ed25519 AAAA...).";
+                HostKey  = null;
+                return false;
+            }
 
             return true;
 
@@ -481,6 +575,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
             }
 
+            if (!ValidateHostKey(url, JSON.Value<String>("sshHostKey"), out var hostKey, out Error))
+                return false;
+
             Entry = new ConnectionEntry(
                         id,
                         (JSON.Value<String>("description") ?? "").Trim(),
@@ -491,7 +588,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         OCPPVersion         = version,
                         AutoConnect  = JSON.Value<Boolean?>("autoConnect") ?? false,
                         AuthenticationId    = Named(JSON.Value<String>("authenticationId")),
-                        CertificateId       = Named(JSON.Value<String>("certificateId"))
+                        CertificateId       = Named(JSON.Value<String>("certificateId")),
+                        SshHostKey          = hostKey
                     };
 
             Error = null;
@@ -522,11 +620,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
                            new JProperty("ocppVersion",         AsText(OCPPVersion)),
                            new JProperty("autoConnect",  AutoConnect),
                            new JProperty("secure",              IsSecure),
+                           new JProperty("transport",           IsSSH ? "ssh" : "websocket"),
                            new JProperty("createdAt",           CreatedAt.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"))
                        );
 
             if (AuthenticationId is not null)  json.Add(new JProperty("authenticationId",  AuthenticationId));
             if (CertificateId    is not null)  json.Add(new JProperty("certificateId",     CertificateId));
+            if (SshHostKey       is not null)  json.Add(new JProperty("sshHostKey",        SshHostKey));
 
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
@@ -550,7 +650,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    OCPPVersion       = OCPPVersion,
                    AutoConnect       = AutoConnect,
                    AuthenticationId  = AuthenticationId,
-                   CertificateId     = CertificateId
+                   CertificateId     = CertificateId,
+                   SshHostKey        = SshHostKey
                };
 
         #endregion

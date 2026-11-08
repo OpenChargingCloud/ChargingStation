@@ -5,7 +5,9 @@
  * where the connections stand being asked again; one written down empties the
  * form; one saved says what the station took; the card after one removed
  * stays; a connection refused stays typed, with why; the test dialog says
- * what came of it and no longer that it is connecting.
+ * what came of it and no longer that it is connecting; an ssh:// connection
+ * shows the key this station signs in with and its host key, and a save of it
+ * says which host key the page showed.
  *
  * Run with `npm test`.
  */
@@ -25,6 +27,9 @@ let held: StationConnections;
 
 /** Where the stand-in says the connections stand, asked on their own. */
 let standing: Record<string, ConnectionState> = {};
+
+/** What the page sent the last time it saved a connection. */
+let lastSaved: ConnectionToSave | null = null;
 
 function aConnection(id: string, more: Partial<StationConnection> = {}): StationConnection {
     return { id, description: `CSMS ${id}`, url: `wss://csms.example.org/${id}`, connectionType: 'CSMS', ocppVersion: 'OCPP2.1',
@@ -68,6 +73,7 @@ function station({ method, path, body }: Asked): unknown {
 
     if (path === '/configuration/connections/update') {
         const entry = body as ConnectionToSave;
+        lastSaved   = entry;
         // A station takes what it takes: a URL as it writes it.
         held = { ...held, connections: held.connections.map(one => one.id === entry.id
                                                                    ? { ...one, description: entry.description, url: entry.url.toLowerCase() }
@@ -95,8 +101,19 @@ function station({ method, path, body }: Asked): unknown {
 
 }
 
-async function opened(): Promise<HTMLElement> {
-    held     = aStation();
+/** A station whose first connection goes over SSH and pins no host key yet. */
+function anSshStation(): StationConnections {
+    const station = aStation();
+    const ssh     = aConnection('c1', { url: 'ssh://cs001@csms.example.org:2222', secure: false, transport: 'ssh' });
+    return { ...station,
+             connections:   [ ssh, station.connections[1] ],
+             sshClientKey:  { publicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStandIn chargingstation@bench',
+                              fingerprint: 'SHA256:standIn', path: 'connections/ssh/id_ed25519' } };
+}
+
+async function opened(make: () => StationConnections = aStation): Promise<HTMLElement> {
+    held     = make();
+    lastSaved = null;
     standing = held.states;
     return open(connectionsPage, '/configuration/connections', [ 'connections:read', 'connections:edit', 'connections:run' ],
                 station, root => root.querySelector('#add-form') !== null);
@@ -200,6 +217,48 @@ describe('the Connections page', () => {
 
         assert.equal(root.querySelector('#add-error')!.textContent, 'A connection needs somewhere to go.');
         assert.equal(field(root, '#add-form', 'description').value, 'nowhere', 'what was typed went');
+
+    });
+
+    it('shows an ssh:// connection with the key this station signs in with, and its host key', async () => {
+
+        const root = await opened(anSshStation);
+
+        assert.equal(root.querySelector<HTMLTextAreaElement>('#ssh-public-key')?.value,
+                     'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStandIn chargingstation@bench', 'the key to hand the server is not shown');
+
+        const chips = [ ...cardOf(root, 'c1')!.querySelectorAll('.key-head .chip') ].map(chip => chip.textContent?.trim());
+
+        assert.ok(chips.includes('SSH'),     'the connection does not say it goes over SSH');
+        assert.ok(!chips.includes('no TLS'), 'a connection over SSH is said to be unencrypted');
+        assert.match(root.querySelector('[data-host-key="c1"]')?.textContent ?? '', /none pinned yet/);
+
+        // A station without one has no card for it.
+        const plain = await opened();
+        assert.equal(plain.querySelector('#ssh-key'), null, 'a station that dials nothing over SSH shows a key card');
+
+    });
+
+    it('says which host key the page showed when an ssh:// connection is saved', async () => {
+
+        const root = await opened(anSshStation);
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal(lastSaved!.sshHostKey,         '', 'a host key was sent that nobody typed');
+        assert.equal(lastSaved!.sshHostKeyAsShown,  '', 'what the page showed was not sent beside it');
+
+        lastSaved = null;
+        await until(() => root.querySelector('[data-note="c1"]')?.textContent === 'Saved.', 'the save was not said');
+
+        field(root, 'form[data-edit="c1"]', 'sshHostKey').value = '  SHA256:typedIn ';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved again');
+
+        assert.equal(lastSaved!.sshHostKey,         'SHA256:typedIn');
+        assert.equal(lastSaved!.sshHostKeyAsShown,  '', 'what the page showed became what was typed');
 
     });
 

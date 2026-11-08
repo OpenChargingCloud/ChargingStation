@@ -931,6 +931,11 @@ namespace cloud.charging.open.ChargingStation
             // Which certificates a connection may point at. Read from the
             // certificate store rather than remembered here, so that one
             // removed on the page next door is gone from this list too.
+            // The key this station signs in with over SSH, for the line that
+            // goes into a server's authorized_keys - null until the first
+            // ssh:// connection made it.
+            json.Add(new JProperty("sshClientKey", Station.SshKey.ToJSON()));
+
             json.Add(
                 new JProperty("certificates",
                     new JArray(
@@ -1177,14 +1182,14 @@ namespace cloud.charging.open.ChargingStation
         /// {"description", "url", "connectionType", ...}: one place this
         /// station dials.
         /// </summary>
-        private Task<HTTPResponse> PostConnection(HTTPRequest Request)
+        private async Task<HTTPResponse> PostConnection(HTTPRequest Request)
         {
 
             if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
-                return Task.FromResult(refused);
+                return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
+                return errorResponse;
 
             if (!Station.Connections.TryAddConnection(json.Value<String>("description"),
                                                        json.Value<String>("url"),
@@ -1195,32 +1200,38 @@ namespace cloud.charging.open.ChargingStation
                                                        out var id,
                                                        out var error,
                                                        out var notSaved,
-                                                       json.Value<String>("ocppVersion")))
+                                                       json.Value<String>("ocppVersion"),
+                                                       json.Value<String>("sshHostKey")))
             {
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
 
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.Created,
-                                    new JObject(
-                                        new JProperty("id",          id),
-                                        new JProperty("connections", ConnectionsJSON())
-                                    ))
-                   );
+            await SshKeyIfNeeded(id, Request.CancellationToken);
+
+            return JSONResponse(Request, HTTPStatusCode.Created,
+                                new JObject(
+                                    new JProperty("id",          id),
+                                    new JProperty("connections", ConnectionsJSON())
+                                ));
 
         }
 
         /// <summary>
         /// POST /api/v1/configuration/connections/update with {"id", ...}.
         /// </summary>
-        private Task<HTTPResponse> PostUpdateConnection(HTTPRequest Request)
+        /// <remarks>
+        /// The host key as the page showed it comes back beside the one in the
+        /// form: where somebody left it as it was, the one there is now stays -
+        /// written down meanwhile by the first connection, perhaps.
+        /// </remarks>
+        private async Task<HTTPResponse> PostUpdateConnection(HTTPRequest Request)
         {
 
             if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
-                return Task.FromResult(refused);
+                return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
+                return errorResponse;
 
             if (!Station.Connections.TryUpdateConnection(json.Value<String>("id"),
                                                           json.Value<String>("description"),
@@ -1231,14 +1242,44 @@ namespace cloud.charging.open.ChargingStation
                                                           json.Value<String>("certificateId"),
                                                           out var error,
                                                           out var notSaved,
-                                                          json.Value<String>("ocppVersion")))
+                                                          json.Value<String>("ocppVersion"),
+                                                          json.Value<String>("sshHostKey"),
+                                                          json.Value<String>("sshHostKeyAsShown")))
             {
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+                return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
 
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON())
-                   );
+            await SshKeyIfNeeded(json.Value<String>("id"), Request.CancellationToken);
+
+            return JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON());
+
+        }
+
+        /// <summary>
+        /// The key this station signs in with over SSH, made where the
+        /// connection just written down is an ssh:// one: its public half is
+        /// what somebody has to hand the server before the first connection,
+        /// and the page that just saved it is where it is shown.
+        /// </summary>
+        /// <remarks>
+        /// A key that cannot be made does not undo what was written down: the
+        /// connection stands, and says why when it is dialled.
+        /// </remarks>
+        private async Task SshKeyIfNeeded(String? ConnectionId, CancellationToken CancellationToken)
+        {
+
+            if (Station.SshKey.Key is not null ||
+                !Station.Connections.Connections.Any(entry => entry.Id == ConnectionId && entry.IsSSH))
+                return;
+
+            try
+            {
+                await Station.SshKey.MakeIfNeeded(CancellationToken);
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"The key this station signs in with over SSH could not be made: {e.Message}", "ocpp", "connections", "ssh");
+            }
 
         }
 
@@ -1315,7 +1356,8 @@ namespace cloud.charging.open.ChargingStation
                                                     json.Value<Boolean?>("autoConnect") ?? false,
                                                     json.Value<String>("authenticationId"),
                                                     json.Value<String>("certificateId"),
-                                                    Request.CancellationToken)
+                                                    Request.CancellationToken,
+                                                    json.Value<String>("sshHostKey"))
                    );
 
         }

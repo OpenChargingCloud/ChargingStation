@@ -141,6 +141,8 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
+| `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
+| `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again, and a test that says which host key it saw and writes nothing |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 
 Two of them are about the station having more than one door. The display is a
@@ -324,7 +326,9 @@ from the same document; each passes over what is the other's. The node's
 certificate store is `certificates/` beside this file (see
 [Certificates](#certificates)); the keys the station dials its back ends with
 are not in it but in `ocpp-client-keys/`, the connections in
-`ocpp-connections/`, and what it offers a vehicle comes with its V2G options.
+`ocpp-connections/` - and the key it signs in with over SSH in
+`ocpp-connections/ssh/` - and what it offers a vehicle comes with its V2G
+options.
 
 `web` says how the web interface, the JSON API and the sign-in are reached
 safely. With `--any` they are on the network, and without `web` the password,
@@ -767,9 +771,29 @@ right when it was opened is not the answer to that.
 | connected   | since when |
 | lost        | since when, tried again by itself, and which attempt comes next and when |
 | not reached | not connected since the start, and tried again by itself |
-| refused     | answered with something that means no - a 401, a 404 - and not tried again |
+| refused     | answered with something that means no - a 401, a 404, a host key not believed, an SSH login not taken - and not tried again |
 | not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
+
+**Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
+the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's
+login - or the login of the HTTP Basic credentials it names, or else the name of
+the OCPP node that dials - with a key of its own, an Ed25519 key made the first
+time an ssh:// connection is written down, tested or dialled, and kept in
+`ocpp-connections/ssh/`, where only its owner may read it. The page shows its
+public half, the line for the server's `authorized_keys`; credentials add their
+password where the server asks for one. A TLS client certificate and a TOTP
+password are refused over SSH: there is no TLS handshake to show the one in,
+and no HTTP to answer the other in.
+
+The server is believed by its host key: the fingerprint (`SHA256:...`) or the
+public-key line written beside the connection. Left empty, the first server
+that answers is believed and the key it showed is written in - from then on it
+is the only one taken. A save of the page leaves a key written down that way
+alone, unless the field was typed into. A server that shows another key is not
+believed, nothing is signed in, and it is not tried again; nor is one that does
+not let the station in. The connection test says which host key it was shown
+and writes nothing down.
 
 "Not reached" and "refused" are told apart by whether anything answered. An
 attempt that ended before it could ask anything - nothing listening, a name

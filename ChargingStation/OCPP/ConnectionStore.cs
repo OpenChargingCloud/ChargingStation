@@ -24,6 +24,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
@@ -708,16 +709,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         String?                          CertificateId,
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
-                                        String?                          OCPPVersion   = null)
+                                        String?                          OCPPVersion   = null,
+                                        String?                          SshHostKey    = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
         /// file's rather than the connection's.
         /// </summary>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
+        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show; none for the first one it shows.</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -727,7 +730,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
                                         out Boolean                      NotSaved,
-                                        String?                          OCPPVersion   = null)
+                                        String?                          OCPPVersion   = null,
+                                        String?                          SshHostKey    = null)
         {
 
             Id        = null;
@@ -737,10 +741,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                           out var url, out var type, out var version, out Error))
                 return false;
 
+            if (!ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out Error))
+                return false;
+
             lock (updateLock)
             {
 
-                if (!CheckReferences(AuthenticationId, CertificateId, out var authenticationId, out var certificateId, out Error))
+                if (!CheckReferences(AuthenticationId, CertificateId, url.Scheme == URIScheme.ssh,
+                                     out var authenticationId, out var certificateId, out Error))
                     return false;
 
                 var entry = new ConnectionEntry(
@@ -753,7 +761,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 OCPPVersion         = version,
                                 AutoConnect  = AutoConnect ?? false,
                                 AuthenticationId    = authenticationId,
-                                CertificateId       = certificateId
+                                CertificateId       = certificateId,
+                                SshHostKey          = hostKey
                             };
 
                 connections[entry.Id] = entry;
@@ -789,16 +798,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          AuthenticationId,
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
-                                           String?                          OCPPVersion   = null)
+                                           String?                          OCPPVersion         = null,
+                                           String?                          SshHostKey          = null,
+                                           String?                          SshHostKeyAsShown   = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                   out Error, out _, OCPPVersion);
+                                   out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
         /// rather than the change's.
         /// </summary>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about the change was wrong, and the connection stays as it was.</param>
+        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show: "" for none - the first one it shows - and nothing to keep the one there is.</param>
+        /// <param name="SshHostKeyAsShown">The host key the page showed when it was drawn. Where <paramref name="SshHostKey"/> is still that one, the one there is now stays: one written down meanwhile by a first connection is not undone by a change of something else.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -808,13 +821,26 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
                                            out Boolean                      NotSaved,
-                                           String?                          OCPPVersion   = null)
+                                           String?                          OCPPVersion         = null,
+                                           String?                          SshHostKey          = null,
+                                           String?                          SshHostKeyAsShown   = null)
         {
 
             NotSaved = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error))
+                return false;
+
+            // Whether the host key is to stay as it is: left out, or sent back
+            // as the page showed it.
+            var keepsHostKey = SshHostKey is null ||
+                               (SshHostKeyAsShown is not null &&
+                                ConnectionEntry.Named(SshHostKey) == ConnectionEntry.Named(SshHostKeyAsShown));
+
+            String? hostKey = null;
+
+            if (!keepsHostKey && !ConnectionEntry.ValidateHostKey(url, SshHostKey, out hostKey, out Error))
                 return false;
 
             lock (updateLock)
@@ -826,8 +852,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                if (!CheckReferences(AuthenticationId, CertificateId, out var authenticationId, out var certificateId, out Error))
+                if (!CheckReferences(AuthenticationId, CertificateId, url.Scheme == URIScheme.ssh,
+                                     out var authenticationId, out var certificateId, out Error))
                     return false;
+
+                // A host key kept goes with a connection that is no longer
+                // ssh://: there is nothing left that would check it.
+                if (keepsHostKey)
+                    hostKey = url.Scheme == URIScheme.ssh ? entry.SshHostKey : null;
 
                 var was = entry.Copy();
 
@@ -838,6 +870,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.AutoConnect  = AutoConnect ?? false;
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
+                entry.SshHostKey          = hostKey;
 
                 if (!TrySaveConnections(out Error))
                 {
@@ -849,6 +882,62 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 OnNotice?.Invoke(LogLevel.Info, $"Connection changed: {entry}.");
 
                 Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryPinHostKey(Id, URL, HostKey, out Error)
+
+        /// <summary>
+        /// Write down the host key the first connection of an ssh:// connection
+        /// that pinned none was shown - from then on the only one it takes.
+        /// </summary>
+        /// <remarks>
+        /// Only where nothing changed meanwhile: the connection is still there,
+        /// still goes where it went when it was dialled, and pins no host key
+        /// yet. A key somebody wrote down in the meantime, or a URL changed to
+        /// another server, is not overwritten by what the old one showed.
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="HostKey">The host key it was shown, as a fingerprint.</param>
+        /// <param name="Error">Why it was not written down - nothing where it was not to be.</param>
+        /// <returns>Whether it was written down.</returns>
+        public Boolean TryPinHostKey(String       Id,
+                                     URL          URL,
+                                     String       HostKey,
+                                     out String?  Error)
+        {
+
+            Error = null;
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry) ||
+                    entry.URL != URL                            ||
+                    entry.URL.Scheme != URIScheme.ssh           ||
+                    entry.SshHostKey is not null)
+                {
+                    return false;
+                }
+
+                entry.SshHostKey = HostKey;
+
+                if (!TrySaveConnections(out Error))
+                {
+                    entry.SshHostKey = null;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice,
+                                 $"'{entry.Description}' pinned no host key, so the one its server showed on the first " +
+                                 $"connection was written down: {HostKey}. From now on no other is taken.");
+
                 return true;
 
             }
@@ -921,6 +1010,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         private Boolean CheckReferences(String?                          AuthenticationId,
                                         String?                          CertificateId,
+                                        Boolean                          OverSSH,
                                         out String?                      Authentication,
                                         out String?                      Certificate,
                                         [NotNullWhen(false)] out String? Error)
@@ -939,6 +1029,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (Authentication is not null && !authentications.ContainsKey(Authentication))
             {
                 Error = "Those credentials are not configured here.";
+                return false;
+            }
+
+            // Over SSH this station signs in with its own key, and a password
+            // on top where the server asks for one. A TLS client certificate
+            // has no handshake to be shown in, and a TOTP password is answered
+            // in an HTTP header there is none of.
+            if (OverSSH && Certificate is not null)
+            {
+                Error = "A client certificate is shown in a TLS handshake, and an ssh:// connection makes none: " +
+                        "it signs in with this station's SSH key.";
+                return false;
+            }
+
+            if (OverSSH && Authentication is not null && authentications[Authentication].Kind == AuthenticationKind.TOTP)
+            {
+                Error = "An ssh:// connection signs in with this station's SSH key, and a password on top where wanted. " +
+                        "A TOTP password is answered over HTTP, which it does not speak.";
                 return false;
             }
 
@@ -990,10 +1098,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     if (!credentials.HasSecret)
                         Entry.Warnings.Add($"'{credentials.Description}' has no secret set, so this connection cannot prove itself.");
 
-                    if (credentials.Kind == AuthenticationKind.Basic && !Entry.IsSecure)
+                    if (credentials.Kind == AuthenticationKind.Basic && !Entry.IsSecure && !Entry.IsSSH)
                         Entry.Warnings.Add("HTTP Basic over a connection without TLS sends the password in the clear to anybody on the way.");
 
-                    if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSecure)
+                    if (credentials.Kind == AuthenticationKind.TOTP && Entry.IsSSH)
+                        Entry.Warnings.Add($"'{credentials.Description}' is a TOTP password, which is answered over HTTP. " +
+                                            "An ssh:// connection does not speak it, so it is not dialled.");
+
+                    if (credentials.Kind == AuthenticationKind.Basic && Entry.IsSSH &&
+                        Entry.URL.Login is String login && login != credentials.Login)
+                        Entry.Warnings.Add($"The URL signs in as '{login}' and '{credentials.Description}' as '{credentials.Login}'. " +
+                                            "It is one login, so it is not dialled until the two agree.");
+
+                    if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSecure && !Entry.IsSSH)
                         Entry.Warnings.Add($"'{credentials.Description}' binds its password to a TLS session, and this connection has none. " +
                                             "Either dial wss:// or turn the binding off - and know that an unbound password can be replayed.");
 
@@ -1012,8 +1129,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
-            if (Entry.AuthenticationId is null && Entry.CertificateId is null)
+            // Over SSH this station always shows its own key.
+            if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH)
                 Entry.Warnings.Add("This connection proves nothing about who is dialling. A back end that asks will refuse it.");
+
+            if (Entry.IsSSH && Entry.SshHostKey is null)
+                Entry.Warnings.Add("No host key is pinned, so the first server that answers is believed, and the key it shows " +
+                                   "is written down here. Pin it now to decide yourself - the connection test shows the key.");
 
         }
 

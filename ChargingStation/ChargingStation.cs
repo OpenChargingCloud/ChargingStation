@@ -264,6 +264,17 @@ namespace cloud.charging.open.ChargingStation
         public ConnectionStore        Connections           { get; }
 
         /// <summary>
+        /// The key this station signs in with when it dials an ssh://
+        /// connection - made the first time one needs it.
+        /// </summary>
+        /// <remarks>
+        /// Beside the connections that use it, in a directory of its own that
+        /// only its owner may read: whoever has it can sign in as this station
+        /// wherever it is let in.
+        /// </remarks>
+        public SshClientKey           SshKey                { get; }
+
+        /// <summary>
         /// The EVSEs this station has, right now.
         /// </summary>
         /// <remarks>
@@ -557,6 +568,13 @@ namespace cloud.charging.open.ChargingStation
             // once.
             this.Connections.KnownCertificateIds  = () => this.ClientCertificates.Entries.Select(entry => entry.Id);
             this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
+
+            this.SshKey = new SshClientKey(
+                              System.IO.Path.Combine(this.Connections.Path, SshClientKey.DirectoryName),
+                              $"chargingstation@{Environment.MachineName}"
+                          );
+
+            this.SshKey.OnNotice                 += (level, message) => this.Log.Log(level, message, "ocpp", "connections", "ssh", "security");
 
             #endregion
 
