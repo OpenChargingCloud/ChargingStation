@@ -87,10 +87,10 @@ namespace cloud.charging.open.ChargingStation
         public const UInt32              MaxRequestSize  = 4 * 1024;
 
         /// <summary>
-        /// The WebSocket's protocol, which the HTTP server borrows for one
-        /// path. Never started: it accepts nothing on a port of its own.
+        /// The WebSocket at /localApp: its protocol, on the connections the
+        /// HTTP server hands it, and nothing of a server of its own.
         /// </summary>
-        private readonly LocalAppWebSocketServer webSocketServer;
+        private readonly LocalAppWebSocket webSocket;
 
         #endregion
 
@@ -128,11 +128,11 @@ namespace cloud.charging.open.ChargingStation
 
             this.Station          = Station;
             this.Log              = Log;
-            this.webSocketServer  = new LocalAppWebSocketServer(this);
+            this.webSocket        = new LocalAppWebSocket(this);
 
             AddHandler(HTTPPath.Parse("/localStart"),             PostLocalStart,                         HTTPMethod.POST);
             AddHandler(HTTPPath.Parse("/localStop/{SessionId}"),  PostLocalStop,                          HTTPMethod.POST);
-            AddHandler(WebSocketPath,                             WebSocketUpgrade.For(webSocketServer),  HTTPMethod.GET);
+            AddHandler(WebSocketPath,                             WebSocketUpgrade.For(webSocket),        HTTPMethod.GET);
 
             // Everything else is somewhere this server is not. Said in JSON,
             // because what asks here is an app, and an app reads JSON.
@@ -156,7 +156,7 @@ namespace cloud.charging.open.ChargingStation
         /// out from a connection that broke.
         /// </remarks>
         public Task CloseWebSockets()
-            => webSocketServer.Shutdown("The charging station is stopping.");
+            => webSocket.Shutdown("The charging station is stopping.");
 
         #endregion
 
@@ -433,32 +433,32 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
-        #region (private class) LocalAppWebSocketServer
+        #region (private class) LocalAppWebSocket
 
         /// <summary>
         /// The WebSocket at /localApp: every text message is a start or a stop,
         /// answered by the same code that answers the POSTs.
         /// </summary>
         /// <remarks>
-        /// Never started, and that is the whole idea: it never accepts anything
-        /// on a port of its own. The HTTP server hands it the connections that
-        /// ask to be upgraded at /localApp and lets it speak the protocol.
+        /// An endpoint and not a server, and that is the whole idea: the HTTP
+        /// server hands it the connections that ask to be upgraded at
+        /// /localApp and lets it speak the protocol, and it binds no port and
+        /// makes no listener, DNS client, timer or warden of its own - nothing
+        /// that would tick on until somebody let go of it.
         ///
         /// No authentication, stated rather than assumed: the base class would
         /// otherwise say it requires some and check none. What a message may do
         /// is what it holds up, as on the POSTs.
         /// </remarks>
-        private sealed class LocalAppWebSocketServer : AWebSocketServer
+        private sealed class LocalAppWebSocket : AWebSocketEndpoint
         {
 
             private readonly LocalAppHTTPAPI api;
 
-            public LocalAppWebSocketServer(LocalAppHTTPAPI API)
+            public LocalAppWebSocket(LocalAppHTTPAPI API)
 
-                : base(TCPPort:                IPPort.Parse(0),
-                       HTTPServerName:         "OpenChargingCloud ChargingStation Local App",
-                       RequireAuthentication:  false,
-                       AutoStart:              false)
+                : base(HTTPServiceName:        "OpenChargingCloud ChargingStation Local App",
+                       RequireAuthentication:  false)
 
             {
 

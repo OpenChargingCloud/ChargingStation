@@ -27,6 +27,8 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.TCP;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
@@ -202,6 +204,47 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(NodeConformanceTests.TicksStill(display),   Is.False, "The station was let go of, and its display's server still ticks.");
                 Assert.That(NodeConformanceTests.TicksStill(localApp),  Is.False, "The station was let go of, and its local app's server still ticks.");
             });
+
+        }
+
+        #endregion
+
+        #region TheLocalAppsWebSocketHasNoServerOfItsOwn()
+
+        /// <summary>
+        /// The WebSocket of the local app speaks on the connections the local
+        /// app's server hands it, and has no TCP server of its own: one would
+        /// tick from the station's start on - a listener, its warden and the
+        /// cache of its DNS client - and nothing lets go of a WebSocket.
+        /// </summary>
+        [Test]
+        public async Task TheLocalAppsWebSocketHasNoServerOfItsOwn()
+        {
+
+            var station = TestStations.New(directory, LocalAppPort: IPPort.Parse(TestPorts.Free()));
+
+            try
+            {
+
+                var api        = station.LocalAppAPI;
+
+                Assert.That(api, Is.Not.Null, "A station with a local app port has no local app.");
+
+                var webSockets = typeof(LocalAppHTTPAPI).GetFields(BindingFlags.Instance | BindingFlags.NonPublic).
+                                                         Select (field => field.GetValue(api)).
+                                                         OfType<AWebSocketEndpoint>().
+                                                         ToArray();
+
+                Assert.That(webSockets, Has.Length.EqualTo(1), "The local app has no WebSocket where this test looks for one: it has to learn where it is now.");
+
+                Assert.That(webSockets[0], Is.Not.InstanceOf<ITCPServer>(),
+                            "The local app's WebSocket has a TCP server of its own, which ticks until it is let go of.");
+
+            }
+            finally
+            {
+                await station.DisposeAsync();
+            }
 
         }
 
