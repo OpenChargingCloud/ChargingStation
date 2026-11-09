@@ -330,6 +330,167 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
+        #region (private) ABackEndThatKnows(Login)
+
+        /// <summary>
+        /// The shared secret of the one-time passwords here.
+        /// </summary>
+        private const String ASharedSecret = "shared-secret-not-the-real-one";
+
+        /// <summary>
+        /// A back end that lets in nobody but the given login, with a current
+        /// one-time password of <see cref="ASharedSecret"/>.
+        /// </summary>
+        /// <remarks>
+        /// A plain WebSocket server, which asks for credentials unless told not
+        /// to, and verifies a one-time password in "Authorization: TOTP" - as an
+        /// OCPP server of these libraries does. It speaks no OCPP, and does not
+        /// need to: what is measured is whether the station got in.
+        /// </remarks>
+        private WebSocketServer ABackEndThatKnows(String Login)
+        {
+
+            var listening = new WebSocketServer(
+                                HTTPPort:   ForABackEnd(),
+                                AutoStart:  true
+                            );
+
+            listening.ClientTOTPConfig[Login] = new TOTPConfig(ASharedSecret, UseTLSExporterMaterial: false);
+
+            return listening;
+
+        }
+
+        #endregion
+
+        #region AStationWithAOneTimePasswordIsLetIn(Version)
+
+        /// <summary>
+        /// HTTP TOTP credentials, and a back end that knows them: the station
+        /// gets in, through either of its OCPP nodes.
+        /// </summary>
+        /// <remarks>
+        /// The one-time password used to go to the WebSocket client without its
+        /// login, and the client sent nothing of it: a station configured with
+        /// HTTP TOTP dialled without any credentials, and was answered 401.
+        /// </remarks>
+        [Test]
+        public async Task AStationWithAOneTimePasswordIsLetIn([Values("OCPP1.6", "OCPP2.1")] String Version)
+        {
+
+            var listening = ABackEndThatKnows("cs001");
+
+            try
+            {
+
+                Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+                                                                      out var login, out var error),
+                            Is.True, error);
+
+                Assert.That(station.Connections.TryAddConnection("CSMS", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMS",
+                                                                 true, login, null, out var id, out error,
+                                                                 OCPPVersion: Version),
+                            Is.True, error);
+
+                await Start();
+
+                // Waited for, as for any back end that answers: see
+                // EveryConnectionIsDialledWhateverItIsCalled.
+                var giveUp = DateTimeOffset.UtcNow + TalkingToTheCSMSTests.Patience;
+
+                while (DateTimeOffset.UtcNow < giveUp && !station.DialledConnections[id!].Contains("Connected"))
+                    await Task.Delay(20);
+
+                Assert.That(station.DialledConnections[id!], Does.Contain("Connected"),
+                            "A station with a one-time password its back end knows did not get in.");
+
+            }
+            finally
+            {
+                await listening.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
+        #region AOneTimePasswordBoundToTLSIsNotDialled()
+
+        /// <summary>
+        /// A one-time password that is to be bound to the TLS session cannot be:
+        /// this station's TLS exports no keying material. It is not dialled,
+        /// and says why, rather than sent unbound.
+        /// </summary>
+        [Test]
+        public async Task AOneTimePasswordBoundToTLSIsNotDialled()
+        {
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+                                                                  out var login, out var error,
+                                                                  TLSChannelBinding: true),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+                                                             true, login, null, out var id, out error),
+                        Is.True, error);
+
+            await Start();
+
+            Assert.Multiple(() => {
+
+                Assert.That(station.DialledConnections[id!], Does.StartWith("Not dialled"),
+                            "A one-time password bound to TLS was dialled anyway.");
+
+                Assert.That(station.DialledConnections[id!], Does.Contain("bound to the TLS session"),
+                            "The station did not say why it did not dial.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region ATestWithAOneTimePasswordGetsThrough()
+
+        /// <summary>
+        /// The button beside a connection proves itself as the connection
+        /// would: with the one-time password under its login.
+        /// </summary>
+        [Test]
+        public async Task ATestWithAOneTimePasswordGetsThrough()
+        {
+
+            var listening = ABackEndThatKnows("cs001");
+
+            try
+            {
+
+                Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+                                                                      out var login, out var error),
+                            Is.True, error);
+
+                Assert.That(station.Connections.TryAddConnection("Answers", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMS",
+                                                                 false, login, null, out _, out error),
+                            Is.True, error);
+
+                await Start();
+
+                var result = await TestOf("Answers");
+
+                Assert.That(result.Value<Boolean>("ok"), Is.True,
+                            $"A test with a one-time password its back end knows did not get through: {result["steps"]}");
+
+            }
+            finally
+            {
+                await listening.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
+
         #region CredentialsWithoutASecretStopTheCallBeforeItIsMade()
 
         /// <summary>

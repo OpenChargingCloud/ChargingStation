@@ -216,7 +216,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) WhatItProvesItselfWith(Connection, out Basic, out TOTP, out Certificates, out Says, out Error)
+        #region (private) WhatItProvesItselfWith(Connection, out Basic, out TOTP, out TOTPLogin, out Certificates, out Says, out Error)
 
         /// <summary>
         /// The credentials or the certificate a connection names, looked up
@@ -229,10 +229,17 @@ namespace cloud.charging.open.ChargingStation
         ///
         /// <paramref name="Says"/> is for whoever is reading: a sentence
         /// naming what will be shown, without any part of the secret in it.
+        ///
+        /// A one-time password goes under its login, in "Authorization:
+        /// TOTP", which is what an OCPP server verifies. One bound to the TLS
+        /// session is not sent at all: this station's TLS exports no keying
+        /// material to bind it with, and sending it unbound would be less than
+        /// what was configured.
         /// </remarks>
         private Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
                                                out IHTTPAuthentication?    Basic,
                                                out TOTPConfig?             TOTP,
+                                               out String?                 TOTPLogin,
                                                out X509Certificate2[]?     Certificates,
                                                out String                  Says,
                                                out String?                 Error)
@@ -240,6 +247,7 @@ namespace cloud.charging.open.ChargingStation
 
             Basic         = null;
             TOTP          = null;
+            TOTPLogin     = null;
             Certificates  = null;
             Says          = "nothing - it identifies itself to whoever is at the other end not at all";
             Error         = null;
@@ -265,9 +273,19 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
+                if (TOTP is not null && credentials.TLSChannelBinding)
+                {
+                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and this station's TLS " +
+                             "exports no keying material to bind one with. Switch the binding off for it to have it sent unbound";
+                    TOTP  = null;
+                    return false;
+                }
+
+                if (TOTP is not null)
+                    TOTPLogin = credentials.Login;
+
                 Says = TOTP is not null
-                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
-                             $"{(credentials.TLSChannelBinding ? "bound to the TLS session" : "unbound")}"
+                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), unbound"
                            : $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')";
 
             }
@@ -343,7 +361,7 @@ namespace cloud.charging.open.ChargingStation
                     return;
                 }
 
-                if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var certificates, out _, out var wrong))
+                if (!WhatItProvesItselfWith(Connection, out var basic, out var totp, out var totpLogin, out var certificates, out _, out var wrong))
                 {
                     Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {wrong}.");
                     return;
@@ -368,6 +386,7 @@ namespace cloud.charging.open.ChargingStation
                                              HTTPAuthentication:       basic,
                                              ClientCertificates:       certificates,
                                              TOTPConfig:               totp,
+                                             TOTPLogin:                totpLogin,
                                              DNSClient:                DNSClient,
                                              CancellationToken:        CancellationToken
                                          )
@@ -378,6 +397,7 @@ namespace cloud.charging.open.ChargingStation
                                              HTTPAuthentication:       basic,
                                              ClientCertificates:       certificates,
                                              TOTPConfig:               totp,
+                                             TOTPLogin:                totpLogin,
                                              DNSClient:                DNSClient,
                                              CancellationToken:        CancellationToken
                                          );
@@ -1205,6 +1225,7 @@ namespace cloud.charging.open.ChargingStation
 
             IHTTPAuthentication?  basic         = null;
             TOTPConfig?           totp          = null;
+            String?               totpLogin     = null;
             X509Certificate2[]?   certificates  = null;
             SshClientOptions?     sshLogin      = null;
             SshHostKeyTrust?      sshTrust      = null;
@@ -1244,7 +1265,7 @@ namespace cloud.charging.open.ChargingStation
                          ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
                          : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
 
-                if (!WhatItProvesItselfWith(connection, out basic, out totp, out certificates, out var proves, out var wrong))
+                if (!WhatItProvesItselfWith(connection, out basic, out totp, out totpLogin, out certificates, out var proves, out var wrong))
                 {
                     Step("error", $"Not tried: {wrong}.");
                     Log.Warning($"The connection test for '{connection.Description}' was not run: {wrong}.", "ocpp", "connections", "test");
@@ -1370,6 +1391,7 @@ namespace cloud.charging.open.ChargingStation
                              SecWebSocketProtocols:  SubProtocolsOf(connection.OCPPVersion),
                              ClientCertificates:     certificates,
                              TOTPConfig:             totp,
+                             TOTPLogin:              totpLogin,
                              DisableWebSocketPings:  true,
                              DisableLogging:         true
                          );

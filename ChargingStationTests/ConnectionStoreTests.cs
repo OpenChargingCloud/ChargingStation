@@ -420,6 +420,75 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region NewOneTimePasswordsAreUnboundByDefault()
+
+        /// <summary>
+        /// Written down without saying, a one-time password is unbound: bound,
+        /// it could not be sent at all, since this station's TLS exports no
+        /// keying material to bind it with.
+        /// </summary>
+        [Test]
+        public void NewOneTimePasswordsAreUnboundByDefault()
+        {
+
+            Assert.That(store.TryAddAuthentication("Said nothing", "totp", "cs001", ASharedSecret,
+                                                   out var id, out var error),
+                        Is.True, error);
+
+            Assert.That(store.Authentications.Single(one => one.Id == id).TLSChannelBinding, Is.False,
+                        "A one-time password written down without saying is bound, and so is never sent.");
+
+        }
+
+        #endregion
+
+        #region AChangeThatSaysNothingOfTheBindingKeepsIt(Bound)
+
+        /// <summary>
+        /// A change of a one-time password that leaves the binding out leaves it
+        /// as it was, as it does the secret.
+        /// </summary>
+        [Test]
+        public void AChangeThatSaysNothingOfTheBindingKeepsIt([Values] Boolean Bound)
+        {
+
+            var id = ATOTPLogin("Before", ChannelBinding: Bound);
+
+            Assert.That(store.TryUpdateAuthentication(id, "After", "totp", "cs001", null, out var error),
+                        Is.True, error);
+
+            Assert.That(store.Authentications.Single(one => one.Id == id).TLSChannelBinding, Is.EqualTo(Bound),
+                        "A change that said nothing of the binding changed it.");
+
+        }
+
+        #endregion
+
+        #region ABoundPasswordIsNotDialledOverTLSEither()
+
+        /// <summary>
+        /// Bound to the TLS session, a one-time password cannot be made over
+        /// wss:// either, and the connection says so before anybody wonders why
+        /// it never connects.
+        /// </summary>
+        [Test]
+        public void ABoundPasswordIsNotDialledOverTLSEither()
+        {
+
+            var bound = ATOTPLogin("Bound", ChannelBinding: true);
+
+            Assert.That(store.TryAddConnection("Over wss", "wss://csms.example.org/cs001", "CSMS",
+                                               false, bound, null, out var id, out var error),
+                        Is.True, error);
+
+            Assert.That(store.Connections.Single(one => one.Id == id).Warnings,
+                        Has.Some.Contains("not dialled"),
+                        "A one-time password that cannot be sent as configured was not worth mentioning.");
+
+        }
+
+        #endregion
+
         #region AChannelBoundPasswordNeedsAChannel()
 
         /// <summary>

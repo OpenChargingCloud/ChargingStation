@@ -191,14 +191,18 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// Whether the password is bound to the TLS session it is sent over.
         /// </summary>
         /// <remarks>
-        /// True by default, and deliberately so: a bound password is useless
-        /// to anybody who copies it off one connection and tries it on
-        /// another. It can only be true where there is a TLS 1.3 session to
-        /// bind to, so a plain ws:// connection has to say false - which is
-        /// the station admitting what it is doing rather than a default
-        /// quietly doing it.
+        /// False by default, because true cannot be done yet. Binding needs
+        /// keying material exported from the TLS session, and this station's
+        /// TLS - .NET's SslStream - exports none. A connection whose
+        /// credentials ask for the binding is therefore not dialled at all,
+        /// and says why: sending the password unbound instead would be less
+        /// than what was configured, quietly.
+        ///
+        /// A bound password would be the better choice - it is no use to
+        /// anybody who copies it off one connection and tries it on another -
+        /// and becomes the default again once the station can make one.
         /// </remarks>
-        public Boolean             TLSChannelBinding   { get; internal set; } = true;
+        public Boolean             TLSChannelBinding   { get; internal set; }
 
         /// <summary>
         /// When this was written down.
@@ -436,7 +440,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                             SharedSecret       = JSON.Value<String>("sharedSecret"),
                             Length             = JSON.Value<UInt32?>("length"),
                             Alphabet           = JSON.Value<String>("alphabet"),
-                            TLSChannelBinding  = JSON.Value<Boolean?>("tlsChannelBinding") ?? true
+                            TLSChannelBinding  = JSON.Value<Boolean?>("tlsChannelBinding") ?? false
                         };
 
             if (JSON.Value<Double?>("validitySeconds") is Double seconds && seconds > 0)

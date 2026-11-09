@@ -23,6 +23,9 @@ const { authenticationPage } = await import('./authentication.ts');
 
 let held: StationConnections;
 
+/** What the page last asked the station to write down anew. */
+let written: LoginToSave | undefined;
+
 function aLogin(id: string, more: Partial<StationLogin> = {}): StationLogin {
     return { id, description: `login ${id}`, kind: 'basic', login: `cs-${id}`, createdAt: '2026-10-01T10:00:00Z', hasSecret: true, ...more };
 }
@@ -48,6 +51,7 @@ function station({ method, path, body }: Asked): unknown {
 
     if (path === '/configuration/authentications' && method === 'POST') {
         const entry = body as LoginToSave;
+        written = entry;
         // AuthenticationEntry.TryParse
         if (entry.login.trim() === '')
             return refused(400, 'A login is needed: it is the name the other end knows this station by.');
@@ -129,6 +133,31 @@ describe('the Authentication page', () => {
         assert.equal(totpOf(root, 'add').hidden,                                 false, 'the kind picked went with a draw');
         assert.equal(field<HTMLSelectElement>(root, '#add-form', 'kind').value,  'totp');
         assert.equal(titleOf(root, 'add'),                                        'Shared secret');
+
+    });
+
+    it('offers a new one-time password unbound, and writes it down so', async () => {
+
+        // Bound, it could not be sent at all: the station's TLS exports no
+        // keying material to bind it with, and it is not dialled.
+        const root = await opened();
+
+        written = undefined;
+
+        change(field<HTMLSelectElement>(root, '#add-form', 'kind'), 'totp');
+        await until(() => totpOf(root, 'add').hidden === false, 'the TOTP fields are not shown');
+
+        assert.equal(field<HTMLInputElement>(root, '#add-form', 'tlsChannelBinding').checked, false,
+                     'a new one-time password is offered bound to the TLS session');
+
+        field(root, '#add-form', 'description').value  = 'one-time';
+        field(root, '#add-form', 'login').value        = 'cs-otp';
+        field(root, '#add-form', 'secret').value       = 'a-shared-secret-of-sixteen';
+
+        submit(root, '#add-form');
+        await until(() => written !== undefined, 'nothing was written down');
+
+        assert.equal(written!.tlsChannelBinding, false, 'the one-time password was written down bound');
 
     });
 

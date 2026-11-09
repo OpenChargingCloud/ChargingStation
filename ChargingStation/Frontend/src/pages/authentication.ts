@@ -196,16 +196,16 @@ export const authenticationPage: Page = {
 
                     <label class="checkbox">
                         <input type="checkbox" name="tlsChannelBinding"
-                               ?checked=${entry?.tlsChannelBinding ?? true}
+                               ?checked=${entry?.tlsChannelBinding ?? false}
                                ?disabled=${!mayManage} />
                         Bind the password to the TLS session
                     </label>
 
                     <span class="hint">
-                        On, unless there is a reason. A bound password is no use to anybody who copies it off
-                        one connection and tries it on another - but it needs a TLS session to bind to, so a
-                        connection over plain ws:// has to have this off. The Connections page says so where it
-                        applies.
+                        Off, for now. A bound password would be no use to anybody who copies it off one
+                        connection and tries it on another - but this station's TLS exports no keying material
+                        to bind one with, so a connection whose credentials ask for it is not dialled at all,
+                        rather than sent less than it was told. The Connections page says so where it applies.
                     </span>
 
                     <div class="form-row">
@@ -373,7 +373,7 @@ export const authenticationPage: Page = {
                 written.length             = number('length');
                 written.alphabet           = field(form, 'alphabet');
                 written.hashAlgorithm      = field(form, 'hashAlgorithm');
-                written.tlsChannelBinding  = form.querySelector<HTMLInputElement>('[name="tlsChannelBinding"]')?.checked ?? true;
+                written.tlsChannelBinding  = form.querySelector<HTMLInputElement>('[name="tlsChannelBinding"]')?.checked ?? false;
             }
 
             return written;
