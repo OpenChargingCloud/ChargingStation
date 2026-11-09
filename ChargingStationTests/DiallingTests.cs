@@ -297,6 +297,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await Start();
 
+                // The one that answers is waited for rather than read at once:
+                // a first dial that ran into its own timeout (408) on a runner
+                // that stood still is tried again by itself. Nothing listens
+                // for the other two, which is known before any timeout.
+                var giveUp = DateTimeOffset.UtcNow + TalkingToTheCSMSTests.Patience;
+
+                while (DateTimeOffset.UtcNow < giveUp && !station.DialledConnections[answering!].Contains("Connected"))
+                    await Task.Delay(20);
+
                 Assert.Multiple(() => {
 
                     Assert.That(station.DialledConnections[answering!],  Does.Contain("Connected"),

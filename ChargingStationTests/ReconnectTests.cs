@@ -405,7 +405,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await Start();
 
-                Assert.That(station.DialledConnections[connection!], Does.Contain("Connected"),
+                // Waited for rather than read at once: a first dial that ran
+                // into its own timeout (408) on a runner that stood still is
+                // tried again by itself.
+                Assert.That(await Said(connection!, what => what.Contains("Connected"), TalkingToTheCSMSTests.Patience),
+                            Does.Contain("Connected"),
                             "The station did not get connected to begin with.");
 
                 return backEnd;
@@ -421,16 +425,18 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private) Said(Id, Enough)
+        #region (private) Said(Id, Enough, Within = 5 s)
 
         /// <summary>
         /// What DialledConnections says of the connection, once it says what
-        /// is expected or five seconds have passed.
+        /// is expected or the time is up.
         /// </summary>
-        private async Task<String> Said(String Id, Func<String, Boolean> Enough)
+        private async Task<String> Said(String                 Id,
+                                        Func<String, Boolean>  Enough,
+                                        TimeSpan?              Within  = null)
         {
 
-            var giveUp = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
+            var giveUp = DateTimeOffset.UtcNow + (Within ?? TimeSpan.FromSeconds(5));
             var what   = station!.DialledConnections[Id];
 
             while (DateTimeOffset.UtcNow < giveUp && !Enough(what))

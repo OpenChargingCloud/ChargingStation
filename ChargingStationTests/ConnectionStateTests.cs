@@ -476,7 +476,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await Start();
 
-                Assert.That(station.DialledConnections[connection!], Does.StartWith("Connected"),
+                // Waited for rather than read at once: a first dial that ran
+                // into its own timeout (408) on a runner that stood still is
+                // tried again by itself.
+                Assert.That(await Said(connection!, what => what.StartsWith("Connected"), TalkingToTheCSMSTests.Patience),
+                            Does.StartWith("Connected"),
                             "The station did not get connected to begin with.");
 
                 return backEnd;
