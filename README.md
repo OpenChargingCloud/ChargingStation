@@ -144,6 +144,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
+| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -311,7 +312,8 @@ Everything this station can be told in writing lives in one file,
                 "emps": [ { "id": "emp-one", "name": "Elektro Mobil GmbH", "tokenPrefixes": [ "04A2" ] } ] },
   "webPayments": { "enabled": true, "urlTemplate": "https://pay.example.org/{evseId}/{TOTP}",
                    "sharedSecret": "..." },
-  "nameplate": { "vendor": "GraphDefined", "model": "ChargingStationCLI", "serialNumber": "CS-0001" }
+  "nameplate": { "vendor": "GraphDefined", "model": "ChargingStationCLI", "serialNumber": "CS-0001" },
+  "commissioning": { "enabled": true }
 }
 ```
 
@@ -384,6 +386,7 @@ interface will not delete the part it did not understand.
 | `/configuration/rfid`        | the card readers: which ones, where they sit, and on or off |
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
+| `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
 | `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
 | `/configuration/client-keys` | the keys it dials its back ends with: made here, a signing request, and the certificate that came back |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
@@ -462,7 +465,7 @@ A role is a list of permissions, each an operation on a resource and written
 on a vehicle. The operations are three: `read`, `edit` for what stays changed,
 and `run` for what is done now - a test, a message on the screen, a session.
 The resources are the node's - `configuration`, `dns`, `nts`, `certificates` -
-and the station's twelve, in `Web/StationAccess.cs`:
+and the station's thirteen, in `Web/StationAccess.cs`:
 
 | | |
 |---|---|
@@ -478,6 +481,7 @@ and the station's twelve, in `Web/StationAccess.cs`:
 | `meters`       | how each meter is read and what it measures; edited, where it is read and whom it is believed to be; run, a request that writes to it |
 | `providers`    | read, the e-mobility providers and their logos; edited, a logo put up, replaced or removed over SFTP |
 | `nameplate`    | read, what the station tells a CSMS it is and whether it is accepted; edited, by the system administrator alone - it says what the equipment is |
+| `commissioning` | read, whether a tool may speak OCPP to the station over SSH and who does; edited, switched on or off; run, the subsystem `ocpp@open.charging.cloud` for the account |
 
 Asked of the node, which answers from the roles it put together at the start:
 its own two, the station's two, and whatever the configuration file adds.
@@ -486,7 +490,7 @@ its own two, the station's two, and whatever the configuration file adds.
 |---|---|
 | `viewer`      | `*:read` - look at everything, and change nothing |
 | `cpo`         | that, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run |
-| `installer`   | that, plus `power:edit`, `calibration:edit`, `meters:edit` and `meters:run` |
+| `installer`   | that, plus `power:edit`, `calibration:edit`, `meters:edit`, `meters:run`, `commissioning:edit` and `commissioning:run` |
 | `systemadmin` | everything, and nothing the file can take away - the certificate store included, which nobody else may edit |
 
 The three about the same EVSE are kept apart, because they are different kinds
@@ -866,6 +870,49 @@ of 50 - and to printable ASCII, which is all OCPP 1.6 takes.
     {"vendor": null, ..., "said": {"vendor": "GraphDefined", ...},
      "registration": {"1.6": {"state": "Accepted", "since": "...", "interval": 300, ...},
                       "2.1": {"state": "Pending",  "nextTry": "...", ...}}}
+
+### Commissioning over SSH
+
+A commissioning tool may speak OCPP 2.1 to the station on the node's SSH
+server, where the `commissioning` section switches it on:
+
+```json
+"commissioning": { "enabled": true }
+```
+
+Off where the file says nothing. `/configuration/commissioning` switches it on
+and off at once, without a restart, and says where a tool connects and who is
+connected; switched off, every tool connected is let go of:
+
+    GET  /api/v1/configuration/commissioning
+    {"enabled": true, "served": true, "sshServer": true, "url": "ssh://127.0.0.1:22348",
+     "hostKey": "ssh-ed25519 SHA256:...", "subsystem": "ocpp@open.charging.cloud",
+     "subprotocols": ["ocpp2.1", "ocpp2.0.1"], "station": "test02",
+     "permission": "commissioning:run", "tools": ["installer"], ...}
+    PUT  /api/v1/configuration/commissioning    {"enabled": false}
+
+The tool signs in as an account of the station with its own key and asks for
+the subsystem `ocpp@open.charging.cloud`, which only an account that may run
+`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be.
+
+It is a networking node of its own, named after its account - not the CSMS.
+A route is one per destination, and the newest connection takes it: a tool
+connected as the CSMS would take the route to the CSMS from the connection the
+station dialled, and with it everything the station sends the CSMS and every
+answer it owes it, and leave it pointing at a closed connection when it went.
+Under its own name it is answered what it asks, and the uplink keeps the rest.
+So a HELLO naming another node than the account is refused, and so is an
+account named like the CSMS or like the station.
+
+Without a destination on the wire, a request that comes in over a connection
+somebody else made is sent on to the CSMS - what a local controller does with
+its stations' requests. A station has nothing below it, so its OCPP 2.1 node
+takes the CSMS's name as one of its own: a request from a tool is for the
+station.
+
+OCPP 1.6 is not served this way: a subsystem has one handler, and the HELLO
+that says which version a tool speaks is read by the message server itself, so
+one name could not lead to either node.
 
 ### Certificates
 

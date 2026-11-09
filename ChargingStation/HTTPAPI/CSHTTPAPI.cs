@@ -137,6 +137,9 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   GetNameplateConfiguration,     HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   PutNameplateConfiguration,     HTTPMethod.PUT);
 
+            AddHandler(HTTPPath.Root + "v1/configuration/commissioning", GetCommissioningConfiguration, HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/commissioning", PutCommissioningConfiguration, HTTPMethod.PUT);
+
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
 
@@ -272,6 +275,48 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.NameplateConfigurationJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/configuration/commissioning: whether a tool may speak
+        /// OCPP to this station over its SSH server, where, and who does.
+        /// </summary>
+        private Task<HTTPResponse> GetCommissioningConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Commissioning), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CommissioningJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/commissioning with {"enabled"}: switch
+        /// commissioning over SSH on or off, at once. Switched off, every tool
+        /// connected is let go of.
+        /// </summary>
+        /// <remarks>
+        /// The installer's, as running it is - see StationAccess.Commissioning.
+        /// </remarks>
+        private Task<HTTPResponse> PutCommissioningConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Commissioning), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateCommissioningConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.CommissioningJSON())
                    );
 
         }

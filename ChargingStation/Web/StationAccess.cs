@@ -167,11 +167,25 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Nameplate     = "nameplate";
 
         /// <summary>
+        /// Commissioning over SSH, a tool speaking OCPP to this station on its
+        /// own SSH server: read, whether it is served and where; edited,
+        /// switched on or off; run, the tool let in - an account that may run
+        /// it gets the subsystem "ocpp@open.charging.cloud".
+        /// </summary>
+        /// <remarks>
+        /// Its own resource rather than a part of the connections, because the
+        /// connections are where this station dials, and this is who may dial
+        /// it: whoever speaks OCPP to a station may tell it nearly anything a
+        /// CSMS may, from where it dials to when it restarts.
+        /// </remarks>
+        public const String  Commissioning = "commissioning";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
                                                                     Display, Session, Connections, V2G, Meters, Providers,
-                                                                    Nameplate ];
+                                                                    Nameplate, Commissioning ];
 
         #endregion
 
@@ -207,7 +221,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// the installation - what the grid connection and each cable may
         /// deliver, how each meter is read and what is written to it, and
         /// which calibration certificates this station runs
-        /// under.
+        /// under - and a commissioning tool speaking OCPP to it over SSH.
         /// </summary>
         /// <remarks>
         /// A step above the CPO and a step below the system administrator, and
@@ -224,8 +238,10 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Edit(Power),
                                                          Permission.Edit(Calibration),
                                                          Permission.Edit(Meters),
-                                                         Permission.Run (Meters) ],
-                                                       "commissions the station: everything the operator may do, its power limits and calibration certificates, and its meters - how each is read, and what is written to it");
+                                                         Permission.Run (Meters),
+                                                         Permission.Edit(Commissioning),
+                                                         Permission.Run (Commissioning) ],
+                                                       "commissions the station: everything the operator may do, its power limits and calibration certificates, its meters - how each is read, and what is written to it - and OCPP over SSH from a commissioning tool");
 
         /// <summary>
         /// Both, in the order a sentence naming them reads best.

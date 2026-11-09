@@ -25,12 +25,12 @@ export * from '@node/api/client';
 
 /**
  * What a role may be allowed to touch on this charging station: the node's
- * four resources, and the station's twelve - see StationAccess.
+ * four resources, and the station's thirteen - see StationAccess.
  */
 export type Resource = NodeResource
                      | 'evses' | 'rfid' | 'availability' | 'power' | 'calibration'
                      | 'display' | 'session' | 'connections' | 'v2g' | 'meters' | 'providers'
-                     | 'nameplate';
+                     | 'nameplate' | 'commissioning';
 
 /** What somebody signed in to this station may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;
@@ -631,6 +631,41 @@ export interface NameplateUpdate {
 
 
 /**
+ * Commissioning over SSH: a tool speaking OCPP 2.1 to this station on its own
+ * SSH server, as an account that may run it - under the account's name, never
+ * as the CSMS.
+ */
+export interface CommissioningConfiguration {
+    /** What the file says: switched on or not. */
+    enabled:       boolean;
+    /** Whether the subsystem is on the SSH server now. */
+    served:        boolean;
+    /** Whether the node's SSH server is on at all. */
+    sshServer:     boolean;
+    /** Where a tool connects, as its account; null without an SSH server. */
+    url:           string | null;
+    /** The SSH server's host key, "ssh-ed25519 SHA256:...", for the tool to pin. */
+    hostKey:       string | null;
+    /** "ocpp@open.charging.cloud". */
+    subsystem:     string;
+    /** The OCPP versions spoken, "ocpp2.1" first. */
+    subprotocols:  string[];
+    /** The OCPP node a tool speaks to, "test02". */
+    station:       string;
+    /** What an account needs, "commissioning:run". */
+    permission:    string;
+    /** The tools connected now, by the names of their accounts. */
+    tools:         string[];
+    file:          string;
+}
+
+/** What a PUT to commissioning carries. */
+export interface CommissioningUpdate {
+    enabled:  boolean;
+}
+
+
+/**
  * One calibration certificate this station runs under.
  *
  * Everything below the PEM was read out of it rather than typed: an issuer
@@ -963,6 +998,12 @@ export const api = {
          * hangs up and dials again, so that a CSMS is told.
          */
         save:  (update: NameplateUpdate)   => request<NameplateConfiguration>('PUT', '/configuration/nameplate', update)
+    },
+
+    commissioning: {
+        get:   ()                              => request<CommissioningConfiguration>('GET', '/configuration/commissioning'),
+        /** Switched on or off at once; off lets go of every tool connected. */
+        save:  (update: CommissioningUpdate)   => request<CommissioningConfiguration>('PUT', '/configuration/commissioning', update)
     },
 
     power: {

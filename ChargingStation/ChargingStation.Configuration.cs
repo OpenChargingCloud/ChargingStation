@@ -1336,6 +1336,10 @@ namespace cloud.charging.open.ChargingStation
 
             (cs01, cs02) = BuildOCPPNodes(EVSEs);
 
+            // A tool commissioning this station speaks to the new node from
+            // now on; the old one's sessions end with it.
+            ServeCommissioningByTheNewNode();
+
             // Stopped by DialAgain, and kept so that a station let go of
             // before that is done stops them all the same.
             lock (replacedNodes)
@@ -1967,6 +1971,10 @@ namespace cloud.charging.open.ChargingStation
             // the same.
             chargePoint.    ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
             chargingStation.ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
+
+            // Every OCPP 2.1 node has its commissioning server, served or not -
+            // see ChargingStation.Commissioning.cs.
+            commissioningServer = AttachCommissioning(chargingStation);
 
             NewRegistrations(chargePoint, chargingStation);
 

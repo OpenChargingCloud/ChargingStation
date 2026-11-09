@@ -655,8 +655,11 @@ namespace cloud.charging.open.ChargingStation
 
             LogRFIDReaders(this.RFIDReaders);
 
-            this.Operator   = configuration.Operator  ?? new OperatorConfiguration();
-            this.Nameplate  = configuration.Nameplate ?? new NameplateConfiguration();
+            this.Operator       = configuration.Operator      ?? new OperatorConfiguration();
+            this.Nameplate      = configuration.Nameplate     ?? new NameplateConfiguration();
+
+            // Served from Start() on - see ChargingStation.Commissioning.cs.
+            this.Commissioning  = configuration.Commissioning ?? new CommissioningConfiguration();
 
             // The logos the display shows, as files put up over SFTP.
             AddLogoAreas();
@@ -916,6 +919,11 @@ namespace cloud.charging.open.ChargingStation
             // having to reload to find out how it went.
             await StartV2GLinks();
 
+            // A tool speaking OCPP to this station over its SSH server, where
+            // the file says so - see ChargingStation.Commissioning.cs.
+            if (Commissioning.IsEnabled)
+                ServeCommissioning();
+
             // After the web interface for the same reason as the V2G link
             // above: somebody watching the Logs page sees each back end come up
             // or fail while it happens, rather than reloading afterwards to
@@ -962,6 +970,11 @@ namespace cloud.charging.open.ChargingStation
             }
 
             StopWatchingTheEVSEs();
+
+            await Take("ending commissioning over SSH", () => {
+                StopServingCommissioning("the station is stopping");
+                return Task.CompletedTask;
+            });
 
             await Take("ending the V2G links", EndTheV2GLinks);
 

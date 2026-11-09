@@ -62,16 +62,18 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="V2G">What each EVSE of this station offers a vehicle on the wire below its charging cable.</param>
     /// <param name="Meters">How the meter of each EVSE that has one read is read.</param>
     /// <param name="Nameplate">What this station tells a CSMS it is.</param>
-    public sealed record StationConfiguration(PowerConfiguration?                      Power         = null,
-                                              IReadOnlyList<EVSEConfig>?               EVSEs         = null,
-                                              IReadOnlyList<CalibrationCertificate>?   Calibration   = null,
-                                              IReadOnlyList<RFIDReaderConfig>?         RFID          = null,
-                                              OperatorConfiguration?                   Operator      = null,
-                                              WebPaymentsConfiguration?                WebPayments   = null,
-                                              DisplayConfiguration?                    Display       = null,
-                                              V2GLinksConfiguration?                   V2G           = null,
-                                              MetersConfiguration?                     Meters        = null,
-                                              NameplateConfiguration?                  Nameplate     = null)
+    /// <param name="Commissioning">Whether a tool may speak OCPP to this station over its SSH server.</param>
+    public sealed record StationConfiguration(PowerConfiguration?                      Power          = null,
+                                              IReadOnlyList<EVSEConfig>?               EVSEs          = null,
+                                              IReadOnlyList<CalibrationCertificate>?   Calibration    = null,
+                                              IReadOnlyList<RFIDReaderConfig>?         RFID           = null,
+                                              OperatorConfiguration?                   Operator       = null,
+                                              WebPaymentsConfiguration?                WebPayments    = null,
+                                              DisplayConfiguration?                    Display        = null,
+                                              V2GLinksConfiguration?                   V2G            = null,
+                                              MetersConfiguration?                     Meters         = null,
+                                              NameplateConfiguration?                  Nameplate      = null,
+                                              CommissioningConfiguration?              Commissioning  = null)
     {
 
         #region Data
@@ -101,7 +103,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         public Boolean IsEmpty
             => Power is null && EVSEs is null && Calibration is null && RFID is null &&
                Operator is null && WebPayments is null && Display is null && V2G is null && Meters is null &&
-               Nameplate is null;
+               Nameplate is null && Commissioning is null;
 
         #endregion
 
@@ -320,7 +322,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters, nameplate);
+            #region Commissioning
+
+            CommissioningConfiguration? commissioning = null;
+
+            if (JSON[CommissioningConfiguration.SectionName] is JToken commissioningToken && commissioningToken.Type != JTokenType.Null)
+            {
+
+                if (commissioningToken is not JObject commissioningJSON)
+                {
+                    Error = $"'{CommissioningConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!CommissioningConfiguration.TryParse(commissioningJSON, out commissioning, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters, nameplate, commissioning);
             return true;
 
         }
@@ -368,6 +390,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (Nameplate is not null)
                 json.Add(NameplateConfiguration.SectionName,    Nameplate.ToJSON());
 
+            if (Commissioning is not null)
+                json.Add(CommissioningConfiguration.SectionName, Commissioning.ToJSON());
+
             return json;
 
         }
@@ -390,7 +415,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              WebPayments is not null ? WebPayments.ToString()                   : null,
                              V2G         is not null ? V2G.ToString()                           : null,
                              Meters      is not null ? Meters.ToString()                        : null,
-                             Nameplate    is not null ? Nameplate.ToString()                      : null
+                             Nameplate    is not null ? Nameplate.ToString()                      : null,
+                             Commissioning is not null ? Commissioning.ToString()                 : null
                          }.Where(section => section is not null));
 
         #endregion
