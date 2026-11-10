@@ -28,8 +28,11 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -71,6 +74,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// Whether it lets in whoever shows a key.
             /// </summary>
             public Boolean           LetsIn         { get; set; } = true;
+
+            /// <summary>
+            /// An NTS server whose key exchange it serves beside OCPP, as the
+            /// subsystem "ntske/1@open.charging.cloud" on the same listener -
+            /// section 8.3 of the white paper "NTS Key Establishment over SSH" -
+            /// or none.
+            /// </summary>
+            public NTSServer?        Time           { get; set; }
 
             public UInt16            Port
                 => Server.LocalEndPoint.Port.ToUInt16();
@@ -126,7 +137,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                      return ValueTask.FromResult(LetsIn);
                                                  }),
                                 Subsystems     = (session, name, cancellationToken) =>
-                                                     ValueTask.FromResult(name == Messages.Subsystem ? Messages.Handler : null)
+                                                     ValueTask.FromResult(name == Messages.Subsystem
+                                                                              ? Messages.Handler
+                                                                              : name == NTSKE_SSH.SubsystemName && Time is NTSServer time
+                                                                                    ? time.ServeSSHSubsystemAsync
+                                                                                    : null)
                             });
 
             }
@@ -202,6 +217,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private async Task Start()
             => station = await TestStations.Started(station!, directory);
+
+        private static UInt16 FreeUDPPort()
+        {
+            using var udp = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+            return (UInt16) ((System.Net.IPEndPoint) udp.Client.LocalEndPoint!).Port;
+        }
 
         private static async Task Until(Func<Boolean> Condition, String What, Func<String>? Otherwise = null)
         {
@@ -417,6 +438,104 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Task.Delay(TimeSpan.FromSeconds(3));
 
             Assert.That(csms.Logins.Length, Is.EqualTo(logins), "The station went on trying a login that was turned away.");
+
+        }
+
+        #endregion
+
+        #region ATimeServerOfTheCSMSIsAskedOverTheConnectionOfOCPP()
+
+        /// <summary>
+        /// SSHUseOCPPConnection: the CSMS serves NTS-KE beside OCPP on its SSH
+        /// listener, and the station's time server there makes its key exchange
+        /// as one more channel of the connection the station dialled for OCPP -
+        /// signed in once, with the station's OCPP key, and the host key the one
+        /// OCPP believed. Before that connection there is no key exchange, and
+        /// nothing else is tried; after it, the connection of OCPP goes on.
+        /// </summary>
+        [Test]
+        public async Task ATimeServerOfTheCSMSIsAskedOverTheConnectionOfOCPP()
+        {
+
+            var ntpPort = FreeUDPPort();
+
+            var time    = new NTSServer(NTSKEPort:           IPPort.Parse(TestPorts.Free()),
+                                        NTSPort:             IPPort.Parse(ntpPort),
+                                        MasterKeysFilePath:  null);
+
+            try
+            {
+
+                await time.Start();
+
+                csms!.Time = time;
+
+                // A station whose one time server is the CSMS's host, over the
+                // connection of OCPP.
+                await station!.DisposeAsync();
+
+                station = TestStations.New(directory, new JObject(
+                              new JProperty("nts", new JObject(
+                                  new JProperty("groups", new JObject(
+                                      new JProperty("legal", new JObject(new JProperty("enabled", false))),
+                                      new JProperty("local", new JObject(
+                                          new JProperty("enabled",     true),
+                                          new JProperty("minServers",  1),
+                                          new JProperty("servers",     new JArray(new JObject(
+                                              new JProperty("id",        "csms-time"),
+                                              new JProperty("hostname",  "csms.test"),
+                                              new JProperty("ntpPort",   ntpPort),
+                                              new JProperty("ssh",       new JObject(new JProperty("useOCPPConnection", true)))
+                                          )))
+                                      ))
+                                  ))
+                              ))
+                          ));
+
+                TheStationsNameServersKnow("csms.test");
+
+                Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
+                                                                 out var id, out var error),
+                            Is.True, error);
+
+                var model   = new NTSDeviceModel(station, Log: null);
+
+                // Before OCPP is connected: no connection to share.
+                var before  = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
+
+                await Start();
+
+                await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                            "Connecting over SSH", () => SaidOf(id!));
+
+                // What OCPP's login asked of the authenticator - a key may be
+                // asked about before it signs.
+                var logins  = csms.Logins.Length;
+
+                var after   = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
+
+                Assert.Multiple(() => {
+
+                    Assert.That(before.Value<Boolean>("ok"),                                   Is.False, "a key exchange without a connection of OCPP");
+
+                    Assert.That(after. Value<Boolean>("ok"),                                   Is.True,  after.ToString());
+                    Assert.That(model.ClientValue("csms-time", "Mode"),                        Is.EqualTo("NTSv4SSH"));
+                    Assert.That(model.ClientValue("csms-time", "SSHUseOCPPConnection"),        Is.EqualTo("true"));
+                    Assert.That(model.ClientValue("csms-time", "SSHClientPublicKey"),          Is.EqualTo(station.SshKey.PublicKeyLine));
+                    Assert.That(model.ClientValue("csms-time", "SSHHostKeyFingerprint"),       Is.EqualTo(csms.Fingerprint));
+                    Assert.That(Int32.Parse(model.ClientValue("csms-time", "Cookies") ?? "0"), Is.GreaterThan(0));
+
+                    Assert.That(csms.Logins.Length,                                            Is.EqualTo(logins), "the key exchange signed in again");
+                    Assert.That(station.ConnectionStates[id!].Status,                          Is.EqualTo(ConnectionStatus.Connected), "the connection of OCPP went with the key exchange");
+                    Assert.That(File.Exists(station.NTSKEClientKeyPath),                       Is.False, "a key of the node's own was made");
+
+                });
+
+            }
+            finally
+            {
+                await time.ShutdownAsync();
+            }
 
         }
 
