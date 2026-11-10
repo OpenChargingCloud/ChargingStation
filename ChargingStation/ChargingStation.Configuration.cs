@@ -1975,7 +1975,8 @@ namespace cloud.charging.open.ChargingStation
 
             // Every OCPP 2.1 node has its commissioning server, served or not -
             // see ChargingStation.Commissioning.cs.
-            commissioningServer = AttachCommissioning(chargingStation);
+            commissioningServer    = AttachCommissioning  (chargingStation);
+            commissioningServer16  = AttachCommissioning16(chargePoint);
 
             NewRegistrations(chargePoint, chargingStation);
 

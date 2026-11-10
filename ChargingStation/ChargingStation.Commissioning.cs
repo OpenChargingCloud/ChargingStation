@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
+using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.OCPP.SSH;
@@ -85,6 +86,11 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private OCPPSshServer?  commissioningServer;
 
+        // The commissioning server of the OCPP 1.6 node: a tool that speaks
+        // OCPP 1.6 is handed to it by the HELLO (white paper "OCPP over SSH",
+        // decision 13).
+        private OCPPSshServer?  commissioningServer16;
+
         /// <summary>
         /// Whether the subsystem is on the node's SSH server now.
         /// </summary>
@@ -123,7 +129,8 @@ namespace cloud.charging.open.ChargingStation
         /// under.
         /// </summary>
         public IEnumerable<NetworkingNode_Id> CommissioningTools
-            => commissioningServer?.ConnectedNetworkingNodeIds ?? [];
+            => [ .. commissioningServer?.  ConnectedNetworkingNodeIds ?? [],
+                 .. commissioningServer16?.ConnectedNetworkingNodeIds ?? [] ];
 
         #endregion
 
@@ -156,7 +163,7 @@ namespace cloud.charging.open.ChargingStation
         private OCPPSshServer AttachCommissioning(OCPPv2_1.CS.TestChargingStationNode Node)
         {
 
-            var server = Node.AttachOCPPSshSubsystem();
+            var server = Node.AttachOCPPSshSubsystem(Subprotocols: [ "ocpp2.1", "ocpp2.0.1" ]);
 
             server.MessageServer.ValidateHello = (messageServer, context, hello, subprotocol, cancellationToken) =>
                                                      ValueTask.FromResult(
@@ -172,6 +179,45 @@ namespace cloud.charging.open.ChargingStation
             return server;
 
         }
+
+        /// <summary>
+        /// The commissioning server of the given OCPP 1.6 node, held to the
+        /// same rules as the one of OCPP 2.1: one subsystem serves both, and
+        /// the HELLO says which (see <see cref="CommissioningHandler"/>).
+        /// </summary>
+        /// <param name="Node">A new OCPP 1.6 node of this station.</param>
+        private OCPPSshServer AttachCommissioning16(OCPPv1_6.TestChargePointNode Node)
+        {
+
+            var server = Node.AttachOCPPSshSubsystem(Subprotocols: [ "ocpp1.6" ]);
+
+            server.MessageServer.ValidateHello = (messageServer, context, hello, subprotocol, cancellationToken) =>
+                                                     ValueTask.FromResult(
+                                                         WhyNoCommissioningToolMayBe(context.Session.Username, Node.Id) is String why
+                                                             ? SshHelloVerdict.Refuse(WWCPSshServer.RefusalNotPermitted, why)
+                                                             : server.Validate(context.Session.Username, hello)
+                                                     );
+
+            // In OCPP 1.6 a request over a connection somebody else made is for
+            // the Central System, by that name.
+            Node.OCPP.IN.AnycastIds.Add(NetworkingNode_Id.CentralSystem);
+
+            WireCommissioningLogging(server);
+
+            return server;
+
+        }
+
+        /// <summary>
+        /// The one handler of the subsystem: it reads a tool's HELLO, and hands
+        /// the tool to the node of the version it chose - OCPP 2.1 or 2.0.1, or
+        /// OCPP 1.6.
+        /// </summary>
+        private SshSubsystemHandler CommissioningHandler
+
+            => commissioningServer16 is null
+                   ? commissioningServer!.Handler
+                   : SshMessageServer.RoutedBySubprotocol(commissioningServer!.MessageServer, commissioningServer16.MessageServer);
 
         #endregion
 
@@ -265,7 +311,7 @@ namespace cloud.charging.open.ChargingStation
 
             try
             {
-                AddSSHSubsystem(new SSHSubsystem(OCPPSshServer.OCPPSubsystem, CommissioningLabel, commissioningServer.Handler, CommissioningPermission));
+                AddSSHSubsystem(new SSHSubsystem(OCPPSshServer.OCPPSubsystem, CommissioningLabel, CommissioningHandler, CommissioningPermission));
             }
             catch (Exception e)
             {
@@ -286,7 +332,7 @@ namespace cloud.charging.open.ChargingStation
 
             else
                 Log.Notice(
-                    $"A commissioning tool may speak OCPP 2.1 to this station over SSH: {SSHURL} as an account that may {CommissioningPermission}, " +
+                    $"A commissioning tool may speak OCPP 2.1, 2.0.1 or 1.6 to this station over SSH: {SSHURL} as an account that may {CommissioningPermission}, " +
                     $"subsystem {OCPPSshServer.OCPPSubsystem}, host key {SSHHostKey ?? "not known yet"}.",
                     "ocpp", "ssh", "commissioning"
                 );
@@ -331,7 +377,7 @@ namespace cloud.charging.open.ChargingStation
 
             try
             {
-                AddSSHSubsystem(new SSHSubsystem(OCPPSshServer.OCPPSubsystem, CommissioningLabel, commissioningServer.Handler, CommissioningPermission));
+                AddSSHSubsystem(new SSHSubsystem(OCPPSshServer.OCPPSubsystem, CommissioningLabel, CommissioningHandler, CommissioningPermission));
             }
             catch (Exception e)
             {
@@ -363,7 +409,8 @@ namespace cloud.charging.open.ChargingStation
                    new JProperty("url",           SSHEnabled ? SSHURL : null),
                    new JProperty("hostKey",       SSHHostKey),
                    new JProperty("subsystem",     OCPPSshServer.OCPPSubsystem),
-                   new JProperty("subprotocols",  new JArray(commissioningServer?.MessageServer.Options.Subprotocols ?? [])),
+                   new JProperty("subprotocols",  new JArray((commissioningServer?.  MessageServer.Options.Subprotocols ?? []).
+                                                                 Concat(commissioningServer16?.MessageServer.Options.Subprotocols ?? []))),
                    new JProperty("station",       cs02.Id.ToString()),
                    new JProperty("permission",    CommissioningPermission.ToString()),
                    new JProperty("tools",         new JArray(CommissioningTools.Select(tool => tool.ToString()).Order())),

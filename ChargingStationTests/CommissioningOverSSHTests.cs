@@ -323,7 +323,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A tool connecting as root, or as the given account with its key,
         /// saying what its HELLO is given: the tool, or why it was not let in.
         /// </summary>
-        private async Task<(Tool? Tool, String? Why)> Connect(JObject? Hello = null, String? Login = null, ISshHostKey? Key = null)
+        private async Task<(Tool? Tool, String? Why)> Connect(JObject? Hello = null, String? Login = null, ISshHostKey? Key = null, String Subprotocol = "ocpp2.1")
         {
 
             var client = new SshMessageClient(new SshMessageClientOptions {
@@ -331,7 +331,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                   Port             = station!.SSHPort!.Value.ToUInt16(),
                                                   Ssh              = Login is not null ? SSHAs(Login, Key!) : SSHAsRoot(),
                                                   Subsystem        = Subsystem,
-                                                  Subprotocols     = [ "ocpp2.1" ],
+                                                  Subprotocols     = [ Subprotocol ],
                                                   HelloProperties  = Hello
                                               });
 
@@ -462,6 +462,40 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.SSHSessions.Any(session => session.Account == Root && session.Label == ChargingStation.CommissioningLabel), Is.True,
                             "The SSH server does not say what the session is for.");
 
+            });
+
+            await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");
+
+        }
+
+        #endregion
+
+        #region AToolOfOCPP16_IsAnsweredByTheNodeOfOCPP16()
+
+        /// <summary>
+        /// A tool that speaks OCPP 1.6 is handed to the station's OCPP 1.6 node by its HELLO, on the same
+        /// subsystem, and answered in OCPP 1.6 (white paper "OCPP over SSH", decision 13).
+        /// </summary>
+        [Test]
+        public async Task AToolOfOCPP16_IsAnsweredByTheNodeOfOCPP16()
+        {
+
+            await AStation(Commissioning: true);
+
+            var (tool, why) = await Connect(Subprotocol: "ocpp1.6");
+
+            Assert.That(tool, Is.Not.Null, why);
+            Assert.That(tool!.Connection.Subprotocol, Is.EqualTo("ocpp1.6"));
+
+            // GetConfiguration is OCPP 1.6's: the OCPP 2.1 node has no such request.
+            var answer = await tool.Ask("GetConfiguration", new JObject());
+
+            Assert.Multiple(() => {
+                Assert.That(answer,                       Is.Not.Null, "The station did not answer the tool.");
+                Assert.That(answer![0].Value<Int32>(),    Is.EqualTo(3), $"The station answered with an error: {answer}");
+                Assert.That(answer[2]["configurationKey"], Is.Not.Null, answer.ToString());
+                Assert.That(station!.CommissioningTools.Select(id => id.ToString()), Is.EqualTo(new[] { Root }));
+                Assert.That(station.CommissioningJSON()["subprotocols"]!.Values<String>(), Is.EquivalentTo(new[] { "ocpp2.1", "ocpp2.0.1", "ocpp1.6" }));
             });
 
             await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");
