@@ -187,9 +187,11 @@ namespace cloud.charging.open.ChargingStation
         ///
         /// Each on its own, in the order it was written down, and none of them
         /// affected by how another went. What is at the other end is a label
-        /// and nothing reads it here: whether a spare waits for its main one to
-        /// fail is a decision nobody has made yet, and a guess at it now would
-        /// have to be unpicked before the real answer could go in.
+        /// and nothing reads it here. The oldest of each OCPP version is the
+        /// primary, the back end in charge, which is told what the station says
+        /// by itself; every other one is registered with and answered, and told
+        /// nothing by itself (see IsPrimary). Whether a spare waits for its main
+        /// one to fail is a decision nobody has made yet.
         /// </remarks>
         private async Task DialConfiguredConnections(CancellationToken CancellationToken = default)
         {
@@ -370,36 +372,32 @@ namespace cloud.charging.open.ChargingStation
                 Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
                          $"{Connection.ConnectionType}.", "ocpp", "connections");
 
-                // To the CSMS, whatever its type says: the type is a label. A
-                // node sends what it has to say - a security event, an event
-                // of a monitor - to its CSMS by name, "CentralSystem" in 1.6
-                // and "CSMS" in 2.1, and answers a request by the name of the
-                // connection it came over. A connection without that name was
-                // neither: the CSMS's requests went unanswered, and every
-                // event waited in the queue for a CSMS the node did not know
-                // how to reach.
+                // Under a name of its own, and the primary under the name of the
+                // CSMS as well - see NextHopOf and CSMSNamesOf.
                 var response = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
 
                                    ? await cs01.ConnectOCPPWebSocketClient(
-                                             RemoteURL:                Connection.URL,
-                                             NextHopNetworkingNodeId:  NetworkingNode_Id.CentralSystem,
-                                             HTTPAuthentication:       basic,
-                                             ClientCertificates:       certificates,
-                                             TOTPConfig:               totp,
-                                             TOTPLogin:                totpLogin,
-                                             DNSClient:                DNSClient,
-                                             CancellationToken:        CancellationToken
+                                             RemoteURL:                 Connection.URL,
+                                             NextHopNetworkingNodeId:   NextHopOf(Connection),
+                                             RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
+                                             HTTPAuthentication:        basic,
+                                             ClientCertificates:        certificates,
+                                             TOTPConfig:                totp,
+                                             TOTPLogin:                 totpLogin,
+                                             DNSClient:                 DNSClient,
+                                             CancellationToken:         CancellationToken
                                          )
 
                                    : await cs02.ConnectOCPPWebSocketClient(
-                                             RemoteURL:                Connection.URL,
-                                             NextHopNetworkingNodeId:  NetworkingNode_Id.CSMS,
-                                             HTTPAuthentication:       basic,
-                                             ClientCertificates:       certificates,
-                                             TOTPConfig:               totp,
-                                             TOTPLogin:                totpLogin,
-                                             DNSClient:                DNSClient,
-                                             CancellationToken:        CancellationToken
+                                             RemoteURL:                 Connection.URL,
+                                             NextHopNetworkingNodeId:   NextHopOf(Connection),
+                                             RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
+                                             HTTPAuthentication:        basic,
+                                             ClientCertificates:        certificates,
+                                             TOTPConfig:                totp,
+                                             TOTPLogin:                 totpLogin,
+                                             DNSClient:                 DNSClient,
+                                             CancellationToken:         CancellationToken
                                          );
 
                 // 101 and nothing else: an HTTP answer that is not an upgrade
@@ -468,6 +466,65 @@ namespace cloud.charging.open.ChargingStation
             }
 
         }
+
+        #endregion
+
+        #region (internal static) NextHopOf(Connection)
+
+        /// <summary>
+        /// The name the far end of a connection has in its OCPP node's routing
+        /// table: one of its own.
+        /// </summary>
+        /// <remarks>
+        /// Every connection used to be "CentralSystem" in 1.6 and "CSMS" in 2.1,
+        /// and a node has one route by a name: to whichever connection came up
+        /// last. With two back ends of one version - a CSMS and its successor,
+        /// during a migration - what the station said by itself went to the one
+        /// that had connected or reconnected last, and a BootNotification asked
+        /// for the second one went to that one too. A request is answered over
+        /// the connection it came over, whatever the name.
+        /// </remarks>
+        internal static NetworkingNode_Id NextHopOf(ConnectionEntry Connection)
+            => NetworkingNode_Id.Parse($"connection-{Connection.Id}");
+
+        #endregion
+
+        #region (internal) IsPrimary(Connection)
+
+        /// <summary>
+        /// Whether the connection leads to the back end in charge of its OCPP
+        /// node: the oldest connection of its version that dials by itself.
+        /// </summary>
+        /// <remarks>
+        /// The oldest, because that is the one this station has always dialled
+        /// first. Every other connection of the version leads to a back end the
+        /// station registers with as well and answers, and tells nothing by
+        /// itself. Which one is in charge is to be said by a switchover later;
+        /// until then it is this one.
+        /// </remarks>
+        internal Boolean IsPrimary(ConnectionEntry Connection)
+
+            => Connections.Connections.
+                   Where  (one => one.AutoConnect && one.OCPPVersion == Connection.OCPPVersion).
+                   OrderBy(one => one.CreatedAt).
+                   FirstOrDefault()?.Id == Connection.Id;
+
+        #endregion
+
+        #region (private) CSMSNamesOf(Connection)
+
+        /// <summary>
+        /// The names a connection is reached by beside its own: the CSMS's - by
+        /// which a node sends what it has to say, a security event, an event of
+        /// a monitor, a heartbeat - for the primary, and none for any other.
+        /// </summary>
+        private NetworkingNode_Id[] CSMSNamesOf(ConnectionEntry Connection)
+
+            => IsPrimary(Connection)
+                   ? [ Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
+                           ? NetworkingNode_Id.CentralSystem
+                           : NetworkingNode_Id.CSMS ]
+                   : [];
 
         #endregion
 
@@ -651,15 +708,14 @@ namespace cloud.charging.open.ChargingStation
                           : "no host key is pinned, so the first one its server shows is believed, and written down."),
                      "ocpp", "connections");
 
-            // To the CSMS, as over a WebSocket - see Dial.
+            // Named as over a WebSocket - see Dial.
             var result  = await node.ConnectOCPPClient(
-                                    RemoteURL:                Connection.URL,
-                                    NextHopNetworkingNodeId:  Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
-                                                                  ? NetworkingNode_Id.CentralSystem
-                                                                  : NetworkingNode_Id.CSMS,
-                                    Ssh:                      login,
-                                    DNSClient:                DNSClient,
-                                    CancellationToken:        CancellationToken
+                                    RemoteURL:                 Connection.URL,
+                                    NextHopNetworkingNodeId:   NextHopOf(Connection),
+                                    RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
+                                    Ssh:                       login,
+                                    DNSClient:                 DNSClient,
+                                    CancellationToken:         CancellationToken
                                 );
 
             var client  = result.Client as WWCPSshClient;

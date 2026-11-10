@@ -17,6 +17,7 @@
 
 #region Usings
 
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 
 using Newtonsoft.Json.Linq;
@@ -88,64 +89,117 @@ namespace cloud.charging.open.ChargingStation
     /// CSMS did not answer at all, it is a minute. Accepted comes with how
     /// often to send a heartbeat, which the node then does by itself.
     ///
-    /// A node registers once: after the start, when its first connection is
-    /// up, and again when a connection comes back only where it was not
-    /// accepted yet - one that went unanswered asks at once, one told to wait
-    /// waits. A node built anew because the EVSEs or what this station says it
-    /// is changed is a new start: it hangs up, dials again and registers
-    /// again, with the BootReason LocalReset in OCPP 2.1 rather than PowerUp.
+    /// Each connection registers on its own: after the start, when it is first
+    /// up, and again when it comes back only where it was not accepted yet -
+    /// one that went unanswered asks at once, one told to wait waits. A node
+    /// with two connections of its version - a CSMS and its successor, during a
+    /// migration - is registered with both, and each back end that accepted it
+    /// gets its heartbeat at the interval it gave. What waits in the queue
+    /// waits for the primary, the back end in charge, alone (see IsPrimary).
+    ///
+    /// A node built anew because the EVSEs or what this station says it is
+    /// changed is a new start: it hangs up, dials again and registers again,
+    /// with the BootReason LocalReset in OCPP 2.1 rather than PowerUp.
     /// </remarks>
     public partial class ChargingStation
     {
 
-        #region (class) Registration
+        #region (class) Registrations
 
         /// <summary>
-        /// Where one OCPP node stands with its CSMS, and the next time it asks.
+        /// The registrations of one OCPP node: one per connection.
         /// </summary>
-        private sealed class Registration
+        private sealed class Registrations(String               Version,
+                                           OCPPv2_1.BootReason  Reason)
         {
 
-            public Registration(String               Version,
-                                OCPPv2_1.BootReason  Reason)
-            {
-                this.Version  = Version;
-                this.Reason   = Reason;
-            }
-
-            public String                   Version    { get; }
-            public OCPPv2_1.BootReason      Reason     { get; }
-
-            public RegistrationState        State      { get; set; } = RegistrationState.NotAsked;
-            public DateTimeOffset?          Since      { get; set; }
-
-            /// <summary>
-            /// Accepted, how often a heartbeat goes; otherwise how long it waits before asking again.
-            /// </summary>
-            public TimeSpan?                Interval   { get; set; }
-            public DateTimeOffset?          NextTry    { get; set; }
-            public String?                  Problem    { get; set; }
-
-            /// <summary>
-            /// The connection that was up last, whose line on the connections page says how it stands.
-            /// </summary>
-            public ConnectionEntry?         Over       { get; set; }
+            public String                                            Version         { get; } = Version;
+            public OCPPv2_1.BootReason                               Reason          { get; } = Reason;
 
             /// <summary>
             /// Cancelled once the node is let go of: nothing is asked for it any more.
             /// </summary>
-            public CancellationTokenSource  Ended      { get; } = new();
+            public CancellationTokenSource                           Ended           { get; } = new();
+
+            /// <summary>
+            /// By the identification of the connection.
+            /// </summary>
+            public ConcurrentDictionary<String, Registration>        ByConnection    { get; } = new();
+
+        }
+
+        #endregion
+
+        #region (class) Registration
+
+        /// <summary>
+        /// Where one connection of an OCPP node stands with its back end, and the
+        /// next time it asks.
+        /// </summary>
+        private sealed class Registration
+        {
+
+            public Registration(Registrations    Node,
+                                ConnectionEntry  Connection,
+                                Boolean          Primary)
+            {
+                this.Version     = Node.Version;
+                this.Reason      = Node.Reason;
+                this.Ended       = Node.Ended;
+                this.Connection  = Connection;
+                this.Primary     = Primary;
+            }
+
+            public String                   Version      { get; }
+            public OCPPv2_1.BootReason      Reason       { get; }
+
+            /// <summary>
+            /// The connection, whose line on the connections page says how it stands.
+            /// </summary>
+            public ConnectionEntry          Connection   { get; }
+
+            /// <summary>
+            /// Whether its back end is the one in charge, whose acceptance lets go of what waits in the queue.
+            /// </summary>
+            public Boolean                  Primary      { get; }
+
+            /// <summary>
+            /// Where its BootNotification and its heartbeats go: the connection's own name.
+            /// </summary>
+            public NetworkingNode_Id        Destination
+                => NextHopOf(Connection);
+
+            public RegistrationState        State        { get; set; } = RegistrationState.NotAsked;
+            public DateTimeOffset?          Since        { get; set; }
+
+            /// <summary>
+            /// Accepted, how often a heartbeat goes; otherwise how long it waits before asking again.
+            /// </summary>
+            public TimeSpan?                Interval     { get; set; }
+            public DateTimeOffset?          NextTry      { get; set; }
+            public String?                  Problem      { get; set; }
+
+            /// <summary>
+            /// The node's: cancelled once it is let go of.
+            /// </summary>
+            public CancellationTokenSource  Ended        { get; }
 
             /// <summary>
             /// The BootNotification on its way, if one is: cancelled when another
             /// one takes its place.
             /// </summary>
-            public CancellationTokenSource? Asking     { get; set; }
+            public CancellationTokenSource? Asking       { get; set; }
 
             /// <summary>
             /// How many were asked: only the answer to the last one counts.
             /// </summary>
-            public Int32                    Asks       { get; set; }
+            public Int32                    Asks         { get; set; }
+
+            /// <summary>
+            /// The heartbeat this station sends a back end other than the
+            /// primary, which the node does not: cancelled when it changes.
+            /// </summary>
+            public CancellationTokenSource? Beating      { get; set; }
 
         }
 
@@ -159,7 +213,13 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public static readonly TimeSpan  DefaultRegistrationRetry   = TimeSpan.FromMinutes(1);
 
-        private readonly ConditionalWeakTable<AWWCPNetworkingNode, Registration>  registrations  = new();
+        /// <summary>
+        /// The shortest heartbeat interval this station keeps to, whatever a
+        /// back end asks for: the same as its OCPP nodes'.
+        /// </summary>
+        public static readonly TimeSpan  ShortestHeartbeatInterval  = TimeSpan.FromSeconds(5);
+
+        private readonly ConditionalWeakTable<AWWCPNetworkingNode, Registrations>  registrations  = new();
 
         private Boolean nodesBuiltBefore;
 
@@ -169,23 +229,23 @@ namespace cloud.charging.open.ChargingStation
         #region RegistrationJSON()
 
         /// <summary>
-        /// Where each OCPP node stands with its CSMS.
+        /// Where each OCPP node stands with its CSMS: the primary's registration.
         /// </summary>
         public JObject RegistrationJSON()
 
             => new (
-                   new JProperty("1.6", RegistrationJSON(RegistrationOf(cs01))),
-                   new JProperty("2.1", RegistrationJSON(RegistrationOf(cs02)))
+                   new JProperty("1.6", RegistrationJSON(PrimaryRegistrationOf(cs01))),
+                   new JProperty("2.1", RegistrationJSON(PrimaryRegistrationOf(cs02)))
                );
 
-        private static JObject RegistrationJSON(Registration Registration)
+        private static JObject RegistrationJSON(Registration? Registration)
 
             => new (
-                   new JProperty("state",     Registration.State.ToString()),
-                   new JProperty("since",     Registration.Since?.  ToString("o")),
-                   new JProperty("interval",  Registration.Interval?.TotalSeconds),
-                   new JProperty("nextTry",   Registration.NextTry?.ToString("o")),
-                   new JProperty("problem",   Registration.Problem)
+                   new JProperty("state",     (Registration?.State ?? RegistrationState.NotAsked).ToString()),
+                   new JProperty("since",     Registration?.Since?.  ToString("o")),
+                   new JProperty("interval",  Registration?.Interval?.TotalSeconds),
+                   new JProperty("nextTry",   Registration?.NextTry?.ToString("o")),
+                   new JProperty("problem",   Registration?.Problem)
                );
 
         #endregion
@@ -206,8 +266,8 @@ namespace cloud.charging.open.ChargingStation
 
             nodesBuiltBefore = true;
 
-            registrations.AddOrUpdate(ChargePoint,     new Registration("1.6", reason));
-            registrations.AddOrUpdate(ChargingStation, new Registration("2.1", reason));
+            registrations.AddOrUpdate(ChargePoint,     new Registrations("1.6", reason));
+            registrations.AddOrUpdate(ChargingStation, new Registrations("2.1", reason));
 
             // Until the CSMS accepts the BootNotification, what is queued waits.
             ChargePoint.    HoldOfflineQueue = true;
@@ -217,13 +277,34 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) RegistrationOf(Node)
+        #region (private) RegistrationsOf(Node) / RegistrationOf(Node, Connection) / PrimaryRegistrationOf(Node)
 
-        private Registration RegistrationOf(AWWCPNetworkingNode Node)
+        private Registrations RegistrationsOf(AWWCPNetworkingNode Node)
 
-            => registrations.TryGetValue(Node, out var registration)
-                   ? registration
+            => registrations.TryGetValue(Node, out var nodeRegistrations)
+                   ? nodeRegistrations
                    : throw new InvalidOperationException($"The OCPP node '{Node.Id}' was built without a registration.");
+
+        /// <summary>
+        /// The registration of the given connection with the given node: made
+        /// when the connection is first up.
+        /// </summary>
+        private Registration RegistrationOf(AWWCPNetworkingNode  Node,
+                                            ConnectionEntry      Connection)
+        {
+
+            var nodeRegistrations = RegistrationsOf(Node);
+
+            return nodeRegistrations.ByConnection.GetOrAdd(
+                       Connection.Id,
+                       _ => new Registration(nodeRegistrations, Connection, IsPrimary(Connection))
+                   );
+
+        }
+
+        private Registration? PrimaryRegistrationOf(AWWCPNetworkingNode Node)
+
+            => RegistrationsOf(Node).ByConnection.Values.FirstOrDefault(registration => registration.Primary);
 
         #endregion
 
@@ -236,8 +317,8 @@ namespace cloud.charging.open.ChargingStation
         private void EndRegistrations(params AWWCPNetworkingNode[] Nodes)
         {
             foreach (var node in Nodes)
-                if (registrations.TryGetValue(node, out var registration))
-                    registration.Ended.Cancel();
+                if (registrations.TryGetValue(node, out var nodeRegistrations))
+                    nodeRegistrations.Ended.Cancel();
         }
 
         #endregion
@@ -246,23 +327,23 @@ namespace cloud.charging.open.ChargingStation
         #region (private) ConnectionIsUp(Connection)
 
         /// <summary>
-        /// A connection is up: send what waits where the CSMS accepted this
-        /// station's node, and register the node where it did not yet.
+        /// A connection is up: send what waits where it leads to the primary and
+        /// that one accepted this station's node, and register where its back end
+        /// did not accept it yet.
         /// </summary>
         private void ConnectionIsUp(ConnectionEntry Connection)
         {
 
             AWWCPNetworkingNode node = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6 ? cs01 : cs02;
 
-            var registration = RegistrationOf(node);
-
-            registration.Over = Connection;
+            var registration = RegistrationOf(node, Connection);
 
             switch (registration.State)
             {
 
                 case RegistrationState.Accepted:
-                    SendWhatWaits(Connection);
+                    if (registration.Primary)
+                        SendWhatWaits(Connection);
                     return;
 
                 // Told to wait: Rejected may not ask before its time is up,
@@ -342,7 +423,7 @@ namespace cloud.charging.open.ChargingStation
                     OCPPv1_6.TestChargePointNode chargePoint
                         => Of(await chargePoint.OCPP.OUT.BootNotification(
                                         new OCPPv1_6.CP.BootNotificationRequest(
-                                            Destination:              SourceRouting.To(NetworkingNode_Id.CentralSystem),
+                                            Destination:              SourceRouting.To(Registration.Destination),
                                             ChargePointVendor:        chargePoint.ChargePointVendor,
                                             ChargePointModel:         chargePoint.ChargePointModel,
                                             ChargePointSerialNumber:  Nameplate.SerialNumber,
@@ -359,7 +440,8 @@ namespace cloud.charging.open.ChargingStation
                         => Of(await OCPPv2_1.CS.IChargingStationNodeExtensions.SendBootNotification(
                                         chargingStation,
                                         Registration.Reason,
-                                        CancellationToken: asking.Token
+                                        Destination:        SourceRouting.To(Registration.Destination),
+                                        CancellationToken:  asking.Token
                                     )),
 
                     _   => (false, "", TimeSpan.Zero, $"'{Node.Id}' is no OCPP node this station knows how to register.")
@@ -389,11 +471,12 @@ namespace cloud.charging.open.ChargingStation
                 Registration.State     = status == "Pending" ? RegistrationState.Pending : RegistrationState.Rejected;
                 Registration.Interval  = wait;
 
-                var what = $"the CSMS has not accepted this station's OCPP {Registration.Version} node yet ({status}); " +
-                           $"it asks again in {wait.TotalSeconds:F0} s, and tells the CSMS nothing else until then.";
+                StopTheHeartbeat(Registration);
 
-                if (Registration.Over is ConnectionEntry over)
-                    Note(over, $"Connected, but {what}");
+                var what = $"{BackEndOf(Registration)} has not accepted this station's OCPP {Registration.Version} node yet ({status}); " +
+                           $"it asks again in {wait.TotalSeconds:F0} s, and tells it nothing else until then.";
+
+                Note(Registration.Connection, $"Connected, but {what}");
 
                 if (Registration.State == RegistrationState.Rejected)
                     Log.Warning($"Registering: {what}", "ocpp", "connections");
@@ -443,8 +526,9 @@ namespace cloud.charging.open.ChargingStation
         #region (private) Accepted(Node, Registration, Interval)
 
         /// <summary>
-        /// The CSMS accepted the node: what waited is let go and sent, and the
-        /// node sends its heartbeats by itself from now on.
+        /// The back end accepted the node. The primary: what waited is let go
+        /// and sent, and the node sends its heartbeats by itself from now on.
+        /// Any other: this station sends it heartbeats at the interval it gave.
         /// </summary>
         private void Accepted(AWWCPNetworkingNode  Node,
                               Registration         Registration,
@@ -454,24 +538,131 @@ namespace cloud.charging.open.ChargingStation
             Registration.State     = RegistrationState.Accepted;
             Registration.Interval  = Interval;
 
-            switch (Node)
-            {
-                case OCPPv1_6.TestChargePointNode         chargePoint:      chargePoint.    HoldOfflineQueue = false; break;
-                case OCPPv2_1.CS.TestChargingStationNode  chargingStation:  chargingStation.HoldOfflineQueue = false; break;
-            }
+            var every = Interval >= ShortestHeartbeatInterval ? Interval : ShortestHeartbeatInterval;
 
-            var what = $"the CSMS accepted this station's OCPP {Registration.Version} node, " +
-                       $"which sends a heartbeat every {Interval.TotalSeconds:F0} s.";
+            var what  = $"{BackEndOf(Registration)} accepted this station's OCPP {Registration.Version} node, " +
+                        $"which sends it a heartbeat every {every.TotalSeconds:F0} s.";
 
             Log.Notice($"Registering: {what}", "ocpp", "connections");
 
-            if (Registration.Over is ConnectionEntry over)
+            Note(Registration.Connection, $"Connected; {what}");
+
+            if (Registration.Primary)
             {
-                Note(over, $"Connected; {what}");
-                SendWhatWaits(over);
+
+                switch (Node)
+                {
+                    case OCPPv1_6.TestChargePointNode         chargePoint:      chargePoint.    HoldOfflineQueue = false; break;
+                    case OCPPv2_1.CS.TestChargingStationNode  chargingStation:  chargingStation.HoldOfflineQueue = false; break;
+                }
+
+                SendWhatWaits(Registration.Connection);
+
             }
 
+            else
+                StartTheHeartbeat(Node, Registration, every);
+
         }
+
+        #endregion
+
+        #region (private) StartTheHeartbeat(Node, Registration, Every) / StopTheHeartbeat(Registration)
+
+        /// <summary>
+        /// Send heartbeats to a back end other than the primary, which the node
+        /// does not: its own heartbeat goes to the primary alone.
+        /// </summary>
+        /// <remarks>
+        /// One that cannot be sent - the connection is down for the moment - is
+        /// not sent, and the next one is tried at its time.
+        /// </remarks>
+        private void StartTheHeartbeat(AWWCPNetworkingNode  Node,
+                                       Registration         Registration,
+                                       TimeSpan             Every)
+        {
+
+            CancellationTokenSource beating;
+
+            lock (Registration)
+            {
+                Registration.Beating?.Cancel();
+                beating = Registration.Beating = CancellationTokenSource.CreateLinkedTokenSource(Registration.Ended.Token);
+            }
+
+            _ = Task.Run(async () => {
+
+                    while (!beating.IsCancellationRequested)
+                    {
+
+                        try
+                        {
+                            await Task.Delay(Every, TimeProvider, beating.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+
+                            var destination = SourceRouting.To(Registration.Destination);
+
+                            switch (Node)
+                            {
+
+                                case OCPPv1_6.TestChargePointNode chargePoint:
+                                    await OCPPv1_6.CP.IChargePointNodeExtensions.SendHeartbeat(
+                                              chargePoint,
+                                              Destination:        destination,
+                                              CancellationToken:  beating.Token
+                                          );
+                                    break;
+
+                                case OCPPv2_1.CS.TestChargingStationNode chargingStation:
+                                    await OCPPv2_1.CS.IChargingStationNodeExtensions.SendHeartbeat(
+                                              chargingStation,
+                                              Destination:        destination,
+                                              CancellationToken:  beating.Token
+                                          );
+                                    break;
+
+                            }
+
+                        }
+                        catch (Exception e) when (e is not OperationCanceledException)
+                        {
+                            Log.Debug($"A heartbeat to {BackEndOf(Registration)} could not be sent: {e.Message}", "ocpp", "connections");
+                        }
+
+                    }
+
+                });
+
+        }
+
+        private static void StopTheHeartbeat(Registration Registration)
+        {
+            lock (Registration)
+            {
+                Registration.Beating?.Cancel();
+                Registration.Beating = null;
+            }
+        }
+
+        #endregion
+
+        #region (private static) BackEndOf(Registration)
+
+        /// <summary>
+        /// Who a registration is with, for whoever reads the log.
+        /// </summary>
+        private static String BackEndOf(Registration Registration)
+
+            => Registration.Primary
+                   ? "the CSMS"
+                   : $"the back end of '{Registration.Connection.Description}'";
 
         #endregion
 
@@ -490,7 +681,9 @@ namespace cloud.charging.open.ChargingStation
             Registration.Interval  = DefaultRegistrationRetry;
             Registration.Problem   = Problem;
 
-            Log.Warning($"Registering: the CSMS did not answer the BootNotification of this station's OCPP {Registration.Version} node " +
+            StopTheHeartbeat(Registration);
+
+            Log.Warning($"Registering: {BackEndOf(Registration)} did not answer the BootNotification of this station's OCPP {Registration.Version} node " +
                         $"({Problem}); it asks again in {DefaultRegistrationRetry.TotalSeconds:F0} s.",
                         "ocpp", "connections");
 

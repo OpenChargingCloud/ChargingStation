@@ -93,11 +93,15 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// </summary>
             public Int32            BootInterval   { get; set; } = 300;
 
-            public CSMS()
+            /// <summary>
+            /// A CSMS listening on the given port, or on a free one.
+            /// </summary>
+            /// <param name="Port">A port nothing listens on yet, for a CSMS that comes after the station dialled it.</param>
+            public CSMS(IPPort? Port = null)
             {
 
-                Port    = IPPort.Parse(TestPorts.Free());
-                Server  = new WebSocketServer(HTTPPort: Port, RequireAuthentication: false, AutoStart: true);
+                this.Port  = Port ?? IPPort.Parse(TestPorts.Free());
+                Server     = new WebSocketServer(HTTPPort: this.Port, RequireAuthentication: false, AutoStart: true);
 
                 Server.OnNewWebSocketConnection += (timestamp, server, connection, sharedSubprotocols, selectedSubprotocol, eventTrackingId, cancellationToken) => {
                     Interlocked.Increment(ref accepted);
