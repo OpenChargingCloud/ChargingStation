@@ -145,6 +145,26 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public const Int32 MaxHostKeyLength      = 1000;
 
+        /// <summary>
+        /// The most host keys one connection pins: the current ones of its
+        /// server and room for a change, as HostKeyPins of the white paper
+        /// "OCPP over SSH" allows.
+        /// </summary>
+        public const Int32 MaxHostKeys           = 16;
+
+        /// <summary>
+        /// How long a host key learned on first use waits for a signed pin set
+        /// that confirms it, where the connection does not say: 10 minutes.
+        /// </summary>
+        public static readonly TimeSpan DefaultSshProbationTime  = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// The shortest probation a connection may give a learned host key. A
+        /// short one is the stricter one - an unconfirmed key is held for less
+        /// time - so it is limited only by what a CSMS can answer in.
+        /// </summary>
+        public static readonly TimeSpan MinSshProbationTime      = TimeSpan.FromSeconds(1);
+
         #endregion
 
         #region Properties
@@ -206,16 +226,62 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public String?         CertificateId        { get; internal set; }
 
         /// <summary>
-        /// The host key the server of an ssh:// connection must show: a
-        /// SHA-256 fingerprint ("SHA256:...") or a public-key line - or null.
+        /// The host keys the server of an ssh:// connection may show, separated
+        /// by commas: SHA-256 fingerprints ("SHA256:...") or public-key lines,
+        /// at most <see cref="MaxHostKeys"/> - or null for none.
         /// </summary>
         /// <remarks>
-        /// Null is trust on first use: the first connection that gets through
-        /// writes the key it was shown here, and from then on only that one is
-        /// taken. Written down rather than only remembered, so that it
-        /// survives a restart and can be read, and corrected, on the page.
+        /// A set, so that a server that is about to change its host key can be
+        /// pinned with both for the time of the change. Without one, the
+        /// connection is dialled only where it trusts on first use (see
+        /// <see cref="SshTrustOnFirstUse"/>). Written as HostKeyPins of the white
+        /// paper "OCPP over SSH" is.
         /// </remarks>
         public String?         SshHostKey           { get; internal set; }
+
+        /// <summary>
+        /// The host keys pinned, one by one; none where nothing is.
+        /// </summary>
+        public IReadOnlyList<String>  SshHostKeys
+
+            => SplitHostKeys(SshHostKey);
+
+        /// <summary>
+        /// Whether an ssh:// connection that pins no host key learns the one
+        /// its server shows at the first handshake - on probation until a signed
+        /// pin set confirms it. Never, unless it says so.
+        /// </summary>
+        public SshTrustOnFirstUse  SshTrustOnFirstUse   { get; internal set; }
+
+        /// <summary>
+        /// What a host key that matches none of the pins leads to: refused,
+        /// unless the connection says to record or accept it.
+        /// </summary>
+        public SshOnPinMismatch    SshOnPinMismatch     { get; internal set; }
+
+        /// <summary>
+        /// How long a host key learned on first use waits for a signed pin set
+        /// that confirms it.
+        /// </summary>
+        public TimeSpan        SshProbationTime     { get; internal set; } = DefaultSshProbationTime;
+
+        /// <summary>
+        /// The version of the signed pin set the host keys came from; 0 where
+        /// none did. A signed pin set is taken only with a higher one, so that
+        /// an older one cannot be brought back.
+        /// </summary>
+        public UInt64          SshHostKeysVersion   { get; internal set; }
+
+        /// <summary>
+        /// The SHA-256 fingerprint of the host key learned on first use, while
+        /// it is on probation - or null.
+        /// </summary>
+        public String?         SshLearnedHostKey    { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="SshLearnedHostKey"/> was learned.
+        /// </summary>
+        public DateTimeOffset? SshLearnedAt         { get; internal set; }
 
         /// <summary>
         /// When this was written down.
@@ -481,59 +547,189 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region (static) ValidateHostKey(URL, Text, out HostKey, out Error)
+        #region (static) SplitHostKeys(Text)
 
         /// <summary>
-        /// The host key a connection pins, as it is written down - or the one
-        /// sentence that says what is wrong with it.
+        /// The host keys of a set as it is written: separated by commas or line
+        /// breaks, trimmed, the empty ones left out.
+        /// </summary>
+        public static IReadOnlyList<String> SplitHostKeys(String? Text)
+
+            => (Text ?? "").Split([ ',', '\n', '\r' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        #endregion
+
+        #region (static) ValidateHostKey(URL, Text, out HostKey, out Error, MD5Kept = false)
+
+        /// <summary>
+        /// The host keys a connection pins, as they are written down - or the
+        /// one sentence that says what is wrong with them.
         /// </summary>
         /// <remarks>
-        /// Read as the SSH client reads it, so that what is taken here is what
-        /// is checked when the station dials: a fingerprint that starts with
-        /// "SHA256:" or "MD5:", or a public-key line. Only for ssh://: the
-        /// server of a WebSocket is known by its TLS certificate, and a host
-        /// key written down beside it would look like a check nothing makes.
+        /// Read as the SSH client reads them, so that what is taken here is what
+        /// is checked when the station dials: SHA-256 fingerprints, or
+        /// public-key lines, at most <see cref="MaxHostKeys"/> of them. An MD5
+        /// fingerprint is refused with the way to its SHA-256 one (white paper
+        /// "OCPP over SSH", decision 3); one already in the file is kept, so
+        /// that the connection is not lost, and it is not dialled until it is
+        /// replaced (see <see cref="PinsMD5"/>). Only for ssh://: the server of
+        /// a WebSocket is known by its TLS certificate, and a host key written
+        /// down beside it would look like a check nothing makes.
         /// </remarks>
         /// <param name="URL">Where the connection goes.</param>
-        /// <param name="Text">The host key as written; nothing for none.</param>
-        /// <param name="HostKey">The host key, trimmed; null for none.</param>
-        /// <param name="Error">What is wrong with it.</param>
+        /// <param name="Text">The host keys as written, separated by commas; nothing for none.</param>
+        /// <param name="HostKey">The host keys, trimmed and separated by ", "; null for none.</param>
+        /// <param name="Error">What is wrong with them.</param>
+        /// <param name="MD5Kept">Whether an MD5 fingerprint is kept rather than refused: as read from the file.</param>
         public static Boolean ValidateHostKey(URL                              URL,
                                               String?                          Text,
                                               out String?                      HostKey,
-                                              [NotNullWhen(false)] out String? Error)
+                                              [NotNullWhen(false)] out String? Error,
+                                              Boolean                          MD5Kept   = false)
         {
 
-            HostKey  = Named(Text);
-            Error    = null;
+            var keys  = SplitHostKeys(Text);
 
-            if (HostKey is null)
+            HostKey   = null;
+            Error     = null;
+
+            if (keys.Count == 0)
                 return true;
 
             if (URL.Scheme != URIScheme.ssh)
             {
                 Error    = "A host key is what an ssh:// connection checks its server by. This one goes over a WebSocket, " +
                            "whose server is known by its TLS certificate.";
-                HostKey  = null;
                 return false;
             }
 
-            if (HostKey.Length > MaxHostKeyLength)
+            if (keys.Count > MaxHostKeys)
             {
-                Error    = $"A host key may be written in at most {MaxHostKeyLength} characters.";
-                HostKey  = null;
+                Error    = $"A connection pins at most {MaxHostKeys} host keys, and these are {keys.Count}.";
                 return false;
             }
 
-            try
+            foreach (var key in keys)
             {
-                HostKeyPolicy.Pin(HostKey);
+
+                if (key.Length > MaxHostKeyLength)
+                {
+                    Error    = $"A host key may be written in at most {MaxHostKeyLength} characters.";
+                    return false;
+                }
+
+                if (!MD5Kept && key.StartsWith("MD5:", StringComparison.OrdinalIgnoreCase))
+                {
+                    Error    = $"'{key}' is an MD5 fingerprint, and MD5 fingerprints are no longer taken: write its SHA-256 one, " +
+                               "which 'ssh-keygen -l -f' prints for the server's public host key, or the public-key line itself.";
+                    return false;
+                }
+
+                try
+                {
+                    HostKeyPolicy.Pin(key);
+                }
+                catch (ArgumentException)
+                {
+                    Error    = $"'{key}' is neither a fingerprint (SHA256:...) nor a public-key line (ssh-ed25519 AAAA...).";
+                    return false;
+                }
+
             }
-            catch (ArgumentException)
+
+            HostKey = String.Join(", ", keys.Distinct(StringComparer.Ordinal));
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Whether one of the host keys pinned is an MD5 fingerprint, which is
+        /// no longer taken: one kept from the file, which is not dialled with.
+        /// </summary>
+        public Boolean PinsMD5
+
+            => SshHostKeys.Any(key => key.StartsWith("MD5:", StringComparison.OrdinalIgnoreCase));
+
+        #endregion
+
+        #region (static) TryParseTrustOnFirstUse(Text, out Value) / TryParseOnPinMismatch(Text, out Value)
+
+        /// <summary>
+        /// "None" or "HostKey", in any case; nothing for "None".
+        /// </summary>
+        public static Boolean TryParseTrustOnFirstUse(String? Text, out SshTrustOnFirstUse Value)
+        {
+
+            Value = SshTrustOnFirstUse.None;
+
+            if (String.IsNullOrWhiteSpace(Text))
+                return true;
+
+            return Enum.TryParse(Text.Trim(), ignoreCase: true, out Value) && Enum.IsDefined(Value);
+
+        }
+
+        /// <summary>
+        /// "Refuse", "Record" or "Accept", in any case; nothing for "Refuse".
+        /// </summary>
+        public static Boolean TryParseOnPinMismatch(String? Text, out SshOnPinMismatch Value)
+        {
+
+            Value = SshOnPinMismatch.Refuse;
+
+            if (String.IsNullOrWhiteSpace(Text))
+                return true;
+
+            return Enum.TryParse(Text.Trim(), ignoreCase: true, out Value) && Enum.IsDefined(Value);
+
+        }
+
+        #endregion
+
+        #region (static) ValidateSshTrust(TrustText, MismatchText, ProbationSeconds, out Trust, out Mismatch, out Probation, out Error)
+
+        /// <summary>
+        /// How an ssh:// connection believes its server where nothing or
+        /// something else is pinned, as it is written - or the one sentence that
+        /// says what is wrong with it.
+        /// </summary>
+        public static Boolean ValidateSshTrust(String?                          TrustText,
+                                               String?                          MismatchText,
+                                               Int64?                           ProbationSeconds,
+                                               out SshTrustOnFirstUse           Trust,
+                                               out SshOnPinMismatch             Mismatch,
+                                               out TimeSpan                     Probation,
+                                               [NotNullWhen(false)] out String? Error)
+        {
+
+            Mismatch   = SshOnPinMismatch.Refuse;
+            Probation  = DefaultSshProbationTime;
+            Error      = null;
+
+            if (!TryParseTrustOnFirstUse(TrustText, out Trust))
             {
-                Error    = $"'{HostKey}' is neither a fingerprint (SHA256:...) nor a public-key line (ssh-ed25519 AAAA...).";
-                HostKey  = null;
+                Error = $"'{TrustText}' says nothing of trust on first use: it is 'None' or 'HostKey'.";
                 return false;
+            }
+
+            if (!TryParseOnPinMismatch(MismatchText, out Mismatch))
+            {
+                Error = $"'{MismatchText}' says nothing of a host key that matches no pin: it is 'Refuse', 'Record' or 'Accept'.";
+                return false;
+            }
+
+            if (ProbationSeconds is Int64 seconds)
+            {
+
+                if (seconds < MinSshProbationTime.TotalSeconds || seconds > TimeSpan.FromDays(7).TotalSeconds)
+                {
+                    Error = $"A probation of {seconds} s is not one: it lasts from {MinSshProbationTime.TotalSeconds:0} s to 7 days.";
+                    return false;
+                }
+
+                Probation = TimeSpan.FromSeconds(seconds);
+
             }
 
             return true;
@@ -575,8 +771,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
             }
 
-            if (!ValidateHostKey(url, JSON.Value<String>("sshHostKey"), out var hostKey, out Error))
+            if (!ValidateHostKey(url, JSON.Value<String>("sshHostKey"), out var hostKey, out Error, MD5Kept: true))
                 return false;
+
+            if (!ValidateSshTrust(JSON.Value<String>("sshTrustOnFirstUse"),
+                                  JSON.Value<String>("sshOnPinMismatch"),
+                                  JSON.Value<Int64?>("sshProbationTime"),
+                                  out var trustOnFirstUse,
+                                  out var onPinMismatch,
+                                  out var probationTime,
+                                  out Error))
+                return false;
+
+            var learnedAt = JSON.Value<String>("sshLearnedAt") is String learnedAtText &&
+                            DateTimeOffset.TryParse(learnedAtText, out var learnedAtValue)
+                                ? learnedAtValue
+                                : (DateTimeOffset?) null;
 
             Entry = new ConnectionEntry(
                         id,
@@ -589,7 +799,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         AutoConnect  = JSON.Value<Boolean?>("autoConnect") ?? false,
                         AuthenticationId    = Named(JSON.Value<String>("authenticationId")),
                         CertificateId       = Named(JSON.Value<String>("certificateId")),
-                        SshHostKey          = hostKey
+                        SshHostKey          = hostKey,
+                        SshTrustOnFirstUse  = trustOnFirstUse,
+                        SshOnPinMismatch    = onPinMismatch,
+                        SshProbationTime    = probationTime,
+                        SshHostKeysVersion  = JSON.Value<UInt64?>("sshHostKeysVersion") ?? 0,
+                        SshLearnedHostKey   = hostKey is null ? Named(JSON.Value<String>("sshLearnedHostKey")) : null,
+                        SshLearnedAt        = hostKey is null ? learnedAt : null
                     };
 
             Error = null;
@@ -628,6 +844,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (CertificateId    is not null)  json.Add(new JProperty("certificateId",     CertificateId));
             if (SshHostKey       is not null)  json.Add(new JProperty("sshHostKey",        SshHostKey));
 
+            if (IsSSH)
+            {
+
+                json.Add(new JProperty("sshTrustOnFirstUse",  SshTrustOnFirstUse.ToString()));
+                json.Add(new JProperty("sshOnPinMismatch",    SshOnPinMismatch.  ToString()));
+                json.Add(new JProperty("sshProbationTime",    (Int64) SshProbationTime.TotalSeconds));
+
+                if (SshHostKeysVersion > 0)
+                    json.Add(new JProperty("sshHostKeysVersion",  SshHostKeysVersion));
+
+                if (SshLearnedHostKey is not null)
+                {
+                    json.Add(new JProperty("sshLearnedHostKey",  SshLearnedHostKey));
+                    json.Add(new JProperty("sshLearnedAt",       SshLearnedAt?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
+                }
+
+            }
+
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
 
@@ -650,8 +884,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    OCPPVersion       = OCPPVersion,
                    AutoConnect       = AutoConnect,
                    AuthenticationId  = AuthenticationId,
-                   CertificateId     = CertificateId,
-                   SshHostKey        = SshHostKey
+                   CertificateId       = CertificateId,
+                   SshHostKey          = SshHostKey,
+                   SshTrustOnFirstUse  = SshTrustOnFirstUse,
+                   SshOnPinMismatch    = SshOnPinMismatch,
+                   SshProbationTime    = SshProbationTime,
+                   SshHostKeysVersion  = SshHostKeysVersion,
+                   SshLearnedHostKey   = SshLearnedHostKey,
+                   SshLearnedAt        = SshLearnedAt
                };
 
         #endregion

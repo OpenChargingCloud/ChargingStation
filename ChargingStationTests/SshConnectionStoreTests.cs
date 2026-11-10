@@ -34,11 +34,12 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// takes, what it refuses, and the host key it pins.
     /// </summary>
     /// <remarks>
-    /// The host key is measured hardest, because it is the one thing here
-    /// that is written by the station rather than by somebody: the first
-    /// connection of one that pinned none writes the key it was shown, and
-    /// nothing a person does on the page afterwards may undo that by
-    /// accident - a save of the description from a page drawn before it.
+    /// The host keys are measured hardest, because they are what is written
+    /// by the station rather than by somebody: the first connection of one
+    /// that trusts on first use learns the key it was shown, on probation, and
+    /// a signed pin set replaces the pins - and nothing a person does on the
+    /// page afterwards may undo that by accident - a save of the description
+    /// from a page drawn before it.
     /// </remarks>
     [TestFixture]
     public class SshConnectionStoreTests
@@ -109,8 +110,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                             "An ssh:// connection proves itself with this station's key, and a pinned one has nothing to warn of.");
 
                 Assert.That(withoutPin.SshHostKey,                          Is.Null);
-                Assert.That(withoutPin.Warnings,                            Has.Some.Contains("No host key is pinned"),
-                            "Trust on first use was not said out loud.");
+                Assert.That(withoutPin.Warnings,                            Has.Some.Contains("not dialled"),
+                            "That a connection without a pin and without trust on first use is not dialled was not said out loud.");
 
             });
 
@@ -200,84 +201,241 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AFirstHostKeyIsWrittenDownOnlyWhereNothingChanged()
+        #region ALearnedHostKeyIsWrittenDownOnlyWhereItTrustsOnFirstUse()
 
         /// <summary>
-        /// The host key the first connection was shown is written down - where
-        /// the connection pins none, and still goes where it went.
+        /// The host key the first connection was shown is learned - on
+        /// probation - only where the connection trusts on first use, pins
+        /// nothing and learned nothing yet, and still goes where it went.
         /// </summary>
         [Test]
-        public void AFirstHostKeyIsWrittenDownOnlyWhereNothingChanged()
+        public void ALearnedHostKeyIsWrittenDownOnlyWhereItTrustsOnFirstUse()
         {
 
-            Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out var error),
+            Assert.That(store.TryAddConnection("Over SSH, no trust on first use", AnSshURL, "CSMS", true, null, null, out var withoutTOFU, out var error),
+                        Is.True, error);
+
+            Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out error,
+                                               SshTrust: new SshTrustSettings("HostKey", null, 120)),
                         Is.True, error);
 
             var dialled = URL.Parse(AnSshURL);
 
             Assert.Multiple(() => {
 
-                Assert.That(store.TryPinHostKey(id!, URL.Parse("ssh://cs001@elsewhere.example.org"), Fingerprint, out _), Is.False,
-                            "A key shown by where the connection went before was written down for where it goes now.");
+                Assert.That(store.TryLearnHostKey(withoutTOFU!, dialled, Fingerprint, out _), Is.False,
+                            "A connection that does not trust on first use learned a key.");
 
-                Assert.That(store.TryPinHostKey(id!, dialled, Fingerprint, out error), Is.True, error);
+                Assert.That(store.TryLearnHostKey(id!, URL.Parse("ssh://cs001@elsewhere.example.org"), Fingerprint, out _), Is.False,
+                            "A key shown by where the connection went before was learned for where it goes now.");
 
-                Assert.That(store.TryPinHostKey(id!, dialled, "SHA256:another", out _), Is.False,
-                            "A pinned key was overwritten.");
+                Assert.That(store.TryLearnHostKey(id!, dialled, Fingerprint, out error), Is.True, error);
+
+                Assert.That(store.TryLearnHostKey(id!, dialled, "SHA256:another", out _), Is.False,
+                            "A learned key was overwritten.");
 
             });
 
-            Assert.That(new ConnectionStore(store.Path).Connections.Single().SshHostKey, Is.EqualTo(Fingerprint),
-                        "The key written down did not reach the file.");
+            var again = new ConnectionStore(store.Path).Connections.Single(entry => entry.Id == id);
+
+            Assert.Multiple(() => {
+                Assert.That(again.SshLearnedHostKey,   Is.EqualTo(Fingerprint), "The key learned did not reach the file.");
+                Assert.That(again.SshLearnedAt,        Is.Not.Null);
+                Assert.That(again.SshHostKey,          Is.Null, "A learned key is no pin: it is on probation.");
+                Assert.That(again.SshTrustOnFirstUse,  Is.EqualTo(SshTrustOnFirstUse.HostKey));
+                Assert.That(again.SshProbationTime,    Is.EqualTo(TimeSpan.FromSeconds(120)));
+                Assert.That(store.Connections.Single(entry => entry.Id == id).Warnings, Has.Some.Contains("on probation"));
+                Assert.That(store.Connections.Single(entry => entry.Id == withoutTOFU).Warnings, Has.Some.Contains("not dialled"));
+            });
+
+            // A probation that ran out forgets it - only that one.
+            Assert.That(store.TryForgetLearnedHostKey(id!, "SHA256:another"), Is.False);
+            Assert.That(store.TryForgetLearnedHostKey(id!, Fingerprint),       Is.True);
+            Assert.That(new ConnectionStore(store.Path).Connections.Single(entry => entry.Id == id).SshLearnedHostKey, Is.Null);
 
         }
 
         #endregion
 
-        #region ASaveAsShownKeepsTheKeyWrittenDownMeanwhile()
+        #region ASignedPinSetIsTakenOnlyWithAHigherVersion()
 
         /// <summary>
-        /// A page drawn before the first connection shows no host key. Saved
-        /// with the field as it was, the key written down since stays; typed
-        /// into, the field is what is taken - emptied, too.
+        /// A signed pin set replaces the pins, ends a probation - confirming the
+        /// learned key, or not - and is taken only with a higher version than
+        /// the one there is, so that an older one cannot be brought back.
         /// </summary>
         [Test]
-        public void ASaveAsShownKeepsTheKeyWrittenDownMeanwhile()
+        public void ASignedPinSetIsTakenOnlyWithAHigherVersion()
         {
 
-            Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out var error),
+            var other = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
+
+            Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out var error,
+                                               SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
 
-            Assert.That(store.TryPinHostKey(id!, URL.Parse(AnSshURL), Fingerprint, out error), Is.True, error);
+            Assert.That(store.TryLearnHostKey(id!, URL.Parse(AnSshURL), Fingerprint, out error), Is.True, error);
+
+            Assert.That(store.TryTakeSignedHostKeys(id!, $"{other}, {Fingerprint}", 3, out var learned, out var confirmed, out error), Is.True, error);
+
+            var entry = store.Connections.Single();
+
+            Assert.Multiple(() => {
+                Assert.That(learned,                   Is.EqualTo(Fingerprint));
+                Assert.That(confirmed,                 Is.True, "The learned key was among the signed pins, and was not taken as confirmed.");
+                Assert.That(entry.SshHostKeys,         Is.EqualTo(new[] { other, Fingerprint }));
+                Assert.That(entry.SshHostKeysVersion,  Is.EqualTo(3));
+                Assert.That(entry.SshLearnedHostKey,   Is.Null, "The probation did not end.");
+            });
+
+            Assert.Multiple(() => {
+
+                Assert.That(store.TryTakeSignedHostKeys(id!, other, 3, out _, out _, out var sameVersion), Is.False);
+                Assert.That(sameVersion, Does.Contain("only a higher one is taken"));
+
+                Assert.That(store.TryTakeSignedHostKeys(id!, other, 2, out _, out _, out _), Is.False, "An older pin set was brought back.");
+
+                Assert.That(store.TryTakeSignedHostKeys(id!, "", 4, out _, out _, out var none), Is.False);
+                Assert.That(none, Does.Contain("without a host key"));
+
+                Assert.That(store.TryTakeSignedHostKeys(id!, other, 4, out learned, out confirmed, out error), Is.True, error);
+                Assert.That(learned,   Is.Null);
+                Assert.That(confirmed, Is.False);
+
+            });
+
+            Assert.That(new ConnectionStore(store.Path).Connections.Single().SshHostKeysVersion, Is.EqualTo(4));
+
+        }
+
+        #endregion
+
+        #region ASaveAsShownKeepsThePinSetTakenMeanwhile()
+
+        /// <summary>
+        /// A page drawn before a signed pin set arrived shows no host key. Saved
+        /// with the field as it was, the pins taken since stay; typed into, the
+        /// field is what is taken - emptied, too - and the version goes with
+        /// what was typed.
+        /// </summary>
+        [Test]
+        public void ASaveAsShownKeepsThePinSetTakenMeanwhile()
+        {
+
+            Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out var error,
+                                               SshTrust: new SshTrustSettings("HostKey", null, null)),
+                        Is.True, error);
+
+            Assert.That(store.TryTakeSignedHostKeys(id!, Fingerprint, 1, out _, out _, out error), Is.True, error);
 
             Assert.That(store.TryUpdateConnection(id, "Over SSH, renamed", AnSshURL, "CSMS", true, null, null, out error,
                                                   SshHostKey: "", SshHostKeyAsShown: ""),
                         Is.True, error);
 
             Assert.That(store.Connections.Single().SshHostKey, Is.EqualTo(Fingerprint),
-                        "A save of the description took away the host key written down meanwhile.");
+                        "A save of the description took away the pins taken meanwhile.");
 
             // Left out altogether, as by somebody using the API without it.
             Assert.That(store.TryUpdateConnection(id, "Over SSH, renamed again", AnSshURL, "CSMS", true, null, null, out error),
                         Is.True, error);
 
-            Assert.That(store.Connections.Single().SshHostKey, Is.EqualTo(Fingerprint));
+            Assert.That(store.Connections.Single().SshHostKey,          Is.EqualTo(Fingerprint));
+            Assert.That(store.Connections.Single().SshTrustOnFirstUse,  Is.EqualTo(SshTrustOnFirstUse.HostKey),
+                        "Left out, how it trusts on first use was changed.");
 
-            // Emptied on purpose: the next first connection pins it again.
+            // Emptied on purpose: the version goes with the pins.
             Assert.That(store.TryUpdateConnection(id, "Over SSH", AnSshURL, "CSMS", true, null, null, out error,
                                                   SshHostKey: "", SshHostKeyAsShown: Fingerprint),
                         Is.True, error);
 
-            Assert.That(store.Connections.Single().SshHostKey, Is.Null);
+            Assert.That(store.Connections.Single().SshHostKey,          Is.Null);
+            Assert.That(store.Connections.Single().SshHostKeysVersion,  Is.EqualTo(0));
 
             // And a connection that is no longer ssh:// keeps none.
-            Assert.That(store.TryPinHostKey(id!, URL.Parse(AnSshURL), Fingerprint, out error), Is.True, error);
+            Assert.That(store.TryTakeSignedHostKeys(id!, Fingerprint, 1, out _, out _, out error), Is.True, error);
 
             Assert.That(store.TryUpdateConnection(id, "Over a WebSocket now", "wss://csms.example.org/cs001", "CSMS", true, null, null, out error),
                         Is.True, error);
 
-            Assert.That(store.Connections.Single().SshHostKey, Is.Null,
+            Assert.That(store.Connections.Single().SshHostKey,          Is.Null,
                         "A host key stayed beside a WebSocket, where nothing checks it.");
+            Assert.That(store.Connections.Single().SshTrustOnFirstUse,  Is.EqualTo(SshTrustOnFirstUse.None));
+
+        }
+
+        #endregion
+
+        #region PinsAreASetOfSHA256FingerprintsOrKeyLines()
+
+        /// <summary>
+        /// Up to 16 pins, separated by commas: SHA-256 fingerprints or
+        /// public-key lines. An MD5 fingerprint is refused with the way to its
+        /// SHA-256 one; one already in the file is kept, and warned of.
+        /// </summary>
+        [Test]
+        public void PinsAreASetOfSHA256FingerprintsOrKeyLines()
+        {
+
+            var keyLine = SshPublicKey.FromHostKey(hostKey).ToAuthorizedKeyLine();
+            var many    = String.Join(",", Enumerable.Range(0, 17).Select(_ => SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob)));
+
+            Assert.Multiple(() => {
+
+                Assert.That(store.TryAddConnection("Two pins", AnSshURL, "CSMS", true, null, null, out var two, out var error,
+                                                   SshHostKey: $"{Fingerprint} ,\n {keyLine}"),
+                            Is.True, error);
+                Assert.That(store.Connections.Single(entry => entry.Id == two).SshHostKeys, Is.EqualTo(new[] { Fingerprint, keyLine }));
+
+                Assert.That(store.TryAddConnection("MD5", AnSshURL, "CSMS", true, null, null, out _, out var md5,
+                                                   SshHostKey: "MD5:16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48"),
+                            Is.False);
+                Assert.That(md5, Does.Contain("MD5 fingerprints are no longer taken").And.Contain("SHA-256"));
+
+                Assert.That(store.TryAddConnection("Too many", AnSshURL, "CSMS", true, null, null, out _, out var tooMany, SshHostKey: many),
+                            Is.False);
+                Assert.That(tooMany, Does.Contain("at most 16"));
+
+                Assert.That(store.TryAddConnection("Mismatch", AnSshURL, "CSMS", true, null, null, out var tolerant, out error,
+                                                   SshHostKey: Fingerprint, SshTrust: new SshTrustSettings(null, "record", null)),
+                            Is.True, error);
+                Assert.That(store.Connections.Single(entry => entry.Id == tolerant).SshOnPinMismatch, Is.EqualTo(SshOnPinMismatch.Record));
+                Assert.That(store.Connections.Single(entry => entry.Id == tolerant).Warnings,         Has.Some.Contains("believed all the same"));
+
+                Assert.That(store.TryAddConnection("Nonsense", AnSshURL, "CSMS", true, null, null, out _, out var nonsense,
+                                                   SshTrust: new SshTrustSettings("Always", null, null)),
+                            Is.False);
+                Assert.That(nonsense, Does.Contain("'None' or 'HostKey'"));
+
+                Assert.That(store.TryAddConnection("Short", AnSshURL, "CSMS", true, null, null, out _, out var tooShort,
+                                                   SshTrust: new SshTrustSettings("HostKey", null, 0)),
+                            Is.False);
+                Assert.That(tooShort, Does.Contain("from 1 s"));
+
+            });
+
+            // An MD5 pin from before is kept, so that the connection is not lost, and said not to be dialled.
+            var md5Store = TestStations.TemporaryDirectory("ssh-connections-md5");
+
+            try
+            {
+
+                Directory.CreateDirectory(md5Store);
+
+                File.WriteAllText(Path.Combine(md5Store, ConnectionStore.ConnectionsFileName),
+                                  $$"""[ { "id": "old", "description": "From before", "url": "{{AnSshURL}}", "connectionType": "CSMS", "sshHostKey": "MD5:16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48" } ]""");
+
+                var old = new ConnectionStore(md5Store).Connections.Single();
+
+                Assert.Multiple(() => {
+                    Assert.That(old.PinsMD5,   Is.True);
+                    Assert.That(old.Warnings,  Has.Some.Contains("MD5 fingerprints are no longer taken"));
+                });
+
+            }
+            finally
+            {
+                TestStations.Remove(md5Store);
+            }
 
         }
 

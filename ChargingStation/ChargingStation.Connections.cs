@@ -19,6 +19,7 @@
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
@@ -105,6 +106,29 @@ namespace cloud.charging.open.ChargingStation
         /// back to - rather than waited for.
         /// </summary>
         public static readonly TimeSpan SshKeepAliveEvery  = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// How often a connection over SSH sends a PING, as a WebSocket of this
+        /// station does: after three left without an answer, or without a word
+        /// at all from the server, the connection is taken for dead and dialled
+        /// again (white paper "OCPP over SSH", decision 11).
+        /// </summary>
+        public static readonly TimeSpan SshPingEvery       = TimeSpan.FromSeconds(30);
+
+        // The connections over SSH whose server is believed by a host key that
+        // was learned on first use and no signed pin set confirmed yet, with
+        // what they were dialled for - asked by the gate of the OCPP nodes -
+        // and the probation that runs for each of them.
+        private readonly ConcurrentDictionary<IMessageConnection, Probation>  onProbation      = new ();
+        private readonly ConcurrentDictionary<String, CancellationTokenSource>  probationClocks  = new ();
+
+        /// <summary>
+        /// One connection over SSH on probation: what it was dialled for, and
+        /// the trust that learned the host key.
+        /// </summary>
+        private sealed record Probation(ConnectionEntry  Connection,
+                                        SshHostKeyTrust  Trust,
+                                        WWCPSshClient    Client);
 
         #endregion
 
@@ -578,12 +602,14 @@ namespace cloud.charging.open.ChargingStation
         /// signs in is the URL's login, or the credentials', or else the name
         /// of the OCPP node that dials.
         /// </remarks>
+        /// <param name="ForTest">Whether it is for a connection test: one that pins nothing believes the first host key shown, and writes nothing down.</param>
         private Boolean SshLoginOf(ConnectionEntry                            Connection,
                                    ISshHostKey                                Key,
                                    [NotNullWhen(true)]  out SshClientOptions? Login,
                                    [NotNullWhen(true)]  out SshHostKeyTrust?  Trust,
                                    out String                                 Says,
-                                   [NotNullWhen(false)] out String?           Error)
+                                   [NotNullWhen(false)] out String?           Error,
+                                   Boolean                                    ForTest   = false)
         {
 
             Login  = null;
@@ -594,6 +620,22 @@ namespace cloud.charging.open.ChargingStation
             if (Connection.CertificateId is not null)
             {
                 Error = "it names a TLS client certificate, and an ssh:// connection makes no TLS handshake to show one in";
+                return false;
+            }
+
+            if (Connection.PinsMD5)
+            {
+                Error = "it pins an MD5 fingerprint, and MD5 fingerprints are no longer taken: replace it by the SHA-256 one, which the connection test shows";
+                return false;
+            }
+
+            if (!ForTest                                                   &&
+                Connection.SshHostKey         is null                      &&
+                Connection.SshLearnedHostKey  is null                      &&
+                Connection.SshTrustOnFirstUse == SshTrustOnFirstUse.None)
+            {
+                Error = "it pins no host key and does not trust on first use, so nothing says which server to believe: pin its host key - " +
+                        "the connection test shows it - or let it learn the first one, on probation";
                 return false;
             }
 
@@ -642,7 +684,11 @@ namespace cloud.charging.open.ChargingStation
             var username  = urlLogin ?? passwordLogin ?? NodeOf(Connection.OCPPVersion).Id.ToString();
 
             Trust  = new SshHostKeyTrust(
-                         Connection.SshHostKey,
+                         Connection.SshHostKeys,
+                         Connection.SshLearnedHostKey,
+                         ForTest ? SshTrustOnFirstUse.HostKey : Connection.SshTrustOnFirstUse,
+                         Connection.SshOnPinMismatch,
+                         PasswordMayBeSent: password is not null,
                          Connection.URL.Host.ToString(),
                          Connection.URL.Port ?? IPPort.Parse(22)
                      );
@@ -656,7 +702,10 @@ namespace cloud.charging.open.ChargingStation
                          Credentials        = [ Key ],
                          Password           = password,
                          ConnectTimeout     = SshConnectTimeout,
-                         KeepAliveInterval  = SshKeepAliveEvery
+                         KeepAliveInterval  = SshKeepAliveEvery,
+                         // Terrapin (CVE-2023-48795): a server without strict KEX
+                         // is not signed in to (white paper "OCPP over SSH", decision 10).
+                         RequireStrictKex   = true
                      };
 
             Says   = $"this station's SSH key ({SshFingerprint.Sha256(Key.PublicKeyBlob)}) as '{username}'" +
@@ -702,11 +751,10 @@ namespace cloud.charging.open.ChargingStation
             var dialledURL = Connection.URL;
 
             Log.Info($"Dialling {Where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} {Connection.ConnectionType} over SSH, " +
-                     $"signing in with {says}; " +
-                     (trust.Pinned is not null
-                          ? $"its server must show the host key {trust.Pinned}."
-                          : "no host key is pinned, so the first one its server shows is believed, and written down."),
+                     $"signing in with {says}; {WhatItBelieves(trust)}.",
                      "ocpp", "connections");
+
+            trust.OnMismatchTolerated += why => Log.Warning($"{Where}: {why}.", "ocpp", "connections", "ssh", "security");
 
             // Named as over a WebSocket - see Dial.
             var result  = await node.ConnectOCPPClient(
@@ -715,6 +763,7 @@ namespace cloud.charging.open.ChargingStation
                                     RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
                                     Ssh:                       login,
                                     DNSClient:                 DNSClient,
+                                    PingEvery:                 SshPingEvery,
                                     CancellationToken:         CancellationToken
                                 );
 
@@ -747,10 +796,11 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            PinIfFirst(Connection, dialledURL, trust);
-
             if (client is not null)
+            {
+                LearnIfFirst(Connection, dialledURL, trust, client, client.MessageClient.Connection);
                 FollowOverSSH(Connection, dialledURL, client, trust, Connected: true);
+            }
 
             else
                 Log.Warning($"'{Connection.Description}' connected, but the client that did it could not be found again, " +
@@ -768,12 +818,43 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Whether an answer of the server is one that trying again would not
-        /// change: a login it did not take, or the OCPP subsystem refused.
+        /// change: a login it did not take, the OCPP subsystem refused, or a
+        /// server without strict KEX. A refusal that says when to come back -
+        /// "connection-exists", with its retryAfter - is not final.
         /// </summary>
         private static Boolean IsFinal(Exception? Error)
 
-            => Error?.GetBaseException() is SshAuthenticationException or SshMessageRefusedException ||
-               Error is SshAuthenticationException or SshMessageRefusedException;
+            => FinalOrNot(Error) switch {
+                   SshMessageRefusedException refused  => refused.RetryAfter is null,
+                   SshAuthenticationException          => true,
+                   SshStrictKexRequiredException       => true,
+                   _                                   => false
+               };
+
+        /// <summary>
+        /// The error that says why, where it is one of those whose answer
+        /// decides: the given one, or what it wraps.
+        /// </summary>
+        private static Exception? FinalOrNot(Exception? Error)
+
+            => Error is SshAuthenticationException or SshMessageRefusedException or SshStrictKexRequiredException
+                   ? Error
+                   : Error?.GetBaseException();
+
+        /// <summary>
+        /// What a connection over SSH believes its server by, as the end of a
+        /// sentence.
+        /// </summary>
+        private static String WhatItBelieves(SshHostKeyTrust Trust)
+
+            => Trust.Pinned is not null
+                   ? $"its server must show one of the host keys pinned ({Trust.Pinned})" +
+                     (Trust.OnPinMismatch != SshOnPinMismatch.Refuse && !Trust.PasswordMayBeSent
+                          ? $", and another one is believed all the same ({Trust.OnPinMismatch})"
+                          : "")
+                   : Trust.Learned is String learned
+                         ? $"its server must show the host key learned on its first connection ({learned}), which is on probation"
+                         : "no host key is pinned, so the first one its server shows is learned, on probation until a signed pin set confirms it";
 
         /// <summary>
         /// The sentence that says why an ssh:// connection did not get through.
@@ -784,13 +865,17 @@ namespace cloud.charging.open.ChargingStation
             if (Trust.Refused)
                 return $"{Where} was not believed: {Trust.WhyRefused()}";
 
-            var error = Error is SshAuthenticationException or SshMessageRefusedException
-                            ? Error
-                            : Error?.GetBaseException();
+            var error = FinalOrNot(Error);
 
             return error switch {
                        SshAuthenticationException  => $"{Where} did not let this station in: {error.Message} " +
                                                        "Its authorized_keys needs this station's SSH key, which the Connections page shows",
+                       SshStrictKexRequiredException
+                                                   => $"{Where} does not signal strict KEX, which this station requires against Terrapin (CVE-2023-48795): " +
+                                                       "its SSH server needs OpenSSH 9.6 or later, or another with strict KEX",
+                       SshMessageRefusedException { RetryAfter: TimeSpan after }
+                                                   => $"{Where} let this station in, and keeps another connection of it that still answers " +
+                                                      $"({error.Message}); it is tried again in {after.TotalSeconds:0} s at the earliest",
                        SshMessageRefusedException  => $"{Where} let this station in, and refused it the OCPP subsystem: {error.Message}",
                        null                        => $"{Where} could not be reached over SSH",
                        _                           => $"{Where} could not be reached over SSH: {ReasonOf(error)}"
@@ -839,7 +924,7 @@ namespace cloud.charging.open.ChargingStation
                 if (IsLetGo(Client))
                     return Task.CompletedTask;
 
-                PinIfFirst(Connection, DialledURL, Trust);
+                LearnIfFirst(Connection, DialledURL, Trust, Client, connection);
 
                 Note(Connection, connectedBefore
                                      ? "Connected again, and will come back by itself if it drops."
@@ -854,6 +939,8 @@ namespace cloud.charging.open.ChargingStation
             };
 
             Client.OnConnectionClosed += (timestamp, transport, connection, networkingNodeId, close, cancellationToken) => {
+
+                onProbation.TryRemove(connection, out _);
 
                 if (!IsLetGo(Client))
                     Fail(Connection, ConnectionStatus.Lost,
@@ -915,24 +1002,136 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) PinIfFirst(Connection, DialledURL, Trust)
+        #region (private) LearnIfFirst(Connection, DialledURL, Trust, Client, Current)
 
         /// <summary>
-        /// Write down the host key the first connection of one that pinned none
-        /// was shown.
+        /// Write down the host key a connection that trusts on first use
+        /// learned, and keep the connection on probation while no signed pin
+        /// set confirmed it (white paper "OCPP over SSH", section 10.4).
         /// </summary>
-        private void PinIfFirst(ConnectionEntry  Connection,
-                                URL              DialledURL,
-                                SshHostKeyTrust  Trust)
+        /// <param name="Current">The connection over SSH made now.</param>
+        private void LearnIfFirst(ConnectionEntry       Connection,
+                                  URL                   DialledURL,
+                                  SshHostKeyTrust       Trust,
+                                  WWCPSshClient         Client,
+                                  SshMessageConnection? Current)
         {
 
-            if (Trust.Pinned is not null || Trust.Shown is not String shown)
+            if (!Trust.OnProbation || Trust.Learned is not String learned)
                 return;
 
-            if (!Connections.TryPinHostKey(Connection.Id, DialledURL, shown, out var notWritten) && notWritten is not null)
-                Log.Warning($"'{Connection.Description}' was shown the host key {shown} on its first connection, and it could not be " +
-                            $"written down: {notWritten}. It is the only one believed until this station starts again.",
+            if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten))
+                Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection. It is on probation for " +
+                            $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this station " +
+                             "executes nothing its server asks but such a pin set.",
                             "ocpp", "connections", "ssh", "security");
+
+            else if (notWritten is not null)
+                Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection, and it could not be " +
+                            $"written down: {notWritten}. It is on probation all the same.",
+                            "ocpp", "connections", "ssh", "security");
+
+            if (Current is not null)
+                onProbation[Current] = new Probation(Connection, Trust, Client);
+
+            StartProbationClock(Connection, Trust, Client, learned);
+
+        }
+
+        #endregion
+
+        #region (private) StartProbationClock(Connection, Trust, Client, Learned)
+
+        /// <summary>
+        /// Forget the learned host key where no signed pin set confirmed it in
+        /// time, and let the connection go, so that it learns again after its
+        /// back-off: a key learned is never kept unconfirmed, and a server that
+        /// answered first cannot lock the real one out.
+        /// </summary>
+        private void StartProbationClock(ConnectionEntry  Connection,
+                                         SshHostKeyTrust  Trust,
+                                         WWCPSshClient    Client,
+                                         String           Learned)
+        {
+
+            var learnedAt  = Connections.Connections.FirstOrDefault(entry => entry.Id == Connection.Id)?.SshLearnedAt ?? TimeProvider.GetUtcNow();
+            var remaining  = learnedAt + Connection.SshProbationTime - TimeProvider.GetUtcNow();
+            var clock      = new CancellationTokenSource();
+
+            if (!probationClocks.TryAdd(Connection.Id, clock))
+            {
+                clock.Dispose();
+                return;
+            }
+
+            _ = Task.Run(async () => {
+
+                try
+                {
+                    if (remaining > TimeSpan.Zero)
+                        await Task.Delay(remaining, TimeProvider, clock.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                finally
+                {
+                    probationClocks.TryRemove(new KeyValuePair<String, CancellationTokenSource>(Connection.Id, clock));
+                }
+
+                // Confirmed meanwhile: a signed pin set ended the probation.
+                if (!Trust.OnProbation || Trust.Learned != Learned)
+                    return;
+
+                Connections.TryForgetLearnedHostKey(Connection.Id, Learned);
+                Trust.Forget();
+
+                Log.Warning($"'{Connection.Description}': no signed pin set confirmed the host key {Learned} within " +
+                            $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s), so it is forgotten, and the connection is made anew.",
+                            "ocpp", "connections", "ssh", "security");
+
+                foreach (var probation in onProbation.Where(probation => probation.Value.Trust == Trust).ToArray())
+                {
+                    onProbation.TryRemove(probation.Key, out _);
+                    if (probation.Key is SshMessageConnection current)
+                        await current.Close(MessageCloseCode.PolicyViolation, "The host key of this server was not confirmed in time.");
+                }
+
+            });
+
+        }
+
+        #endregion
+
+        #region (private) GateOnProbation(Connection, Action, Payload)
+
+        /// <summary>
+        /// Whether a request that came over the given connection is processed:
+        /// over a connection on probation, nothing but a pin set for the SSH
+        /// client - SetVariables of SSHClientController, or ChangeConfiguration
+        /// of an SSHClient key in OCPP 1.6 - whose signature is checked where
+        /// it is set. Everything else is answered with a SecurityError.
+        /// </summary>
+        private String? GateOnProbation(IMessageConnection  Connection,
+                                        String              Action,
+                                        JObject?            Payload)
+        {
+
+            if (!onProbation.TryGetValue(Connection, out var probation) || !probation.Trust.OnProbation)
+                return null;
+
+            if (Action == "SetVariables" &&
+                Payload?["setVariableData"] is JArray entries && entries.Count > 0 &&
+                entries.All(entry => entry?["component"]?["name"]?.Value<String>() == "SSHClientController"))
+                return null;
+
+            if (Action == "ChangeConfiguration" &&
+                Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
+                return null;
+
+            return $"This station believes its server by the host key {probation.Trust.Learned}, which it learned on its first connection " +
+                    "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
 
         }
 
@@ -1204,7 +1403,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="AutoConnect">Whether this is one the station would connect to by itself, which the answer mentions but does not act on.</param>
         /// <param name="AuthenticationId">The credentials to prove itself with, by identification.</param>
         /// <param name="CertificateId">The client certificate to prove itself with, by identification.</param>
-        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show; none to be told which one it shows.</param>
+        /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none to be told which one it shows.</param>
+        /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins: what a mismatch leads to, and whether it would learn a key.</param>
         public async Task<JObject> TestConnection(String?            Description,
                                                   String?            URL,
                                                   String?            ConnectionType,
@@ -1213,7 +1413,8 @@ namespace cloud.charging.open.ChargingStation
                                                   String?            AuthenticationId      = null,
                                                   String?            CertificateId         = null,
                                                   CancellationToken  CancellationToken     = default,
-                                                  String?            SshHostKey            = null)
+                                                  String?            SshHostKey            = null,
+                                                  SshTrustSettings?  SshTrust              = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -1248,7 +1449,9 @@ namespace cloud.charging.open.ChargingStation
             // than fail at a socket with something less useful.
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out var notYet) ||
-                !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet))
+                !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
+                !ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
+                                                  out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out notYet))
             {
                 Step("error", notYet);
                 return Done(null, false);
@@ -1266,8 +1469,11 @@ namespace cloud.charging.open.ChargingStation
                                  OCPPVersion       = version,
                                  AutoConnect       = AutoConnect,
                                  AuthenticationId  = ConnectionEntry.Named(AuthenticationId),
-                                 CertificateId     = ConnectionEntry.Named(CertificateId),
-                                 SshHostKey        = hostKey
+                                 CertificateId       = ConnectionEntry.Named(CertificateId),
+                                 SshHostKey          = hostKey,
+                                 SshTrustOnFirstUse  = trustOnFirstUse,
+                                 SshOnPinMismatch    = onPinMismatch,
+                                 SshProbationTime    = probationTime
                              };
 
             #endregion
@@ -1296,7 +1502,7 @@ namespace cloud.charging.open.ChargingStation
                 // connection is a test of signing in with it.
                 var key = await SshKey.MakeIfNeeded(CancellationToken);
 
-                if (!SshLoginOf(connection, key, out sshLogin, out sshTrust, out var signsIn, out var notSSH))
+                if (!SshLoginOf(connection, key, out sshLogin, out sshTrust, out var signsIn, out var notSSH, ForTest: true))
                 {
                     Step("error", $"Not tried: {notSSH}.");
                     Log.Warning($"The connection test for '{connection.Description}' was not run: {notSSH}.", "ocpp", "connections", "test");
@@ -1308,9 +1514,14 @@ namespace cloud.charging.open.ChargingStation
 
                 Step(sshTrust.Pinned is not null ? "info" : "warning",
                      sshTrust.Pinned is not null
-                         ? $"Its server must show the host key {sshTrust.Pinned}."
-                         : "No host key is pinned. Whatever key the server shows is said below and believed for this test; " +
-                           "a test writes nothing down, so the first connection this station makes pins it.");
+                         ? $"Its server must show one of the host keys pinned: {sshTrust.Pinned}."
+                         : sshTrust.Learned is String learned
+                               ? $"Its server must show the host key learned on its first connection, {learned}, which is on probation."
+                               : "No host key is pinned. Whatever key the server shows is said below and believed for this test; " +
+                                 "a test writes nothing down" +
+                                 (connection.SshTrustOnFirstUse == SshTrustOnFirstUse.HostKey
+                                      ? ", so the first connection this station makes learns it, on probation."
+                                      : ", and without a pin or trust on first use the station does not dial it."));
 
             }
             else
@@ -1592,7 +1803,7 @@ namespace cloud.charging.open.ChargingStation
 
             var client        = new WWCPSshClient(
                                     NodeOf(Connection.OCPPVersion),
-                                    WWCPSshClient.OptionsFrom(Connection.URL, Login, OCPPCommon.SSH.OCPPSshServer.OCPPSubsystem, subprotocols),
+                                    WWCPSshClient.OptionsFrom(Connection.URL, Login, OCPPCommon.SSH.OCPPSshServer.OCPPSubsystem, subprotocols, PingEvery: SshPingEvery),
                                     ConnectAs: WWCPSshClient.ConnectAsFrom(Connection.URL)
                                 );
 
@@ -1624,10 +1835,13 @@ namespace cloud.charging.open.ChargingStation
 
                 var connection = await client.Connect(CancellationToken);
 
-                Step("info", Trust.Pinned is not null
-                                 ? $"The server showed the host key {ShownKey()}, the one pinned."
-                                 : $"The server showed the host key {ShownKey()}. None is pinned, so it was believed. Pin it to decide yourself; " +
-                                    "otherwise the first connection this station makes writes it down.");
+                Step(Trust.Mismatched ? "warning" : "info",
+                     Trust.Mismatched
+                         ? $"The server showed the host key {ShownKey()}, which is none of those pinned; it was believed all the same, as OnPinMismatch " +
+                           $"says '{Trust.OnPinMismatch}'. A host key pin is the only check of the server, so it may be anybody."
+                         : Trust.Pinned is not null
+                               ? $"The server showed the host key {ShownKey()}, one of those pinned."
+                               : $"The server showed the host key {ShownKey()}. None is pinned, so it was believed for this test. Pin it to decide yourself.");
 
                 Step("notice", connection.Subprotocol is String agreedOn && agreedOn.Length > 0
                                    ? $"Connected. The server let '{Login.Username}' in and took {agreedOn}."
@@ -1659,13 +1873,16 @@ namespace cloud.charging.open.ChargingStation
                 {
 
                     if (Trust.Shown is not null)
-                        Step("info", $"The server showed the host key {ShownKey()}{(Trust.Pinned is not null ? ", the one pinned" : "")}.");
+                        Step("info", $"The server showed the host key {ShownKey()}{(Trust.Pinned is not null ? ", one of those pinned" : "")}.");
 
-                    var error = e is SshAuthenticationException or SshMessageRefusedException ? e : e.GetBaseException();
+                    var error = FinalOrNot(e) ?? e;
 
                     Step("error", error switch {
                                       SshAuthenticationException  => $"The server did not let '{Login.Username}' in: {error.Message} " +
                                                                       $"Its authorized_keys needs this station's key: {SshKey.PublicKeyLine}",
+                                      SshStrictKexRequiredException
+                                                                  => "The server does not signal strict KEX, which this station requires against Terrapin " +
+                                                                     "(CVE-2023-48795): its SSH server needs OpenSSH 9.6 or later.",
                                       SshMessageRefusedException  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: {error.Message}",
                                       _                           => $"{error.GetType().Name}: {ReasonOf(error)}"
                                   });

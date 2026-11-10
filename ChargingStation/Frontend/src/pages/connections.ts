@@ -187,16 +187,48 @@ export const connectionsPage: Page = {
                     </span>
                 </label>
 
-                <label>Host key of its server
+                <label>Host keys of its server
                     <input type="text" name="sshHostKey" class="mono"
                            placeholder="SHA256:... or ssh-ed25519 AAAA..." value="${entry?.sshHostKey ?? ''}"
                            ?disabled=${!mayManage} />
                     <span class="hint">
-                        For an <code>ssh://</code> URL only: the fingerprint or the public-key line its server must
-                        show. Left empty, the first server that answers is believed, and the key it shows is
-                        written in here. Testing says which key that is.
+                        For an <code>ssh://</code> URL only: the SHA-256 fingerprints or public-key lines its server
+                        may show, separated by commas - two while it changes its key. Testing says which key it shows.
+                        MD5 fingerprints are not taken.
                     </span>
                 </label>
+
+                <div class="form-row">
+
+                    <label>Where nothing is pinned
+                        <select name="sshTrustOnFirstUse" ?disabled=${!mayManage}>
+                            <option value="None"    ?selected=${(entry?.sshTrustOnFirstUse ?? 'None') === 'None'}>Do not dial</option>
+                            <option value="HostKey" ?selected=${entry?.sshTrustOnFirstUse === 'HostKey'}>Learn the first key, on probation</option>
+                        </select>
+                        <span class="hint">
+                            A learned key is on probation until a signed pin set confirms it; until then nothing but such a
+                            pin set is executed, and a key nobody confirms in time is forgotten and learned again.
+                        </span>
+                    </label>
+
+                    <label>Probation, in seconds
+                        <input type="number" name="sshProbationTime" min="1" max="604800"
+                               value="${entry?.sshProbationTime ?? 600}" ?disabled=${!mayManage} />
+                    </label>
+
+                    <label>Where the key matches no pin
+                        <select name="sshOnPinMismatch" ?disabled=${!mayManage}>
+                            <option value="Refuse" ?selected=${(entry?.sshOnPinMismatch ?? 'Refuse') === 'Refuse'}>Refuse the server</option>
+                            <option value="Record" ?selected=${entry?.sshOnPinMismatch === 'Record'}>Believe it, and report it</option>
+                            <option value="Accept" ?selected=${entry?.sshOnPinMismatch === 'Accept'}>Believe it, and log it</option>
+                        </select>
+                        <span class="hint">
+                            A host key pin is the only check of the server: believing another key believes whoever answers.
+                            For test benches and the move to a new server only; never where a password is sent.
+                        </span>
+                    </label>
+
+                </div>
 
                 <div class="form-row">
 
@@ -324,10 +356,17 @@ export const connectionsPage: Page = {
                                                     : html`<span class="hint">nothing</span>`}
                         </dd>
                         ${entry.transport === 'ssh' ? html`
-                            <dt>Host key</dt>
+                            <dt>Host keys</dt>
                             <dd>${entry.sshHostKey !== undefined
-                                      ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshHostKey}</code>`
-                                      : html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is believed</span>`}</dd>
+                                      ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshHostKey}</code>${(entry.sshHostKeysVersion ?? 0) > 0
+                                            ? html` <span class="hint">from the signed pin set of version ${entry.sshHostKeysVersion}</span>`
+                                            : nothing}`
+                                      : entry.sshLearnedHostKey !== undefined
+                                            ? html`<code class="wrap" data-host-key="${entry.id}">${entry.sshLearnedHostKey}</code>
+                                                   <span class="hint">learned ${formatTimestamp(entry.sshLearnedAt ?? '')}, on probation</span>`
+                                            : entry.sshTrustOnFirstUse === 'HostKey'
+                                                  ? html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is learned, on probation</span>`
+                                                  : html`<span class="hint" data-host-key="${entry.id}">none pinned - not dialled</span>`}</dd>
                         ` : nothing}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
                     </dl>
@@ -546,9 +585,14 @@ export const connectionsPage: Page = {
             // since this page last asked.
             const hostKey  = form.querySelector<HTMLInputElement>('[name="sshHostKey"]');
 
+            const probation = Number(form.querySelector<HTMLInputElement>('[name="sshProbationTime"]')?.value ?? '600');
+
             return {
                 sshHostKey:          hostKey?.value.trim() ?? '',
                 ...(id !== undefined && hostKey !== null ? { sshHostKeyAsShown: hostKey.defaultValue.trim() } : {}),
+                sshTrustOnFirstUse:  (form.querySelector<HTMLSelectElement>('[name="sshTrustOnFirstUse"]')?.value ?? 'None') as 'None' | 'HostKey',
+                sshOnPinMismatch:    (form.querySelector<HTMLSelectElement>('[name="sshOnPinMismatch"]')?.value ?? 'Refuse') as 'Refuse' | 'Record' | 'Accept',
+                sshProbationTime:    Number.isFinite(probation) ? probation : 600,
                 id,
                 description:         field(form, 'description'),
                 url:                 field(form, 'url'),

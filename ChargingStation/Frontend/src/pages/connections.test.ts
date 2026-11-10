@@ -101,10 +101,19 @@ function station({ method, path, body }: Asked): unknown {
 
 }
 
-/** A station whose first connection goes over SSH and pins no host key yet. */
+/** A station whose connection over SSH learned a host key on its first connection, which is on probation. */
+function aStationOnProbation(): StationConnections {
+    const station = anSshStation();
+    return { ...station,
+             connections: [ { ...station.connections[0]!, sshTrustOnFirstUse: 'HostKey', sshLearnedHostKey: 'SHA256:learnedOnce',
+                              sshLearnedAt: '2026-11-10T10:00:00.000Z' }, station.connections[1]! ] };
+}
+
+/** A station whose first connection goes over SSH and pins no host key yet, nor trusts on first use. */
 function anSshStation(): StationConnections {
     const station = aStation();
-    const ssh     = aConnection('c1', { url: 'ssh://cs001@csms.example.org:2222', secure: false, transport: 'ssh' });
+    const ssh     = aConnection('c1', { url: 'ssh://cs001@csms.example.org:2222', secure: false, transport: 'ssh',
+                                        sshTrustOnFirstUse: 'None', sshOnPinMismatch: 'Refuse', sshProbationTime: 600 });
     return { ...station,
              connections:   [ ssh, station.connections[1] ],
              sshClientKey:  { publicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStandIn chargingstation@bench',
@@ -231,7 +240,13 @@ describe('the Connections page', () => {
 
         assert.ok(chips.includes('SSH'),     'the connection does not say it goes over SSH');
         assert.ok(!chips.includes('no TLS'), 'a connection over SSH is said to be unencrypted');
-        assert.match(root.querySelector('[data-host-key="c1"]')?.textContent ?? '', /none pinned yet/);
+        assert.match(root.querySelector('[data-host-key="c1"]')?.textContent ?? '', /none pinned - not dialled/);
+
+        // A key learned on first use is shown on probation, and is no pin.
+        const learning = await opened(aStationOnProbation);
+        assert.equal(learning.querySelector('[data-host-key="c1"]')?.textContent?.trim(), 'SHA256:learnedOnce');
+        assert.match(cardOf(learning, 'c1')?.textContent ?? '', /on probation/);
+        assert.equal(field(learning, 'form[data-edit="c1"]', 'sshHostKey').value, '', 'a learned key was offered as a pin');
 
         // A station without one has no card for it.
         const plain = await opened();
@@ -246,19 +261,28 @@ describe('the Connections page', () => {
         submit(root, 'form[data-edit="c1"]');
         await until(() => lastSaved !== null, 'the connection was not saved');
 
-        assert.equal(lastSaved!.sshHostKey,         '', 'a host key was sent that nobody typed');
-        assert.equal(lastSaved!.sshHostKeyAsShown,  '', 'what the page showed was not sent beside it');
+        assert.equal(lastSaved!.sshHostKey,          '', 'a host key was sent that nobody typed');
+        assert.equal(lastSaved!.sshHostKeyAsShown,   '', 'what the page showed was not sent beside it');
+        assert.equal(lastSaved!.sshTrustOnFirstUse,  'None');
+        assert.equal(lastSaved!.sshOnPinMismatch,    'Refuse');
+        assert.equal(lastSaved!.sshProbationTime,    600);
 
         lastSaved = null;
         await until(() => root.querySelector('[data-note="c1"]')?.textContent === 'Saved.', 'the save was not said');
 
-        field(root, 'form[data-edit="c1"]', 'sshHostKey').value = '  SHA256:typedIn ';
+        field(root, 'form[data-edit="c1"]', 'sshHostKey').value = '  SHA256:typedIn, SHA256:next ';
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] [name="sshTrustOnFirstUse"]')!.value = 'HostKey';
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] [name="sshOnPinMismatch"]')!.value   = 'Record';
+        field(root, 'form[data-edit="c1"]', 'sshProbationTime').value = '120';
 
         submit(root, 'form[data-edit="c1"]');
         await until(() => lastSaved !== null, 'the connection was not saved again');
 
-        assert.equal(lastSaved!.sshHostKey,         'SHA256:typedIn');
-        assert.equal(lastSaved!.sshHostKeyAsShown,  '', 'what the page showed became what was typed');
+        assert.equal(lastSaved!.sshHostKey,          'SHA256:typedIn, SHA256:next');
+        assert.equal(lastSaved!.sshHostKeyAsShown,   '', 'what the page showed became what was typed');
+        assert.equal(lastSaved!.sshTrustOnFirstUse,  'HostKey');
+        assert.equal(lastSaved!.sshOnPinMismatch,    'Record');
+        assert.equal(lastSaved!.sshProbationTime,    120);
 
     });
 

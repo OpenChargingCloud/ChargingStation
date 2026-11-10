@@ -712,17 +712,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
                                         String?                          OCPPVersion   = null,
-                                        String?                          SshHostKey    = null)
+                                        String?                          SshHostKey    = null,
+                                        SshTrustSettings?                SshTrust      = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
         /// file's rather than the connection's.
         /// </summary>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
-        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show; none for the first one it shows.</param>
+        /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none where it is not dialled or learns one on first use.</param>
+        /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; none for no trust on first use, mismatches refused.</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -733,7 +735,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         [NotNullWhen(false)] out String? Error,
                                         out Boolean                      NotSaved,
                                         String?                          OCPPVersion   = null,
-                                        String?                          SshHostKey    = null)
+                                        String?                          SshHostKey    = null,
+                                        SshTrustSettings?                SshTrust      = null)
         {
 
             Id        = null;
@@ -744,6 +747,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
 
             if (!ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out Error))
+                return false;
+
+            if (!ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
+                                                  out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out Error))
                 return false;
 
             lock (updateLock)
@@ -764,7 +771,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 AutoConnect  = AutoConnect ?? false,
                                 AuthenticationId    = authenticationId,
                                 CertificateId       = certificateId,
-                                SshHostKey          = hostKey
+                                SshHostKey          = hostKey,
+                                SshTrustOnFirstUse  = url.Scheme == URIScheme.ssh ? trustOnFirstUse : SshTrustOnFirstUse.None,
+                                SshOnPinMismatch    = url.Scheme == URIScheme.ssh ? onPinMismatch   : SshOnPinMismatch.Refuse,
+                                SshProbationTime    = probationTime
                             };
 
                 connections[entry.Id] = entry;
@@ -802,18 +812,20 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            [NotNullWhen(false)] out String? Error,
                                            String?                          OCPPVersion         = null,
                                            String?                          SshHostKey          = null,
-                                           String?                          SshHostKeyAsShown   = null)
+                                           String?                          SshHostKeyAsShown   = null,
+                                           SshTrustSettings?                SshTrust            = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                   out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown);
+                                   out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
         /// rather than the change's.
         /// </summary>
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about the change was wrong, and the connection stays as it was.</param>
-        /// <param name="SshHostKey">The host key the server of an ssh:// connection must show: "" for none - the first one it shows - and nothing to keep the one there is.</param>
-        /// <param name="SshHostKeyAsShown">The host key the page showed when it was drawn. Where <paramref name="SshHostKey"/> is still that one, the one there is now stays: one written down meanwhile by a first connection is not undone by a change of something else.</param>
+        /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas: "" for none, and nothing to keep those there are.</param>
+        /// <param name="SshHostKeyAsShown">The host keys the page showed when it was drawn. Where <paramref name="SshHostKey"/> is still that, those there are now stay: a signed pin set taken meanwhile is not undone by a change of something else.</param>
+        /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; nothing to keep what it says.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -825,7 +837,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            out Boolean                      NotSaved,
                                            String?                          OCPPVersion         = null,
                                            String?                          SshHostKey          = null,
-                                           String?                          SshHostKeyAsShown   = null)
+                                           String?                          SshHostKeyAsShown   = null,
+                                           SshTrustSettings?                SshTrust            = null)
         {
 
             NotSaved = false;
@@ -843,6 +856,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
             String? hostKey = null;
 
             if (!keepsHostKey && !ConnectionEntry.ValidateHostKey(url, SshHostKey, out hostKey, out Error))
+                return false;
+
+            var trustOnFirstUse  = SshTrustOnFirstUse.None;
+            var onPinMismatch    = SshOnPinMismatch.Refuse;
+            var probationTime    = ConnectionEntry.DefaultSshProbationTime;
+
+            if (SshTrust is not null &&
+                !ConnectionEntry.ValidateSshTrust(SshTrust.TrustOnFirstUse, SshTrust.OnPinMismatch, SshTrust.ProbationSeconds,
+                                                  out trustOnFirstUse, out onPinMismatch, out probationTime, out Error))
                 return false;
 
             lock (updateLock)
@@ -872,7 +894,34 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.AutoConnect  = AutoConnect ?? false;
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
+
+                // A key learned on probation goes with the pins somebody wrote,
+                // and with a server elsewhere; so does the version of the
+                // signed pin set the pins came from.
+                if (!keepsHostKey || was.URL != url)
+                {
+                    entry.SshLearnedHostKey   = null;
+                    entry.SshLearnedAt        = null;
+                }
+
+                if (!keepsHostKey)
+                    entry.SshHostKeysVersion  = 0;
+
                 entry.SshHostKey          = hostKey;
+
+                if (url.Scheme != URIScheme.ssh)
+                {
+                    entry.SshTrustOnFirstUse  = SshTrustOnFirstUse.None;
+                    entry.SshOnPinMismatch    = SshOnPinMismatch.Refuse;
+                    entry.SshLearnedHostKey   = null;
+                    entry.SshLearnedAt        = null;
+                }
+                else if (SshTrust is not null)
+                {
+                    entry.SshTrustOnFirstUse  = trustOnFirstUse;
+                    entry.SshOnPinMismatch    = onPinMismatch;
+                    entry.SshProbationTime    = probationTime;
+                }
 
                 if (!TrySaveConnections(out Error))
                 {
@@ -892,27 +941,29 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
-        #region TryPinHostKey(Id, URL, HostKey, out Error)
+        #region TryLearnHostKey(Id, URL, HostKey, out Error)
 
         /// <summary>
         /// Write down the host key the first connection of an ssh:// connection
-        /// that pinned none was shown - from then on the only one it takes.
+        /// that trusts on first use was shown: on probation, until a signed pin
+        /// set confirms it (white paper "OCPP over SSH", section 10.4).
         /// </summary>
         /// <remarks>
         /// Only where nothing changed meanwhile: the connection is still there,
-        /// still goes where it went when it was dialled, and pins no host key
-        /// yet. A key somebody wrote down in the meantime, or a URL changed to
-        /// another server, is not overwritten by what the old one showed.
+        /// still goes where it went when it was dialled, still trusts on first
+        /// use, and pins and learned no host key yet. Written down rather than
+        /// only remembered, so that a restart does not learn again from whoever
+        /// answers first - and so that the probation runs on.
         /// </remarks>
         /// <param name="Id">The connection.</param>
         /// <param name="URL">Where it went when it was dialled.</param>
         /// <param name="HostKey">The host key it was shown, as a fingerprint.</param>
         /// <param name="Error">Why it was not written down - nothing where it was not to be.</param>
         /// <returns>Whether it was written down.</returns>
-        public Boolean TryPinHostKey(String       Id,
-                                     URL          URL,
-                                     String       HostKey,
-                                     out String?  Error)
+        public Boolean TryLearnHostKey(String       Id,
+                                       URL          URL,
+                                       String       HostKey,
+                                       out String?  Error)
         {
 
             Error = null;
@@ -920,26 +971,162 @@ namespace cloud.charging.open.ChargingStation.OCPP
             lock (updateLock)
             {
 
-                if (!connections.TryGetValue(Id, out var entry) ||
-                    entry.URL != URL                            ||
-                    entry.URL.Scheme != URIScheme.ssh           ||
-                    entry.SshHostKey is not null)
+                if (!connections.TryGetValue(Id, out var entry)                  ||
+                    entry.URL != URL                                             ||
+                    entry.URL.Scheme != URIScheme.ssh                            ||
+                    entry.SshTrustOnFirstUse != SshTrustOnFirstUse.HostKey       ||
+                    entry.SshHostKey is not null                                 ||
+                    entry.SshLearnedHostKey is not null)
                 {
                     return false;
                 }
 
-                entry.SshHostKey = HostKey;
+                entry.SshLearnedHostKey  = HostKey;
+                entry.SshLearnedAt       = TimeProvider.GetUtcNow();
 
                 if (!TrySaveConnections(out Error))
                 {
-                    entry.SshHostKey = null;
+                    entry.SshLearnedHostKey  = null;
+                    entry.SshLearnedAt       = null;
                     return false;
                 }
 
                 OnNotice?.Invoke(LogLevel.Notice,
-                                 $"'{entry.Description}' pinned no host key, so the one its server showed on the first " +
-                                 $"connection was written down: {HostKey}. From now on no other is taken.");
+                                 $"'{entry.Description}' pins no host key and trusts on first use, so the one its server showed on the first " +
+                                 $"connection was learned: {HostKey}. It is on probation for {entry.SshProbationTime.TotalMinutes:0.#} minute(s), " +
+                                  "until a signed pin set confirms it; until then nothing but such a pin set is executed.");
 
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryForgetLearnedHostKey(Id, HostKey)
+
+        /// <summary>
+        /// Forget the host key learned on first use - after a probation that
+        /// ran out without a signed pin set - so that the next connection
+        /// learns again.
+        /// </summary>
+        /// <param name="Id">The connection.</param>
+        /// <param name="HostKey">The host key learned, so that one learned again meanwhile is not forgotten.</param>
+        /// <returns>Whether it was forgotten.</returns>
+        public Boolean TryForgetLearnedHostKey(String  Id,
+                                               String  HostKey)
+        {
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry) || entry.SshLearnedHostKey != HostKey)
+                    return false;
+
+                var learnedAt = entry.SshLearnedAt;
+
+                entry.SshLearnedHostKey  = null;
+                entry.SshLearnedAt       = null;
+
+                if (!TrySaveConnections(out var error))
+                {
+                    entry.SshLearnedHostKey  = HostKey;
+                    entry.SshLearnedAt       = learnedAt;
+                    OnNotice?.Invoke(LogLevel.Warning, $"'{entry.Description}' could not forget the host key it learned: {error}.");
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Warning,
+                                 $"'{entry.Description}' forgot the host key {HostKey} it learned on its first connection: no signed pin set " +
+                                  "confirmed it in time. The next connection learns again.");
+
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryTakeSignedHostKeys(Id, HostKeys, Version, out Confirmed, out Error)
+
+        /// <summary>
+        /// Take the host keys of a signed pin set as the connection's pins: only
+        /// with a higher version than the one it holds, so that an older pin
+        /// set cannot be brought back (white paper "OCPP over SSH", section
+        /// 10.4; "Key Pins and Raw Public Keys", section 5.7).
+        /// </summary>
+        /// <param name="Id">The connection.</param>
+        /// <param name="HostKeys">The host keys of the pin set, separated by commas.</param>
+        /// <param name="Version">The version of the pin set.</param>
+        /// <param name="Learned">The host key that was learned on probation and is among them, or the one that is not; null where none was learned.</param>
+        /// <param name="Confirmed">Whether the host key learned on probation is among them.</param>
+        /// <param name="Error">Why they were not taken.</param>
+        public Boolean TryTakeSignedHostKeys(String                           Id,
+                                             String                           HostKeys,
+                                             UInt64                           Version,
+                                             out String?                      Learned,
+                                             out Boolean                      Confirmed,
+                                             [NotNullWhen(false)] out String? Error)
+        {
+
+            Learned    = null;
+            Confirmed  = false;
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry))
+                {
+                    Error = $"There is no connection '{Id}' here.";
+                    return false;
+                }
+
+                if (!ConnectionEntry.ValidateHostKey(entry.URL, HostKeys, out var hostKey, out Error))
+                    return false;
+
+                if (hostKey is null)
+                {
+                    Error = "A signed pin set without a host key would leave the connection with nothing to believe its server by.";
+                    return false;
+                }
+
+                if (Version <= entry.SshHostKeysVersion)
+                {
+                    Error = $"The pin set has version {Version}, and the connection holds version {entry.SshHostKeysVersion}: " +
+                             "only a higher one is taken, so that an older pin set cannot be brought back.";
+                    return false;
+                }
+
+                var was     = entry.Copy();
+
+                var learned = entry.SshLearnedHostKey;
+
+                Learned     = learned;
+                Confirmed   = learned is not null &&
+                              ConnectionEntry.SplitHostKeys(hostKey).Any(pin => String.Equals(pin, learned, StringComparison.Ordinal));
+
+                entry.SshHostKey          = hostKey;
+                entry.SshHostKeysVersion  = Version;
+                entry.SshLearnedHostKey   = null;
+                entry.SshLearnedAt        = null;
+
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = was;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice,
+                                 $"'{entry.Description}' took the host keys of the signed pin set of version {Version}: {hostKey}" +
+                                 (Learned is null
+                                      ? "."
+                                      : Confirmed
+                                            ? $"; they confirm the one learned on its first connection ({Learned}), and its probation ends."
+                                            : $"; the one learned on its first connection ({Learned}) is not among them, so that server is not believed any more."));
+
+                Error = null;
                 return true;
 
             }
@@ -1136,9 +1323,31 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (Entry.AuthenticationId is null && Entry.CertificateId is null && !Entry.IsSSH)
                 Entry.Warnings.Add("This connection proves nothing about who is dialling. A back end that asks will refuse it.");
 
-            if (Entry.IsSSH && Entry.SshHostKey is null)
-                Entry.Warnings.Add("No host key is pinned, so the first server that answers is believed, and the key it shows " +
-                                   "is written down here. Pin it now to decide yourself - the connection test shows the key.");
+            if (Entry.IsSSH)
+            {
+
+                if (Entry.PinsMD5)
+                    Entry.Warnings.Add("An MD5 fingerprint is pinned, and MD5 fingerprints are no longer taken: this connection is not dialled " +
+                                       "until it is replaced by the SHA-256 one - the connection test shows it.");
+
+                if (Entry.SshHostKey is null && Entry.SshLearnedHostKey is not null)
+                    Entry.Warnings.Add($"The host key {Entry.SshLearnedHostKey} was learned on the first connection and is on probation: " +
+                                        "until a signed pin set confirms it, nothing but such a pin set is executed.");
+
+                else if (Entry.SshHostKey is null && Entry.SshTrustOnFirstUse == SshTrustOnFirstUse.HostKey)
+                    Entry.Warnings.Add("No host key is pinned, so the first server that answers is believed, on probation for " +
+                                       $"{Entry.SshProbationTime.TotalMinutes:0.#} minute(s) until a signed pin set confirms its key. " +
+                                        "Pin it now to decide yourself - the connection test shows the key.");
+
+                else if (Entry.SshHostKey is null)
+                    Entry.Warnings.Add("No host key is pinned and trust on first use is off, so this connection is not dialled: " +
+                                       "pin its server's host key - the connection test shows it - or let it learn the first one, on probation.");
+
+                if (Entry.SshOnPinMismatch != SshOnPinMismatch.Refuse)
+                    Entry.Warnings.Add($"A host key that matches no pin is believed all the same ({Entry.SshOnPinMismatch}): whoever answers on the way " +
+                                        "is taken for the server. That is for test benches, and for the move to a server whose key is not pinned yet.");
+
+            }
 
         }
 

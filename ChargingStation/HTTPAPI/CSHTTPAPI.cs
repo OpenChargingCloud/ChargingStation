@@ -1246,7 +1246,8 @@ namespace cloud.charging.open.ChargingStation
                                                        out var error,
                                                        out var notSaved,
                                                        json.Value<String>("ocppVersion"),
-                                                       json.Value<String>("sshHostKey")))
+                                                       json.Value<String>("sshHostKey"),
+                                                       SshTrustOf(json)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1289,7 +1290,8 @@ namespace cloud.charging.open.ChargingStation
                                                           out var notSaved,
                                                           json.Value<String>("ocppVersion"),
                                                           json.Value<String>("sshHostKey"),
-                                                          json.Value<String>("sshHostKeyAsShown")))
+                                                          json.Value<String>("sshHostKeyAsShown"),
+                                                          SshTrustOf(json)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1402,8 +1404,36 @@ namespace cloud.charging.open.ChargingStation
                                                     json.Value<String>("authenticationId"),
                                                     json.Value<String>("certificateId"),
                                                     Request.CancellationToken,
-                                                    json.Value<String>("sshHostKey"))
+                                                    json.Value<String>("sshHostKey"),
+                                                    SshTrustOf(json))
                    );
+
+        }
+
+        /// <summary>
+        /// How an ssh:// connection believes its server beyond its pins, as it
+        /// was sent - or null, where none of it was, to keep what it says. A
+        /// probation that is no whole number is sent on as one no connection
+        /// takes, so that it is refused in words rather than with a 500.
+        /// </summary>
+        private static OCPP.SshTrustSettings? SshTrustOf(JObject JSON)
+        {
+
+            var probation = JSON["sshProbationTime"];
+
+            if (JSON["sshTrustOnFirstUse"] is null && JSON["sshOnPinMismatch"] is null && probation is null)
+                return null;
+
+            Int64? seconds = probation?.Type switch {
+                                 JTokenType.Integer                                                  => probation.Value<Int64>(),
+                                 JTokenType.String when Int64.TryParse(probation.Value<String>(), out var parsed) => parsed,
+                                 JTokenType.Null or null                                             => null,
+                                 _                                                                   => -1
+                             };
+
+            return new OCPP.SshTrustSettings(JSON.Value<String>("sshTrustOnFirstUse"),
+                                        JSON.Value<String>("sshOnPinMismatch"),
+                                        seconds);
 
         }
 

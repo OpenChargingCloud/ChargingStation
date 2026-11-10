@@ -274,7 +274,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 await csms.Start();
 
                 Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{csms.Port}", "CSMS", true, null, null,
-                                                                 out _, out var error),
+                                                                 out _, out var error, SshHostKey: SshFingerprint.Sha256(csms.HostKey.PublicKeyBlob)),
                             Is.True, error);
 
             }

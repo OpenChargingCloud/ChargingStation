@@ -782,8 +782,19 @@ export interface StationConnection {
     createdAt:           string;
     authenticationId?:   string;
     certificateId?:      string;
-    /** The host key the server of an ssh:// connection must show; none for the first one it shows. */
+    /** The host keys the server of an ssh:// connection may show, separated by commas; none where nothing is pinned. */
     sshHostKey?:         string;
+    /** Whether an ssh:// connection that pins nothing learns the first host key shown, on probation. */
+    sshTrustOnFirstUse?: 'None' | 'HostKey';
+    /** What a host key that matches no pin leads to. */
+    sshOnPinMismatch?:   'Refuse' | 'Record' | 'Accept';
+    /** How long a learned host key waits for a signed pin set, in seconds. */
+    sshProbationTime?:   number;
+    /** The version of the signed pin set the pins came from. */
+    sshHostKeysVersion?: number;
+    /** The host key learned on the first connection, while it is on probation. */
+    sshLearnedHostKey?:  string;
+    sshLearnedAt?:       string;
     warnings?:           string[];
 }
 
@@ -797,12 +808,15 @@ export interface ConnectionToSave {
     autoConnect:  boolean;
     authenticationId:    string | null;
     certificateId:       string | null;
-    /** The host key typed: "" for none. */
+    /** The host keys typed, separated by commas: "" for none. */
     sshHostKey?:         string;
+    sshTrustOnFirstUse?: 'None' | 'HostKey';
+    sshOnPinMismatch?:   'Refuse' | 'Record' | 'Accept';
+    sshProbationTime?:   number;
     /**
-     * The host key the page showed when it was drawn: where the one typed is
-     * still that one, the station keeps the one it has now - written down by
-     * the first connection meanwhile, perhaps.
+     * The host keys the page showed when it was drawn: where those typed are
+     * still those, the station keeps the ones it has now - taken from a signed
+     * pin set meanwhile, perhaps.
      */
     sshHostKeyAsShown?:  string;
 }

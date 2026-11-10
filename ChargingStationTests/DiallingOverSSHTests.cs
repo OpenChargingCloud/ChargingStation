@@ -83,6 +83,18 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// </summary>
             public NTSServer?        Time           { get; set; }
 
+            /// <summary>
+            /// How many HELLOs it was sent so far.
+            /// </summary>
+            public Int32             Hellos         => hellos;
+            private Int32            hellos;
+
+            /// <summary>
+            /// Asked of every HELLO, with how many came before it: a refusal, or
+            /// null to welcome it.
+            /// </summary>
+            public Func<Int32, SshHelloVerdict?>?  RefuseHello  { get; set; }
+
             public UInt16            Port
                 => Server.LocalEndPoint.Port.ToUInt16();
 
@@ -98,6 +110,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 Subsystem     = "ocpp@open.charging.cloud",
                                 Subprotocols  = [ "ocpp2.1", "ocpp2.0.1", "ocpp1.6" ]
                             });
+
+                Messages.ValidateHello = (server, context, hello, subprotocol, cancellationToken) => {
+                                             var before = Interlocked.Increment(ref hellos) - 1;
+                                             return ValueTask.FromResult(RefuseHello?.Invoke(before) ?? SshHelloVerdict.Accept());
+                                         };
 
                 Messages.OnTextMessageReceived += async (timestamp, sender, connection, text, cancellationToken) => {
 
@@ -161,6 +178,31 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// </summary>
             public (String User, Byte[] Key)[] Logins
                 => [.. logins];
+
+            /// <summary>
+            /// Ask the station something over its connection, and wait for the
+            /// answer: a CALLRESULT or a CALLERROR.
+            /// </summary>
+            public async Task<JArray> Ask(String Action, JObject Payload)
+            {
+
+                var id          = Guid.NewGuid().ToString();
+                var connection  = Messages.Connections.First();
+
+                await connection.SendTextMessage(new JArray(2, id, Action, Payload).ToString(Formatting.None));
+
+                var until       = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+
+                while (DateTimeOffset.UtcNow < until)
+                {
+                    if (received.FirstOrDefault(message => message[0].Value<Int32>() is 3 or 4 && message[1].Value<String>() == id) is JArray answer)
+                        return answer;
+                    await Task.Delay(20);
+                }
+
+                throw new TimeoutException($"The station did not answer '{Action}' within 10 s.");
+
+            }
 
             public ValueTask DisposeAsync()
                 => Server.DisposeAsync();
@@ -258,19 +300,22 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region AStationRegistersOverSSHWithItsOwnKeyAndPinsTheHostKey()
+        #region AStationRegistersOverSSHWithItsOwnKeyAndLearnsTheHostKeyOnProbation()
 
         /// <summary>
         /// Dialled over SSH, a station signs in as the URL says with a key of
-        /// its own, registers with its CSMS, and writes down the host key it
-        /// was shown, where none was pinned.
+        /// its own, registers with its CSMS, and - where it trusts on first use
+        /// and pins nothing - learns the host key it was shown, on probation:
+        /// until a signed pin set confirms it, it executes nothing its server
+        /// asks but such a pin set.
         /// </summary>
         [Test]
-        public async Task AStationRegistersOverSSHWithItsOwnKeyAndPinsTheHostKey()
+        public async Task AStationRegistersOverSSHWithItsOwnKeyAndLearnsTheHostKeyOnProbation()
         {
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
-                                                              out var id, out var error),
+                                                              out var id, out var error,
+                                                              SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
 
             Assert.That(station.SshKey.Key, Is.Null, "A key was made before anything needed it.");
@@ -294,12 +339,158 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(csms.Logins.Last().Key, Is.EqualTo(key!.PublicKeyBlob),
                             "The station signed in with another key than its own.");
 
-                Assert.That(station.Connections.Connections.Single().SshHostKey, Is.EqualTo(csms.Fingerprint),
-                            "The host key shown on the first connection was not written down.");
+                Assert.That(station.Connections.Connections.Single().SshLearnedHostKey, Is.EqualTo(csms.Fingerprint),
+                            "The host key shown on the first connection was not learned.");
+
+                Assert.That(station.Connections.Connections.Single().SshHostKey, Is.Null,
+                            "A learned host key was taken for a pin, without a signed pin set.");
 
                 Assert.That(File.Exists(station.SshKey.Path), Is.True, "The key was not kept.");
 
             });
+
+            // On probation: what the server asks is not executed.
+            var reset = await csms!.Ask("Reset", new JObject(new JProperty("type", "Immediate")));
+
+            Assert.Multiple(() => {
+                Assert.That(reset[0].Value<Int32>(),   Is.EqualTo(4), $"A request was executed on probation: {reset}");
+                Assert.That(reset[2].Value<String>(),  Is.EqualTo("SecurityError"));
+                Assert.That(reset[3].Value<String>(),  Does.Contain("on probation"));
+            });
+
+        }
+
+        #endregion
+
+        #region ANoPinAndNoTrustOnFirstUseIsNotDialled()
+
+        /// <summary>
+        /// A connection that pins nothing and does not trust on first use is
+        /// not dialled at all: nothing would say which server to believe.
+        /// </summary>
+        [Test]
+        public async Task ANoPinAndNoTrustOnFirstUseIsNotDialled()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error),
+                        Is.True, error);
+
+            await Start();
+
+            Assert.Multiple(() => {
+                Assert.That(station.ConnectionStates[id!].Status,  Is.EqualTo(ConnectionStatus.NotDialled), SaidOf(id!));
+                Assert.That(SaidOf(id!),                            Does.Contain("pins no host key and does not trust on first use"));
+                Assert.That(csms!.Logins,                           Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region AProbationThatRunsOutForgetsTheKeyAndLearnsAgain()
+
+        /// <summary>
+        /// Where no signed pin set confirms a learned host key within the
+        /// probation, it is forgotten, the connection is made anew, and the
+        /// key of the next first handshake is learned.
+        /// </summary>
+        [Test]
+        public async Task AProbationThatRunsOutForgetsTheKeyAndLearnsAgain()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error,
+                                                              SshTrust: new SshTrustSettings("HostKey", null, 2)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null, "Learning the host key", () => SaidOf(id!));
+
+            var learnedAt = station.Connections.Connections.Single().SshLearnedAt;
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedAt is DateTimeOffset at && at > learnedAt!.Value,
+                        "Learning it again after the probation ran out", () => SaidOf(id!));
+
+            await Until(() => csms!.Hellos >= 2, "The connection made anew");
+
+            Assert.That(station.Connections.Connections.Single().SshLearnedHostKey, Is.EqualTo(csms!.Fingerprint));
+
+        }
+
+        #endregion
+
+        #region AMismatchIsBelievedOnlyWhereOnPinMismatchSaysSo()
+
+        /// <summary>
+        /// A host key that matches no pin is believed where OnPinMismatch says
+        /// to record it - and never where a password may be sent.
+        /// </summary>
+        [Test]
+        public async Task AMismatchIsBelievedOnlyWhereOnPinMismatchSaysSo()
+        {
+
+            var someoneElse = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
+
+            Assert.That(station!.Connections.TryAddAuthentication("A Basic login", "basic", "cs002", "not-the-real-one", out var basic, out var error),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("Recorded", SshURL(), "CSMS", true, null, null, out var recorded, out error,
+                                                             SshHostKey: someoneElse, SshTrust: new SshTrustSettings(null, "Record", null)),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("With a password", SshURL("cs002"), "CSMS", true, basic, null, out var withPassword, out error,
+                                                             SshHostKey: someoneElse, SshTrust: new SshTrustSettings(null, "Accept", null)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(recorded!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting with a mismatch recorded", () => SaidOf(recorded!));
+
+            await Until(() => station.ConnectionStates.TryGetValue(withPassword!, out var state) && state.Status == ConnectionStatus.Refused,
+                        "Refusing a mismatch where a password may be sent", () => SaidOf(withPassword!));
+
+            Assert.Multiple(() => {
+                Assert.That(SaidOf(withPassword!),  Does.Contain("a password is never sent to a server that is not believed"));
+                Assert.That(csms!.Logins.Select(login => login.User), Has.None.EqualTo("cs002"), "A password went to a server that was not believed.");
+            });
+
+        }
+
+        #endregion
+
+        #region AServerThatKeepsTheOtherConnectionIsTriedAgainAfterItsRetryAfter()
+
+        /// <summary>
+        /// A server that keeps another connection of the station's identity
+        /// answers "connection-exists" with when to come back: not final, and
+        /// tried again no earlier than that.
+        /// </summary>
+        [Test]
+        public async Task AServerThatKeepsTheOtherConnectionIsTriedAgainAfterItsRetryAfter()
+        {
+
+            csms!.RefuseHello = before => before == 0
+                                              ? SshHelloVerdict.Refuse(SshMessageRefusal.ConnectionExists, "cs001 is connected, and answers.", TimeSpan.FromSeconds(2))
+                                              : null;
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error, SshHostKey: csms.Fingerprint),
+                        Is.True, error);
+
+            var started = DateTimeOffset.UtcNow;
+
+            await Start();
+
+            Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
+            Assert.That(SaidOf(id!), Does.Contain("tried again in 2 s at the earliest"));
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting after the retryAfter", () => SaidOf(id!));
+
+            Assert.That(DateTimeOffset.UtcNow - started, Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(1.9)), "It came back before the server said.");
 
         }
 
@@ -354,7 +545,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms!.LetsIn = false;
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
-                                                              out var id, out var error),
+                                                              out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
             await Start();
@@ -382,7 +573,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             TheStationsNameServersKnow("csms.test");
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms!.Port}", "CSMS", true, null, null,
-                                                              out var id, out var error),
+                                                              out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
             // The test button first: it resolves as the dialling does.
@@ -413,19 +604,20 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ALoginTurnedAwayOnceTheCSMSIsUpIsFinal()
         {
 
-            var port = csms!.Port;
+            var port   = csms!.Port;
+            var later  = SshHostKey.GenerateEd25519();
 
             await csms.DisposeAsync();
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{port}", "CSMS", true, null, null,
-                                                              out var id, out var error),
+                                                              out var id, out var error, SshHostKey: SshFingerprint.Sha256(later.PublicKeyBlob)),
                         Is.True, error);
 
             await Start();
 
             Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
 
-            csms        = new SshCSMS() { LetsIn = false };
+            csms        = new SshCSMS(later) { LetsIn = false };
             await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, IPPort.Parse(port)), CancellationToken.None);
 
             await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
@@ -495,7 +687,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 TheStationsNameServersKnow("csms.test");
 
                 Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
-                                                                 out var id, out var error),
+                                                                 out var id, out var error, SshHostKey: csms.Fingerprint),
                             Is.True, error);
 
                 var model   = new NTSDeviceModel(station, Log: null);
