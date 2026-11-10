@@ -1956,6 +1956,7 @@ namespace cloud.charging.open.ChargingStation
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.
             deviceModelBridge.Configure(chargingStation);
+            AttachSSHClient(chargingStation);
             deviceModelBridge.Configure(chargePoint);
 
             // The station's queues and monitors, whichever node this is.

@@ -113,7 +113,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #region Data
 
-        private readonly HostKeyPolicy?  policy;
+        private          HostKeyPolicy?  policy;
         private readonly Object          lockObject  = new ();
         private          String?         learned;
         private          Byte[]?         lastShown;
@@ -128,7 +128,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// The host keys pinned - fingerprints or public-key lines - in the
         /// order they were written; none where nothing is pinned.
         /// </summary>
-        public IReadOnlyList<String>  Pins                 { get; }
+        public IReadOnlyList<String>  Pins                 { get; private set; }
 
         /// <summary>
         /// The host keys pinned, as one text for a sentence - or null where
@@ -362,6 +362,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             return believed;
 
+        }
+
+        #endregion
+
+        #region TakePins(Pins)
+
+        /// <summary>
+        /// Believe the server by the given pins from now on - those of a signed pin set - and forget what
+        /// was learned: the next handshake is held to them.
+        /// </summary>
+        public void TakePins(IReadOnlyList<String> Pins)
+        {
+            lock (lockObject)
+            {
+                this.Pins     = Pins;
+                this.policy   = Pins.Count > 0 ? HostKeyPolicy.Pin([.. Pins]) : null;
+                this.learned  = null;
+            }
         }
 
         #endregion

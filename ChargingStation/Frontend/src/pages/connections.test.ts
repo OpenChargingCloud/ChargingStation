@@ -81,6 +81,18 @@ function station({ method, path, body }: Asked): unknown {
         return held;
     }
 
+    if (path === '/configuration/connections/pinSetSigners') {
+        const { publicKey, description } = body as { publicKey: string; description: string };
+        held = { ...held, pinSetSigners: [ ...(held.pinSetSigners ?? []), { publicKey, description, createdAt: '2026-11-10T12:00:00.000Z' } ] };
+        return held;
+    }
+
+    if (path === '/configuration/connections/pinSetSigners/remove') {
+        const { publicKey } = body as { publicKey: string };
+        held = { ...held, pinSetSigners: (held.pinSetSigners ?? []).filter(one => one.publicKey !== publicKey) };
+        return held;
+    }
+
     if (path === '/configuration/connections/remove') {
         const { id } = body as { id: string };
         held = { ...held, connections: held.connections.filter(one => one.id !== id) };
@@ -251,6 +263,39 @@ describe('the Connections page', () => {
         // A station without one has no card for it.
         const plain = await opened();
         assert.equal(plain.querySelector('#ssh-key'), null, 'a station that dials nothing over SSH shows a key card');
+
+    });
+
+    it('lists the signers of pin sets, and takes and removes one', async () => {
+
+        const root = await opened(anSshStation);
+
+        assert.match(root.querySelector('#no-signers')?.textContent ?? '', /no pin set is believed/);
+
+        field(root, '#signer-form', 'signerDescription').value = 'The CSMS';
+        field(root, '#signer-form', 'signerPublicKey').value   = 'A2bTQUlr4dmD5Pyt1mN6S0+rQe8Rf1CGRiq3Z46VsHyC';
+        submit(root, '#signer-form');
+
+        await until(() => root.querySelector('[data-signer="A2bTQUlr4dmD5Pyt1mN6S0+rQe8Rf1CGRiq3Z46VsHyC"]') !== null, 'the signer was not shown');
+
+        assert.match(root.querySelector('#pin-set-signers')?.textContent ?? '', /The CSMS/);
+
+        const realConfirm = globalThis.confirm;
+        globalThis.confirm = () => true;
+
+        try
+        {
+            root.querySelector<HTMLButtonElement>('[data-signer] button')!.click();
+            await until(() => root.querySelector('[data-signer]') === null, 'the signer was not removed');
+        }
+        finally
+        {
+            globalThis.confirm = realConfirm;
+        }
+
+        // A station that dials nothing over SSH and believes no signer has no card for it.
+        const plain = await opened();
+        assert.equal(plain.querySelector('#pin-set-signers'), null);
 
     });
 

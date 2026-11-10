@@ -156,6 +156,8 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/connections/update",     PostUpdateConnection,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/remove",     PostRemoveConnection,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/test",       PostTestConnection,        HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners",         PostPinSetSigner,        HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners/remove",  PostRemovePinSetSigner,  HTTPMethod.POST);
 
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        GetClientCertificates,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
@@ -1327,6 +1329,47 @@ namespace cloud.charging.open.ChargingStation
             {
                 Log.Warning($"The key this station signs in with over SSH could not be made: {e.Message}", "ocpp", "connections", "ssh");
             }
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/pinSetSigners with
+        /// {"publicKey", "description"}: a key a pin set for a connection over
+        /// SSH is believed of - the CSMS's signing anchor.
+        /// </summary>
+        private Task<HTTPResponse> PostPinSetSigner(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryAddPinSetSigner(json.Value<String>("publicKey"), json.Value<String>("description"), out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.Created, ConnectionsJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/connections/pinSetSigners/remove with
+        /// {"publicKey"}: no pin set signed by it is believed any more.
+        /// </summary>
+        private Task<HTTPResponse> PostRemovePinSetSigner(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.Connections.TryRemovePinSetSigner(json.Value<String>("publicKey"), out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, ConnectionsJSON()));
 
         }
 

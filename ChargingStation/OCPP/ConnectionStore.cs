@@ -80,6 +80,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public const String  ConnectionsFileName     = "connections.json";
 
+        /// <summary>
+        /// The file the keys a pin set is believed of are kept in.
+        /// </summary>
+        public const String  PinSetSignersFileName   = "pinSetSigners.json";
+
         private readonly Object                                   updateLock       = new ();
         private readonly Dictionary<String, AuthenticationEntry>  authentications  = [];
         private readonly Dictionary<String, ConnectionEntry>      connections      = [];
@@ -206,6 +211,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         OnNotice?.Invoke(LogLevel.Warning, $"A connection could not be read: {problem}");
                 }
 
+                pinSetSigners.Clear();
+
+                foreach (var json in Read(PinSetSignersFileName))
+                {
+                    if (PinSetSigner.TryParse(json) is PinSetSigner signer)
+                        pinSetSigners.Add(signer);
+                    else
+                        OnNotice?.Invoke(LogLevel.Warning, $"A signer of pin sets could not be read: {json.ToString(Newtonsoft.Json.Formatting.None)}");
+                }
+
             }
 
         }
@@ -259,13 +274,139 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// of them is made, and before it is said to be.
         /// </summary>
         private Boolean TrySaveConnections([NotNullWhen(false)] out String? Error)
+        {
 
-            => TrySave(ConnectionsFileName,
-                       new JArray(connections.Values.
-                                      OrderBy(entry => entry.CreatedAt).
-                                      Select (entry => entry.ToJSON())),
+            if (!TrySave(ConnectionsFileName,
+                         new JArray(connections.Values.
+                                        OrderBy(entry => entry.CreatedAt).
+                                        Select (entry => entry.ToJSON())),
+                         false,
+                         out Error))
+                return false;
+
+            // Told outside the lock, so that whoever follows may ask again.
+            if (OnConnectionsChanged is Action changed)
+                Task.Run(changed);
+
+            return true;
+
+        }
+
+        private Boolean TrySavePinSetSigners([NotNullWhen(false)] out String? Error)
+
+            => TrySave(PinSetSignersFileName,
+                       new JArray(pinSetSigners.Select(signer => signer.ToJSON())),
                        false,
                        out Error);
+
+        /// <summary>
+        /// The connections were changed and saved: written down, changed, taken
+        /// away, a host key learned or forgotten, a pin set taken.
+        /// </summary>
+        public event Action? OnConnectionsChanged;
+
+        private readonly List<PinSetSigner> pinSetSigners = [];
+
+        /// <summary>
+        /// The keys a pin set is believed of, in the order they were written down.
+        /// </summary>
+        public IReadOnlyList<PinSetSigner> PinSetSigners
+        {
+            get
+            {
+                lock (updateLock)
+                    return [.. pinSetSigners];
+            }
+        }
+
+        /// <summary>
+        /// Write down a key a pin set is believed of.
+        /// </summary>
+        public Boolean TryAddPinSetSigner(String?                           PublicKey,
+                                          String?                           Description,
+                                          [NotNullWhen(false)] out String?  Error,
+                                          out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
+
+            if (!PinSetSigner.TryNormalize(PublicKey, out var publicKey, out Error))
+                return false;
+
+            var description = (Description ?? "").Trim();
+
+            if (description.Length == 0 || description.Length > ConnectionEntry.MaxDescriptionLength)
+            {
+                Error = $"Say whose key it is, in at most {ConnectionEntry.MaxDescriptionLength} characters.";
+                return false;
+            }
+
+            lock (updateLock)
+            {
+
+                if (pinSetSigners.Any(signer => signer.PublicKey == publicKey))
+                {
+                    Error = "That key is written down already.";
+                    return false;
+                }
+
+                var signer = new PinSetSigner(publicKey, description, TimeProvider.GetUtcNow());
+
+                pinSetSigners.Add(signer);
+
+                if (!TrySavePinSetSigners(out Error))
+                {
+                    pinSetSigners.Remove(signer);
+                    NotSaved = true;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice, $"A pin set signed by '{description}' ({publicKey}) is believed from now on.");
+                return true;
+
+            }
+
+        }
+
+        /// <summary>
+        /// Take away a key a pin set is believed of.
+        /// </summary>
+        public Boolean TryRemovePinSetSigner(String?                           PublicKey,
+                                             [NotNullWhen(false)] out String?  Error,
+                                             out Boolean                       NotSaved)
+        {
+
+            NotSaved = false;
+
+            if (!PinSetSigner.TryNormalize(PublicKey, out var publicKey, out Error))
+                return false;
+
+            lock (updateLock)
+            {
+
+                var signer = pinSetSigners.FirstOrDefault(signer => signer.PublicKey == publicKey);
+
+                if (signer is null)
+                {
+                    Error = "That key is not written down here.";
+                    return false;
+                }
+
+                pinSetSigners.Remove(signer);
+
+                if (!TrySavePinSetSigners(out Error))
+                {
+                    pinSetSigners.Add(signer);
+                    NotSaved = true;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice, $"A pin set signed by '{signer.Description}' is no longer believed.");
+                return true;
+
+            }
+
+        }
 
         /// <summary>
         /// One of the two files, written whole: to a file of its own first, and
@@ -1004,6 +1145,60 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region TryChangeSshTrust(Id, Settings, out Error)
+
+        /// <summary>
+        /// Change how a connection over SSH believes its server beyond its pins - what a signed pin set of
+        /// SSHClientController says: what is not said stays.
+        /// </summary>
+        public Boolean TryChangeSshTrust(String                            Id,
+                                         SshTrustSettings                  Settings,
+                                         [NotNullWhen(false)] out String?  Error)
+        {
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry) || !entry.IsSSH)
+                {
+                    Error = $"There is no connection over SSH '{Id}' here.";
+                    return false;
+                }
+
+                if (!ConnectionEntry.ValidateSshTrust(Settings.TrustOnFirstUse  ?? entry.SshTrustOnFirstUse.ToString(),
+                                                      Settings.OnPinMismatch    ?? entry.SshOnPinMismatch.  ToString(),
+                                                      Settings.ProbationSeconds ?? (Int64) entry.SshProbationTime.TotalSeconds,
+                                                      out var trustOnFirstUse,
+                                                      out var onPinMismatch,
+                                                      out var probationTime,
+                                                      out Error))
+                    return false;
+
+                var was = entry.Copy();
+
+                entry.SshTrustOnFirstUse  = trustOnFirstUse;
+                entry.SshOnPinMismatch    = onPinMismatch;
+                entry.SshProbationTime    = probationTime;
+
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = was;
+                    return false;
+                }
+
+                OnNotice?.Invoke(LogLevel.Notice,
+                                 $"'{entry.Description}' believes its server as a signed pin set said: trust on first use {trustOnFirstUse}, " +
+                                 $"a mismatch {onPinMismatch}, a probation of {probationTime.TotalSeconds:0} s.");
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
         #region TryForgetLearnedHostKey(Id, HostKey)
 
         /// <summary>
@@ -1381,6 +1576,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                connections.Values.
                                    OrderByDescending(entry => entry.CreatedAt).
                                    Select(entry => entry.ToJSON()))),
+
+                           new JProperty("pinSetSigners",          new JArray(
+                               pinSetSigners.Select(signer => signer.ToJSON()))),
 
                            new JProperty("connectionTypes",        new JArray("CSMS", "CSMSBackup", "LocalController")),
                            new JProperty("ocppVersions",           new JArray("OCPP2.1", "OCPP1.6")),

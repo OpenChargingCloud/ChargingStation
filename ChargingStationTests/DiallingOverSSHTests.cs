@@ -30,6 +30,13 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
+using cloud.charging.open.protocols.WWCP;
+using cloud.charging.open.protocols.WWCP.NetworkingNode;
+using cloud.charging.open.protocols.OCPPv2_1;
+using cloud.charging.open.protocols.OCPPv2_1.CSMS;
+
 using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.protocols.OCPP.Node;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
@@ -137,6 +144,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                                       "Heartbeat"         => new JObject(
                                                                  new JProperty("currentTime",  DateTimeOffset.UtcNow.ToString("o"))
+                                                             ),
+
+                                      "SignSSHKey"        => new JObject(
+                                                                 new JProperty("status",       "Accepted")
                                                              ),
 
                                       _                   => new JObject()
@@ -356,6 +367,147 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(reset[0].Value<Int32>(),   Is.EqualTo(4), $"A request was executed on probation: {reset}");
                 Assert.That(reset[2].Value<String>(),  Is.EqualTo("SecurityError"));
                 Assert.That(reset[3].Value<String>(),  Does.Contain("on probation"));
+            });
+
+        }
+
+        #endregion
+
+        #region (private) PinSet(Connection, Pins, Version, Signer)
+
+        /// <summary>
+        /// A SetVariables request of SSHClientController for the given connection - its pins and their
+        /// version - signed by the given key, or by none: as the CSMS sends it.
+        /// </summary>
+        private JObject PinSet(String       Connection,
+                               String       Pins,
+                               UInt64       Version,
+                               ECCKeyPair?  Signer)
+        {
+
+            var request = new SetVariablesRequest(
+                              SourceRouting.To(NetworkingNode_Id.Parse("cs001")),
+                              [
+                                  new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPins"),        Pins),
+                                  new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPinsVersion"), Version.ToString())
+                              ]
+                          );
+
+            if (Signer is not null)
+                Assert.That(new SignaturePolicy().SignRequestMessage(request, request.ToJSON(true), out var notSigned,
+                                                                     Signer.ToSignInfo1("CSMS", I18NString.Create("pin set"), DateTimeOffset.UtcNow)),
+                            Is.True, notSigned);
+
+            return request.ToJSON(false);
+
+        }
+
+        #endregion
+
+        #region ASignedPinSetConfirmsTheLearnedKeyAndEndsTheProbation()
+
+        /// <summary>
+        /// A key learned on probation is confirmed by a pin set that a signer the station believes signed:
+        /// the probation ends, and what the server asks is executed again. An unsigned pin set, and one
+        /// signed by a stranger, are refused; a pin set of no higher version is refused.
+        /// </summary>
+        [Test]
+        public async Task ASignedPinSetConfirmsTheLearnedKeyAndEndsTheProbation()
+        {
+
+            var signer    = ECCKeyPair.GenerateKeys()!;
+            var stranger  = ECCKeyPair.GenerateKeys()!;
+
+            Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                             out var id, out error,
+                                                             SshTrust: new SshTrustSettings("HostKey", null, null)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null, "Learning the host key", () => SaidOf(id!));
+
+            var unsigned  = await csms!.Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, null));
+            var strange   = await csms.  Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, stranger));
+
+            Assert.Multiple(() => {
+                Assert.That(unsigned[0].Value<Int32>(), Is.EqualTo(3), unsigned.ToString());
+                Assert.That(unsigned[2]!["setVariableResult"]![0]!.Value<String>("attributeStatus"),  Is.EqualTo("Rejected"));
+                Assert.That(unsigned[2]!["setVariableResult"]![0]!["attributeStatusInfo"]!.Value<String>("reasonCode"), Is.EqualTo("Unsigned"));
+                Assert.That(strange [2]!["setVariableResult"]![0]!["attributeStatusInfo"]!.Value<String>("reasonCode"), Is.EqualTo("Unsigned"));
+                Assert.That(station.Connections.Connections.Single().SshLearnedHostKey, Is.EqualTo(csms.Fingerprint), "An unsigned pin set ended the probation.");
+            });
+
+            var confirmed = await csms.Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, signer));
+
+            Assert.Multiple(() => {
+                Assert.That(confirmed[2]!["setVariableResult"]!.Select(result => result.Value<String>("attributeStatus")), Is.All.EqualTo("Accepted"), confirmed.ToString());
+                Assert.That(station.Connections.Connections.Single().SshHostKey,         Is.EqualTo(csms.Fingerprint));
+                Assert.That(station.Connections.Connections.Single().SshLearnedHostKey,  Is.Null);
+                Assert.That(station.Connections.Connections.Single().SshHostKeysVersion, Is.EqualTo(1));
+            });
+
+            // Off probation: what the server asks is executed, and an older pin set does not come back.
+            var heartbeat = await csms.Ask("TriggerMessage", new JObject(new JProperty("requestedMessage", "Heartbeat")));
+            var replayed  = await csms.Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, signer));
+
+            Assert.Multiple(() => {
+                Assert.That(heartbeat[0].Value<Int32>(), Is.EqualTo(3), $"A request was refused after the probation ended: {heartbeat}");
+                Assert.That(replayed[2]!["setVariableResult"]![0]!.Value<String>("attributeStatus"), Is.EqualTo("Rejected"));
+                Assert.That(replayed[2]!["setVariableResult"]![0]!["attributeStatusInfo"]!.Value<String>("additionalInfo"), Does.Contain("only a higher one is taken"));
+            });
+
+        }
+
+        #endregion
+
+        #region AKeyIsRotatedWhenTheCSMSAsksAndConfirms()
+
+        /// <summary>
+        /// TriggerMessage "SignSSHKey": the station makes a next key and shows it in SignSSHKey, keeps
+        /// signing in with the current one, and takes the next one once SSHKeySigned confirms it.
+        /// </summary>
+        [Test]
+        public async Task AKeyIsRotatedWhenTheCSMSAsksAndConfirms()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error, SshHostKey: csms!.Fingerprint),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting over SSH", () => SaidOf(id!));
+
+            var before   = station.SshKey.PublicKeyLine;
+            var trigger  = await csms.Ask("TriggerMessage", new JObject(new JProperty("requestedMessage", "CustomTrigger"),
+                                                                        new JProperty("customTrigger",    "SignSSHKey")));
+
+            Assert.That(trigger[2]!.Value<String>("status"), Is.EqualTo("Accepted"), trigger.ToString());
+
+            await Until(() => csms.Requests("SignSSHKey").Length > 0, "A SignSSHKey");
+
+            var shown    = csms.Requests("SignSSHKey")[0][3]!;
+            var next     = shown.Value<String>("publicKey")!;
+
+            Assert.Multiple(() => {
+                Assert.That(shown.Value<String>("purpose"),    Is.EqualTo("OCPP"));
+                Assert.That(next,                              Is.Not.EqualTo(before));
+                Assert.That(station.SshKey.PublicKeyLine,      Is.EqualTo(before), "The next key signed in before it was confirmed.");
+            });
+
+            var stranger = await csms.Ask("SSHKeySigned", new JObject(new JProperty("purpose", "OCPP"), new JProperty("publicKey", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStranger")));
+            var signed   = await csms.Ask("SSHKeySigned", new JObject(new JProperty("purpose", "OCPP"), new JProperty("publicKey", next)));
+
+            Assert.Multiple(() => {
+                Assert.That(stranger[2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
+                Assert.That(signed  [2]!.Value<String>("status"),  Is.EqualTo("Accepted"), signed.ToString());
+                Assert.That(station.SshKey.PublicKeyLine!.Split(' ')[1], Is.EqualTo(next.Split(' ')[1]), "The confirmed key was not taken.");
+                Assert.That(File.Exists(station.SshKey.PendingPath), Is.False);
             });
 
         }

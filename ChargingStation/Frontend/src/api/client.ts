@@ -821,6 +821,13 @@ export interface ConnectionToSave {
     sshHostKeyAsShown?:  string;
 }
 
+/** A key a signed pin set is believed of: the point of an elliptic curve, in base64, as an OCPP signature's keyId carries it. */
+export interface PinSetSigner {
+    publicKey:    string;
+    description:  string;
+    createdAt:    string;
+}
+
 /** The key this station signs in with over SSH. */
 export interface StationSshKey {
     /** Its public half, as a line of authorized_keys. */
@@ -901,6 +908,8 @@ export interface StationConnections extends ConnectionStates {
     certificates:          ConnectionCertificate[];
     /** Null until the first ssh:// connection made it. */
     sshClientKey?:         StationSshKey | null;
+    /** The keys a pin set for a connection over SSH is believed of. */
+    pinSetSigners?:        PinSetSigner[];
     connectionTypes:       string[];
     ocppVersions:          string[];
     maxDescriptionLength:  number;
@@ -1097,6 +1106,13 @@ export const api = {
 
         remove:  (id: string) =>
                      request<StationConnections>('POST', '/configuration/connections/remove', { id }),
+
+        /** A key a pin set for a connection over SSH is believed of - the CSMS's signing anchor. */
+        addPinSetSigner:     (publicKey: string, description: string) =>
+                                 request<StationConnections>('POST', '/configuration/connections/pinSetSigners', { publicKey, description }),
+
+        removePinSetSigner:  (publicKey: string) =>
+                                 request<StationConnections>('POST', '/configuration/connections/pinSetSigners/remove', { publicKey }),
 
         /**
          * Where each connection this station dialled stands - asked again and

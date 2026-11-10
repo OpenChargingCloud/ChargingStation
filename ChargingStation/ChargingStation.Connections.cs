@@ -754,7 +754,13 @@ namespace cloud.charging.open.ChargingStation
                      $"signing in with {says}; {WhatItBelieves(trust)}.",
                      "ocpp", "connections");
 
-            trust.OnMismatchTolerated += why => Log.Warning($"{Where}: {why}.", "ocpp", "connections", "ssh", "security");
+            sshTrusts[Connection.Id] = trust;
+
+            trust.OnMismatchTolerated += why => {
+                Log.Warning($"{Where}: {why}.", "ocpp", "connections", "ssh", "security");
+                if (Connection.SshOnPinMismatch == SshOnPinMismatch.Record)
+                    SshSecurityEvent(Connection, "InvalidCsmsHostKey", $"Host key {trust.Shown} of '{Connection.Id}' matches no pin; went ahead (Record)");
+            };
 
             // Named as over a WebSocket - see Dial.
             var result  = await node.ConnectOCPPClient(
@@ -777,6 +783,8 @@ namespace cloud.charging.open.ChargingStation
 
                 if (final && client is not null)
                     await LetGo(client, "Not tried again.");
+
+                ReportFinal(Connection, trust, result.Error);
 
                 Fail(Connection,
                      keepsTrying ? ConnectionStatus.Trying
@@ -958,6 +966,8 @@ namespace cloud.charging.open.ChargingStation
                 if (IsLetGo(Client))
                     return;
 
+                ReportFinal(Connection, Trust, null);
+
                 Fail(Connection, ConnectionStatus.Refused,
                      $"'{Connection.Description}' was not believed when it was tried again: {why}; " +
                       "that answer is final, and it is not tried again.");
@@ -975,6 +985,8 @@ namespace cloud.charging.open.ChargingStation
 
                 if (IsFinal(error))
                 {
+
+                    ReportFinal(Connection, Trust, error);
 
                     Fail(Connection, ConnectionStatus.Refused,
                          WhyNotOverSSH($"'{Connection.Description}'", Trust, error) +
@@ -1020,7 +1032,8 @@ namespace cloud.charging.open.ChargingStation
             if (!Trust.OnProbation || Trust.Learned is not String learned)
                 return;
 
-            if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten))
+            if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten) &&
+                ReportedLearned(Connection, learned))
                 Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection. It is on probation for " +
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s): until a signed pin set confirms it, this station " +
                              "executes nothing its server asks but such a pin set.",
@@ -1036,6 +1049,37 @@ namespace cloud.charging.open.ChargingStation
 
             StartProbationClock(Connection, Trust, Client, learned);
 
+        }
+
+        #endregion
+
+        #region (private) ReportFinal(Connection, Trust, Error) / ReportedLearned(Connection, Learned)
+
+        /// <summary>
+        /// The security event of an answer that is final: a host key not believed, or a server without
+        /// strict KEX (white paper "OCPP over SSH", section 9.4).
+        /// </summary>
+        private void ReportFinal(ConnectionEntry  Connection,
+                                 SshHostKeyTrust  Trust,
+                                 Exception?       Error)
+        {
+
+            if (Trust.Refused)
+                SshSecurityEvent(Connection, "InvalidCsmsHostKey", $"Host key {Trust.Shown} of '{Connection.Id}' refused: {Trust.WhyRefused()}");
+
+            else if (FinalOrNot(Error) is SshStrictKexRequiredException)
+                SshSecurityEvent(Connection, "InvalidSSHAlgorithms", $"The server of '{Connection.Id}' does not signal strict KEX");
+
+        }
+
+        /// <summary>
+        /// The security event of a host key learned on first use - said, and then true.
+        /// </summary>
+        private Boolean ReportedLearned(ConnectionEntry  Connection,
+                                        String           Learned)
+        {
+            SshSecurityEvent(Connection, "CsmsHostKeyLearned", $"Host key {Learned} of '{Connection.Id}' learned on first use, on probation");
+            return true;
         }
 
         #endregion

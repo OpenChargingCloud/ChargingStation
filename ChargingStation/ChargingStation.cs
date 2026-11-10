@@ -568,6 +568,7 @@ namespace cloud.charging.open.ChargingStation
             // once.
             this.Connections.KnownCertificateIds  = () => this.ClientCertificates.Entries.Select(entry => entry.Id);
             this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
+            this.Connections.OnConnectionsChanged += () => FollowSSHClientComponents(cs02);
 
             this.SshKey = new SshClientKey(
                               System.IO.Path.Combine(this.Connections.Path, SshClientKey.DirectoryName),

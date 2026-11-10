@@ -132,6 +132,7 @@ export const connectionsPage: Page = {
                 </section>
 
                 ${sshKeyView(state)}
+                ${signersView(state)}
 
                 <section class="card">
 
@@ -446,6 +447,118 @@ export const connectionsPage: Page = {
 
                 </section>
             `;
+
+        }
+
+        /**
+         * The keys a pin set for a connection over SSH is believed of: a key
+         * learned on first use is confirmed, and the pins of a connection are
+         * changed over OCPP, only by a SetVariables one of these signed.
+         */
+        function signersView(state: StationConnections): TemplateResult | typeof nothing {
+
+            const signers = state.pinSetSigners ?? [];
+
+            if (signers.length === 0 && !state.connections.some(one => one.transport === 'ssh'))
+                return nothing;
+
+            return html`
+                <section class="card" id="pin-set-signers">
+
+                    <h2><i class="fa-solid fa-signature"></i> Signers of pin sets</h2>
+
+                    <p class="hint">
+                        A host key learned on first use is confirmed, and the host keys of a connection over SSH are changed over
+                        OCPP, only by a pin set one of these keys signed - the CSMS's, from commissioning.
+                    </p>
+
+                    ${signers.length === 0
+                         ? html`<p class="hint" id="no-signers">None yet: no pin set is believed, and a key learned on first use is never confirmed.</p>`
+                         : html`
+                            <div class="table-scroll">
+                                <table class="data">
+                                    <thead><tr><th>Whose</th><th>Public key</th><th>Written</th><th></th></tr></thead>
+                                    <tbody>
+                                        ${signers.map(signer => html`
+                                            <tr data-signer="${signer.publicKey}">
+                                                <td>${signer.description}</td>
+                                                <td><code class="wrap">${signer.publicKey}</code></td>
+                                                <td>${formatTimestamp(signer.createdAt)}</td>
+                                                <td>${mayManage ? html`<button type="button" class="btn small danger" @click=${() => removeSigner(signer.publicKey)}>Remove</button>` : nothing}</td>
+                                            </tr>
+                                        `)}
+                                    </tbody>
+                                </table>
+                            </div>
+                         `}
+
+                    ${mayManage ? html`
+                        <form id="signer-form" @submit=${addSigner}>
+                            <div class="form-row">
+                                <label>Whose
+                                    <input type="text" name="signerDescription" placeholder="The CSMS" />
+                                </label>
+                                <label>Public key
+                                    <input type="text" name="signerPublicKey" class="mono" placeholder="base64 or hexadecimal, as an OCPP signature's keyId" />
+                                </label>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn primary">Believe it</button>
+                                <span id="signer-note"  class="form-notice" role="status"></span>
+                                <span id="signer-error" class="form-error"  role="alert"></span>
+                            </div>
+                        </form>
+                    ` : nothing}
+
+                </section>
+            `;
+
+        }
+
+        async function addSigner(event: SubmitEvent): Promise<void> {
+
+            event.preventDefault();
+
+            const form   = event.currentTarget as HTMLFormElement;
+            const error  = must<HTMLElement>(content, '#signer-error');
+            const note   = must<HTMLElement>(content, '#signer-note');
+
+            error.textContent = '';
+
+            try
+            {
+                // Read before the form is held still: a field held still is no longer in its form data.
+                const publicKey    = field(form, 'signerPublicKey');
+                const description  = field(form, 'signerDescription');
+
+                took(await whileSaving(content, note, () => api.connections.addPinSetSigner(publicKey, description)));
+                if (!cancelled)
+                    draw();
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    error.textContent = errorMessage(problem);
+            }
+
+        }
+
+        async function removeSigner(publicKey: string): Promise<void> {
+
+            if (!confirm('No pin set signed by this key is believed any more. Go on?'))
+                return;
+
+            try
+            {
+                took(await api.connections.removePinSetSigner(publicKey));
+                if (!cancelled)
+                    draw();
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                    must<HTMLElement>(content, '#signer-error').textContent = errorMessage(problem);
+            }
 
         }
 

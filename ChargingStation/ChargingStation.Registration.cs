@@ -334,6 +334,9 @@ namespace cloud.charging.open.ChargingStation
         private void ConnectionIsUp(ConnectionEntry Connection)
         {
 
+            // A key older than its maximum age is rotated once a back end can be told.
+            _ = RotateIfOld();
+
             AWWCPNetworkingNode node = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6 ? cs01 : cs02;
 
             var registration = RegistrationOf(node, Connection);
