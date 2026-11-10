@@ -814,29 +814,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 csms!.Time = time;
 
-                // A station whose one time server is the CSMS's host, over the
-                // connection of OCPP.
-                await station!.DisposeAsync();
-
-                station = TestStations.New(directory, new JObject(
-                              new JProperty("nts", new JObject(
-                                  new JProperty("groups", new JObject(
-                                      new JProperty("legal", new JObject(new JProperty("enabled", false))),
-                                      new JProperty("local", new JObject(
-                                          new JProperty("enabled",     true),
-                                          new JProperty("minServers",  1),
-                                          new JProperty("servers",     new JArray(new JObject(
-                                              new JProperty("id",        "csms-time"),
-                                              new JProperty("hostname",  "csms.test"),
-                                              new JProperty("ntpPort",   ntpPort),
-                                              new JProperty("ssh",       new JObject(new JProperty("useOCPPConnection", true)))
-                                          )))
-                                      ))
-                                  ))
-                              ))
-                          ));
-
-                TheStationsNameServersKnow("csms.test");
+                await AStationWithItsTimeAtTheCSMS(ntpPort);
 
                 Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
                                                                  out var id, out var error, SshHostKey: csms.Fingerprint),
@@ -880,6 +858,111 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
                 await time.ShutdownAsync();
             }
+
+        }
+
+        #endregion
+
+        #region ATimeServerIsNotAskedOverAConnectionOnProbation()
+
+        /// <summary>
+        /// SSHUseOCPPConnection over a connection whose host key was learned on
+        /// first use: while it is on probation the station sends nothing but its
+        /// BootNotification (section 10.4 of the white paper "OCPP over SSH"),
+        /// so its time server makes no key exchange over it. Once a signed pin
+        /// set confirms the key, it does.
+        /// </summary>
+        [Test]
+        public async Task ATimeServerIsNotAskedOverAConnectionOnProbation()
+        {
+
+            var ntpPort = FreeUDPPort();
+
+            var time    = new NTSServer(NTSKEPort:           IPPort.Parse(TestPorts.Free()),
+                                        NTSPort:             IPPort.Parse(ntpPort),
+                                        MasterKeysFilePath:  null);
+
+            try
+            {
+
+                await time.Start();
+
+                csms!.Time = time;
+
+                await AStationWithItsTimeAtTheCSMS(ntpPort);
+
+                var signer = ECCKeyPair.GenerateKeys()!;
+
+                Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
+                            Is.True, error);
+
+                Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
+                                                                 out var id, out error,
+                                                                 SshTrust: new SshTrustSettings("HostKey", null, null)),
+                            Is.True, error);
+
+                await Start();
+
+                await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null &&
+                                  station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                            "Learning the host key", () => SaidOf(id!));
+
+                var onProbation = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
+
+                var confirmed   = await csms.Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, signer));
+
+                Assert.That(confirmed[2]!["setVariableResult"]!.Select(result => result.Value<String>("attributeStatus")), Is.All.EqualTo("Accepted"),
+                            confirmed.ToString());
+
+                var afterwards  = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
+
+                Assert.Multiple(() => {
+                    Assert.That(onProbation.Value<Boolean>("ok"),     Is.False, $"a key exchange over a connection on probation: {onProbation}");
+                    Assert.That(afterwards. Value<Boolean>("ok"),     Is.True,  afterwards.ToString());
+                    Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Connected));
+                });
+
+            }
+            finally
+            {
+                await time.ShutdownAsync();
+            }
+
+        }
+
+        #endregion
+
+        #region (private) AStationWithItsTimeAtTheCSMS(NTPPort)
+
+        /// <summary>
+        /// Instead of the station of the set-up, a station whose one time server
+        /// is the CSMS's host, over the connection of OCPP, with the name
+        /// "csms.test" known to its name servers.
+        /// </summary>
+        private async Task AStationWithItsTimeAtTheCSMS(UInt16 NTPPort)
+        {
+
+            await station!.DisposeAsync();
+
+            station = TestStations.New(directory, new JObject(
+                          new JProperty("nts", new JObject(
+                              new JProperty("groups", new JObject(
+                                  new JProperty("legal", new JObject(new JProperty("enabled", false))),
+                                  new JProperty("local", new JObject(
+                                      new JProperty("enabled",     true),
+                                      new JProperty("minServers",  1),
+                                      new JProperty("servers",     new JArray(new JObject(
+                                          new JProperty("id",        "csms-time"),
+                                          new JProperty("hostname",  "csms.test"),
+                                          new JProperty("ntpPort",   NTPPort),
+                                          new JProperty("ssh",       new JObject(new JProperty("useOCPPConnection", true)))
+                                      )))
+                                  ))
+                              ))
+                          ))
+                      ));
+
+            TheStationsNameServersKnow("csms.test");
 
         }
 

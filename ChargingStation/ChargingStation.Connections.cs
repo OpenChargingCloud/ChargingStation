@@ -1181,6 +1181,18 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) IsOnProbation(Client)
+
+        /// <summary>
+        /// Whether the server of the given SSH client is believed by a host key
+        /// learned on its first connection that no signed pin set confirmed yet.
+        /// </summary>
+        private Boolean IsOnProbation(WWCPSshClient Client)
+
+            => onProbation.Values.Any(probation => probation.Client == Client && probation.Trust.OnProbation);
+
+        #endregion
+
         #region (private) LetGo(Client, Reason) / IsLetGo(Client)
 
         /// <summary>

@@ -69,6 +69,12 @@ namespace cloud.charging.open.ChargingStation
         /// By the host the connection was dialled to, as its URL names it: a time
         /// server is the host its entry names. The first connection that lasts,
         /// where two back ends live on one host.
+        ///
+        /// Not a connection whose server is believed by a host key learned on its
+        /// first connection and not confirmed yet: on probation the station sends
+        /// nothing but its BootNotification, and executes nothing but a signed pin
+        /// set (section 10.4 of the white paper "OCPP over SSH"). Time from that
+        /// server would be time from a server nobody vouched for yet.
         /// </remarks>
         private SshClient? OCPPConnectionOverSSHTo(DomainName Hostname)
         {
@@ -79,7 +85,8 @@ namespace cloud.charging.open.ChargingStation
             {
 
                 if (String.Equals(client.MessageClient.Options.Host.TrimEnd('.'), host, StringComparison.OrdinalIgnoreCase) &&
-                    client.MessageClient.Ssh is SshClient ssh)
+                    client.MessageClient.Ssh is SshClient ssh                                                                &&
+                    !IsOnProbation(client))
                 {
                     return ssh;
                 }
