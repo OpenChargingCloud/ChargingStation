@@ -219,8 +219,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// Make the station's name servers know the given name as 127.0.0.1 -
-        /// a name of .invalid, which no resolver of an operating system
-        /// answers (RFC 6761): it reaches the test's CSMS only through them.
+        /// a name of .test, which no name server on the Internet knows (RFC
+        /// 6761 §6.2): it reaches the test's CSMS only through them. Not one of
+        /// .invalid: that has no address, and a DNS client is not even asked
+        /// for one (RFC 6761 §6.4).
         /// </summary>
         private void TheStationsNameServersKnow(String Name)
         {
@@ -356,18 +358,18 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AHostNameIsResolvedByTheStationsNameServers()
         {
 
-            TheStationsNameServersKnow("csms.invalid");
+            TheStationsNameServersKnow("csms.test");
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.invalid:{csms!.Port}", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms!.Port}", "CSMS", true, null, null,
                                                               out var id, out var error),
                         Is.True, error);
 
             // The test button first: it resolves as the dialling does.
-            var test   = await station.TestConnection("CSMS over SSH", $"ssh://cs001@csms.invalid:{csms.Port}", "CSMS");
+            var test   = await station.TestConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS");
             var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
 
             Assert.That(test.Value<Boolean>("ok"), Is.True, steps);
-            Assert.That(steps,                      Does.Contain("'csms.invalid' resolves to 127.0.0.1"));
+            Assert.That(steps,                      Does.Contain("'csms.test' resolves to 127.0.0.1"));
 
             await Start();
 
@@ -432,12 +434,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AWebSocketsNameIsAskedOfTheStationsNameServersOnly()
         {
 
-            var name = DomainName.Parse("nowhere.invalid");
+            var name = DomainName.Parse("nowhere.test");
 
             station!.DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.A,    TimeSpan.FromHours(1));
             station. DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.AAAA, TimeSpan.FromHours(1));
 
-            var test   = await station.TestConnection("Nowhere", "ws://nowhere.invalid/cs001", "CSMS");
+            var test   = await station.TestConnection("Nowhere", "ws://nowhere.test/cs001", "CSMS");
             var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
 
             Assert.That(test.Value<Boolean>("ok"), Is.False, steps);
