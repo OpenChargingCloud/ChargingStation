@@ -833,6 +833,15 @@ namespace cloud.charging.open.ChargingStation
 
             #endregion
 
+            #region The command line over SSH
+
+            // The station's own, with its commands beside the node's, for every
+            // program that hosts a station - not only for ChargingStationCLI.
+            // A program may still set another before the station starts.
+            CommandLines        = (terminal, caller) => new CommandLine.StationCLI(this, terminal, caller);
+
+            #endregion
+
         }
 
         #endregion

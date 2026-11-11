@@ -65,6 +65,13 @@ only you can read. See
 [ChargingStationCLI](https://github.com/OpenChargingCloud/ChargingStationCLI)
 for signing in with it.
 
+The command line itself - at the console and over SSH - is this library's:
+`StationCLI` and the commands beside it in `CommandLine/`, among them
+`evses`, how each EVSE stands right now and at what power a car is charging.
+The station makes it for every session over SSH, so every program that runs a
+station offers the same commands; a new one is a new file there, tested in
+`ChargingStationTests`.
+
 `--help` lists the rest: `--port`, `--any`, `--accounts <dir>`,
 `--frontend <dir>`, `--config <file>`, `--verbose`, `--quiet`, `--no-trace`,
 the display's `--kiosk-port` and `--no-kiosk`, the local app server's
@@ -143,6 +150,8 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
+| `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
+| `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 | `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 

@@ -198,9 +198,7 @@ namespace cloud.charging.open.ChargingStation
 
             // What the meter measures, where one is read and said something
             // recently; what the ramp of a charge would look like otherwise.
-            var measured = session is not null
-                               ? MeasuredPower_kW(EVSE.Id)
-                               : null;
+            var power = PowerOf(EVSE, session, Now);
 
             return new JObject(
 
@@ -210,12 +208,12 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("closing",            closing),
 
                        new JProperty("maxPower_kW",        EVSE.MaxPower_kW),
-                       new JProperty("currentPower_kW",    measured ?? session?.SimulatedPower_kW(Now, EVSE.MaxPower_kW)),
+                       new JProperty("currentPower_kW",    power.Power_kW),
 
                        // Said out loud, every time there is no meter behind
                        // that number, because a display is exactly where
                        // somebody would assume there is one.
-                       new JProperty("powerIsSimulated",   session is not null && measured is null),
+                       new JProperty("powerIsSimulated",   power.Simulated),
 
                        new JProperty("connectors",         new JArray(EVSE.Connectors.Select(connector => new JObject(
                                                                new JProperty("id",           connector.Id),

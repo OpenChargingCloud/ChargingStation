@@ -463,6 +463,33 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         }
 
+        /// <summary>
+        /// The station's command line says what the meter measures while a car
+        /// charges, as the display does, and that it is measured.
+        /// </summary>
+        [Test]
+        public async Task TheCommandLineSaysWhatTheMeterMeasuresWhileACarCharges()
+        {
+
+            ImportIdentity(SunSpecRoles.ReadOnly);
+            ImportRoot(ChargingStation.MeterCertificateUsage);
+
+            await ReadTheMeterOf(1, "127.0.0.1", meterA.Port);
+
+            await Until(() => Station.MeterOf(1)?.Reading is not null, "the meter was not read: " + MeterOfEVSE(1));
+
+            Assert.That(Station.TryPresentToken("reader", 1, CardOfKnown, out _, out var error), Is.True, error);
+
+            var said     = (await new CommandLine.EVSEsCommand(new CommandLine.StationCLI(Station)).
+                                      Execute([ CommandLine.EVSEsCommand.CommandName ], CancellationToken.None))[0];
+
+            var measured = Math.Round(Station.MeterOf(1)!.Reading!.Power_W.All!.Value / 1000m, 1).
+                               ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+
+            Assert.That(said, Does.StartWith($"A  charging at {measured} kW of 22 kW, measured, since "));
+
+        }
+
         [Test]
         public async Task AMeterInTheFileIsReadFromTheStart()
         {

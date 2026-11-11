@@ -95,6 +95,80 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) PowerOf(EVSE, Session, Now)
+
+        /// <summary>
+        /// What an EVSE delivers right now while a car is charging, in kW, and
+        /// whether that is simulated: what its meter measures, where one is
+        /// read and said something recently; what the ramp of a charge would
+        /// look like otherwise. Nothing while no car is charging.
+        /// </summary>
+        private (Decimal? Power_kW, Boolean Simulated) PowerOf(EVSEConfig        EVSE,
+                                                                ChargingSession?  Session,
+                                                                DateTimeOffset    Now)
+        {
+
+            if (Session is null)
+                return (null, false);
+
+            return MeasuredPower_kW(EVSE.Id) is Decimal measured
+                       ? (measured, false)
+                       : (Session.SimulatedPower_kW(Now, EVSE.MaxPower_kW), true);
+
+        }
+
+        #endregion
+
+        #region (private) ProviderOf(Session)
+
+        /// <summary>
+        /// Whose customer is charging, as the display says it: the provider of
+        /// the card, the operator for an ad hoc payment, or null where nobody
+        /// knows.
+        /// </summary>
+        private String? ProviderOf(ChargingSession Session)
+
+            => Session.Provider?.Name
+                   ?? (Session.Method == AuthorizationMethod.AdHoc ? Operator.Name : null);
+
+        #endregion
+
+        #region EVSEsNow()
+
+        /// <summary>
+        /// How each EVSE of this station stands right now, with what it delivers
+        /// while a car is charging: what the EVSEs page and the display say,
+        /// for the command line.
+        /// </summary>
+        public IReadOnlyList<EVSENow> EVSEsNow()
+        {
+
+            var now = TimeProvider.GetUtcNow();
+
+            return [.. EVSEs.Select(evse => {
+
+                       sessions.TryGetValue(evse.Id, out var session);
+
+                       var reservation  = cs02.ReservationOf(protocols.OCPPv2_1.EVSE_Id.Parse(evse.Id));
+                       var power        = PowerOf(evse, session, now);
+
+                       return new EVSENow(
+                                  EVSE:              evse,
+                                  Status:            StatusOf(evse, session, ReservationJSON(evse.Id, now)),
+                                  Closing:           session is not null && !evse.Operative,
+                                  Session:           session,
+                                  Provider:          session is not null ? ProviderOf(session) : null,
+                                  Power_kW:          power.Power_kW,
+                                  PowerIsSimulated:  power.Simulated,
+                                  ReservedUntil:     reservation?.ExpiryDate
+                              );
+
+                   })];
+
+        }
+
+        #endregion
+
         #region EVSEsStatusJSON()
 
         /// <summary>
