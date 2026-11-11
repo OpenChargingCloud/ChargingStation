@@ -1249,7 +1249,9 @@ namespace cloud.charging.open.ChargingStation
                                                        out var notSaved,
                                                        json.Value<String>("ocppVersion"),
                                                        json.Value<String>("sshHostKey"),
-                                                       SshTrustOf(json)))
+                                                       SshTrustOf(json),
+                                                       KeyPinsOf(json, "serverKeyPins"),
+                                                       KeyPinTrustOf(json)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1270,7 +1272,9 @@ namespace cloud.charging.open.ChargingStation
         /// <remarks>
         /// The host key as the page showed it comes back beside the one in the
         /// form: where somebody left it as it was, the one there is now stays -
-        /// written down meanwhile by the first connection, perhaps.
+        /// written down meanwhile by the first connection, perhaps. The same
+        /// for the key pins of a wss:// connection, which a signed pin set may
+        /// have replaced meanwhile.
         /// </remarks>
         private async Task<HTTPResponse> PostUpdateConnection(HTTPRequest Request)
         {
@@ -1293,7 +1297,10 @@ namespace cloud.charging.open.ChargingStation
                                                           json.Value<String>("ocppVersion"),
                                                           json.Value<String>("sshHostKey"),
                                                           json.Value<String>("sshHostKeyAsShown"),
-                                                          SshTrustOf(json)))
+                                                          SshTrustOf(json),
+                                                          KeyPinsOf(json, "serverKeyPins"),
+                                                          KeyPinsOf(json, "serverKeyPinsAsShown"),
+                                                          KeyPinTrustOf(json)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1448,8 +1455,53 @@ namespace cloud.charging.open.ChargingStation
                                                     json.Value<String>("certificateId"),
                                                     Request.CancellationToken,
                                                     json.Value<String>("sshHostKey"),
-                                                    SshTrustOf(json))
+                                                    SshTrustOf(json),
+                                                    KeyPinsOf(json, "serverKeyPins"),
+                                                    KeyPinTrustOf(json))
                    );
+
+        }
+
+        /// <summary>
+        /// The key pins of a wss:// connection as they were sent: a list of them,
+        /// or one text of them as typed - as one text, separated by commas, which
+        /// is what the connection reads. Null where none of it was sent, to keep
+        /// what there is; a list with something in it that is no text is sent
+        /// on as it is, to be refused in words.
+        /// </summary>
+        private static String? KeyPinsOf(JObject JSON, String Name)
+
+            => JSON[Name] switch {
+                   JArray list                                  => String.Join(",", list.Select(pin => pin.Type == JTokenType.String
+                                                                                                           ? pin.Value<String>()
+                                                                                                           : pin.ToString(Newtonsoft.Json.Formatting.None))),
+                   JValue { Type: JTokenType.Null } or null     => null,
+                   var other                                    => other.ToString()
+               };
+
+        /// <summary>
+        /// Whether a wss:// connection offers raw public keys and learns a key
+        /// pin on first use, and how long that waits, as it was sent - or null,
+        /// where none of it was, to keep what it says.
+        /// </summary>
+        private static OCPP.ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
+        {
+
+            var probation = JSON["serverKeyPinProbationTime"];
+
+            if (JSON["rawPublicKeys"] is null && JSON["trustOnFirstUse"] is null && probation is null)
+                return null;
+
+            Int64? seconds = probation?.Type switch {
+                                 JTokenType.Integer                                                  => probation.Value<Int64>(),
+                                 JTokenType.String when Int64.TryParse(probation.Value<String>(), out var parsed) => parsed,
+                                 JTokenType.Null or null                                             => null,
+                                 _                                                                   => -1
+                             };
+
+            return new OCPP.ServerKeyPinSettings(JSON.Value<String>("rawPublicKeys"),
+                                                 JSON.Value<String>("trustOnFirstUse"),
+                                                 seconds);
 
         }
 

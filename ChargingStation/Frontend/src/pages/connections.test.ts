@@ -7,7 +7,10 @@
  * stays; a connection refused stays typed, with why; the test dialog says
  * what came of it and no longer that it is connecting; an ssh:// connection
  * shows the key this station signs in with and its host key, and a save of it
- * says which host key the page showed.
+ * says which host key the page showed; a wss:// connection says whether its
+ * server is known by key pin, by a key pin learned on probation or by its CA,
+ * a save of it says which key pins the page showed, and the test dialog says
+ * which key pin the server showed.
  *
  * Run with `npm test`.
  */
@@ -30,6 +33,13 @@ let standing: Record<string, ConnectionState> = {};
 
 /** What the page sent the last time it saved a connection. */
 let lastSaved: ConnectionToSave | null = null;
+
+/** What the page sent the last time it tested a connection. */
+let lastTested: ConnectionToSave | null = null;
+
+/** Two key pins, as the station writes them: 64 lowercase hexadecimal digits. */
+const pinnedKey   = '6a1f0c3e'.repeat(8);
+const learnedKey  = 'c47d1803'.repeat(8);
 
 function aConnection(id: string, more: Partial<StationConnection> = {}): StationConnection {
     return { id, description: `CSMS ${id}`, url: `wss://csms.example.org/${id}`, connectionType: 'CSMS', ocppVersion: 'OCPP2.1',
@@ -99,9 +109,13 @@ function station({ method, path, body }: Asked): unknown {
         return held;
     }
 
-    if (path === '/configuration/connections/test')
+    if (path === '/configuration/connections/test') {
+        lastTested = body as ConnectionToSave;
+        // A TLS server shows a key, and the station says its key pin.
         return { ok: true, runtime_ms: 2012, steps: [ { at_ms: 0, level: 'info', text: 'Connecting.' },
-                                                      { at_ms: 2012, level: 'info', text: 'Stayed connected.' } ] };
+                                                      { at_ms: 2012, level: 'info', text: 'Stayed connected.' } ],
+                 ...(lastTested.url.startsWith('wss://') ? { serverKeyPin: learnedKey } : {}) };
+    }
 
     if (path === '/status/connections')
         return { timestamp: '2026-10-04T12:00:05Z', states: standing };
@@ -132,9 +146,24 @@ function anSshStation(): StationConnections {
                               fingerprint: 'SHA256:standIn', path: 'connections/ssh/id_ed25519' } };
 }
 
+/**
+ * A station whose first connection pins the key of its local controller, and
+ * whose second learned a key pin on its first connection, which is on
+ * probation.
+ */
+function aKeyPinnedStation(): StationConnections {
+    const station = aStation();
+    return { ...station,
+             connections: [ { ...station.connections[0]!, connectionType: 'LocalController', keyPinned: true, serverKeyPins: [ pinnedKey ],
+                              serverKeyPinState: 'Configured', trustOnFirstUse: 'None', rawPublicKeys: 'Off', serverKeyPinProbationTime: 600 },
+                            { ...station.connections[1]!, keyPinned: true, serverKeyPinState: 'Learned', trustOnFirstUse: 'Key', rawPublicKeys: 'Off',
+                              serverKeyPinProbationTime: 600, serverKeyPinLearned: learnedKey, serverKeyPinLearnedAt: '2026-11-11T10:00:00.000Z' } ] };
+}
+
 async function opened(make: () => StationConnections = aStation): Promise<HTMLElement> {
     held     = make();
     lastSaved = null;
+    lastTested = null;
     standing = held.states;
     return open(connectionsPage, '/configuration/connections', [ 'connections:read', 'connections:edit', 'connections:run' ],
                 station, root => root.querySelector('#add-form') !== null);
@@ -328,6 +357,92 @@ describe('the Connections page', () => {
         assert.equal(lastSaved!.sshTrustOnFirstUse,  'HostKey');
         assert.equal(lastSaved!.sshOnPinMismatch,    'Record');
         assert.equal(lastSaved!.sshProbationTime,    120);
+
+    });
+
+    it('shows how the server of a wss:// connection is known: by its key pins, by a key pin learned on probation, or by its CA', async () => {
+
+        const root   = await opened(aKeyPinnedStation);
+        const chips  = (id: string) => [ ...cardOf(root, id)!.querySelectorAll('.key-head .chip') ].map(chip => chip.textContent?.trim());
+
+        assert.match(root.querySelector('[data-key-pins="c1"]')?.textContent ?? '', new RegExp(pinnedKey));
+        assert.match(root.querySelector('[data-key-pins="c1"]')?.textContent ?? '', /by key pin/);
+        assert.ok(chips('c1').includes('key pin'), 'a key-pinned connection does not say so');
+        assert.equal(field(root, 'form[data-edit="c1"]', 'serverKeyPins').value, pinnedKey, 'the key pins are not in the form');
+
+        // A key pin learned on first use is shown on probation, and is no pin.
+        assert.match(root.querySelector('[data-key-pins="c2"]')?.textContent ?? '', new RegExp(learnedKey));
+        assert.match(root.querySelector('[data-key-pins="c2"]')?.textContent ?? '', /on probation/);
+        assert.equal(field(root, 'form[data-edit="c2"]', 'serverKeyPins').value, '', 'a learned key pin was offered as a pin');
+        assert.equal(root.querySelector<HTMLSelectElement>('form[data-edit="c2"] [name="trustOnFirstUse"]')!.value, 'Key');
+
+        // One without either is checked by its CA, and says so.
+        const plain = await opened();
+        assert.match(plain.querySelector('[data-key-pins="c1"]')?.textContent ?? '', /by its certificate/);
+        assert.ok(![ ...cardOf(plain, 'c1')!.querySelectorAll('.key-head .chip') ].some(chip => chip.textContent?.trim() === 'key pin'),
+                  'a connection checked by its CA says it is key-pinned');
+
+        // An ssh:// connection has no TLS server to know.
+        const ssh = await opened(anSshStation);
+        assert.equal(ssh.querySelector('[data-key-pins="c1"]'), null, 'a connection over SSH shows key pins');
+
+    });
+
+    it('says which key pins the page showed when a wss:// connection is saved', async () => {
+
+        const root = await opened(aKeyPinnedStation);
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.deepEqual(lastSaved!.serverKeyPins,         [ pinnedKey ], 'the key pins shown were not sent');
+        assert.deepEqual(lastSaved!.serverKeyPinsAsShown,  [ pinnedKey ], 'what the page showed was not sent beside them');
+        assert.equal    (lastSaved!.trustOnFirstUse,            'None');
+        assert.equal    (lastSaved!.rawPublicKeys,              'Off');
+        assert.equal    (lastSaved!.serverKeyPinProbationTime,  600);
+
+        lastSaved = null;
+        await until(() => root.querySelector('[data-note="c1"]')?.textContent === 'Saved.', 'the save was not said');
+
+        field(root, 'form[data-edit="c1"]', 'serverKeyPins').value = ` ${pinnedKey}, sha256//xH3dLvfmXGMKZkcSgVkUm07ThDCv+kdHDlKUwCWeGZY= `;
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] [name="trustOnFirstUse"]')!.value  = 'Key';
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] [name="rawPublicKeys"]')!.value    = 'Prefer';
+        field(root, 'form[data-edit="c1"]', 'serverKeyPinProbationTime').value = '120';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved again');
+
+        assert.deepEqual(lastSaved!.serverKeyPins,         [ pinnedKey, 'sha256//xH3dLvfmXGMKZkcSgVkUm07ThDCv+kdHDlKUwCWeGZY=' ]);
+        assert.deepEqual(lastSaved!.serverKeyPinsAsShown,  [ pinnedKey ], 'what the page showed became what was typed');
+        assert.equal    (lastSaved!.trustOnFirstUse,            'Key');
+        assert.equal    (lastSaved!.rawPublicKeys,              'Prefer');
+        assert.equal    (lastSaved!.serverKeyPinProbationTime,  120);
+
+    });
+
+    it('says in the test dialog which key pin the server of a wss:// connection showed, and tests the key pins on the screen', async () => {
+
+        const root = await opened(aKeyPinnedStation);
+
+        field(root, 'form[data-edit="c1"]', 'serverKeyPins').value = learnedKey;
+
+        editOf(root, 'c1').querySelector<HTMLButtonElement>('[data-test]')!.click();
+        await until(() => document.querySelector('dialog .test-log') !== null, 'the test did not say what came of it');
+
+        assert.equal(document.querySelector('#test-key-pin')?.textContent?.trim(), learnedKey, 'the key pin shown was not said');
+        assert.deepEqual(lastTested!.serverKeyPins, [ learnedKey ], 'the test was not of the key pins on the screen');
+
+        document.querySelector<HTMLButtonElement>('dialog #test-close')!.click();
+
+        // Over SSH there is no key pin to say.
+        const ssh = await opened(anSshStation);
+
+        editOf(ssh, 'c1').querySelector<HTMLButtonElement>('[data-test]')!.click();
+        await until(() => document.querySelector('dialog .test-log') !== null, 'the test over SSH did not say what came of it');
+
+        assert.equal(document.querySelector('#test-key-pin'), null, 'a key pin was said of a connection over SSH');
+
+        document.querySelector<HTMLButtonElement>('dialog #test-close')!.click();
 
     });
 

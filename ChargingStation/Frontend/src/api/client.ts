@@ -795,6 +795,27 @@ export interface StationConnection {
     /** The host key learned on the first connection, while it is on probation. */
     sshLearnedHostKey?:  string;
     sshLearnedAt?:       string;
+    /**
+     * Whether the server of a TLS connection is known by the key pin of its key
+     * rather than by a CA: it has key pins, or learns one on first use. Only
+     * for wss:// and https://.
+     */
+    keyPinned?:                  boolean;
+    /** The key pins of the keys its server may show: 64 lowercase hexadecimal digits each, at most four. */
+    serverKeyPins?:              string[];
+    /** The version of the signed pin set the key pins came from. */
+    serverKeyPinsVersion?:       number;
+    /** Where the key pins come from: written down, learned and on probation, or learned and confirmed since. */
+    serverKeyPinState?:          'Configured' | 'Learned' | 'Confirmed';
+    /** Whether raw public keys (RFC 7250) are offered; this station's TLS stack cannot offer them yet. */
+    rawPublicKeys?:              'Off' | 'Prefer' | 'Require';
+    /** Whether a wss:// connection that pins no key learns the key pin of the first one shown, on probation. */
+    trustOnFirstUse?:            'None' | 'Key';
+    /** How long a learned key pin waits for a signed pin set, in seconds. */
+    serverKeyPinProbationTime?:  number;
+    /** The key pin learned on the first connection, while it is on probation. */
+    serverKeyPinLearned?:        string;
+    serverKeyPinLearnedAt?:      string;
     warnings?:           string[];
 }
 
@@ -819,6 +840,13 @@ export interface ConnectionToSave {
      * pin set meanwhile, perhaps.
      */
     sshHostKeyAsShown?:  string;
+    /** The key pins typed, one each: none for none. */
+    serverKeyPins?:              string[];
+    /** The key pins the page showed when it was drawn, as for the host keys. */
+    serverKeyPinsAsShown?:       string[];
+    rawPublicKeys?:              'Off' | 'Prefer' | 'Require';
+    trustOnFirstUse?:            'None' | 'Key';
+    serverKeyPinProbationTime?:  number;
 }
 
 /** A key a signed pin set is believed of: the point of an elliptic curve, in base64, as an OCPP signature's keyId carries it. */
@@ -851,6 +879,8 @@ export interface ConnectionTest {
     ok:           boolean;
     runtime_ms:   number;
     steps:        ConnectionTestStep[];
+    /** The key pin of the key the server of a wss:// connection showed, believed or not: what it would be pinned to. */
+    serverKeyPin?: string;
 }
 
 /**

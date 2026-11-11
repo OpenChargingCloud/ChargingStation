@@ -31,6 +31,12 @@ import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStat
  * host key written beside it - or, where none is, believes the first one and
  * writes it in.
  *
+ * A wss:// connection is checked by its CA, or - with key pins, typically for a
+ * local controller that no CA issues a certificate for - by the key of its
+ * server alone: one or the other, never both. It learns the key pin of the
+ * first key shown only where that is configured, and on probation; the card
+ * says which, and the test says which key pin the server showed.
+ *
  * And where each connection stands - connected, lost and coming back, turned
  * away - asked again every few seconds while the page is in view, because this
  * is where somebody looks to find out whether the station is on its back end,
@@ -231,6 +237,50 @@ export const connectionsPage: Page = {
 
                 </div>
 
+                <label>Key pins of its server
+                    <input type="text" name="serverKeyPins" class="mono"
+                           placeholder="64 hexadecimal digits, or sha256//..." value="${(entry?.serverKeyPins ?? []).join(', ')}"
+                           ?disabled=${!mayManage} />
+                    <span class="hint">
+                        For a <code>wss://</code> URL only, typically a local controller that no CA issues a certificate for:
+                        SHA-256 over the key of its server, at most four, separated by commas - two while it changes its key.
+                        With one, the key is the whole check: no CA, no name and no validity period, so the station needs no
+                        clock to believe it. Without one, the certificate is checked by its CA. Testing says which key pin it shows.
+                    </span>
+                </label>
+
+                <div class="form-row">
+
+                    <label>Where no key is pinned
+                        <select name="trustOnFirstUse" ?disabled=${!mayManage}>
+                            <option value="None" ?selected=${(entry?.trustOnFirstUse ?? 'None') === 'None'}>Check its certificate by its CA</option>
+                            <option value="Key"  ?selected=${entry?.trustOnFirstUse === 'Key'}>Learn the first key, on probation</option>
+                        </select>
+                        <span class="hint">
+                            A learned key pin is on probation until a signed pin set confirms it; until then nothing but such a
+                            pin set is executed, and a key pin nobody confirms in time is forgotten and learned again.
+                        </span>
+                    </label>
+
+                    <label>Probation, in seconds
+                        <input type="number" name="serverKeyPinProbationTime" min="1" max="604800"
+                               value="${entry?.serverKeyPinProbationTime ?? 600}" ?disabled=${!mayManage} />
+                    </label>
+
+                    <label>Raw public keys
+                        <select name="rawPublicKeys" ?disabled=${!mayManage}>
+                            <option value="Off"     ?selected=${(entry?.rawPublicKeys ?? 'Off') === 'Off'}>Off - the key in a certificate</option>
+                            <option value="Prefer"  ?selected=${entry?.rawPublicKeys === 'Prefer'}>Prefer them</option>
+                            <option value="Require" ?selected=${entry?.rawPublicKeys === 'Require'}>Require them</option>
+                        </select>
+                        <span class="hint">
+                            Only where the key is pinned or learned. This station's TLS stack cannot offer raw public keys yet:
+                            Prefer checks the key in a certificate, and Require is not dialled.
+                        </span>
+                    </label>
+
+                </div>
+
                 <div class="form-row">
 
                     <label>What is at the other end
@@ -334,6 +384,7 @@ export const connectionsPage: Page = {
                               : entry.secure
                                     ? html`<span class="chip on">TLS</span>`
                                     : html`<span class="chip warn">no TLS</span>`}
+                        ${entry.keyPinned === true ? html`<span class="chip on">key pin</span>` : nothing}
                         ${entry.autoConnect
                               ? html`<span class="chip on">connects by itself</span>`
                               : html`<span class="chip">configured only</span>`}
@@ -368,6 +419,10 @@ export const connectionsPage: Page = {
                                             : entry.sshTrustOnFirstUse === 'HostKey'
                                                   ? html`<span class="hint" data-host-key="${entry.id}">none pinned yet - the first one its server shows is learned, on probation</span>`
                                                   : html`<span class="hint" data-host-key="${entry.id}">none pinned - not dialled</span>`}</dd>
+                        ` : nothing}
+                        ${entry.secure ? html`
+                            <dt>Its server</dt>
+                            <dd data-key-pins="${entry.id}">${keyPinsView(entry)}</dd>
                         ` : nothing}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
                     </dl>
@@ -406,6 +461,36 @@ export const connectionsPage: Page = {
 
                 </div>
             `;
+
+        }
+
+        /**
+         * How the server of a TLS connection is known: by the key pins of its
+         * key - written down, from a signed pin set, or learned on the first
+         * connection and on probation - or by its CA. A learned key pin is shown
+         * here and not in the form: it is no pin until it is confirmed.
+         */
+        function keyPinsView(entry: StationConnection): TemplateResult {
+
+            const pins     = entry.serverKeyPins ?? [];
+            const version  = entry.serverKeyPinsVersion ?? 0;
+
+            if (pins.length > 0)
+                return html`${pins.map(pin => html`<code class="wrap">${pin}</code> `)}<span class="hint">${
+                    entry.serverKeyPinState === 'Confirmed'
+                        ? `learned on its first connection, and confirmed by the signed pin set of version ${version}`
+                        : version > 0
+                              ? `by key pin, from the signed pin set of version ${version}`
+                              : 'by key pin - no CA, no name, no validity period'}</span>`;
+
+            if (entry.serverKeyPinLearned !== undefined)
+                return html`<code class="wrap">${entry.serverKeyPinLearned}</code>
+                            <span class="hint">learned ${formatTimestamp(entry.serverKeyPinLearnedAt ?? '')}, on probation</span>`;
+
+            if (entry.trustOnFirstUse === 'Key')
+                return html`<span class="hint">no key pinned yet - the key pin of the first key its server shows is learned, on probation</span>`;
+
+            return html`<span class="hint">by its certificate, which a CA this station trusts must have issued for its name</span>`;
 
         }
 
@@ -700,12 +785,22 @@ export const connectionsPage: Page = {
 
             const probation = Number(form.querySelector<HTMLInputElement>('[name="sshProbationTime"]')?.value ?? '600');
 
+            // The same for the key pins of a wss:// connection, which a signed
+            // pin set may have replaced since the page last asked.
+            const keyPins        = form.querySelector<HTMLInputElement>('[name="serverKeyPins"]');
+            const keyProbation   = Number(form.querySelector<HTMLInputElement>('[name="serverKeyPinProbationTime"]')?.value ?? '600');
+
             return {
                 sshHostKey:          hostKey?.value.trim() ?? '',
                 ...(id !== undefined && hostKey !== null ? { sshHostKeyAsShown: hostKey.defaultValue.trim() } : {}),
                 sshTrustOnFirstUse:  (form.querySelector<HTMLSelectElement>('[name="sshTrustOnFirstUse"]')?.value ?? 'None') as 'None' | 'HostKey',
                 sshOnPinMismatch:    (form.querySelector<HTMLSelectElement>('[name="sshOnPinMismatch"]')?.value ?? 'Refuse') as 'Refuse' | 'Record' | 'Accept',
                 sshProbationTime:    Number.isFinite(probation) ? probation : 600,
+                serverKeyPins:       pinsOf(keyPins?.value ?? ''),
+                ...(id !== undefined && keyPins !== null ? { serverKeyPinsAsShown: pinsOf(keyPins.defaultValue) } : {}),
+                trustOnFirstUse:     (form.querySelector<HTMLSelectElement>('[name="trustOnFirstUse"]')?.value ?? 'None') as 'None' | 'Key',
+                rawPublicKeys:       (form.querySelector<HTMLSelectElement>('[name="rawPublicKeys"]')?.value ?? 'Off') as 'Off' | 'Prefer' | 'Require',
+                serverKeyPinProbationTime: Number.isFinite(keyProbation) ? keyProbation : 600,
                 id,
                 description:         field(form, 'description'),
                 url:                 field(form, 'url'),
@@ -718,6 +813,11 @@ export const connectionsPage: Page = {
 
         }
 
+
+        /** The key pins of a field, one each, as they are typed: separated by commas, semicolons or spaces. */
+        function pinsOf(text: string): string[] {
+            return text.split(/[\s,;]+/).filter(pin => pin !== '');
+        }
 
         async function add(event: SubmitEvent): Promise<void> {
 
@@ -900,6 +1000,12 @@ export const connectionsPage: Page = {
                           ? html`The connection can be made. ${result.runtime_ms} ms altogether.`
                           : html`The connection could not be made. ${result.runtime_ms} ms altogether.`}
                 </div>
+                ${result.serverKeyPin === undefined ? nothing : html`
+                    <p class="hint">
+                        The key pin of the key its server showed, believed or not - what it would be pinned to:
+                        <code class="wrap" id="test-key-pin">${result.serverKeyPin}</code>
+                    </p>
+                `}
                 <ol class="test-log">
                     ${result.steps.map(step => html`
                         <li class="level-${step.level}">

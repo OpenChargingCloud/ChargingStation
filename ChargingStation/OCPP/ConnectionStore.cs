@@ -986,12 +986,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         String?                          CertificateId,
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
-                                        String?                          OCPPVersion   = null,
-                                        String?                          SshHostKey    = null,
-                                        SshTrustSettings?                SshTrust      = null)
+                                        String?                          OCPPVersion     = null,
+                                        String?                          SshHostKey      = null,
+                                        SshTrustSettings?                SshTrust        = null,
+                                        String?                          ServerKeyPins   = null,
+                                        ServerKeyPinSettings?            KeyPinTrust     = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
@@ -1000,6 +1002,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="NotSaved">True where the file of the connections could not be written: nothing about this one was wrong, and it was not taken.</param>
         /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none where it is not dialled or learns one on first use.</param>
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; none for no trust on first use, mismatches refused.</param>
+        /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none where it is checked by its CA or learns one on first use.</param>
+        /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; none for neither.</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -1009,9 +1013,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         [NotNullWhen(true)]  out String? Id,
                                         [NotNullWhen(false)] out String? Error,
                                         out Boolean                      NotSaved,
-                                        String?                          OCPPVersion   = null,
-                                        String?                          SshHostKey    = null,
-                                        SshTrustSettings?                SshTrust      = null)
+                                        String?                          OCPPVersion     = null,
+                                        String?                          SshHostKey      = null,
+                                        SshTrustSettings?                SshTrust        = null,
+                                        String?                          ServerKeyPins   = null,
+                                        ServerKeyPinSettings?            KeyPinTrust     = null)
         {
 
             Id        = null;
@@ -1026,6 +1032,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             if (!ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
                                                   out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out Error))
+                return false;
+
+            if (!ConnectionEntry.ValidateServerKeyPins(url, ServerKeyPins, out var serverKeyPins, out Error))
+                return false;
+
+            if (!ConnectionEntry.ValidateKeyPinTrust(url, KeyPinTrust?.RawPublicKeys, KeyPinTrust?.TrustOnFirstUse, KeyPinTrust?.ProbationSeconds,
+                                                     out var rawPublicKeys, out var keyTrustOnFirstUse, out var keyPinProbationTime, out Error))
+                return false;
+
+            if (!ConnectionEntry.CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out Error))
                 return false;
 
             lock (updateLock)
@@ -1049,7 +1065,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 SshHostKey          = hostKey,
                                 SshTrustOnFirstUse  = url.Scheme == URIScheme.ssh ? trustOnFirstUse : SshTrustOnFirstUse.None,
                                 SshOnPinMismatch    = url.Scheme == URIScheme.ssh ? onPinMismatch   : SshOnPinMismatch.Refuse,
-                                SshProbationTime    = probationTime
+                                SshProbationTime    = probationTime,
+                                ServerKeyPins              = serverKeyPins,
+                                RawPublicKeys              = rawPublicKeys,
+                                TrustOnFirstUse            = keyTrustOnFirstUse,
+                                ServerKeyPinProbationTime  = keyPinProbationTime
                             };
 
                 var peersBefore = SnapshotPeers();
@@ -1102,13 +1122,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          AuthenticationId,
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
-                                           String?                          OCPPVersion         = null,
-                                           String?                          SshHostKey          = null,
-                                           String?                          SshHostKeyAsShown   = null,
-                                           SshTrustSettings?                SshTrust            = null)
+                                           String?                          OCPPVersion            = null,
+                                           String?                          SshHostKey             = null,
+                                           String?                          SshHostKeyAsShown      = null,
+                                           SshTrustSettings?                SshTrust               = null,
+                                           String?                          ServerKeyPins          = null,
+                                           String?                          ServerKeyPinsAsShown   = null,
+                                           ServerKeyPinSettings?            KeyPinTrust            = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                   out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust);
+                                   out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
+                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1118,6 +1142,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas: "" for none, and nothing to keep those there are.</param>
         /// <param name="SshHostKeyAsShown">The host keys the page showed when it was drawn. Where <paramref name="SshHostKey"/> is still that, those there are now stay: a signed pin set taken meanwhile is not undone by a change of something else.</param>
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins; nothing to keep what it says.</param>
+        /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas: "" for none, and nothing to keep those there are.</param>
+        /// <param name="ServerKeyPinsAsShown">The key pins the page showed when it was drawn. Where <paramref name="ServerKeyPins"/> are still those, those there are now stay: a signed pin set taken meanwhile is not undone by a change of something else.</param>
+        /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; nothing to keep what it says.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -1127,10 +1154,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          CertificateId,
                                            [NotNullWhen(false)] out String? Error,
                                            out Boolean                      NotSaved,
-                                           String?                          OCPPVersion         = null,
-                                           String?                          SshHostKey          = null,
-                                           String?                          SshHostKeyAsShown   = null,
-                                           SshTrustSettings?                SshTrust            = null)
+                                           String?                          OCPPVersion            = null,
+                                           String?                          SshHostKey             = null,
+                                           String?                          SshHostKeyAsShown      = null,
+                                           SshTrustSettings?                SshTrust               = null,
+                                           String?                          ServerKeyPins          = null,
+                                           String?                          ServerKeyPinsAsShown   = null,
+                                           ServerKeyPinSettings?            KeyPinTrust            = null)
         {
 
             NotSaved = false;
@@ -1159,6 +1189,27 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                                   out trustOnFirstUse, out onPinMismatch, out probationTime, out Error))
                 return false;
 
+            // The same for the key pins of a wss:// connection: left out, or sent
+            // back as the page showed them.
+            var keepsKeyPins = ServerKeyPins is null ||
+                               (ServerKeyPinsAsShown is not null && SamePins(ServerKeyPins, ServerKeyPinsAsShown));
+
+            IReadOnlyList<KeyPin> keyPins = [];
+
+            if (!keepsKeyPins && !ConnectionEntry.ValidateServerKeyPins(url, ServerKeyPins, out keyPins, out Error))
+                return false;
+
+            var rawPublicKeys        = RawPublicKeyMode.Off;
+            var keyTrustOnFirstUse   = KeyTrustOnFirstUse.None;
+            var keyPinProbationTime  = ConnectionEntry.DefaultServerKeyPinProbationTime;
+
+            if (KeyPinTrust is not null &&
+                !ConnectionEntry.ValidateKeyPinTrust(url, KeyPinTrust.RawPublicKeys, KeyPinTrust.TrustOnFirstUse, KeyPinTrust.ProbationSeconds,
+                                                     out rawPublicKeys, out keyTrustOnFirstUse, out keyPinProbationTime, out Error))
+                return false;
+
+            var overTLS = url.Scheme == URIScheme.wss || url.Scheme == URIScheme.https;
+
             lock (updateLock)
             {
 
@@ -1176,6 +1227,21 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 // ssh://: there is nothing left that would check it.
                 if (keepsHostKey)
                     hostKey = url.Scheme == URIScheme.ssh ? entry.SshHostKey : null;
+
+                // So do key pins with a connection that is no longer wss://, and
+                // what it said of raw public keys and of trust on first use.
+                if (keepsKeyPins)
+                    keyPins = overTLS ? entry.ServerKeyPins : [];
+
+                if (KeyPinTrust is null)
+                {
+                    rawPublicKeys        = overTLS ? entry.RawPublicKeys   : RawPublicKeyMode.Off;
+                    keyTrustOnFirstUse   = overTLS ? entry.TrustOnFirstUse : KeyTrustOnFirstUse.None;
+                    keyPinProbationTime  = entry.ServerKeyPinProbationTime;
+                }
+
+                if (!ConnectionEntry.CheckKeyPinned(keyPins, rawPublicKeys, keyTrustOnFirstUse, out Error))
+                    return false;
 
                 var peer = PeerOfUnlocked(entry.Id);
 
@@ -1224,6 +1290,27 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     entry.SshOnPinMismatch    = onPinMismatch;
                     entry.SshProbationTime    = probationTime;
                 }
+
+                // A key pin learned on probation goes with the pins somebody
+                // wrote, with a server elsewhere, and with trust on first use
+                // switched off; the version of the signed pin set, and that it
+                // confirmed what was learned, go with the pins.
+                if (!keepsKeyPins || was.URL != url || keyTrustOnFirstUse == KeyTrustOnFirstUse.None || keyPins.Count > 0)
+                {
+                    entry.ServerKeyPinLearned    = null;
+                    entry.ServerKeyPinLearnedAt  = null;
+                }
+
+                if (!keepsKeyPins || keyPins.Count == 0)
+                {
+                    entry.ServerKeyPinsVersion    = 0;
+                    entry.ServerKeyPinsConfirmed  = false;
+                }
+
+                entry.ServerKeyPins              = keyPins;
+                entry.RawPublicKeys              = rawPublicKeys;
+                entry.TrustOnFirstUse            = keyTrustOnFirstUse;
+                entry.ServerKeyPinProbationTime  = keyPinProbationTime;
 
                 // A peer of this one endpoint follows it: its version, its kind
                 // where that came from the connection's type, its description
@@ -1515,6 +1602,267 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+
+        #region TryLearnServerKeyPin(Id, URL, Pin, out Error)
+
+        /// <summary>
+        /// Write down the key pin of the key the first handshake of a wss://
+        /// connection that trusts on first use was shown: on probation, until a
+        /// signed pin set confirms it ("Key Pins and Raw Public Keys", section
+        /// 5.6).
+        /// </summary>
+        /// <remarks>
+        /// Only where nothing changed meanwhile: the connection is still there,
+        /// still goes where it went when it was dialled, still trusts on first
+        /// use, and pins and learned no key yet. Written down rather than only
+        /// remembered, so that a restart does not learn again from whoever
+        /// answers first - and so that the probation runs on.
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        /// <param name="URL">Where it went when it was dialled.</param>
+        /// <param name="Pin">The key pin of the key it was shown.</param>
+        /// <param name="Error">Why it was not written down - nothing where it was not to be.</param>
+        /// <returns>Whether it was written down.</returns>
+        public Boolean TryLearnServerKeyPin(String       Id,
+                                            URL          URL,
+                                            KeyPin       Pin,
+                                            out String?  Error)
+        {
+
+            Error = null;
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry)                     ||
+                    entry.URL != URL                                                ||
+                    !entry.IsSecure                                                 ||
+                    entry.TrustOnFirstUse != KeyTrustOnFirstUse.Key                 ||
+                    entry.ServerKeyPins.Count > 0                                   ||
+                    entry.ServerKeyPinLearned is not null)
+                {
+                    return false;
+                }
+
+                entry.ServerKeyPinLearned    = Pin;
+                entry.ServerKeyPinLearnedAt  = TimeProvider.GetUtcNow();
+
+                if (!TrySaveConnections(out Error))
+                {
+                    entry.ServerKeyPinLearned    = null;
+                    entry.ServerKeyPinLearnedAt  = null;
+                    return false;
+                }
+
+                Notice(LogLevel.Notice,
+                       $"'{entry.Description}' pins no key and trusts on first use, so the key pin of the one its server showed on the first " +
+                       $"connection was learned: {Pin}. It is on probation for {entry.ServerKeyPinProbationTime.TotalMinutes:0.#} minute(s), " +
+                        "until a signed pin set confirms it; until then nothing but such a pin set is executed.");
+
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryForgetLearnedServerKeyPin(Id, Pin)
+
+        /// <summary>
+        /// Forget the key pin learned on first use - after a probation that ran
+        /// out without a signed pin set - so that the next connection learns
+        /// again.
+        /// </summary>
+        /// <param name="Id">The connection.</param>
+        /// <param name="Pin">The key pin learned, so that one learned again meanwhile is not forgotten.</param>
+        /// <returns>Whether it was forgotten.</returns>
+        public Boolean TryForgetLearnedServerKeyPin(String  Id,
+                                                    KeyPin  Pin)
+        {
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry) || entry.ServerKeyPinLearned != Pin)
+                    return false;
+
+                var learnedAt = entry.ServerKeyPinLearnedAt;
+
+                entry.ServerKeyPinLearned    = null;
+                entry.ServerKeyPinLearnedAt  = null;
+
+                if (!TrySaveConnections(out var error))
+                {
+                    entry.ServerKeyPinLearned    = Pin;
+                    entry.ServerKeyPinLearnedAt  = learnedAt;
+                    Notice(LogLevel.Warning, $"'{entry.Description}' could not forget the key pin it learned: {error}.");
+                    return false;
+                }
+
+                Notice(LogLevel.Warning,
+                       $"'{entry.Description}' forgot the key pin {Pin} it learned on its first connection: no signed pin set " +
+                        "confirmed it in time. The next connection learns again.");
+
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryTakeSignedServerKeyPins(Id, Pins, Version, out Learned, out Confirmed, out Error)
+
+        /// <summary>
+        /// Take the key pins of a signed pin set as the pins of a wss://
+        /// connection: only with a higher version than the one it holds, so that
+        /// an older pin set cannot be brought back ("Key Pins and Raw Public
+        /// Keys", sections 5.6 and 5.7).
+        /// </summary>
+        /// <remarks>
+        /// Who signed it is not asked here: that is asked where the pin set
+        /// arrives, of the signers this station believes. A pin set that has the
+        /// key pin learned on probation confirms it, and the probation ends; one
+        /// that has not replaces it - the server that answered first is not the
+        /// one the CSMS knows, and the signed pins are what the next connection
+        /// is held to.
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        /// <param name="Pins">The key pins of the pin set, separated by commas.</param>
+        /// <param name="Version">The version of the pin set.</param>
+        /// <param name="Learned">The key pin that was learned on probation, among them or not; null where none was learned.</param>
+        /// <param name="Confirmed">Whether the key pin learned on probation is among them.</param>
+        /// <param name="Error">Why they were not taken.</param>
+        public Boolean TryTakeSignedServerKeyPins(String                           Id,
+                                                  String?                          Pins,
+                                                  UInt64                           Version,
+                                                  out KeyPin?                      Learned,
+                                                  out Boolean                      Confirmed,
+                                                  [NotNullWhen(false)] out String? Error)
+        {
+
+            Learned    = null;
+            Confirmed  = false;
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry))
+                {
+                    Error = $"There is no connection '{Id}' here.";
+                    return false;
+                }
+
+                if (!entry.IsSecure)
+                {
+                    Error = $"'{entry.Description}' makes no TLS handshake, so there is no key of its server to pin.";
+                    return false;
+                }
+
+                if (!ConnectionEntry.ValidateServerKeyPins(entry.URL, Pins, out var pins, out Error))
+                    return false;
+
+                if (pins.Count == 0)
+                {
+                    Error = "A signed pin set without a key pin would leave the connection with nothing to believe its server by.";
+                    return false;
+                }
+
+                if (Version <= entry.ServerKeyPinsVersion)
+                {
+                    Error = $"The pin set has version {Version}, and the connection holds version {entry.ServerKeyPinsVersion}: " +
+                             "only a higher one is taken, so that an older pin set cannot be brought back.";
+                    return false;
+                }
+
+                if (!ConnectionEntry.CheckKeyPinned(pins, entry.RawPublicKeys, entry.TrustOnFirstUse, out Error))
+                    return false;
+
+                var was      = entry.Copy();
+
+                var learned  = entry.ServerKeyPinLearned;
+
+                Learned      = learned;
+                Confirmed    = learned is not null && pins.Contains(learned);
+
+                entry.ServerKeyPins           = pins;
+                entry.ServerKeyPinsVersion    = Version;
+                entry.ServerKeyPinsConfirmed  = Confirmed;
+                entry.ServerKeyPinLearned     = null;
+                entry.ServerKeyPinLearnedAt   = null;
+
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = was;
+                    return false;
+                }
+
+                Notice(LogLevel.Notice,
+                       $"'{entry.Description}' took the key pins of the signed pin set of version {Version}: {ConnectionEntry.AsText(pins)}" +
+                       (Learned is null
+                            ? "."
+                            : Confirmed
+                                  ? $"; they confirm the one learned on its first connection ({Learned}), and its probation ends."
+                                  : $"; the one learned on its first connection ({Learned}) is not among them, so that server is not believed any more."));
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region (internal) CopyOf(Id) / (private static) SamePins(Text1, Text2)
+
+        /// <summary>
+        /// The connection as it stands now, in an entry of its own that nothing
+        /// changes - or null where there is none under that identification.
+        /// </summary>
+        /// <remarks>
+        /// For what asks at every TLS handshake which key pins a connection has:
+        /// a copy taken under the lock, so that a change written meanwhile is
+        /// read whole or not at all, and without working out the warnings of
+        /// every connection, as <see cref="Connections"/> does.
+        /// </remarks>
+        internal ConnectionEntry? CopyOf(String Id)
+        {
+            lock (updateLock)
+                return connections.TryGetValue(Id, out var entry)
+                           ? entry.Copy()
+                           : null;
+        }
+
+        /// <summary>
+        /// Whether two texts of key pins say the same pins in the same order,
+        /// however they are written; the texts themselves where one of them
+        /// cannot be read.
+        /// </summary>
+        private static Boolean SamePins(String Text1, String Text2)
+        {
+
+            static String[]? Normalized(String Text)
+            {
+                var pins = new List<String>();
+                foreach (var one in ConnectionEntry.SplitServerKeyPins(Text))
+                {
+                    if (!KeyPin.TryParse(one, out var pin))
+                        return null;
+                    pins.Add(pin.ToHex());
+                }
+                return [.. pins.Distinct()];
+            }
+
+            return Normalized(Text1) is String[] pins1 && Normalized(Text2) is String[] pins2
+                       ? pins1.SequenceEqual(pins2)
+                       : ConnectionEntry.Named(Text1) == ConnectionEntry.Named(Text2);
+
+        }
+
+        #endregion
+
         #region TryRemoveConnection(Id, out Error [, out NotSaved])
 
         /// <summary>
@@ -1605,7 +1953,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                Was.SshHostKey          != Now.SshHostKey          ||
                Was.SshTrustOnFirstUse  != Now.SshTrustOnFirstUse  ||
                Was.SshOnPinMismatch    != Now.SshOnPinMismatch    ||
-               Was.SshProbationTime    != Now.SshProbationTime;
+               Was.SshProbationTime    != Now.SshProbationTime    ||
+
+               // The key pins someone edits. Learning one and taking a signed
+               // pin set are no edit and dial nothing again: a rejected pin set
+               // drops its connection by itself.
+               !Was.ServerKeyPins.SequenceEqual(Now.ServerKeyPins)        ||
+               Was.RawPublicKeys              != Now.RawPublicKeys              ||
+               Was.TrustOnFirstUse            != Now.TrustOnFirstUse            ||
+               Was.ServerKeyPinProbationTime  != Now.ServerKeyPinProbationTime;
 
         #endregion
 
@@ -2329,6 +2685,28 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (Entry.SshOnPinMismatch != SshOnPinMismatch.Refuse)
                     Entry.Warnings.Add($"A host key that matches no pin is believed all the same ({Entry.SshOnPinMismatch}): whoever answers on the way " +
                                         "is taken for the server. That is for test benches, and for the move to a server whose key is not pinned yet.");
+
+            }
+
+            if (Entry.IsKeyPinned)
+            {
+
+                if (Entry.ServerKeyPinLearned is not null)
+                    Entry.Warnings.Add($"The key pin {Entry.ServerKeyPinLearned} was learned on the first connection and is on probation: " +
+                                        "until a signed pin set confirms it, nothing but such a pin set is executed.");
+
+                else if (Entry.ServerKeyPins.Count == 0)
+                    Entry.Warnings.Add("No key is pinned, so the first server that answers is believed, on probation for " +
+                                       $"{Entry.ServerKeyPinProbationTime.TotalMinutes:0.#} minute(s) until a signed pin set confirms its key. " +
+                                        "Pin it now to decide yourself - the connection test shows its key pin.");
+
+                if (Entry.RawPublicKeys == RawPublicKeyMode.Require)
+                    Entry.Warnings.Add("This connection requires raw public keys, and this station's TLS stack cannot offer them yet: it is not " +
+                                       "dialled until it can. Prefer or Off check the same key pins in a certificate.");
+
+                else if (Entry.RawPublicKeys == RawPublicKeyMode.Prefer)
+                    Entry.Warnings.Add("Raw public keys are preferred, and this station's TLS stack cannot offer them yet: the key of the server " +
+                                       "is checked in its certificate, by the same key pins.");
 
             }
 

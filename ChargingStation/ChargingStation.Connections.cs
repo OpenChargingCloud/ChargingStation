@@ -20,6 +20,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 
@@ -115,20 +116,33 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public static readonly TimeSpan SshPingEvery       = TimeSpan.FromSeconds(30);
 
-        // The connections over SSH whose server is believed by a host key that
-        // was learned on first use and no signed pin set confirmed yet, with
-        // what they were dialled for - asked by the gate of the OCPP nodes -
-        // and the probation that runs for each of them.
+        // The connections whose server is believed by a key that was learned on
+        // first use and no signed pin set confirmed yet - a host key over SSH, a
+        // key pin over a wss:// WebSocket - with what they were dialled for,
+        // asked by the gate of the OCPP nodes, and the probation that runs for
+        // each of them.
         private readonly ConcurrentDictionary<IMessageConnection, Probation>  onProbation      = new ();
         private readonly ConcurrentDictionary<String, CancellationTokenSource>  probationClocks  = new ();
 
         /// <summary>
-        /// One connection over SSH on probation: what it was dialled for, and
-        /// the trust that learned the host key.
+        /// One connection on probation: what it was dialled for, the trust that
+        /// learned the key - the host key of one over SSH, or the key pin of one
+        /// over a wss:// WebSocket - and the client that made it.
         /// </summary>
-        private sealed record Probation(ConnectionEntry  Connection,
-                                        SshHostKeyTrust  Trust,
-                                        WWCPSshClient    Client);
+        private sealed record Probation(ConnectionEntry     Connection,
+                                        SshHostKeyTrust?    SshTrust,
+                                        ServerKeyPinTrust?  KeyPinTrust,
+                                        Object              Client)
+        {
+
+            /// <summary>
+            /// Whether its server is still believed by a key no signed pin set
+            /// confirmed yet.
+            /// </summary>
+            public Boolean  OnIt
+                => SshTrust?.OnProbation ?? KeyPinTrust?.OnProbation ?? false;
+
+        }
 
         #endregion
 
@@ -374,35 +388,54 @@ namespace cloud.charging.open.ChargingStation
                     return;
                 }
 
+                // Where it went when it was dialled: a first key pin is written
+                // down for this one, and not for wherever it was changed to since.
+                var dialledURL  = Connection.URL;
+
+                // Its server known by the key pin of its key rather than by a
+                // CA: the key and nothing else is checked, at every handshake,
+                // against the key pins the connection has at that moment.
+                var keyPins     = KeyPinTrustFor(Connection, out var notByKeyPin);
+
+                if (notByKeyPin is not null)
+                {
+                    Fail(Connection, ConnectionStatus.NotDialled, $"Not dialled: {where} {notByKeyPin}.");
+                    return;
+                }
+
                 Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
-                         $"{Connection.ConnectionType}.", "ocpp", "connections");
+                         $"{Connection.ConnectionType}" +
+                         (keyPins is not null ? $"; {WhatItBelieves(keyPins)}" : "") +
+                         ".", "ocpp", "connections");
 
                 // Under a name of its own, and the primary under the name of the
                 // CSMS as well - see NextHopOf and CSMSNamesOf.
                 var response = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
 
                                    ? await cs01.ConnectOCPPWebSocketClient(
-                                             RemoteURL:                 Connection.URL,
-                                             NextHopNetworkingNodeId:   NextHopOf(Connection),
-                                             RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
-                                             HTTPAuthentication:        basic,
-                                             ClientCertificates:        certificates,
-                                             TOTPConfig:                totp,
-                                             TOTPLogin:                 totpLogin,
-                                             DNSClient:                 DNSClient,
-                                             CancellationToken:         CancellationToken
+                                             RemoteURL:                   Connection.URL,
+                                             NextHopNetworkingNodeId:     NextHopOf(Connection),
+                                             RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
+                                             HTTPAuthentication:          basic,
+                                             RemoteCertificateValidator:  keyPins?.Validator,
+                                             ClientCertificates:          certificates,
+                                             TOTPConfig:                  totp,
+                                             TOTPLogin:                   totpLogin,
+                                             DNSClient:                   DNSClient,
+                                             CancellationToken:           CancellationToken
                                          )
 
                                    : await cs02.ConnectOCPPWebSocketClient(
-                                             RemoteURL:                 Connection.URL,
-                                             NextHopNetworkingNodeId:   NextHopOf(Connection),
-                                             RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
-                                             HTTPAuthentication:        basic,
-                                             ClientCertificates:        certificates,
-                                             TOTPConfig:                totp,
-                                             TOTPLogin:                 totpLogin,
-                                             DNSClient:                 DNSClient,
-                                             CancellationToken:         CancellationToken
+                                             RemoteURL:                   Connection.URL,
+                                             NextHopNetworkingNodeId:     NextHopOf(Connection),
+                                             RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
+                                             HTTPAuthentication:          basic,
+                                             RemoteCertificateValidator:  keyPins?.Validator,
+                                             ClientCertificates:          certificates,
+                                             TOTPConfig:                  totp,
+                                             TOTPLogin:                   totpLogin,
+                                             DNSClient:                   DNSClient,
+                                             CancellationToken:           CancellationToken
                                          );
 
                 // 101 and nothing else: an HTTP answer that is not an upgrade
@@ -421,6 +454,9 @@ namespace cloud.charging.open.ChargingStation
 
                 RememberClient(Connection, client);
 
+                if (keyPins is not null && client is not null)
+                    FollowKeyPins(Connection, client, keyPins, dialledURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
+
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
 
@@ -435,7 +471,9 @@ namespace cloud.charging.open.ChargingStation
                          keepsTrying ? ConnectionStatus.Trying
                                      : unreached ? ConnectionStatus.Failed
                                                  : ConnectionStatus.Refused,
-                         (unreached
+                         (keyPins?.Refused == true
+                              ? $"{where} was not believed: {keyPins.WhyRefused()}"
+                              : unreached
                               ? $"{where} could not be reached: the attempt ended before anything could be asked of it"
                               : $"{where} did not become a WebSocket connection: {response.HTTPStatusCode}") +
                          (keepsTrying
@@ -1044,7 +1082,7 @@ namespace cloud.charging.open.ChargingStation
                             "ocpp", "connections", "ssh", "security");
 
             if (Current is not null)
-                onProbation[Current] = new Probation(Connection, Trust, Client);
+                onProbation[Current] = new Probation(Connection, Trust, null, Client);
 
             StartProbationClock(Connection, Trust, Client, learned);
 
@@ -1134,7 +1172,7 @@ namespace cloud.charging.open.ChargingStation
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s), so it is forgotten, and the connection is made anew.",
                             "ocpp", "connections", "ssh", "security");
 
-                foreach (var probation in onProbation.Where(probation => probation.Value.Trust == Trust).ToArray())
+                foreach (var probation in onProbation.Where(probation => ReferenceEquals(probation.Value.SshTrust, Trust)).ToArray())
                 {
                     onProbation.TryRemove(probation.Key, out _);
                     if (probation.Key is SshMessageConnection current)
@@ -1151,29 +1189,55 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Whether a request that came over the given connection is processed:
-        /// over a connection on probation, nothing but a pin set for the SSH
-        /// client - SetVariables of SSHClientController, or ChangeConfiguration
-        /// of an SSHClient key in OCPP 1.6 - whose signature is checked where
-        /// it is set. Everything else is answered with a SecurityError.
+        /// over a connection on probation, nothing but a pin set - whose
+        /// signature is checked where it is set. Everything else is answered
+        /// with a SecurityError.
         /// </summary>
+        /// <remarks>
+        /// Over SSH a pin set for the SSH client: SetVariables of
+        /// SSHClientController, or ChangeConfiguration of an SSHClient key in
+        /// OCPP 1.6. Over a wss:// WebSocket one of key pins: SetVariables of
+        /// ServerKeyPins and ServerKeyPinsVersion of NetworkConfiguration, or
+        /// ChangeConfiguration of evqi.serverKeyPins and evqi.serverKeyPinsVersion
+        /// in OCPP 1.6 ("Key Pins and Raw Public Keys", sections 7.2 and 7.3).
+        /// Each only over its own kind of connection.
+        /// </remarks>
         private String? GateOnProbation(IMessageConnection  Connection,
                                         String              Action,
                                         JObject?            Payload)
         {
 
-            if (!onProbation.TryGetValue(Connection, out var probation) || !probation.Trust.OnProbation)
+            if (!onProbation.TryGetValue(Connection, out var probation) || !probation.OnIt)
                 return null;
 
+            if (probation.SshTrust is SshHostKeyTrust sshTrust)
+            {
+
+                if (Action == "SetVariables" &&
+                    Payload?["setVariableData"] is JArray entries && entries.Count > 0 &&
+                    entries.All(entry => entry?["component"]?["name"]?.Value<String>() == "SSHClientController"))
+                    return null;
+
+                if (Action == "ChangeConfiguration" &&
+                    Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
+                    return null;
+
+                return $"This station believes its server by the host key {sshTrust.Learned}, which it learned on its first connection " +
+                        "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
+
+            }
+
             if (Action == "SetVariables" &&
-                Payload?["setVariableData"] is JArray entries && entries.Count > 0 &&
-                entries.All(entry => entry?["component"]?["name"]?.Value<String>() == "SSHClientController"))
+                Payload?["setVariableData"] is JArray pinSet && pinSet.Count > 0 &&
+                pinSet.All(entry => entry?["component"]?["name"]?.Value<String>() == "NetworkConfiguration" &&
+                                    entry?["variable"]?["name"]?.Value<String>() is "ServerKeyPins" or "ServerKeyPinsVersion"))
                 return null;
 
             if (Action == "ChangeConfiguration" &&
-                Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
+                Payload?["key"]?.Value<String>() is "evqi.serverKeyPins" or "evqi.serverKeyPinsVersion")
                 return null;
 
-            return $"This station believes its server by the host key {probation.Trust.Learned}, which it learned on its first connection " +
+            return $"This station believes its server by the key pin {probation.KeyPinTrust?.Learned}, which it learned on its first connection " +
                     "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
 
         }
@@ -1183,12 +1247,13 @@ namespace cloud.charging.open.ChargingStation
         #region (private) IsOnProbation(Client)
 
         /// <summary>
-        /// Whether the server of the given SSH client is believed by a host key
-        /// learned on its first connection that no signed pin set confirmed yet.
+        /// Whether the server of the given client - an SSH client, or a
+        /// WebSocket client - is believed by a key learned on its first
+        /// connection that no signed pin set confirmed yet.
         /// </summary>
-        private Boolean IsOnProbation(WWCPSshClient Client)
+        private Boolean IsOnProbation(Object Client)
 
-            => onProbation.Values.Any(probation => probation.Client == Client && probation.Trust.OnProbation);
+            => onProbation.Values.Any(probation => ReferenceEquals(probation.Client, Client) && probation.OnIt);
 
         #endregion
 
@@ -1470,20 +1535,29 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="CertificateId">The client certificate to prove itself with, by identification.</param>
         /// <param name="SshHostKey">The host keys the server of an ssh:// connection may show, separated by commas; none to be told which one it shows.</param>
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins: what a mismatch leads to, and whether it would learn a key.</param>
-        public async Task<JObject> TestConnection(String?            Description,
-                                                  String?            URL,
-                                                  String?            ConnectionType,
-                                                  String?            OCPPVersion           = null,
-                                                  Boolean            AutoConnect           = false,
-                                                  String?            AuthenticationId      = null,
-                                                  String?            CertificateId         = null,
-                                                  CancellationToken  CancellationToken     = default,
-                                                  String?            SshHostKey            = null,
-                                                  SshTrustSettings?  SshTrust              = null)
+        /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none for one checked by its CA, or one that would learn the key.</param>
+        /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and would learn a key pin on first use.</param>
+        public async Task<JObject> TestConnection(String?                Description,
+                                                  String?                URL,
+                                                  String?                ConnectionType,
+                                                  String?                OCPPVersion           = null,
+                                                  Boolean                AutoConnect           = false,
+                                                  String?                AuthenticationId      = null,
+                                                  String?                CertificateId         = null,
+                                                  CancellationToken      CancellationToken     = default,
+                                                  String?                SshHostKey            = null,
+                                                  SshTrustSettings?      SshTrust              = null,
+                                                  String?                ServerKeyPins         = null,
+                                                  ServerKeyPinSettings?  KeyPinTrust           = null)
         {
 
             var clock  = Stopwatch.StartNew();
             var steps  = new JArray();
+
+            // The key pin of the key the server of a wss:// connection showed,
+            // whether it was believed or not: what somebody commissioning the
+            // station pins it to.
+            KeyPin? shownKeyPin = null;
 
             void Step(String Level, String Text)
                 => steps.Add(new JObject(
@@ -1497,13 +1571,18 @@ namespace cloud.charging.open.ChargingStation
 
                 clock.Stop();
 
-                return new JObject(
-                           new JProperty("description",  Connection?.Description ?? (Description ?? "").Trim()),
-                           new JProperty("url",          Connection?.URL.ToString() ?? (URL ?? "").Trim()),
-                           new JProperty("ok",           OK),
-                           new JProperty("runtime_ms",   clock.ElapsedMilliseconds),
-                           new JProperty("steps",        steps)
-                       );
+                var result = new JObject(
+                                 new JProperty("description",  Connection?.Description ?? (Description ?? "").Trim()),
+                                 new JProperty("url",          Connection?.URL.ToString() ?? (URL ?? "").Trim()),
+                                 new JProperty("ok",           OK),
+                                 new JProperty("runtime_ms",   clock.ElapsedMilliseconds),
+                                 new JProperty("steps",        steps)
+                             );
+
+                if (shownKeyPin is not null)
+                    result.Add(new JProperty("serverKeyPin", shownKeyPin.ToHex()));
+
+                return result;
 
             }
 
@@ -1516,7 +1595,11 @@ namespace cloud.charging.open.ChargingStation
                                           out var url, out var type, out var version, out var notYet) ||
                 !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
                 !ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
-                                                  out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out notYet))
+                                                  out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out notYet) ||
+                !ConnectionEntry.ValidateServerKeyPins(url, ServerKeyPins, out var serverKeyPins, out notYet) ||
+                !ConnectionEntry.ValidateKeyPinTrust(url, KeyPinTrust?.RawPublicKeys, KeyPinTrust?.TrustOnFirstUse, KeyPinTrust?.ProbationSeconds,
+                                                     out var rawPublicKeys, out var keyTrustOnFirstUse, out var keyPinProbationTime, out notYet) ||
+                !ConnectionEntry.CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out notYet))
             {
                 Step("error", notYet);
                 return Done(null, false);
@@ -1538,7 +1621,11 @@ namespace cloud.charging.open.ChargingStation
                                  SshHostKey          = hostKey,
                                  SshTrustOnFirstUse  = trustOnFirstUse,
                                  SshOnPinMismatch    = onPinMismatch,
-                                 SshProbationTime    = probationTime
+                                 SshProbationTime    = probationTime,
+                                 ServerKeyPins              = serverKeyPins,
+                                 RawPublicKeys              = rawPublicKeys,
+                                 TrustOnFirstUse            = keyTrustOnFirstUse,
+                                 ServerKeyPinProbationTime  = keyPinProbationTime
                              };
 
             #endregion
@@ -1556,6 +1643,8 @@ namespace cloud.charging.open.ChargingStation
             X509Certificate2[]?   certificates  = null;
             SshClientOptions?     sshLogin      = null;
             SshHostKeyTrust?      sshTrust      = null;
+            ServerKeyPinTrust?    keyPins       = null;
+            SslPolicyErrors?      caSaid        = null;
 
             if (connection.IsSSH)
             {
@@ -1592,10 +1681,35 @@ namespace cloud.charging.open.ChargingStation
             else
             {
 
-                Step(connection.IsSecure ? "info" : "warning",
-                     connection.IsSecure
-                         ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
-                         : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
+                if (connection.IsKeyPinned)
+                {
+
+                    // Held to what the form says, as the dialling would be: a
+                    // test writes nothing down, so a key it learns is believed
+                    // for the test only.
+                    keyPins = new ServerKeyPinTrust(connection, () => connection);
+
+                    Step(connection.ServerKeyPins.Count > 0 ? "info" : "warning",
+                         connection.ServerKeyPins.Count > 0
+                             ? $"The URL is a TLS one, and its server is known by the key pin of its key: it must show one of {ConnectionEntry.AsText(connection.ServerKeyPins)}. " +
+                                "Its certificate's chain, name and validity are not checked."
+                             : "The URL is a TLS one, and its server is known by its key, of which none is pinned. Whatever key it shows is said " +
+                               "below and believed for this test; a test writes nothing down, so the first connection this station makes learns it, " +
+                               "on probation.");
+
+                    if (connection.RawPublicKeys != RawPublicKeyMode.Off)
+                        Step("warning", connection.RawPublicKeys == RawPublicKeyMode.Require
+                                            ? "It requires raw public keys, which this station's TLS stack cannot offer yet: a certificate is refused, " +
+                                              "and the station does not dial it."
+                                            : "It prefers raw public keys, which this station's TLS stack cannot offer yet: the key is checked in the certificate.");
+
+                }
+
+                else
+                    Step(connection.IsSecure ? "info" : "warning",
+                         connection.IsSecure
+                             ? "The URL is a TLS one, so the certificate of whatever answers will be checked against this station's trust store."
+                             : "The URL is not a TLS one. Nothing on this connection is encrypted or authenticated at the transport layer.");
 
                 if (!WhatItProvesItselfWith(connection, out basic, out totp, out totpLogin, out certificates, out var proves, out var wrong))
                 {
@@ -1716,16 +1830,31 @@ namespace cloud.charging.open.ChargingStation
 
                 #region Open it
 
+                // Key-pinned, the key is checked as the dialling checks it. CA
+                // checked, the answer is SslStream's own - no policy error, or no
+                // connection - and the key pin of the key is only looked at, for
+                // somebody who wants to pin it.
                 client = new WebSocketClient(
                              connection.URL,
-                             DNSClient:              DNSClient,
-                             HTTPAuthentication:     basic,
-                             SecWebSocketProtocols:  SubProtocolsOf(connection.OCPPVersion),
-                             ClientCertificates:     certificates,
-                             TOTPConfig:             totp,
-                             TOTPLogin:              totpLogin,
-                             DisableWebSocketPings:  true,
-                             DisableLogging:         true
+                             DNSClient:                   DNSClient,
+                             HTTPAuthentication:          basic,
+                             SecWebSocketProtocols:       SubProtocolsOf(connection.OCPPVersion),
+                             RemoteCertificateValidator:  keyPins is not null
+                                                              ? keyPins.Validator
+                                                              : connection.IsSecure
+                                                                    ? (sender, certificate, chain, webSocketClient, policyErrors) => {
+                                                                          shownKeyPin  = certificate is not null ? KeyPin.FromCertificate(certificate) : null;
+                                                                          caSaid       = policyErrors;
+                                                                          return policyErrors == SslPolicyErrors.None
+                                                                                     ? TLSValidationResult.Success()
+                                                                                     : TLSValidationResult.Failed($"The certificate was not accepted: {policyErrors}.");
+                                                                      }
+                                                                    : null,
+                             ClientCertificates:          certificates,
+                             TOTPConfig:                  totp,
+                             TOTPLogin:                   totpLogin,
+                             DisableWebSocketPings:       true,
+                             DisableLogging:              true
                          );
 
                 client.OnTextMessageReceived   += (timestamp, sender, conn, frame, tracking, message, token) => {
@@ -1753,6 +1882,25 @@ namespace cloud.charging.open.ChargingStation
                 #endregion
 
                 #region What came back
+
+                if (keyPins is not null)
+                    shownKeyPin = keyPins.Shown;
+
+                if (keyPins?.LastValidation is KeyPinValidation validation)
+                    Step(validation.IsAccepted ? "info" : "error",
+                         validation.Outcome switch {
+                             KeyPinOutcome.Accepted  => $"The server showed a key whose key pin is {validation.Pin}, one of those pinned.",
+                             KeyPinOutcome.Learned   => $"The server showed a key whose key pin is {validation.Pin}. None is pinned, so it was believed for this test. " +
+                                                         "Pin it to decide yourself.",
+                             _                       => $"Not believed: {keyPins.WhyRefused()}. Nothing was asked of it."
+                         });
+
+                else if (shownKeyPin is not null)
+                    Step(caSaid == SslPolicyErrors.None ? "info" : "error",
+                         caSaid == SslPolicyErrors.None
+                             ? $"The server showed a certificate this station's trust store accepts, for a key whose key pin is {shownKeyPin}."
+                             : $"The server showed a certificate this station's trust store does not accept ({caSaid}), for a key whose key pin is " +
+                               $"{shownKeyPin}. Pinned, that key would be believed by itself, without a CA.");
 
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
@@ -1818,6 +1966,11 @@ namespace cloud.charging.open.ChargingStation
             }
             catch (Exception e)
             {
+
+                shownKeyPin ??= keyPins?.Shown;
+
+                if (keyPins is not null && keyPins.Refused)
+                    Step("error", $"Not believed: {keyPins.WhyRefused()}. Nothing was asked of it.");
 
                 Step("error", $"{e.GetType().Name}: {e.Message}");
 

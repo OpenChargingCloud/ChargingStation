@@ -21,6 +21,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
@@ -165,6 +166,26 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public static readonly TimeSpan MinSshProbationTime      = TimeSpan.FromSeconds(1);
 
+        /// <summary>
+        /// The longest probation a connection may give a key learned on first
+        /// use, a host key or a key pin.
+        /// </summary>
+        public static readonly TimeSpan MaxProbationTime         = TimeSpan.FromDays(7);
+
+        /// <summary>
+        /// The most key pins one wss:// connection holds: the current key of its
+        /// server, the announced next one, and room for a transition ("Key Pins
+        /// and Raw Public Keys", section 5.5).
+        /// </summary>
+        public const Int32 MaxServerKeyPins      = KeyPinPolicy.MaxPins;
+
+        /// <summary>
+        /// How long a key pin learned on first use waits for a signed pin set
+        /// that confirms it, where the connection does not say: 10 minutes, as
+        /// for a host key.
+        /// </summary>
+        public static readonly TimeSpan DefaultServerKeyPinProbationTime  = TimeSpan.FromMinutes(10);
+
         #endregion
 
         #region Properties
@@ -282,6 +303,99 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// When <see cref="SshLearnedHostKey"/> was learned.
         /// </summary>
         public DateTimeOffset? SshLearnedAt         { get; internal set; }
+
+        /// <summary>
+        /// The key pins of the keys the server of a wss:// connection may show,
+        /// at most <see cref="MaxServerKeyPins"/>; none where nothing is pinned.
+        /// </summary>
+        /// <remarks>
+        /// SHA-256 over the DER encoded SubjectPublicKeyInfo of a key, as a DANE
+        /// record "3 1 1" holds it ("Key Pins and Raw Public Keys", section
+        /// 5.1). Set, they are the whole check of the server: no chain, no name,
+        /// no validity period - which is what lets a station believe its Local
+        /// Controller, which no CA issues a certificate for, and before its
+        /// clock is set. A set, so that a server about to change its key can be
+        /// pinned with both for the time of the change.
+        /// </remarks>
+        public IReadOnlyList<KeyPin>  ServerKeyPins            { get; internal set; } = [];
+
+        /// <summary>
+        /// The version of the signed pin set the key pins came from; 0 where
+        /// none did. A signed pin set is taken only with a higher one, so that
+        /// an older one cannot be brought back.
+        /// </summary>
+        public UInt64                 ServerKeyPinsVersion     { get; internal set; }
+
+        /// <summary>
+        /// Whether the key pins are those of a signed pin set that confirmed a
+        /// key pin learned on first use.
+        /// </summary>
+        public Boolean                ServerKeyPinsConfirmed   { get; internal set; }
+
+        /// <summary>
+        /// Whether a key-pinned wss:// connection offers raw public keys (RFC
+        /// 7250). Off unless it says so.
+        /// </summary>
+        /// <remarks>
+        /// Kept as it is written, and not yet done: this station's TLS stack,
+        /// .NET's SslStream, cannot offer raw public keys. Prefer is therefore
+        /// what Off is, a key in a certificate checked by its pin; Require is
+        /// not dialled until the stack can, and says so.
+        /// </remarks>
+        public RawPublicKeyMode       RawPublicKeys            { get; internal set; }
+
+        /// <summary>
+        /// Whether a wss:// connection that pins no key learns the key pin of the
+        /// one its server shows at the first handshake - on probation until a
+        /// signed pin set confirms it. Never, unless it says so.
+        /// </summary>
+        public KeyTrustOnFirstUse     TrustOnFirstUse          { get; internal set; }
+
+        /// <summary>
+        /// The key pin learned on first use, while it is on probation - or null.
+        /// </summary>
+        public KeyPin?                ServerKeyPinLearned      { get; internal set; }
+
+        /// <summary>
+        /// When <see cref="ServerKeyPinLearned"/> was learned.
+        /// </summary>
+        public DateTimeOffset?        ServerKeyPinLearnedAt    { get; internal set; }
+
+        /// <summary>
+        /// How long a key pin learned on first use waits for a signed pin set
+        /// that confirms it.
+        /// </summary>
+        public TimeSpan               ServerKeyPinProbationTime { get; internal set; } = DefaultServerKeyPinProbationTime;
+
+        /// <summary>
+        /// Where the key pins come from: configured - by somebody, or by a
+        /// signed pin set -, learned on first use and on probation, or learned
+        /// and confirmed since.
+        /// </summary>
+        public KeyPinState            ServerKeyPinState
+
+            => ServerKeyPins.Count == 0 && ServerKeyPinLearned is not null
+                   ? KeyPinState.Learned
+                   : ServerKeyPins.Count > 0 && ServerKeyPinsConfirmed
+                         ? KeyPinState.Confirmed
+                         : KeyPinState.Configured;
+
+        /// <summary>
+        /// Whether the server of this connection is known by the key pin of its
+        /// key rather than by a CA: a wss:// connection with key pins, or one
+        /// that trusts on first use ("Key Pins and Raw Public Keys", section
+        /// 5.4).
+        /// </summary>
+        /// <remarks>
+        /// One or the other, never both, and never whichever fits: a key-pinned
+        /// connection checks no chain, no name and no validity period, and does
+        /// not fall back to the CA where the key matches no pin. One that is not
+        /// key-pinned is checked by the CA as it always was.
+        /// </remarks>
+        public Boolean                IsKeyPinned
+
+            => IsSecure &&
+               (ServerKeyPins.Count > 0 || TrustOnFirstUse == KeyTrustOnFirstUse.Key);
 
         /// <summary>
         /// When this was written down.
@@ -738,6 +852,199 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region (static) ValidateServerKeyPins(URL, Text, out Pins, out Error)
+
+        /// <summary>
+        /// The key pins a wss:// connection pins, as they are written down - or
+        /// the one sentence that says what is wrong with them.
+        /// </summary>
+        /// <remarks>
+        /// Separated by commas, spaces or line breaks; each one 64 hexadecimal
+        /// digits, with or without colons between the bytes, or curl's
+        /// "sha256//" and base64 - read as KeyPin reads them, and kept as 64
+        /// lowercase hexadecimal digits. At most <see cref="MaxServerKeyPins"/>.
+        /// Only for wss:// and https://: a ws:// connection makes no TLS
+        /// handshake whose key could be checked, and the server of an ssh:// one
+        /// is known by its host key - a key pin written down beside either
+        /// would look like a check nothing makes.
+        /// </remarks>
+        /// <param name="URL">Where the connection goes.</param>
+        /// <param name="Text">The key pins as written; nothing for none.</param>
+        /// <param name="Pins">The key pins, each once, in the order written.</param>
+        /// <param name="Error">What is wrong with them.</param>
+        public static Boolean ValidateServerKeyPins(URL                              URL,
+                                                    String?                          Text,
+                                                    out IReadOnlyList<KeyPin>        Pins,
+                                                    [NotNullWhen(false)] out String? Error)
+        {
+
+            Pins   = [];
+            Error  = null;
+
+            var written = SplitServerKeyPins(Text);
+
+            if (written.Count == 0)
+                return true;
+
+            if (URL.Scheme != URIScheme.wss && URL.Scheme != URIScheme.https)
+            {
+                Error = URL.Scheme == URIScheme.ssh
+                            ? "A key pin is what a wss:// connection checks the key of its server by. This one goes over SSH, " +
+                              "whose server is known by its host key."
+                            : "A key pin is what a wss:// connection checks the key of its server by. This one makes no TLS " +
+                              "handshake, so there is no key to check.";
+                return false;
+            }
+
+            var pins = new List<KeyPin>();
+
+            foreach (var one in written)
+            {
+
+                if (!KeyPin.TryParse(one, out var pin))
+                {
+                    Error = $"'{one}' is not a key pin: that is 64 hexadecimal digits - SHA-256 over the key's SubjectPublicKeyInfo, " +
+                             "with or without colons - or 'sha256//' and the base64 of the same.";
+                    return false;
+                }
+
+                if (!pins.Contains(pin))
+                    pins.Add(pin);
+
+            }
+
+            if (pins.Count > MaxServerKeyPins)
+            {
+                Error = $"A connection pins at most {MaxServerKeyPins} keys - the current one, the next one and room for a change - " +
+                        $"and these are {pins.Count}.";
+                return false;
+            }
+
+            Pins = pins;
+            return true;
+
+        }
+
+        /// <summary>
+        /// The key pins of a set as it is written: separated by commas,
+        /// semicolons, spaces or line breaks, the empty ones left out.
+        /// </summary>
+        public static IReadOnlyList<String> SplitServerKeyPins(String? Text)
+
+            => (Text ?? "").Split([ ',', ';', ' ', '\t', '\n', '\r' ], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        /// <summary>
+        /// The key pins as one text, as the page and the log write them.
+        /// </summary>
+        public static String AsText(IEnumerable<KeyPin> Pins)
+
+            => String.Join(", ", Pins.Select(pin => pin.ToHex()));
+
+        #endregion
+
+        #region (static) ValidateKeyPinTrust(URL, RawText, TrustText, ProbationSeconds, out Raw, out Trust, out Probation, out Error)
+
+        /// <summary>
+        /// Whether a wss:// connection offers raw public keys, whether it learns
+        /// the key pin of the first key shown, and how long that waits for a
+        /// signed pin set - or the one sentence that says what is wrong.
+        /// </summary>
+        /// <remarks>
+        /// "Off" and "None" are what every connection says, and are taken of
+        /// every URL; anything else only of a wss:// or https:// one. Whether
+        /// raw public keys go with the key pins there are is asked by
+        /// <see cref="CheckKeyPinned"/>, once those are known.
+        /// </remarks>
+        public static Boolean ValidateKeyPinTrust(URL                              URL,
+                                                  String?                          RawText,
+                                                  String?                          TrustText,
+                                                  Int64?                           ProbationSeconds,
+                                                  out RawPublicKeyMode             Raw,
+                                                  out KeyTrustOnFirstUse           Trust,
+                                                  out TimeSpan                     Probation,
+                                                  [NotNullWhen(false)] out String? Error)
+        {
+
+            Raw        = RawPublicKeyMode.Off;
+            Trust      = KeyTrustOnFirstUse.None;
+            Probation  = DefaultServerKeyPinProbationTime;
+            Error      = null;
+
+            if (!String.IsNullOrWhiteSpace(RawText) &&
+                !(Enum.TryParse(RawText.Trim(), ignoreCase: true, out Raw) && Enum.IsDefined(Raw)))
+            {
+                Raw    = RawPublicKeyMode.Off;
+                Error  = $"'{RawText}' says nothing of raw public keys: it is 'Off', 'Prefer' or 'Require'.";
+                return false;
+            }
+
+            if (!String.IsNullOrWhiteSpace(TrustText) &&
+                !(Enum.TryParse(TrustText.Trim(), ignoreCase: true, out Trust) && Enum.IsDefined(Trust)))
+            {
+                Trust  = KeyTrustOnFirstUse.None;
+                Error  = $"'{TrustText}' says nothing of trust on first use: it is 'None' or 'Key'.";
+                return false;
+            }
+
+            var tls = URL.Scheme == URIScheme.wss || URL.Scheme == URIScheme.https;
+
+            if (!tls && Raw != RawPublicKeyMode.Off)
+            {
+                Error  = "Raw public keys are a way of a TLS handshake, and this connection makes none.";
+                return false;
+            }
+
+            if (!tls && Trust != KeyTrustOnFirstUse.None)
+            {
+                Error  = URL.Scheme == URIScheme.ssh
+                             ? "Trust on first use of a key pin is for a wss:// connection; one over SSH learns a host key, as its own field says."
+                             : "Trust on first use of a key pin is for a wss:// connection, and this one makes no TLS handshake to learn a key from.";
+                return false;
+            }
+
+            if (ProbationSeconds is Int64 seconds)
+            {
+
+                if (seconds < MinSshProbationTime.TotalSeconds || seconds > MaxProbationTime.TotalSeconds)
+                {
+                    Error = $"A probation of {seconds} s is not one: it lasts from {MinSshProbationTime.TotalSeconds:0} s to 7 days.";
+                    return false;
+                }
+
+                Probation = TimeSpan.FromSeconds(seconds);
+
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// Raw public keys only where the connection is key-pinned: by key pins,
+        /// or by trust on first use ("Key Pins and Raw Public Keys", section
+        /// 7.2). A connection checked by its CA never accepts a raw key.
+        /// </summary>
+        public static Boolean CheckKeyPinned(IReadOnlyList<KeyPin>            Pins,
+                                             RawPublicKeyMode                 Raw,
+                                             KeyTrustOnFirstUse               Trust,
+                                             [NotNullWhen(false)] out String? Error)
+        {
+
+            Error = null;
+
+            if (Raw != RawPublicKeyMode.Off && Pins.Count == 0 && Trust == KeyTrustOnFirstUse.None)
+            {
+                Error = "Raw public keys are offered only where the server is known by its key: pin its key, or let it learn the " +
+                        "first one on probation. A connection checked by its CA never accepts a raw key.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        #endregion
+
         #region (static) TryParse(JSON, out Entry, out Error)
 
         /// <summary>
@@ -788,6 +1095,44 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 ? learnedAtValue
                                 : (DateTimeOffset?) null;
 
+            // The key pins of a wss:// connection: a list, as they are written,
+            // or one text of them, as somebody may write them by hand.
+            var pinsText = JSON["serverKeyPins"] switch {
+                               JArray list  => String.Join(",", list.Select(pin => pin.Type == JTokenType.String ? pin.Value<String>() : pin.ToString())),
+                               JValue value => value.Type == JTokenType.Null ? null : value.ToString(),
+                               _            => null
+                           };
+
+            if (!ValidateServerKeyPins(url, pinsText, out var serverKeyPins, out Error))
+                return false;
+
+            if (!ValidateKeyPinTrust(url,
+                                     JSON.Value<String>("rawPublicKeys"),
+                                     JSON.Value<String>("trustOnFirstUse"),
+                                     JSON.Value<Int64?>("serverKeyPinProbationTime"),
+                                     out var rawPublicKeys,
+                                     out var keyTrustOnFirstUse,
+                                     out var keyPinProbationTime,
+                                     out Error))
+                return false;
+
+            if (!CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out Error))
+                return false;
+
+            // A key pin learned on first use is on probation only where nothing
+            // is pinned, and only where the connection still learns.
+            var learnsKeyPin       = serverKeyPins.Count == 0 && keyTrustOnFirstUse == KeyTrustOnFirstUse.Key;
+
+            var keyPinLearned      = learnsKeyPin && KeyPin.TryParse(JSON.Value<String>("serverKeyPinLearned"), out var learnedPin)
+                                         ? learnedPin
+                                         : null;
+
+            var keyPinLearnedAt    = keyPinLearned is not null &&
+                                     JSON.Value<String>("serverKeyPinLearnedAt") is String keyPinLearnedAtText &&
+                                     DateTimeOffset.TryParse(keyPinLearnedAtText, out var keyPinLearnedAtValue)
+                                         ? keyPinLearnedAtValue
+                                         : (DateTimeOffset?) null;
+
             Entry = new ConnectionEntry(
                         id,
                         (JSON.Value<String>("description") ?? "").Trim(),
@@ -805,7 +1150,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         SshProbationTime    = probationTime,
                         SshHostKeysVersion  = JSON.Value<UInt64?>("sshHostKeysVersion") ?? 0,
                         SshLearnedHostKey   = hostKey is null ? Named(JSON.Value<String>("sshLearnedHostKey")) : null,
-                        SshLearnedAt        = hostKey is null ? learnedAt : null
+                        SshLearnedAt        = hostKey is null ? learnedAt : null,
+                        ServerKeyPins              = serverKeyPins,
+                        ServerKeyPinsVersion       = serverKeyPins.Count > 0 ? JSON.Value<UInt64?>("serverKeyPinsVersion") ?? 0 : 0,
+                        ServerKeyPinsConfirmed     = serverKeyPins.Count > 0 && JSON.Value<String>("serverKeyPinState") == nameof(KeyPinState.Confirmed),
+                        RawPublicKeys              = rawPublicKeys,
+                        TrustOnFirstUse            = keyTrustOnFirstUse,
+                        ServerKeyPinProbationTime  = keyPinProbationTime,
+                        ServerKeyPinLearned        = keyPinLearned,
+                        ServerKeyPinLearnedAt      = keyPinLearnedAt
                     };
 
             Error = null;
@@ -862,6 +1215,32 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
+            // How the server of a TLS connection is known: by its CA, or by
+            // the key pin of its key ("Key Pins and Raw Public Keys", 7.1).
+            if (IsSecure)
+            {
+
+                json.Add(new JProperty("keyPinned",  IsKeyPinned));
+
+                if (ServerKeyPins.Count > 0)
+                    json.Add(new JProperty("serverKeyPins",         new JArray(ServerKeyPins.Select(pin => pin.ToHex()))));
+
+                if (ServerKeyPinsVersion > 0)
+                    json.Add(new JProperty("serverKeyPinsVersion",  ServerKeyPinsVersion));
+
+                json.Add(new JProperty("serverKeyPinState",          ServerKeyPinState. ToString()));
+                json.Add(new JProperty("rawPublicKeys",              RawPublicKeys.     ToString()));
+                json.Add(new JProperty("trustOnFirstUse",            TrustOnFirstUse.   ToString()));
+                json.Add(new JProperty("serverKeyPinProbationTime",  (Int64) ServerKeyPinProbationTime.TotalSeconds));
+
+                if (ServerKeyPinLearned is not null)
+                {
+                    json.Add(new JProperty("serverKeyPinLearned",    ServerKeyPinLearned.ToHex()));
+                    json.Add(new JProperty("serverKeyPinLearnedAt",  ServerKeyPinLearnedAt?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
+                }
+
+            }
+
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
 
@@ -891,7 +1270,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    SshProbationTime    = SshProbationTime,
                    SshHostKeysVersion  = SshHostKeysVersion,
                    SshLearnedHostKey   = SshLearnedHostKey,
-                   SshLearnedAt        = SshLearnedAt
+                   SshLearnedAt        = SshLearnedAt,
+                   ServerKeyPins              = ServerKeyPins,
+                   ServerKeyPinsVersion       = ServerKeyPinsVersion,
+                   ServerKeyPinsConfirmed     = ServerKeyPinsConfirmed,
+                   RawPublicKeys              = RawPublicKeys,
+                   TrustOnFirstUse            = TrustOnFirstUse,
+                   ServerKeyPinLearned        = ServerKeyPinLearned,
+                   ServerKeyPinLearnedAt      = ServerKeyPinLearnedAt,
+                   ServerKeyPinProbationTime  = ServerKeyPinProbationTime
                };
 
         #endregion
