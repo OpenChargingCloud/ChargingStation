@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.EVSEs
@@ -206,7 +208,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
 
             // Read before the connectors, because a connector that does not say
             // what it may deliver is whatever its EVSE may deliver.
-            var maxPower = json.Value<Decimal?>("maxPower_kW");
+            var maxPower = json["maxPower_kW"].AsDecimalOrNull();
 
             if (maxPower is null || maxPower <= 0 || maxPower > MaxPowerLimit_kW)
             {

@@ -21,6 +21,8 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Configuration
@@ -142,7 +144,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 return false;
             }
 
-            var value = token.Value<Decimal>();
+            var value = token.AsDecimal();
 
             if (value <= 0 || value > MaxUplinkPowerLimit_kW)
             {

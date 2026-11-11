@@ -23,6 +23,8 @@ using System.Security.Cryptography;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 using cloud.charging.open.chargy.Formats.OCMF;
 
 using cloud.charging.open.ChargingStation.Configuration;
@@ -370,7 +372,7 @@ namespace cloud.charging.open.ChargingStation
         private static Decimal? ReadingOf(JToken? Reading)
 
             => Reading?["RV"]?.Type is JTokenType.Float or JTokenType.Integer
-                   ? Reading["RV"]!.Value<Decimal>()
+                   ? Reading["RV"]!.AsDecimal()
                    : null;
 
         #endregion

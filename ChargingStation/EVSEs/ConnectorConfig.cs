@@ -23,6 +23,8 @@ using Newtonsoft.Json.Linq;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.EVSEs
@@ -173,7 +175,7 @@ namespace cloud.charging.open.ChargingStation.EVSEs
             if (!TryParseType(json.Value<String>("type"), EVSEId, out var type, out Error))
                 return false;
 
-            var maxPower = json.Value<Decimal?>("maxPower_kW") ?? DefaultPower_kW;
+            var maxPower = json["maxPower_kW"].AsDecimalOrNull() ?? DefaultPower_kW;
 
             if (maxPower <= 0 || maxPower > EVSEConfig.MaxPowerLimit_kW)
             {

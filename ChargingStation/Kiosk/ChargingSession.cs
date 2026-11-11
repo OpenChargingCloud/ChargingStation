@@ -20,6 +20,8 @@
 using System.Security.Cryptography;
 using System.Text;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 using cloud.charging.open.ChargingStation.Configuration;
 
 #endregion
@@ -225,7 +227,7 @@ namespace cloud.charging.open.ChargingStation.Kiosk
                             ? 1.0
                             : running.TotalSeconds / RampUpTime.TotalSeconds;
 
-            return Math.Round(Limit_kW * (Decimal) share, 1);
+            return Math.Round(Limit_kW * share.AsDecimal(), 1);
 
         }
 

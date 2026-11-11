@@ -21,6 +21,7 @@ using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 #endregion
@@ -327,7 +328,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                 // Not a number is SunSpec's "not implemented"; nothing too large
                 // for a decimal is a measurement either.
                 return Single.IsFinite(value) && Math.Abs(value) < 1e15f
-                           ? Math.Round((Decimal) value, 3)
+                           ? Math.Round(value.AsDecimal(), 3)
                            : null;
 
             }

@@ -22,6 +22,8 @@ using System.Globalization;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Meters
@@ -168,8 +170,8 @@ namespace cloud.charging.open.ChargingStation.Meters
                        Text(JSON, "ocmf"),
                        Text(JSON, "publicKey"),
                        Text(JSON, "verification"),
-                       JSON["startValue"]?.Type is JTokenType.Float or JTokenType.Integer ? JSON["startValue"]!.Value<Decimal>() : null,
-                       JSON["stopValue"]?. Type is JTokenType.Float or JTokenType.Integer ? JSON["stopValue"]!. Value<Decimal>() : null
+                       JSON["startValue"]?.Type is JTokenType.Float or JTokenType.Integer ? JSON["startValue"]!.AsDecimal() : null,
+                       JSON["stopValue"]?. Type is JTokenType.Float or JTokenType.Integer ? JSON["stopValue"]!. AsDecimal() : null
                    );
 
         }
