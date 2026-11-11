@@ -597,8 +597,8 @@ export const connectionsPage: Page = {
 
         /**
          * The connections removed here that the station still dials: it hangs
-         * them up at its next start, and until then it may well be on a back
-         * end this page no longer mentions.
+         * them up as soon as it has taken the change, and until then it may
+         * well be on a back end this page no longer mentions.
          */
         function noLongerWrittenDownView(): TemplateResult | typeof nothing {
 
@@ -609,7 +609,7 @@ export const connectionsPage: Page = {
 
             return html`
                 <div class="notice">
-                    Removed here, and dialled as before until this station starts again:
+                    Removed here, and dialled as before until this station has hung them up:
                     ${left.map(([ , state ]) => {
                         const line = stateLine({ url: state.url, ocppVersion: state.ocppVersion, autoConnect: true }, state, timestamp);
                         return html`

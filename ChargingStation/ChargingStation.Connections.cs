@@ -160,7 +160,7 @@ namespace cloud.charging.open.ChargingStation
         /// The sentence of DialledConnections, and around it what the
         /// Connections page says beside each connection: whether it is
         /// connected, since when, what was dialled - a connection changed
-        /// after the start is dialled as it was until the next one - and,
+        /// is dialled as it was until the station has taken the change - and,
         /// while it is tried again, when the next attempt is.
         /// </remarks>
         public IReadOnlyDictionary<String, ConnectionState> ConnectionStates
@@ -209,36 +209,17 @@ namespace cloud.charging.open.ChargingStation
         /// down and are not touched - an address kept ready for the day
         /// somebody needs it, which can still be tried by hand from the page.
         ///
-        /// Each on its own, in the order it was written down, and none of them
-        /// affected by how another went. What is at the other end is a label
-        /// and nothing reads it here. The oldest of each OCPP version is the
+        /// Peer by peer, each on its own, in the order they were written down,
+        /// and none of them affected by how another went: one endpoint of each,
+        /// and the next one where that cannot be reached (see
+        /// ChargingStation.Peers.cs). The oldest of each OCPP version is the
         /// primary, the back end in charge, which is told what the station says
         /// by itself; every other one is registered with and answered, and told
-        /// nothing by itself (see IsPrimary). Whether a spare waits for its main
-        /// one to fail is a decision nobody has made yet.
+        /// nothing by itself (see IsPrimary).
         /// </remarks>
-        private async Task DialConfiguredConnections(CancellationToken CancellationToken = default)
-        {
+        private Task DialConfiguredConnections(CancellationToken CancellationToken = default)
 
-            var connections  = Connections.Connections;
-            var byItself     = connections.Where(one => one.AutoConnect).ToArray();
-
-            lock (dialled)
-                dialled.Clear();
-
-            if (byItself.Length == 0)
-            {
-                Log.Info(connections.Count == 0
-                             ? "No connections are configured; this station connects nowhere."
-                             : $"None of the {connections.Count} configured connection(s) is set to connect by itself.",
-                         "ocpp", "connections");
-                return;
-            }
-
-            foreach (var connection in byItself.OrderBy(one => one.CreatedAt))
-                await Dial(connection, CancellationToken);
-
-        }
+            => DialPeers(CancellationToken);
 
         #endregion
 
@@ -438,6 +419,8 @@ namespace cloud.charging.open.ChargingStation
                 var client     = ClientOf(Connection);
                 var unreached  = response.HTTPRequest is null;
 
+                RememberClient(Connection, client);
+
                 if (response.HTTPStatusCode != HTTPStatusCode.SwitchingProtocols)
                 {
 
@@ -517,7 +500,9 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Whether the connection leads to the back end in charge of its OCPP
-        /// node: the oldest connection of its version that dials by itself.
+        /// node: the oldest connection of its version that dials by itself, or
+        /// another endpoint of the peer it belongs to - the one dialled where
+        /// that cannot be reached.
         /// </summary>
         /// <remarks>
         /// The oldest, because that is the one this station has always dialled
@@ -527,11 +512,23 @@ namespace cloud.charging.open.ChargingStation
         /// until then it is this one.
         /// </remarks>
         internal Boolean IsPrimary(ConnectionEntry Connection)
+        {
 
-            => Connections.Connections.
-                   Where  (one => one.AutoConnect && one.OCPPVersion == Connection.OCPPVersion).
-                   OrderBy(one => one.CreatedAt).
-                   FirstOrDefault()?.Id == Connection.Id;
+            var oldest = Connections.Connections.
+                             Where  (one => one.AutoConnect && one.OCPPVersion == Connection.OCPPVersion).
+                             OrderBy(one => one.CreatedAt).
+                             FirstOrDefault();
+
+            if (oldest is null)
+                return false;
+
+            if (oldest.Id == Connection.Id)
+                return true;
+
+            return Connections.PeerOf(oldest.Id) is PeerEntry peer &&
+                   peer.EndpointIds.Contains(Connection.Id);
+
+        }
 
         #endregion
 
@@ -774,6 +771,8 @@ namespace cloud.charging.open.ChargingStation
                                 );
 
             var client  = result.Client as WWCPSshClient;
+
+            RememberClient(Connection, client);
 
             if (!result.IsConnected)
             {
@@ -1388,6 +1387,7 @@ namespace cloud.charging.open.ChargingStation
 
         private void Record(ConnectionEntry Connection, ConnectionStatus Status, String What)
         {
+
             lock (dialled)
                 dialled[Connection.Id] = new ConnectionState(
                                              Status,
@@ -1397,6 +1397,10 @@ namespace cloud.charging.open.ChargingStation
                                              Connection.URL,
                                              Connection.OCPPVersion
                                          );
+
+            // Whether its peer goes on to its next endpoint.
+            EndpointStatus(Connection, Status);
+
         }
 
         #endregion
@@ -1410,12 +1414,17 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private void NextAttempt(ConnectionEntry Connection, UInt32 Attempt, TimeSpan Delay)
         {
+
             lock (dialled)
                 if (dialled.TryGetValue(Connection.Id, out var state))
                     dialled[Connection.Id] = state with {
                                                  Attempt        = Attempt,
                                                  NextAttemptAt  = TimeProvider.GetUtcNow() + Delay
                                              };
+
+            // One attempt too many, and its peer goes on to its next endpoint.
+            EndpointRetries(Connection);
+
         }
 
         #endregion
@@ -2077,6 +2086,9 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         private async Task HangUp()
         {
+
+            // No peer goes on to another endpoint, nor is dialled again.
+            LetGoOfPeers();
 
             // Nothing more is asked of a CSMS, nor waited for.
             EndRegistrations(cs01, cs02);

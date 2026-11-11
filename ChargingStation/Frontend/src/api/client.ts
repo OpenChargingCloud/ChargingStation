@@ -859,9 +859,11 @@ export interface ConnectionTest {
  * Three kinds of "not connected", because they ask three different things of
  * whoever is looking: lost and trying are waited out, the station comes back by
  * itself; refused needs the other end fixed; not dialled and failed need this
- * end fixed.
+ * end fixed. And one that is not connected on purpose: standby, an endpoint of
+ * a back end that has more than one, dialled when the one dialled now cannot be
+ * reached.
  */
-export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notDialled' | 'failed';
+export type ConnectionStatus = 'connected' | 'lost' | 'trying' | 'refused' | 'notDialled' | 'failed' | 'standby';
 
 /** What became of one connection this station dialled, and since when. */
 export interface ConnectionState {

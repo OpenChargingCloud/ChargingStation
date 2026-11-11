@@ -96,6 +96,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private readonly Dictionary<String, AuthenticationEntry>  authentications  = [];
         private readonly Dictionary<String, ConnectionEntry>      connections      = [];
         private readonly Dictionary<String, PeerEntry>            peers            = [];
+        private readonly Dictionary<String, Int64>                dialRevisions    = [];
 
         #endregion
 
@@ -177,6 +178,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// they were.
         /// </summary>
         public PeerMigration? Migration { get; private set; }
+
+        /// <summary>
+        /// How often the way the given connection is dialled was changed since
+        /// this store was made: its address, its version, whether it dials by
+        /// itself, the credentials it names or what they hold, its certificate,
+        /// the host key somebody pinned and how it is trusted.
+        /// </summary>
+        /// <remarks>
+        /// What the station compares with the revision it dialled, to dial a
+        /// changed connection again at once. A description written anew, a host
+        /// key learned on first use or a signed pin set taken are no change of
+        /// it: the connection that is up stays up.
+        /// </remarks>
+        public Int64 DialRevisionOf(String ConnectionId)
+        {
+            lock (updateLock)
+                return dialRevisions.GetValueOrDefault(ConnectionId);
+        }
 
         #endregion
 
@@ -773,6 +792,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 Notice(LogLevel.Info, $"Credentials changed: {entry}.");
 
+                // What a connection proves itself with changed for every one
+                // that names them: they are dialled again with it.
+                var naming = connections.Values.Where(connection => connection.AuthenticationId == Id).ToArray();
+
+                foreach (var connection in naming)
+                    BumpDialRevision(connection.Id);
+
+                if (naming.Length > 0 && OnConnectionsChanged is Action changed)
+                    Task.Run(changed);
+
                 Error = null;
                 return true;
 
@@ -1214,10 +1243,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
                 var notes = Normalize();
 
+                Int64? revisionWas = ChangesHowItIsDialled(was, entry) ? BumpDialRevision(Id) : null;
+
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id] = was;
                     RestorePeers(peersBefore);
+                    if (revisionWas is Int64 revision)
+                        dialRevisions[Id] = revision;
                     NotSaved = true;
                     return false;
                 }
@@ -1542,6 +1575,37 @@ namespace cloud.charging.open.ChargingStation.OCPP
             }
 
         }
+
+        #endregion
+
+        #region (private) BumpDialRevision(Id) / ChangesHowItIsDialled(Was, Now)
+
+        /// <summary>
+        /// The given connection is dialled differently now. Called under the
+        /// lock; says what the revision was, to put it back where the change
+        /// could not be written.
+        /// </summary>
+        private Int64 BumpDialRevision(String Id)
+        {
+            var was = dialRevisions.GetValueOrDefault(Id);
+            dialRevisions[Id] = was + 1;
+            return was;
+        }
+
+        /// <summary>
+        /// Whether a connection changed in a way that has to be dialled again.
+        /// </summary>
+        private static Boolean ChangesHowItIsDialled(ConnectionEntry Was, ConnectionEntry Now)
+
+            => Was.URL                 != Now.URL                 ||
+               Was.OCPPVersion         != Now.OCPPVersion         ||
+               Was.AutoConnect         != Now.AutoConnect         ||
+               Was.AuthenticationId    != Now.AuthenticationId    ||
+               Was.CertificateId       != Now.CertificateId       ||
+               Was.SshHostKey          != Now.SshHostKey          ||
+               Was.SshTrustOnFirstUse  != Now.SshTrustOnFirstUse  ||
+               Was.SshOnPinMismatch    != Now.SshOnPinMismatch    ||
+               Was.SshProbationTime    != Now.SshProbationTime;
 
         #endregion
 

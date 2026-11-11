@@ -3,9 +3,9 @@
  *
  * Run with `npm test`. What is pinned is what the page must not get wrong
  * while somebody relies on it: how long and how soon are counted on the
- * station's clock and not the browser's, a connection changed after the start
- * is said to be dialled as it was, and one removed but still dialled is not
- * left out.
+ * station's clock and not the browser's, a connection changed is said to be
+ * dialled as it was until the station has taken the change, one in reserve is
+ * said to be, and one removed but still dialled is not left out.
  */
 
 import { strict as assert }  from 'node:assert';
@@ -103,28 +103,41 @@ describe('where a connection stands', () => {
 
     });
 
-    it('one set to connect by itself that was not dialled is said to wait for the next start', () => {
+    it('one set to connect by itself that was not dialled yet is said to be dialled when the change is taken', () => {
 
         const line = stateLine(dialled, undefined, '2020-01-01T00:00:00.000Z');
 
         assert.equal(line?.chip, 'not dialled');
-        assert.match(line?.said ?? '', /next start/);
+        assert.match(line?.said ?? '', /as soon as this station has taken the change/);
+        assert.doesNotMatch(line?.said ?? '', /next start/);
+
+    });
+
+    it('an endpoint waiting in reserve is said to, and nothing is wrong with it', () => {
+
+        const line = stateLine(dialled, state('standby'), '2020-01-01T00:01:00.000Z');
+
+        assert.equal(line?.chip, 'in reserve');
+        assert.equal(line?.tone, '');
+        assert.equal(line?.when, 'for 1 min');
+        assert.deepEqual(line?.notes, []);
 
     });
 
 });
 
 
-describe('a connection changed since the start', () => {
+describe('a connection changed on the page', () => {
 
-    it('is said to be dialled as it was', () => {
+    it('is said to be dialled as it was, until the station has taken the change', () => {
 
         const line = stateLine({ ...dialled, url: 'ws://elsewhere.example.org/cs001' },
                                state('connected'),
                                '2020-01-01T00:00:10.000Z');
 
         assert.equal(line?.notes.length, 1);
-        assert.match(line!.notes[0]!, /Dialled as ws:\/\/csms\.example\.org\/cs001 \(OCPP2\.1\).*next start/);
+        assert.match(line!.notes[0]!, /Dialled as ws:\/\/csms\.example\.org\/cs001 \(OCPP2\.1\)\. It is hung up and dialled as written here now/);
+        assert.doesNotMatch(line!.notes[0]!, /next start/);
 
     });
 
@@ -136,12 +149,12 @@ describe('a connection changed since the start', () => {
 
     });
 
-    it('switched off, it is still on until the next start', () => {
+    it('switched off, it is on until the station has hung it up', () => {
 
         const line = stateLine({ ...dialled, autoConnect: false }, state('lost'), '2020-01-01T00:00:10.000Z');
 
-        assert.deepEqual(line?.notes, [ 'No longer set to connect by itself. That takes effect at the next start - ' +
-                                        'until then it stays as it is.' ]);
+        assert.deepEqual(line?.notes, [ 'No longer set to connect by itself. It is hung up as soon as this station ' +
+                                        'has taken the change.' ]);
 
     });
 

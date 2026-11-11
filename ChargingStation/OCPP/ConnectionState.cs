@@ -69,7 +69,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// Dialling it went wrong in a way that says nothing about what
         /// happens next.
         /// </summary>
-        Failed
+        Failed,
+
+        /// <summary>
+        /// An endpoint of a back end that has more than one, in reserve: not
+        /// dialled while another endpoint of it is, and dialled when that one
+        /// cannot be reached.
+        /// </summary>
+        Standby
 
     }
 
@@ -79,10 +86,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// </summary>
     /// <remarks>
     /// It carries what was dialled as well as what came of it: a connection
-    /// is dialled when the station starts, and one changed on the page
-    /// afterwards is still the one that was dialled until the next start. A
-    /// page comparing the two can say so; a state that forgot the address it
-    /// was about could not.
+    /// changed on the page is still the one that was dialled for the moment
+    /// it takes the station to hang it up and dial it as it is now. A page
+    /// comparing the two can say so; a state that forgot the address it was
+    /// about could not.
     /// </remarks>
     /// <param name="Status">Where it stands.</param>
     /// <param name="Since">When it came to stand there.</param>
@@ -115,6 +122,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    ConnectionStatus.Trying      => "trying",
                    ConnectionStatus.Refused     => "refused",
                    ConnectionStatus.NotDialled  => "notDialled",
+                   ConnectionStatus.Standby     => "standby",
                    _                            => "failed"
                };
 

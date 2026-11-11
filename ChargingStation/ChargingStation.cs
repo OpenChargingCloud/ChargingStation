@@ -570,6 +570,10 @@ namespace cloud.charging.open.ChargingStation
             this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
             this.Connections.OnConnectionsChanged += () => FollowSSHClientComponents(cs02);
 
+            // What is written down is what is dialled, from the moment it is
+            // written - see ChargingStation.Peers.cs.
+            this.Connections.OnConnectionsChanged += () => _ = ApplyConnectionChanges();
+
             this.SshKey = new SshClientKey(
                               System.IO.Path.Combine(this.Connections.Path, SshClientKey.DirectoryName),
                               $"chargingstation@{Environment.MachineName}"

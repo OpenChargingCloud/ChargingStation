@@ -8,8 +8,8 @@ import type { ConnectionState, StationConnection } from '../api/client';
  * is on its back end, and it is believed. So what is said here is what the
  * station said, and nothing it did not - "since" and "next" are counted on the
  * station's clock, which the browser's need not agree with, and a connection
- * changed on the page after the start is said to be dialled as it was, which it
- * is until the next one.
+ * changed on the page is said to be dialled as it was, which it is for the
+ * moment it takes the station to hang it up and dial it as it is now.
  */
 
 
@@ -71,8 +71,8 @@ export function stateLine(entry:  Pick<StationConnection, 'url' | 'ocppVersion' 
                          chip:   'not dialled',
                          tone:   '',
                          when:   '',
-                         said:   'Not dialled since this station started: it was written down, or set to connect ' +
-                                 'by itself, afterwards. It is dialled at the next start.',
+                         said:   'Not dialled yet: it was written down, or set to connect by itself, a moment ago, ' +
+                                 'and is dialled as soon as this station has taken the change.',
                          notes:  []
                      }
                    : null;
@@ -92,6 +92,7 @@ export function stateLine(entry:  Pick<StationConnection, 'url' | 'ocppVersion' 
             case 'trying':      return [ 'not reached',  'warn', `${since}, and tried again by itself${next}` ];
             case 'refused':     return [ 'refused',      'bad',  `${since}, and not tried again` ];
             case 'notDialled':  return [ 'not dialled',  'bad',  since ];
+            case 'standby':     return [ 'in reserve',   '',     since ];
             default:            return [ 'failed',       'bad',  `${since}, and not tried again` ];
         }
     })();
@@ -99,11 +100,11 @@ export function stateLine(entry:  Pick<StationConnection, 'url' | 'ocppVersion' 
     const notes: string[] = [];
 
     if (state.url !== entry.url || state.ocppVersion !== entry.ocppVersion)
-        notes.push(`Dialled as ${state.url} (${state.ocppVersion}) when this station started. ` +
-                   'What is written here now is dialled at the next start.');
+        notes.push(`Dialled as ${state.url} (${state.ocppVersion}). ` +
+                   'It is hung up and dialled as written here now, as soon as this station has taken the change.');
 
     if (!entry.autoConnect && (state.status === 'connected' || state.status === 'lost' || state.status === 'trying'))
-        notes.push('No longer set to connect by itself. That takes effect at the next start - until then it stays as it is.');
+        notes.push('No longer set to connect by itself. It is hung up as soon as this station has taken the change.');
 
     return { chip, tone, when, said: state.said, notes };
 
@@ -113,8 +114,8 @@ export function stateLine(entry:  Pick<StationConnection, 'url' | 'ocppVersion' 
 /**
  * The connections this station dialled that are no longer written down.
  *
- * A connection removed on the page is not hung up - that happens at the next
- * start - so for the time in between the station may still be on a back end
+ * A connection removed on the page is hung up at once, but not in the same
+ * moment, so for the time in between the station may still be on a back end
  * that the page no longer mentions. They are listed rather than left out.
  *
  * @param connections  what is written down now.
