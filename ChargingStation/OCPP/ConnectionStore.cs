@@ -76,9 +76,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
         public const String  AuthenticationsFileName = "authentications.json";
 
         /// <summary>
-        /// The file the connections live in.
+        /// The file the connections lived in until they were made peers: read
+        /// once, to make the peers of it, and left as it was.
         /// </summary>
         public const String  ConnectionsFileName     = "connections.json";
+
+        /// <summary>
+        /// The file the peers live in, with their endpoints in them (section
+        /// 11.7.1 of EVQI Transport).
+        /// </summary>
+        public const String  PeersFileName           = "peers.json";
 
         /// <summary>
         /// The file the keys a pin set is believed of are kept in.
@@ -88,6 +95,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         private readonly Object                                   updateLock       = new ();
         private readonly Dictionary<String, AuthenticationEntry>  authentications  = [];
         private readonly Dictionary<String, ConnectionEntry>      connections      = [];
+        private readonly Dictionary<String, PeerEntry>            peers            = [];
 
         #endregion
 
@@ -142,6 +150,34 @@ namespace cloud.charging.open.ChargingStation.OCPP
             }
         }
 
+        /// <summary>
+        /// Every peer, oldest first, with the ids of its endpoints - which are
+        /// the connections above.
+        /// </summary>
+        public IReadOnlyList<PeerEntry> Peers
+        {
+            get
+            {
+                lock (updateLock)
+                    return [.. OrderedPeers()];
+            }
+        }
+
+        /// <summary>
+        /// The peer the given connection is an endpoint of.
+        /// </summary>
+        public PeerEntry? PeerOf(String ConnectionId)
+        {
+            lock (updateLock)
+                return PeerOfUnlocked(ConnectionId);
+        }
+
+        /// <summary>
+        /// What became of connections.json when the peers were made of it, if
+        /// they were.
+        /// </summary>
+        public PeerMigration? Migration { get; private set; }
+
         #endregion
 
         #region Events
@@ -149,9 +185,58 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <summary>
         /// Something happened here that belongs in the log of the station: a
         /// connection written down, a login removed, a file that could not be
-        /// read.
+        /// read, the connections made peers.
         /// </summary>
-        public event Action<LogLevel, String>? OnNotice;
+        /// <remarks>
+        /// What is said while the store is being made, before anybody can have
+        /// listened, is kept and told to the first one who does: the store reads
+        /// its files when it is made, and a file that cannot be read, or the
+        /// peers made of connections.json, would otherwise be told to nobody.
+        /// </remarks>
+        public event Action<LogLevel, String>? OnNotice
+        {
+
+            add
+            {
+
+                List<(LogLevel Level, String Message)>? untoldSoFar;
+
+                lock (updateLock)
+                {
+                    onNotice    += value;
+                    untoldSoFar  = untold;
+                    untold       = null;
+                }
+
+                foreach (var (level, message) in untoldSoFar ?? [])
+                    value?.Invoke(level, message);
+
+            }
+
+            remove
+            {
+                lock (updateLock)
+                    onNotice -= value;
+            }
+
+        }
+
+        private Action<LogLevel, String>?                 onNotice;
+        private List<(LogLevel Level, String Message)>?   untold = [];
+
+        /// <summary>
+        /// Tell whoever listens, or keep it for the first one who will.
+        /// </summary>
+        private void Notice(LogLevel Level, String Message)
+        {
+
+            if (onNotice is Action<LogLevel, String> listeners)
+                listeners(Level, Message);
+
+            else if (untold is not null && untold.Count < 1000)
+                untold.Add((Level, Message));
+
+        }
 
         #endregion
 
@@ -200,15 +285,29 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     if (AuthenticationEntry.TryParse(json, out var entry, out var problem))
                         authentications[entry.Id] = entry;
                     else
-                        OnNotice?.Invoke(LogLevel.Warning, $"A set of credentials could not be read: {problem}");
+                        Notice(LogLevel.Warning, $"A set of credentials could not be read: {problem}");
                 }
 
-                foreach (var json in Read(ConnectionsFileName))
+                peers.Clear();
+                Migration = null;
+
+                if (File.Exists(System.IO.Path.Combine(Path, PeersFileName)))
+                    ReadPeers();
+
+                else
                 {
-                    if (ConnectionEntry.TryParse(json, out var entry, out var problem))
-                        connections[entry.Id] = entry;
-                    else
-                        OnNotice?.Invoke(LogLevel.Warning, $"A connection could not be read: {problem}");
+
+                    foreach (var json in Read(ConnectionsFileName))
+                    {
+                        if (ConnectionEntry.TryParse(json, out var entry, out var problem))
+                            connections[entry.Id] = entry;
+                        else
+                            Notice(LogLevel.Warning, $"A connection could not be read: {problem}");
+                    }
+
+                    if (connections.Count > 0)
+                        Migrate();
+
                 }
 
                 pinSetSigners.Clear();
@@ -218,7 +317,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     if (PinSetSigner.TryParse(json) is PinSetSigner signer)
                         pinSetSigners.Add(signer);
                     else
-                        OnNotice?.Invoke(LogLevel.Warning, $"A signer of pin sets could not be read: {json.ToString(Newtonsoft.Json.Formatting.None)}");
+                        Notice(LogLevel.Warning, $"A signer of pin sets could not be read: {json.ToString(Newtonsoft.Json.Formatting.None)}");
                 }
 
             }
@@ -246,7 +345,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             }
             catch (Exception e)
             {
-                OnNotice?.Invoke(LogLevel.Error, $"'{FileName}' could not be read and is being ignored: {e.Message}");
+                Notice(LogLevel.Error, $"'{FileName}' could not be read and is being ignored: {e.Message}");
                 return [];
             }
 
@@ -270,18 +369,24 @@ namespace cloud.charging.open.ChargingStation.OCPP
                        out Error);
 
         /// <summary>
-        /// The connections, written out. Called under the lock, once a change
-        /// of them is made, and before it is said to be.
+        /// The peers and their endpoints - the connections - written out to
+        /// peers.json. Called under the lock, once a change of them is made,
+        /// and before it is said to be.
         /// </summary>
         private Boolean TrySaveConnections([NotNullWhen(false)] out String? Error)
         {
 
-            if (!TrySave(ConnectionsFileName,
-                         new JArray(connections.Values.
-                                        OrderBy(entry => entry.CreatedAt).
-                                        Select (entry => entry.ToJSON())),
-                         false,
-                         out Error))
+            var json = new JObject(
+                           new JProperty("peers", new JArray(
+                               OrderedPeers().Select(peer => peer.ToJSON(peer.EndpointIds.
+                                                                             Where (connections.ContainsKey).
+                                                                             Select(id => connections[id])))))
+                       );
+
+            if (Migration is not null)
+                json.Add(new JProperty("migration", Migration.ToJSON()));
+
+            if (!TrySave(PeersFileName, json, false, out Error))
                 return false;
 
             // Told outside the lock, so that whoever follows may ask again.
@@ -361,7 +466,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"A pin set signed by '{description}' ({publicKey}) is believed from now on.");
+                Notice(LogLevel.Notice, $"A pin set signed by '{description}' ({publicKey}) is believed from now on.");
                 return true;
 
             }
@@ -401,7 +506,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice, $"A pin set signed by '{signer.Description}' is no longer believed.");
+                Notice(LogLevel.Notice, $"A pin set signed by '{signer.Description}' is no longer believed.");
                 return true;
 
             }
@@ -428,7 +533,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="OwnerOnly">Whether only its owner may read it.</param>
         /// <param name="Error">Why it was not written.</param>
         private Boolean TrySave(String                            FileName,
-                                JArray                            Entries,
+                                JToken                            Entries,
                                 Boolean                           OwnerOnly,
                                 [NotNullWhen(false)] out String?  Error)
         {
@@ -568,7 +673,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Credentials written down: {entry}.");
+                Notice(LogLevel.Info, $"Credentials written down: {entry}.");
 
                 Id = entry.Id;
                 return true;
@@ -666,7 +771,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Credentials changed: {entry}.");
+                Notice(LogLevel.Info, $"Credentials changed: {entry}.");
 
                 Error = null;
                 return true;
@@ -827,7 +932,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Credentials removed: {entry}.");
+                Notice(LogLevel.Info, $"Credentials removed: {entry}.");
 
                 Error = null;
                 return true;
@@ -918,16 +1023,33 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 SshProbationTime    = probationTime
                             };
 
+                var peersBefore = SnapshotPeers();
+
                 connections[entry.Id] = entry;
+
+                // A peer of its own, with this one endpoint: the primary if it
+                // dials by itself and nothing else is in charge, an observer if
+                // it dials by itself, a service if not.
+                var peer = NewPeerOf(entry);
+                peer.Role = !entry.AutoConnect
+                                ? PeerRole.Service
+                                : peers.Values.Any(other => other.Role == PeerRole.Primary)
+                                      ? PeerRole.Observer
+                                      : PeerRole.Primary;
+                peers[peer.Id] = peer;
+
+                var notes = Normalize();
 
                 if (!TrySaveConnections(out Error))
                 {
                     connections.Remove(entry.Id);
+                    RestorePeers(peersBefore);
                     NotSaved = true;
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Connection written down: {entry}.");
+                Notice(LogLevel.Info, $"Connection written down: {entry}, as peer {peer}.");
+                Tell(notes, LogLevel.Notice);
 
                 Id = entry.Id;
                 return true;
@@ -1026,6 +1148,16 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 if (keepsHostKey)
                     hostKey = url.Scheme == URIScheme.ssh ? entry.SshHostKey : null;
 
+                var peer = PeerOfUnlocked(entry.Id);
+
+                if (peer is not null && peer.EndpointIds.Count > 1 && version != peer.OCPPVersion)
+                {
+                    Error = $"Every endpoint of a peer speaks one OCPP version, and '{peer.Description}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}. " +
+                            "Make this connection a peer of its own first.";
+                    return false;
+                }
+
+                var peersBefore = SnapshotPeers();
                 var was = entry.Copy();
 
                 entry.Description         = Description!.Trim();
@@ -1064,14 +1196,34 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     entry.SshProbationTime    = probationTime;
                 }
 
+                // A peer of this one endpoint follows it: its version, its kind
+                // where that came from the connection's type, its description
+                // where that was the connection's.
+                if (peer is not null && peer.EndpointIds.Count == 1)
+                {
+
+                    peer.OCPPVersion = version;
+
+                    if (peer.Kind is PeerKind.CSMS or PeerKind.LocalController)
+                        peer.Kind = PeerEntry.KindOf(type);
+
+                    if (peer.Description == was.Description)
+                        peer.Description = entry.Description;
+
+                }
+
+                var notes = Normalize();
+
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id] = was;
+                    RestorePeers(peersBefore);
                     NotSaved = true;
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Connection changed: {entry}.");
+                Notice(LogLevel.Info, $"Connection changed: {entry}.");
+                Tell(notes, LogLevel.Notice);
 
                 Error = null;
                 return true;
@@ -1132,7 +1284,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice,
+                Notice(LogLevel.Notice,
                                  $"'{entry.Description}' pins no host key and trusts on first use, so the one its server showed on the first " +
                                  $"connection was learned: {HostKey}. It is on probation for {entry.SshProbationTime.TotalMinutes:0.#} minute(s), " +
                                   "until a signed pin set confirms it; until then nothing but such a pin set is executed.");
@@ -1186,7 +1338,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice,
+                Notice(LogLevel.Notice,
                                  $"'{entry.Description}' believes its server as a signed pin set said: trust on first use {trustOnFirstUse}, " +
                                  $"a mismatch {onPinMismatch}, a probation of {probationTime.TotalSeconds:0} s.");
 
@@ -1228,11 +1380,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 {
                     entry.SshLearnedHostKey  = HostKey;
                     entry.SshLearnedAt       = learnedAt;
-                    OnNotice?.Invoke(LogLevel.Warning, $"'{entry.Description}' could not forget the host key it learned: {error}.");
+                    Notice(LogLevel.Warning, $"'{entry.Description}' could not forget the host key it learned: {error}.");
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Warning,
+                Notice(LogLevel.Warning,
                                  $"'{entry.Description}' forgot the host key {HostKey} it learned on its first connection: no signed pin set " +
                                   "confirmed it in time. The next connection learns again.");
 
@@ -1313,7 +1465,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Notice,
+                Notice(LogLevel.Notice,
                                  $"'{entry.Description}' took the host keys of the signed pin set of version {Version}: {hostKey}" +
                                  (Learned is null
                                       ? "."
@@ -1366,16 +1518,23 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     return false;
                 }
 
+                var peersBefore = SnapshotPeers();
+
                 connections.Remove(Id);
+                PeerOfUnlocked(Id)?.RemoveEndpoint(Id);
+
+                var notes = Normalize();
 
                 if (!TrySaveConnections(out Error))
                 {
                     connections[Id] = entry;
+                    RestorePeers(peersBefore);
                     NotSaved = true;
                     return false;
                 }
 
-                OnNotice?.Invoke(LogLevel.Info, $"Connection removed: {entry}.");
+                Notice(LogLevel.Info, $"Connection removed: {entry}.");
+                Tell(notes, LogLevel.Notice);
 
                 Error = null;
                 return true;
@@ -1385,6 +1544,571 @@ namespace cloud.charging.open.ChargingStation.OCPP
         }
 
         #endregion
+
+        #region Peers: (private) ReadPeers() / Migrate() / Normalize() and their helpers
+
+        /// <summary>
+        /// peers.json, read into the peers and their endpoints. Called under the
+        /// lock.
+        /// </summary>
+        /// <remarks>
+        /// Once peers.json is there, it is what this station dials, and
+        /// connections.json beside it is not read again. A peers.json that
+        /// cannot be read at all is ignored, as connections.json was: the
+        /// station dials nothing rather than something nobody wrote down any
+        /// more.
+        /// </remarks>
+        private void ReadPeers()
+        {
+
+            JObject file;
+
+            try
+            {
+                file = JObject.Parse(File.ReadAllText(System.IO.Path.Combine(Path, PeersFileName)));
+            }
+            catch (Exception e)
+            {
+                Notice(LogLevel.Error, $"'{PeersFileName}' could not be read and is being ignored: {e.Message}");
+                return;
+            }
+
+            Migration = PeerMigration.TryParse(file["migration"]);
+
+            foreach (var json in (file["peers"] as JArray)?.OfType<JObject>() ?? [])
+            {
+
+                if (!PeerEntry.TryParse(json, out var peer, out var endpoints, out var problem))
+                {
+                    Notice(LogLevel.Warning, $"A peer could not be read: {problem}");
+                    continue;
+                }
+
+                if (peers.ContainsKey(peer.Id))
+                {
+                    Notice(LogLevel.Warning, $"Peer '{peer.Id}' is written down twice; the second one is ignored.");
+                    continue;
+                }
+
+                foreach (var endpointJSON in endpoints)
+                {
+
+                    if (!ConnectionEntry.TryParse(endpointJSON, out var entry, out problem))
+                    {
+                        Notice(LogLevel.Warning, $"An endpoint of peer '{peer.Id}' could not be read: {problem}");
+                        continue;
+                    }
+
+                    if (connections.ContainsKey(entry.Id))
+                    {
+                        Notice(LogLevel.Warning, $"Endpoint '{entry.Id}' is written down twice; the one of peer '{peer.Id}' is ignored.");
+                        continue;
+                    }
+
+                    connections[entry.Id] = entry;
+                    peer.AddEndpoint(entry.Id);
+
+                }
+
+                if (peer.EndpointIds.Count == 0)
+                {
+                    Notice(LogLevel.Warning, $"Peer '{peer.Id}' has no endpoint that could be read and is ignored.");
+                    continue;
+                }
+
+                peers[peer.Id] = peer;
+
+            }
+
+            // What a hand made the file say against the rules is put right here
+            // and told, not written back: whoever edited it should see why.
+            Tell(Normalize(), LogLevel.Warning);
+
+        }
+
+
+        /// <summary>
+        /// The peers made of connections.json, once, when there is no
+        /// peers.json yet (section 11.7.1 of EVQI Transport). Called under the
+        /// lock.
+        /// </summary>
+        /// <remarks>
+        /// Nothing is dialled differently. Every connection stays an endpoint
+        /// under its own id, and keeps whether it dials by itself; the roles are
+        /// written down, and what a role may do applies from work package P9
+        /// on. Every connection becomes a peer of its own, but a CSMSBackup,
+        /// which becomes the next endpoint of the one CSMS of its OCPP version,
+        /// where there is exactly one. The oldest connection that dials by
+        /// itself makes its peer the primary; the oldest of the other OCPP
+        /// version makes its peer a successor, since the model has one back end
+        /// in charge where there were two, one per OCPP node; every other peer
+        /// dialled by itself is an observer, and one that is not a service.
+        ///
+        /// connections.json is left as it was, for a station of an older
+        /// version; it is not read again. The migration is told, line by line,
+        /// and kept in peers.json.
+        /// </remarks>
+        private void Migrate()
+        {
+
+            var notes    = new List<String>();
+            var ordered  = connections.Values.
+                               OrderBy(entry => entry.CreatedAt).
+                               ThenBy (entry => entry.Id, StringComparer.Ordinal).
+                               ToArray();
+
+            foreach (var entry in ordered.Where(entry => entry.ConnectionType != ConnectionType.CSMSBackup))
+                peers[entry.Id] = NewPeerOf(entry);
+
+            var csms = peers.Values.Where(peer => peer.Kind == PeerKind.CSMS).ToArray();
+
+            foreach (var backup in ordered.Where(entry => entry.ConnectionType == ConnectionType.CSMSBackup))
+            {
+
+                var backedUp = csms.Where(peer => peer.OCPPVersion == backup.OCPPVersion).ToArray();
+
+                if (backedUp.Length == 1)
+                {
+                    backedUp[0].AddEndpoint(backup.Id);
+                    notes.Add($"'{backup.Description}' ({backup.Id}), a CSMSBackup, is the next endpoint of peer {backedUp[0].Id} " +
+                              $"'{backedUp[0].Description}', the one CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)}.");
+                }
+
+                else
+                {
+                    peers[backup.Id] = NewPeerOf(backup);
+                    notes.Add($"'{backup.Description}' ({backup.Id}), a CSMSBackup, is a peer of its own: " +
+                              (backedUp.Length == 0
+                                   ? $"there is no CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)} it would back up."
+                                   : $"{backedUp.Length} CSMS of {ConnectionEntry.AsText(backup.OCPPVersion)} could be the one it backs up."));
+                }
+
+            }
+
+            foreach (var peer in peers.Values)
+                peer.Role = IsDialled(peer) ? PeerRole.Observer : PeerRole.Service;
+
+            if (OldestDialled() is PeerEntry primary)
+            {
+
+                primary.Role = PeerRole.Primary;
+
+                var otherVersion = primary.OCPPVersion == OCPPVersion.OCPP1_6 ? OCPPVersion.OCPP2_1 : OCPPVersion.OCPP1_6;
+
+                if (OldestDialled(otherVersion) is PeerEntry successor)
+                {
+                    successor.Role = PeerRole.Successor;
+                    notes.Add($"Peer {successor.Id} '{successor.Description}' was in charge of the {ConnectionEntry.AsText(otherVersion)} node, " +
+                              $"as '{primary.Description}' was of the {ConnectionEntry.AsText(primary.OCPPVersion)} one. The station has one primary now, " +
+                              $"so it is a successor: dialled and registered with as before, and held to a successor's rights once they apply.");
+                }
+
+            }
+
+            notes.InsertRange(0, OrderedPeers().Select(peer => $"Peer {peer.Id} '{peer.Description}': {peer.Kind}, {peer.Role}, " +
+                                                                $"{ConnectionEntry.AsText(peer.OCPPVersion)}, endpoint(s) {String.Join(", ", peer.EndpointIds)}."));
+
+            notes.Insert(0, $"The {connections.Count} connection(s) of {ConnectionsFileName} are {peers.Count} peer(s) in {PeersFileName} now; " +
+                            $"nothing is dialled differently.");
+
+            notes.AddRange(Normalize());
+
+            Migration = new PeerMigration(TimeProvider.GetUtcNow(), notes);
+
+            Tell(notes, LogLevel.Notice);
+
+            if (!TrySaveConnections(out var error))
+                Notice(LogLevel.Error, $"The peers made of {ConnectionsFileName} could not be written, and are made again at the next start: {error}");
+
+        }
+
+
+        /// <summary>
+        /// The rules a peer list keeps, made to hold. Called under the lock;
+        /// says what it changed.
+        /// </summary>
+        /// <remarks>
+        /// - Every connection is the endpoint of exactly one peer.
+        /// - A peer none of whose endpoints dials by itself is a service, and a
+        ///   service one of whose endpoints does is not.
+        /// - At most one primary, and one as soon as a peer is dialled by
+        ///   itself: the oldest such peer, where none is.
+        /// - Rights are a secondary's; a primary has every right.
+        /// </remarks>
+        private List<String> Normalize()
+        {
+
+            var notes = new List<String>();
+
+            foreach (var peer in peers.Values)
+                foreach (var id in peer.EndpointIds.Where(id => !connections.ContainsKey(id)).ToArray())
+                    peer.RemoveEndpoint(id);
+
+            foreach (var peer in peers.Values.Where(peer => peer.EndpointIds.Count == 0).ToArray())
+            {
+                peers.Remove(peer.Id);
+                notes.Add($"Peer {peer.Id} '{peer.Description}' has no endpoint left and is gone.");
+            }
+
+            var owned = peers.Values.SelectMany(peer => peer.EndpointIds).ToHashSet();
+
+            foreach (var entry in connections.Values.Where(entry => !owned.Contains(entry.Id)).OrderBy(entry => entry.CreatedAt).ToArray())
+            {
+                var peer = NewPeerOf(entry);
+                peer.Role = IsDialled(peer) ? PeerRole.Observer : PeerRole.Service;
+                peers[peer.Id] = peer;
+                notes.Add($"Connection '{entry.Description}' ({entry.Id}) belonged to no peer and is peer {peer.Id} of its own now, a {peer.Role}.");
+            }
+
+            foreach (var peer in peers.Values)
+            {
+
+                var dialled = IsDialled(peer);
+
+                if (!dialled && peer.Role != PeerRole.Service)
+                {
+                    notes.Add($"None of the endpoints of peer {peer.Id} '{peer.Description}' dials by itself, so it is no {peer.Role} but a Service now.");
+                    peer.Role = PeerRole.Service;
+                }
+
+                else if (dialled && peer.Role == PeerRole.Service)
+                {
+                    peer.Role = PeerRole.Observer;
+                    notes.Add($"An endpoint of peer {peer.Id} '{peer.Description}' dials by itself, so it is no Service but an Observer now.");
+                }
+
+            }
+
+            var primaries = peers.Values.Where(peer => peer.Role == PeerRole.Primary).OrderBy(FirstDialledAt).ToArray();
+
+            foreach (var extra in primaries.Skip(1))
+            {
+                extra.Role = PeerRole.Successor;
+                notes.Add($"Peer {extra.Id} '{extra.Description}' was a second primary and is a Successor now: one back end is in charge.");
+            }
+
+            if (primaries.Length == 0 && OldestDialled() is PeerEntry next)
+            {
+                notes.Add($"Switchover: peer {next.Id} '{next.Description}' is the primary now, as the oldest peer dialled by itself; it was a {next.Role}.");
+                next.Role = PeerRole.Primary;
+            }
+
+            foreach (var peer in peers.Values.Where(peer => peer.Role == PeerRole.Primary && peer.Rights is not null))
+            {
+                peer.Rights = null;
+                notes.Add($"The rights of peer {peer.Id} '{peer.Description}' are gone: a primary has every right.");
+            }
+
+            return notes;
+
+        }
+
+
+        private PeerEntry NewPeerOf(ConnectionEntry Entry)
+        {
+
+            var peer = new PeerEntry(peers.ContainsKey(Entry.Id) ? NewId() : Entry.Id,
+                                     Entry.Description,
+                                     PeerEntry.KindOf(Entry.ConnectionType),
+                                     PeerRole.Service,
+                                     Entry.OCPPVersion,
+                                     Entry.CreatedAt);
+
+            peer.AddEndpoint(Entry.Id);
+            return peer;
+
+        }
+
+        /// <summary>
+        /// Whether one of the endpoints of the given peer dials by itself.
+        /// </summary>
+        private Boolean IsDialled(PeerEntry Peer)
+
+            => Peer.EndpointIds.Any(id => connections.TryGetValue(id, out var entry) && entry.AutoConnect);
+
+        /// <summary>
+        /// When the oldest of the endpoints of the given peer that dial by
+        /// themselves was written down; the end of time for a peer with none.
+        /// </summary>
+        private DateTimeOffset FirstDialledAt(PeerEntry Peer)
+
+            => Peer.EndpointIds.
+                   Select (id => connections.TryGetValue(id, out var entry) && entry.AutoConnect ? entry.CreatedAt : DateTimeOffset.MaxValue).
+                   DefaultIfEmpty(DateTimeOffset.MaxValue).
+                   Min();
+
+        /// <summary>
+        /// The peer this station has dialled first, of the given OCPP version
+        /// or of both.
+        /// </summary>
+        private PeerEntry? OldestDialled(OCPPVersion? Version = null)
+
+            => peers.Values.
+                   Where  (peer => IsDialled(peer) && (Version is null || peer.OCPPVersion == Version)).
+                   OrderBy(FirstDialledAt).
+                   ThenBy (peer => peer.Id, StringComparer.Ordinal).
+                   FirstOrDefault();
+
+        private IEnumerable<PeerEntry> OrderedPeers()
+
+            => peers.Values.
+                   OrderBy(peer => peer.CreatedAt).
+                   ThenBy (peer => peer.Id, StringComparer.Ordinal);
+
+        private PeerEntry? PeerOfUnlocked(String ConnectionId)
+
+            => peers.Values.FirstOrDefault(peer => peer.EndpointIds.Contains(ConnectionId));
+
+        private PeerEntry[] SnapshotPeers()
+
+            => [.. peers.Values.Select(peer => peer.Copy())];
+
+        private void RestorePeers(PeerEntry[] Snapshot)
+        {
+            peers.Clear();
+            foreach (var peer in Snapshot)
+                peers[peer.Id] = peer;
+        }
+
+        private void Tell(IEnumerable<String> Notes, LogLevel Level)
+        {
+            foreach (var note in Notes)
+                Notice(Level, note);
+        }
+
+        #endregion
+
+        #region TryUpdatePeer(Id, Description, Kind, Role, Identity, Rights, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Change what a peer is: its description, kind, role, identity or
+        /// rights. Whatever is null stays as it is; an empty identity and a JSON
+        /// null for the rights take them away.
+        /// </summary>
+        /// <remarks>
+        /// A peer made the primary takes over from the one that was: that one
+        /// is a successor then, and the change is told as a switchover. The
+        /// primary cannot be made anything else directly - the oldest peer
+        /// dialled by itself would be in charge again at once, often the same -
+        /// so another one is made the primary instead. Whether a peer is a
+        /// service follows from its endpoints: one that dials by itself makes
+        /// its peer one that is dialled always.
+        /// </remarks>
+        public Boolean TryUpdatePeer(String?                          Id,
+                                     String?                          Description,
+                                     String?                          Kind,
+                                     String?                          Role,
+                                     String?                          Identity,
+                                     JToken?                          Rights,
+                                     [NotNullWhen(false)] out String? Error)
+
+            => TryUpdatePeer(Id, Description, Kind, Role, Identity, Rights, out Error, out _);
+
+        public Boolean TryUpdatePeer(String?                          Id,
+                                     String?                          Description,
+                                     String?                          Kind,
+                                     String?                          Role,
+                                     String?                          Identity,
+                                     JToken?                          Rights,
+                                     [NotNullWhen(false)] out String? Error,
+                                     out Boolean                      NotSaved)
+        {
+
+            NotSaved = false;
+
+            var description = Description?.Trim();
+
+            if (description is not null && (description.Length == 0 || description.Length > PeerEntry.MaxDescriptionLength))
+            {
+                Error = $"A peer is described in 1 to {PeerEntry.MaxDescriptionLength} characters.";
+                return false;
+            }
+
+            var kind = PeerKind.CSMS;
+
+            if (Kind is not null && !PeerEntry.TryParseKind(Kind, out kind))
+            {
+                Error = $"'{Kind}' is no kind of peer: {String.Join(", ", Enum.GetNames<PeerKind>())}.";
+                return false;
+            }
+
+            var role = PeerRole.Service;
+
+            if (Role is not null && !PeerEntry.TryParseRole(Role, out role))
+            {
+                Error = $"'{Role}' is no role of a peer: {String.Join(", ", Enum.GetNames<PeerRole>())}.";
+                return false;
+            }
+
+            var identity = Identity?.Trim();
+
+            if (identity is not null && (identity.Length > PeerEntry.MaxIdentityLength || identity.Any(Char.IsWhiteSpace)))
+            {
+                Error = $"The identity towards a peer is at most {PeerEntry.MaxIdentityLength} characters, without spaces.";
+                return false;
+            }
+
+            PeerRights? rights = null;
+
+            if (Rights is not null && !PeerRights.TryParse(Rights, out rights, out Error))
+                return false;
+
+            lock (updateLock)
+            {
+
+                if (Id is null || !peers.TryGetValue(Id, out var peer))
+                {
+                    Error = "There is no peer here under that identification.";
+                    return false;
+                }
+
+                var newRole    = Role   is not null ? role   : peer.Role;
+                var newRights  = Rights is not null ? rights : peer.Rights;
+
+                if (peer.Role == PeerRole.Primary && newRole != PeerRole.Primary)
+                {
+                    Error = $"'{peer.Description}' is the primary. To hand the station to another back end, make that one the primary.";
+                    return false;
+                }
+
+                if (newRole == PeerRole.Service && IsDialled(peer))
+                {
+                    Error = $"An endpoint of '{peer.Description}' dials by itself, and a service is dialled on demand only. Switch that off first.";
+                    return false;
+                }
+
+                if (newRole != PeerRole.Service && !IsDialled(peer))
+                {
+                    Error = $"None of the endpoints of '{peer.Description}' dials by itself, and a {newRole} is dialled always. Switch that on for one of them first.";
+                    return false;
+                }
+
+                if (newRole == PeerRole.Primary && newRights is not null)
+                {
+                    Error = "A primary has every right; rights are for a secondary. Take them away first.";
+                    return false;
+                }
+
+                var before  = SnapshotPeers();
+                var notes   = new List<String>();
+
+                if (newRole == PeerRole.Primary && peer.Role != PeerRole.Primary)
+                {
+
+                    foreach (var previous in peers.Values.Where(other => other.Role == PeerRole.Primary))
+                    {
+                        previous.Role = PeerRole.Successor;
+                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description}' is the primary now, in place of peer {previous.Id} " +
+                                  $"'{previous.Description}', which is a successor.");
+                    }
+
+                    if (notes.Count == 0)
+                        notes.Add($"Switchover: peer {peer.Id} '{peer.Description}' is the primary now.");
+
+                }
+
+                else if (newRole != peer.Role)
+                    notes.Add($"Peer {peer.Id} '{peer.Description}' is a {newRole} now; it was a {peer.Role}.");
+
+                if (description is not null)  peer.Description  = description;
+                if (Kind        is not null)  peer.Kind         = kind;
+                if (identity    is not null)  peer.Identity     = identity.Length > 0 ? identity : null;
+
+                peer.Role    = newRole;
+                peer.Rights  = newRights;
+
+                notes.AddRange(Normalize());
+
+                if (!TrySaveConnections(out Error))
+                {
+                    RestorePeers(before);
+                    NotSaved = true;
+                    return false;
+                }
+
+                Notice(LogLevel.Info, $"Peer changed: {peer}.");
+                Tell(notes, LogLevel.Notice);
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TryMoveEndpoint(ConnectionId, PeerId, Position, out Error [, out NotSaved])
+
+        /// <summary>
+        /// Make a connection an endpoint of the given peer, at the given place
+        /// among its endpoints, or the last: a backup, say, put after the CSMS it
+        /// backs up. A peer left without endpoints is gone.
+        /// </summary>
+        public Boolean TryMoveEndpoint(String?                          ConnectionId,
+                                       String?                          PeerId,
+                                       Int32?                           Position,
+                                       [NotNullWhen(false)] out String? Error)
+
+            => TryMoveEndpoint(ConnectionId, PeerId, Position, out Error, out _);
+
+        public Boolean TryMoveEndpoint(String?                          ConnectionId,
+                                       String?                          PeerId,
+                                       Int32?                           Position,
+                                       [NotNullWhen(false)] out String? Error,
+                                       out Boolean                      NotSaved)
+        {
+
+            NotSaved = false;
+
+            lock (updateLock)
+            {
+
+                if (ConnectionId is null || !connections.TryGetValue(ConnectionId, out var entry))
+                {
+                    Error = "There is no connection here under that identification.";
+                    return false;
+                }
+
+                if (PeerId is null || !peers.TryGetValue(PeerId, out var peer))
+                {
+                    Error = "There is no peer here under that identification.";
+                    return false;
+                }
+
+                if (entry.OCPPVersion != peer.OCPPVersion)
+                {
+                    Error = $"Every endpoint of a peer speaks one OCPP version: '{peer.Description}' speaks {ConnectionEntry.AsText(peer.OCPPVersion)}, " +
+                            $"'{entry.Description}' {ConnectionEntry.AsText(entry.OCPPVersion)}.";
+                    return false;
+                }
+
+                var before = SnapshotPeers();
+
+                PeerOfUnlocked(entry.Id)?.RemoveEndpoint(entry.Id);
+                peer.AddEndpoint(entry.Id, Position);
+
+                var notes = Normalize();
+
+                if (!TrySaveConnections(out Error))
+                {
+                    RestorePeers(before);
+                    NotSaved = true;
+                    return false;
+                }
+
+                Notice(LogLevel.Info, $"'{entry.Description}' ({entry.Id}) is endpoint {peer.EndpointIds.ToList().IndexOf(entry.Id) + 1} of peer {peer}.");
+                Tell(notes, LogLevel.Notice);
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
 
         #region (private) CheckReferences(...) / CheckEverything() / CheckEntry(Entry)
 
@@ -1577,6 +2301,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                    OrderByDescending(entry => entry.CreatedAt).
                                    Select(entry => entry.ToJSON()))),
 
+                           new JProperty("peers",                  new JArray(
+                               OrderedPeers().Select(peer => peer.ToAPIJSON()))),
+
+                           new JProperty("peerKinds",              new JArray(Enum.GetNames<PeerKind>())),
+                           new JProperty("peerRoles",              new JArray(Enum.GetNames<PeerRole>())),
+
+                           new JProperty("migration",              Migration?.ToJSON()),
+
                            new JProperty("pinSetSigners",          new JArray(
                                pinSetSigners.Select(signer => signer.ToJSON()))),
 
@@ -1609,7 +2341,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         public override String ToString()
 
-            => $"{connections.Count} connection(s), {authentications.Count} set(s) of credentials in '{Path}'";
+            => $"{peers.Count} peer(s) with {connections.Count} connection(s), {authentications.Count} set(s) of credentials in '{Path}'";
 
         #endregion
 

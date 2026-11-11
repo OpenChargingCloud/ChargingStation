@@ -320,7 +320,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var file                = Path.Combine(Station.Connections.Path,
                                                    Change.EndsWith("credentials")
                                                        ? ConnectionStore.AuthenticationsFileName
-                                                       : ConnectionStore.ConnectionsFileName);
+                                                       : ConnectionStore.PeersFileName);
 
             var before              = WhatIsKept(await GetJSON(http, "api/v1/configuration/connections"));
 
@@ -367,7 +367,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http = await SignedIn();
 
-            System.IO.Directory.CreateDirectory(Path.Combine(Station.Connections.Path, ConnectionStore.ConnectionsFileName     + ".tmp"));
+            System.IO.Directory.CreateDirectory(Path.Combine(Station.Connections.Path, ConnectionStore.PeersFileName           + ".tmp"));
             System.IO.Directory.CreateDirectory(Path.Combine(Station.Connections.Path, ConnectionStore.AuthenticationsFileName + ".tmp"));
 
             var noURL      = await http.PostAsync("api/v1/configuration/connections",         JSONBody(new JProperty("description", "Nowhere"), new JProperty("url", "ftp://csms.example.org"), new JProperty("connectionType", "CSMS")));
