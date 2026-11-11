@@ -194,10 +194,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// Ask the station something over its connection, and wait for the
             /// answer: a CALLRESULT or a CALLERROR.
             /// </summary>
-            public async Task<JArray> Ask(String Action, JObject Payload)
+            /// <param name="Id">The message id, for a request signed for it; a new one otherwise.</param>
+            public async Task<JArray> Ask(String Action, JObject Payload, String? Id = null)
             {
 
-                var id          = Guid.NewGuid().ToString();
+                var id          = Id ?? Guid.NewGuid().ToString();
                 var connection  = Messages.Connections.First();
 
                 await connection.SendTextMessage(new JArray(2, id, Action, Payload).ToString(Formatting.None));
@@ -214,6 +215,14 @@ namespace cloud.charging.open.ChargingStation.Tests
                 throw new TimeoutException($"The station did not answer '{Action}' within 10 s.");
 
             }
+
+            /// <summary>
+            /// Ask the station a request under the message id it was signed for:
+            /// a signature names the message id, so the same payload under another
+            /// one is not signed at all.
+            /// </summary>
+            public Task<JArray> Ask(String Action, (JObject Payload, String Id) Message)
+                => Ask(Action, Message.Payload, Message.Id);
 
             public ValueTask DisposeAsync()
                 => Server.DisposeAsync();
@@ -377,28 +386,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A SetVariables request of SSHClientController for the given connection - its pins and their
-        /// version - signed by the given key, or by none: as the CSMS sends it.
+        /// version - signed by the given key, or by none: as the CSMS sends it, with the message id it
+        /// is to go under, which the signature names.
         /// </summary>
-        private JObject PinSet(String       Connection,
-                               String       Pins,
-                               UInt64       Version,
-                               ECCKeyPair?  Signer)
+        private (JObject Payload, String Id) PinSet(String       Connection,
+                                                    String       Pins,
+                                                    UInt64       Version,
+                                                    ECCKeyPair?  Signer)
         {
 
+            var id      = Guid.NewGuid().ToString();
+
             var request = new SetVariablesRequest(
-                              SourceRouting.To(NetworkingNode_Id.Parse("cs001")),
+                              // To the station by its own id, which the signature names.
+                              SourceRouting.To(station!.OCPPv2_1Node.Id),
                               [
                                   new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPins"),        Pins),
                                   new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPinsVersion"), Version.ToString())
-                              ]
+                              ],
+                              RequestId: Request_Id.Parse(id)
                           );
 
             if (Signer is not null)
-                Assert.That(new SignaturePolicy().SignRequestMessage(request, request.ToJSON(true), out var notSigned,
-                                                                     Signer.ToSignInfo1("CSMS", I18NString.Create("pin set"), DateTimeOffset.UtcNow)),
+                // Bound as the CSMS's adapter binds it: a signature names the
+                // protocol version, and the station takes only one for its own.
+                Assert.That(new SignaturePolicy().BindTo(NetworkingNode_Id.CSMS, protocols.OCPPv2_1.Version.WebSocketSubProtocolId).
+                                SignRequestMessage(request, request.ToJSON(true), out var notSigned,
+                                                   Signer.ToSignInfo1("CSMS", I18NString.Create("pin set"), DateTimeOffset.UtcNow)),
                             Is.True, notSigned);
 
-            return request.ToJSON(false);
+            return (request.ToJSON(false), id);
 
         }
 
