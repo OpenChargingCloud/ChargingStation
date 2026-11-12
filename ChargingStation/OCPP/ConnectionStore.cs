@@ -3168,10 +3168,13 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         Entry.Warnings.Add($"The URL signs in as '{login}' and '{credentials.Description}' as '{credentials.Login}'. " +
                                             "It is one login, so it is not dialled until the two agree.");
 
-                    if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSSH)
-                        Entry.Warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and this station's TLS exports " +
-                                            "no keying material to bind one with, so it is not dialled. Switch the binding off for it to have " +
-                                            "the password sent unbound - and know that an unbound password can be replayed within its validity.");
+                    if (credentials.Kind == AuthenticationKind.TOTP && credentials.TLSChannelBinding && !Entry.IsSSH &&
+                        !ChargingStation.BindsItsPassword(Entry))
+                        Entry.Warnings.Add($"'{credentials.Description}' binds its password to the TLS session, and one is bound only on a " +
+                                            "connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this station's TLS exports " +
+                                            "no keying material to bind one with, so it is not dialled. Name HTTP/3 for it, or switch the " +
+                                            "binding off to have the password sent unbound - and know that an unbound password can be replayed " +
+                                            "within its validity.");
 
                 }
 

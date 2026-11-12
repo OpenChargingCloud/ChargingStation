@@ -279,10 +279,26 @@ namespace cloud.charging.open.ChargingStation
         ///
         /// A one-time password goes under its login, in "Authorization:
         /// TOTP", which is what an OCPP server verifies. One bound to the TLS
-        /// session is not sent at all: this station's TLS exports no keying
-        /// material to bind it with, and sending it unbound would be less than
+        /// session is bound on a connection that names HTTP/3 and nothing
+        /// else, where the TLS of QUIC exports the keying material to bind it
+        /// with. On any other connection it is not sent at all: the station's
+        /// TLS exports none there, and sending it unbound would be less than
         /// what was configured.
         /// </remarks>
+        /// <summary>
+        /// Whether a one-time password can be bound to the TLS session of
+        /// this connection: one that is opened over HTTP/3 and nothing else.
+        /// </summary>
+        /// <remarks>
+        /// Known before it is made, which is what is needed: a connection left
+        /// the choice of the version may come to an SslStream, which exports
+        /// nothing to bind a password with.
+        /// </remarks>
+        internal static Boolean BindsItsPassword(ConnectionEntry Connection)
+
+            => !Connection.IsSSH &&
+                Connection.HTTPVersion == WebSocketHTTPVersion.HTTP3;
+
         private Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
                                                out IHTTPAuthentication?    Basic,
                                                out TOTPConfig?             TOTP,
@@ -320,10 +336,11 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
-                if (TOTP is not null && credentials.TLSChannelBinding)
+                if (TOTP is not null && credentials.TLSChannelBinding && !BindsItsPassword(Connection))
                 {
-                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and this station's TLS " +
-                             "exports no keying material to bind one with. Switch the binding off for it to have it sent unbound";
+                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and one is bound only on " +
+                             "a connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this station's TLS exports no " +
+                             "keying material to bind one with. Name HTTP/3 for it, or switch the binding off to have it sent unbound";
                     TOTP  = null;
                     return false;
                 }
@@ -332,7 +349,8 @@ namespace cloud.charging.open.ChargingStation
                     TOTPLogin = credentials.Login;
 
                 Says = TOTP is not null
-                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), unbound"
+                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
+                             (credentials.TLSChannelBinding ? "bound to the TLS session of the connection" : "unbound")
                            : $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')";
 
             }

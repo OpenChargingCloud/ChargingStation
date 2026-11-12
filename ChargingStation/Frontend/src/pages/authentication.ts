@@ -202,10 +202,12 @@ export const authenticationPage: Page = {
                     </label>
 
                     <span class="hint">
-                        Off, for now. A bound password would be no use to anybody who copies it off one
-                        connection and tries it on another - but this station's TLS exports no keying material
-                        to bind one with, so a connection whose credentials ask for it is not dialled at all,
-                        rather than sent less than it was told. The Connections page says so where it applies.
+                        A bound password is no use to anybody who copies it off one connection and tries it on
+                        another. It is bound on a connection that names HTTP/3 and nothing else: over HTTP/1.1
+                        and HTTP/2 this station's TLS exports no keying material to bind one with, so any other
+                        connection whose credentials ask for it is not dialled at all, rather than sent less
+                        than it was told. The Connections page says so where it applies. The back end has to
+                        verify it as bound, which is not every back end's to do.
                     </span>
 
                     <div class="form-row">

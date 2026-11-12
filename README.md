@@ -914,6 +914,17 @@ roots, its pins, its key - are the same over all three; a client certificate
 is shown over HTTP/3 with a key of ECDSA P-256, ECDSA P-384 or RSA. The page
 and the log say which version a connection came to, and so does its test.
 
+**A one-time password bound to its connection.** Credentials of the kind
+TOTP may say `"tlsChannelBinding": true`: the password is then made with
+keying material of the TLS session it is sent over (RFC 8446, section 7.5), which
+the back end has too and nobody else, so a password read off one connection is
+none on another. The TLS of QUIC exports that material and .NET's `SslStream`
+does not, so the password is bound on a connection that says `"httpVersion": "3"`
+and on no other: one that names HTTP/1.1 or HTTP/2, or leaves the choice to the
+server, is not dialled with such credentials and says so, where it is written
+down and where it is dialled or tested. The back end has to verify the password
+as bound - a WebSocket server of this stack does, over HTTP/3.
+
 **Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
 the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's
 login - or the login of the HTTP Basic credentials it names, or else the name of

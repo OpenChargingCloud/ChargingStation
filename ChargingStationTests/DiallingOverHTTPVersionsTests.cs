@@ -363,6 +363,108 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AOneTimePasswordIsBoundToAConnectionThatNamesHTTP3()
+
+        /// <summary>
+        /// A one-time password that is to be bound to the TLS session is, on
+        /// a connection that names HTTP/3: the station makes it with keying
+        /// material of the connection, says it is bound, and a back end that
+        /// asks for the binding lets it in. Nothing is said against the
+        /// connection where it is written down.
+        /// </summary>
+        [Test]
+        public async Task AOneTimePasswordIsBoundToAConnectionThatNamesHTTP3()
+        {
+
+            const String secret = "0123456789abcdefghijklmnopqrstuv";
+
+            ACSMS(AcceptHTTP2: true, AcceptHTTP3: true);
+
+            csms!.Server.RequireAuthentication      = true;
+            csms. Server.ClientTOTPConfig["cs001"]  = new TOTPConfig(secret, UseTLSExporterMaterial: true);
+
+            var sent = new ConcurrentQueue<HTTPTOTPAuthentication>();
+
+            csms.Server.OnHTTPRequest += (timestamp, server, request, cancellationToken) => {
+                if (request.Authorization is HTTPTOTPAuthentication totp)
+                    sent.Enqueue(totp);
+                return Task.CompletedTask;
+            };
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", secret,
+                                                                  out var login, out var error,
+                                                                  TLSChannelBinding: true),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, login, null,
+                                                             out var id, out error,
+                                                             HTTPVersion: "3"),
+                        Is.True, error);
+
+            Assert.That(Entry.Warnings, Has.None.Contains("TLS session"),
+                        "A password that can be bound on this connection was complained about.");
+
+            await Start();
+
+            await Until(() => IsConnected(id!),    "Connecting",                      () => SaidOf(id!));
+            await Until(() => csms!.Boots > 0,     "A BootNotification over HTTP/3");
+
+            var (before, now, next, _, _) = TOTPGenerator.GenerateTOTPs(secret);
+
+            Assert.Multiple(() => {
+                Assert.That(csms!.OpenedOver,   Is.EqualTo(new[] { HTTPVersion.HTTP_3_0 }));
+                Assert.That(sent.First().Type,  Is.EqualTo(TOTPHTTPHeaderType.TLSChannelBinding),  "the password does not say it is bound");
+                Assert.That(new[] { before, now, next },  Has.None.EqualTo(sent.First().TOTP),     "the password sent as bound is the unbound one");
+            });
+
+        }
+
+        #endregion
+
+        #region AOneTimePasswordToBeBoundIsNotDialledWhereTheVersionIsNotHTTP3(Named)
+
+        /// <summary>
+        /// Left the choice of the version, or told HTTP/1.1 or HTTP/2, the
+        /// connection may be, or is, one whose TLS exports nothing: it is not
+        /// dialled, and says that naming HTTP/3 would do.
+        /// </summary>
+        [TestCase(null)]
+        [TestCase("1.1")]
+        [TestCase("2")]
+        public async Task AOneTimePasswordToBeBoundIsNotDialledWhereTheVersionIsNotHTTP3(String? Named)
+        {
+
+            // Nothing is asked of it, so it need not take HTTP/3 - whose UDP port
+            // is not always there to have.
+            ACSMS(AcceptHTTP2: true);
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", "0123456789abcdefghijklmnopqrstuv",
+                                                                  out var login, out var error,
+                                                                  TLSChannelBinding: true),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, login, null,
+                                                             out var id, out error,
+                                                             HTTPVersion: Named),
+                        Is.True, error);
+
+            Assert.That(Entry.Warnings, Has.Some.Contains("names HTTP/3"),
+                        "Where it is written down, nothing says what would do.");
+
+            await Start();
+
+            await Until(() => SaidOf(id!) != "nothing yet", "Saying what came of it");
+
+            Assert.Multiple(() => {
+                Assert.That(SaidOf(id!),       Does.StartWith("Not dialled"));
+                Assert.That(SaidOf(id!),       Does.Contain("Name HTTP/3"));
+                Assert.That(csms!.OpenedOver,  Is.Empty);
+            });
+
+        }
+
+        #endregion
+
         #region NothingButHTTP3WillDo_AndTheBackEndDoesNotTakeIt()
 
         [Test]
