@@ -788,6 +788,18 @@ right when it was opened is not the answer to that.
 | not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
 
+**Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
+over HTTP/1.1 (the Upgrade of RFC 6455) or over HTTP/2 (the extended CONNECT of
+RFC 8441), and a connection says which under `httpVersion`: `"1.1"` or `"2"`
+is that one and nothing else - a back end that does not take it is not reached
+some other way - and `"auto"`, which a connection that says nothing is, leaves
+it to the back end: the station offers both (ALPN) and takes what the server
+chooses, and without TLS, where there is nothing to choose with, HTTP/1.1. Who
+the station is, what it shows for it and what its server is held to are the
+same over both. The page and the log say which version a connection came to,
+and so does its test. `"3"` is refused in words: a WebSocket over HTTP/3 is
+not built yet.
+
 **Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
 the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's
 login - or the login of the HTTP Basic credentials it names, or else the name of

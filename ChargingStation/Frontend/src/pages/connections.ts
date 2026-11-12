@@ -1,4 +1,4 @@
-import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
@@ -9,6 +9,13 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 import { keysOf, pinsIn, saysAnything, type StoreOffers } from '@node/pages/pins';
 import { heldToView, judgementView, pinsFieldset, readPinsFieldset, storeOffers } from '@node/pages/pinViews';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
+
+/** The versions of HTTP the WebSocket of a connection may be opened over, as the station names them. */
+const httpVersions: ReadonlyArray<readonly [HTTPVersionOfAConnection, string]> = [
+    [ 'auto', 'As the server chooses' ],
+    [ '1.1',  'HTTP/1.1 and nothing else' ],
+    [ '2',    'HTTP/2 and nothing else' ]
+];
 
 /**
  * The places this charging station dials.
@@ -343,6 +350,22 @@ export const connectionsPage: Page = {
                         </span>
                     </label>
 
+                    <label>Which HTTP
+                        <select name="httpVersion" ?disabled=${!mayManage}>
+                            ${httpVersions.map(([value, text]) => html`
+                                <option value="${value}" ?selected=${value === (entry?.httpVersion ?? 'auto')}>
+                                    ${text}
+                                </option>
+                            `)}
+                        </select>
+                        <span class="hint">
+                            What the WebSocket of a ws:// or wss:// connection is opened over. Left to the
+                            server, this station offers HTTP/2 and HTTP/1.1 and takes what the server
+                            chooses; without TLS there is nothing to choose with, and it is HTTP/1.1. A
+                            version that is named is that one and nothing else.
+                        </span>
+                    </label>
+
                 </div>
 
                 <label class="checkbox">
@@ -409,6 +432,12 @@ export const connectionsPage: Page = {
                         <strong>${entry.description}</strong>
                         <span class="chip">${entry.connectionType}</span>
                         <span class="chip">${entry.ocppVersion}</span>
+                        ${entry.httpVersionInUse ? html`
+                            <span class="chip" data-http="${entry.id}"
+                                  title="${(entry.httpVersion ?? 'auto') === 'auto'
+                                              ? 'Its WebSocket was opened over this version of HTTP, which its server chose.'
+                                              : 'Its WebSocket was opened over this version of HTTP, and is over no other.'}">HTTP/${entry.httpVersionInUse}</span>
+                        ` : nothing}
                         ${entry.transport === 'ssh'
                               ? html`<span class="chip on">SSH</span>`
                               : entry.secure
@@ -864,6 +893,7 @@ export const connectionsPage: Page = {
                 url:                 field(form, 'url'),
                 connectionType:      field(form, 'connectionType'),
                 ocppVersion:         field(form, 'ocppVersion'),
+                httpVersion:         (form.querySelector<HTMLSelectElement>('[name="httpVersion"]')?.value ?? 'auto') as HTTPVersionOfAConnection,
                 autoConnect:  form.querySelector<HTMLInputElement>('[name="autoConnect"]')?.checked ?? false,
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       proves.startsWith('cert:') ? proves.slice(5) : null

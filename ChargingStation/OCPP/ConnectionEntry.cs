@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
@@ -201,6 +202,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// held to something with - see <see cref="ServerPins"/>.
         /// </summary>
         public const String PinsKey              = "pins";
+
+        /// <summary>
+        /// The key the version of HTTP the WebSocket of a ws:// or wss://
+        /// connection is opened over stands under: "auto", "1.1", "2" or "3".
+        /// </summary>
+        public const String HTTPVersionKey       = "httpVersion";
 
         /// <summary>
         /// Where a page says what it showed the server held to.
@@ -443,6 +450,22 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// did. A signed pin set is taken only with a higher one.
         /// </summary>
         public UInt64                 PinsVersion              { get; internal set; }
+
+        /// <summary>
+        /// The version of HTTP the WebSocket of this connection is opened
+        /// over: one of them and nothing else, or whichever the server chooses.
+        /// </summary>
+        /// <remarks>
+        /// "auto", and what a connection that says nothing gets: with TLS the
+        /// station offers HTTP/2 and HTTP/1.1 and the server chooses; without,
+        /// there is nothing to agree with, and it is HTTP/1.1. "1.1" opens the
+        /// WebSocket by the Upgrade of HTTP/1.1 (RFC 6455), "2" by the extended
+        /// CONNECT of HTTP/2 (RFC 8441) - and a server that does not take that
+        /// is not connected to some other way. Who the station is, what it
+        /// shows for it and what its server is held to are the same over all
+        /// of them. Not said of an ssh:// connection, which has no HTTP.
+        /// </remarks>
+        public WebSocketHTTPVersion   HTTPVersion              { get; internal set; } = WebSocketHTTPVersion.Auto;
 
         /// <summary>
         /// When this was written down.
@@ -1239,6 +1262,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
             }
 
+            if (!TryParseHTTPVersion(url, JSON.Value<String>(HTTPVersionKey), out var httpVersion, out Error))
+                return false;
+
             // A key pin learned on first use is on probation only where nothing
             // is pinned, and only where the connection still learns.
             var learnsKeyPin       = serverKeyPins.Count == 0 && keyTrustOnFirstUse == KeyTrustOnFirstUse.Key;
@@ -1280,7 +1306,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         ServerKeyPinLearned        = keyPinLearned,
                         ServerKeyPinLearnedAt      = keyPinLearnedAt,
                         Pins                       = pins,
-                        PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0
+                        PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0,
+                        HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
                     };
 
             Error = null;
@@ -1380,6 +1407,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
+            // Said where it is not left to the server: "auto" is what a
+            // connection that says nothing gets.
+            if (!IsSSH && HTTPVersion != WebSocketHTTPVersion.Auto)
+                json.Add(new JProperty(HTTPVersionKey, AsText(HTTPVersion)));
+
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
 
@@ -1419,8 +1451,85 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    ServerKeyPinLearnedAt      = ServerKeyPinLearnedAt,
                    ServerKeyPinProbationTime  = ServerKeyPinProbationTime,
                    Pins                       = Pins,
-                   PinsVersion                = PinsVersion
+                   PinsVersion                = PinsVersion,
+                   HTTPVersion                = HTTPVersion
                };
+
+        #endregion
+
+        #region TryParseHTTPVersion(URL, Text, out Version, out Error) / AsText(Version)
+
+        /// <summary>
+        /// The version of HTTP a connection names - "auto", "1.1", "2" or "3" -
+        /// or the one sentence that says what is wrong. Nothing for nothing:
+        /// a connection that does not say is not told what it said.
+        /// </summary>
+        /// <param name="URL">Where the connection goes: an ssh:// connection has no HTTP, and names no version of it.</param>
+        /// <param name="Text">What stands under <see cref="HTTPVersionKey"/>.</param>
+        /// <param name="Version">The version, or null where none is named.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean TryParseHTTPVersion(URL                             URL,
+                                                  String?                         Text,
+                                                  out WebSocketHTTPVersion?       Version,
+                                                  [NotNullWhen(false)] out String?  Error)
+        {
+
+            Version  = null;
+            Error    = null;
+
+            var text = Text?.Trim().ToLowerInvariant();
+
+            if (text is null || text.Length == 0)
+                return true;
+
+            switch (text)
+            {
+
+                case "auto":  Version = WebSocketHTTPVersion.Auto;     break;
+                case "1.1":   Version = WebSocketHTTPVersion.HTTP1_1;  break;
+                case "2":     Version = WebSocketHTTPVersion.HTTP2;    break;
+
+                case "3":
+                    Error = "This station does not open a WebSocket over HTTP/3 yet: the version of HTTP is \"auto\", \"1.1\" or \"2\".";
+                    return false;
+
+                default:
+                    Error = $"'{Text}' is no version of HTTP a WebSocket is opened over: it is \"auto\", \"1.1\", \"2\" or \"3\".";
+                    return false;
+
+            }
+
+            if (URL.Scheme == URIScheme.ssh && Version != WebSocketHTTPVersion.Auto)
+            {
+                Version  = null;
+                Error    = "It names a version of HTTP, and an ssh:// connection speaks no HTTP to open a WebSocket over.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// A version of HTTP as a connection names it.
+        /// </summary>
+        public static String AsText(WebSocketHTTPVersion Version)
+
+            => Version switch {
+                   WebSocketHTTPVersion.HTTP1_1  => "1.1",
+                   WebSocketHTTPVersion.HTTP2    => "2",
+                   WebSocketHTTPVersion.HTTP3    => "3",
+                   _                             => "auto"
+               };
+
+        /// <summary>
+        /// A version of HTTP a WebSocket was opened over, as a connection names it.
+        /// </summary>
+        public static String AsText(HTTPVersion Version)
+
+            => Version == org.GraphDefined.Vanaheimr.Hermod.HTTP.HTTPVersion.HTTP_2_0
+                   ? "2"
+                   : "1.1";
 
         #endregion
 

@@ -436,6 +436,7 @@ namespace cloud.charging.open.ChargingStation
                                              ClientCertificates:          certificates,
                                              TOTPConfig:                  totp,
                                              TOTPLogin:                   totpLogin,
+                                             WebSocketOver:               Connection.HTTPVersion,
                                              DNSClient:                   DNSClient,
                                              CancellationToken:           CancellationToken
                                          )
@@ -449,6 +450,7 @@ namespace cloud.charging.open.ChargingStation
                                              ClientCertificates:          certificates,
                                              TOTPConfig:                  totp,
                                              TOTPLogin:                   totpLogin,
+                                             WebSocketOver:               Connection.HTTPVersion,
                                              DNSClient:                   DNSClient,
                                              CancellationToken:           CancellationToken
                                          );
@@ -468,6 +470,13 @@ namespace cloud.charging.open.ChargingStation
                 var unreached  = response.HTTPRequest is null;
 
                 RememberClient(Connection, client);
+
+                // Which version of HTTP it came to: where the server chose, this
+                // is the only place that says.
+                if (response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols && client?.HTTPVersionInUse is HTTPVersion over)
+                    Log.Info($"The WebSocket to {where} was opened over HTTP/{ConnectionEntry.AsText(over)}" +
+                             (Connection.HTTPVersion == WebSocketHTTPVersion.Auto ? ", which its server chose" : "") +
+                             ".", "ocpp", "connections");
 
                 if (keyPins is not null && client is not null)
                     FollowKeyPins(Connection, client, keyPins, dialledURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
@@ -619,6 +628,24 @@ namespace cloud.charging.open.ChargingStation
                     : cs02.OCPPWebSocketClients).
                OfType<WebSocketClient>().
                LastOrDefault(one => one.RemoteURL == Connection.URL);
+
+        #endregion
+
+        #region (internal) HTTPVersionInUseAt(URL)
+
+        /// <summary>
+        /// The version of HTTP the WebSocket this station has to the given
+        /// address was opened over - "1.1" or "2" - or null, where it has none.
+        /// </summary>
+        internal String? HTTPVersionInUseAt(URL URL)
+
+            => cs01.OCPPWebSocketClients.
+                    Concat(cs02.OCPPWebSocketClients).
+                    OfType<WebSocketClient>().
+                    LastOrDefault(one => one.RemoteURL == URL) is { Connected: true, HTTPVersionInUse: HTTPVersion over }
+
+                   ? ConnectionEntry.AsText(over)
+                   : null;
 
         #endregion
 
@@ -1614,7 +1641,8 @@ namespace cloud.charging.open.ChargingStation
                                                   SshTrustSettings?      SshTrust              = null,
                                                   String?                ServerKeyPins         = null,
                                                   ServerKeyPinSettings?  KeyPinTrust           = null,
-                                                  JToken?                Pins                  = null)
+                                                  JToken?                Pins                  = null,
+                                                  String?                HTTPVersion           = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -1659,6 +1687,7 @@ namespace cloud.charging.open.ChargingStation
             // than fail at a socket with something less useful.
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out var notYet) ||
+                !ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out notYet) ||
                 !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
                 !ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
                                                   out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out notYet) ||
@@ -1694,7 +1723,8 @@ namespace cloud.charging.open.ChargingStation
                                  RawPublicKeys              = rawPublicKeys,
                                  TrustOnFirstUse            = keyTrustOnFirstUse,
                                  ServerKeyPinProbationTime  = keyPinProbationTime,
-                                 Pins                       = pins
+                                 Pins                       = pins,
+                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
                              };
 
             // What this station made of the certificate of a server checked by
@@ -1961,7 +1991,18 @@ namespace cloud.charging.open.ChargingStation
                     return Task.CompletedTask;
                 };
 
-                Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection.OCPPVersion))} ...");
+                // As the dialling would: over the version of HTTP the form names.
+                client.WebSocketOver = connection.HTTPVersion;
+
+                Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection.OCPPVersion))}" +
+                             connection.HTTPVersion switch {
+                                 WebSocketHTTPVersion.HTTP2    => ", over HTTP/2 and nothing else",
+                                 WebSocketHTTPVersion.HTTP1_1  => ", over HTTP/1.1 and nothing else",
+                                 _                             => connection.IsSecure
+                                                                      ? ", over HTTP/2 or HTTP/1.1 as the server chooses"
+                                                                      : ", over HTTP/1.1: without TLS there is nothing to agree on another with"
+                             } +
+                             " ...");
 
                 var (_, response) = await client.Connect(
                                               MaxNumberOfRetries:  0,
@@ -2041,6 +2082,11 @@ namespace cloud.charging.open.ChargingStation
                 // there, which is what a server that ignores sub-protocols
                 // sends - and is worth saying, because an OCPP back end that
                 // does that is a back end that has not agreed to speak OCPP.
+                if (client.HTTPVersionInUse is HTTPVersion over)
+                    Step("info", $"The WebSocket was opened over HTTP/{ConnectionEntry.AsText(over)}" +
+                                 (connection.HTTPVersion == WebSocketHTTPVersion.Auto && connection.IsSecure ? ", which the server chose" : "") +
+                                 ".");
+
                 var agreedOn = response.FirstOrDefault(header => header.Key.Equals("Sec-WebSocket-Protocol",
                                                                                    StringComparison.OrdinalIgnoreCase)).
                                         Value?.ToString();

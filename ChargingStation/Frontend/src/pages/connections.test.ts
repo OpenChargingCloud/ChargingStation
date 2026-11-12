@@ -560,4 +560,42 @@ describe('the Connections page', () => {
 
     });
 
+    it('names the version of HTTP a connection opens its WebSocket over, says which one it came to, and sends the one chosen', async () => {
+
+        // The first connection names HTTP/2 and has its WebSocket over it;
+        // the second says nothing, and its server chose HTTP/1.1.
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connections: [ { ...station.connections[0]!, httpVersion: '2' as const, httpVersionInUse: '2' as const },
+                                    { ...station.connections[1]!, httpVersionInUse: '1.1' as const } ] };
+        });
+
+        // The option the page marks, as it marks the version of OCPP.
+        const marked = (form: string): string | undefined =>
+            root.querySelector<HTMLOptionElement>(`${form} select[name="httpVersion"] option[selected]`)?.value;
+
+        assert.equal(marked('form[data-edit="c1"]'), '2');
+        assert.equal(marked('form[data-edit="c2"]'), 'auto', 'a connection that names no version is not left to the server');
+        assert.equal(marked('#add-form'),            'auto');
+        assert.equal(root.querySelectorAll('form[data-edit="c1"] select[name="httpVersion"] option').length, 3);
+
+        assert.equal(root.querySelector('[data-http="c1"]')?.textContent?.trim(), 'HTTP/2');
+        assert.equal(root.querySelector('[data-http="c2"]')?.textContent?.trim(), 'HTTP/1.1');
+        assert.match(root.querySelector('[data-http="c1"]')?.getAttribute('title') ?? '', /is over no other/);
+        assert.match(root.querySelector('[data-http="c2"]')?.getAttribute('title') ?? '', /which its server chose/);
+
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] select[name="httpVersion"]')!.value = '1.1';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal(lastSaved!.httpVersion, '1.1');
+
+        // One that has no WebSocket says nothing of a version it came to.
+        const idle = await opened();
+        assert.equal(idle.querySelector('[data-http="c1"]'), null);
+
+    });
+
 });

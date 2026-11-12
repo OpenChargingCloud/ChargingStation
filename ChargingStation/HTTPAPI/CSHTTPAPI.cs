@@ -981,6 +981,14 @@ namespace cloud.charging.open.ChargingStation
             foreach (var connection in json["connections"]?.OfType<JObject>() ?? [])
             {
 
+                // Which version of HTTP the WebSocket it has now was opened
+                // over: where the server chose, the entry does not say.
+                if (URL.TryParse(connection.Value<String>("url") ?? "", out var dialled) &&
+                    Station.HTTPVersionInUseAt(dialled) is String httpVersionInUse)
+                {
+                    connection.Add(new JProperty("httpVersionInUse", httpVersionInUse));
+                }
+
                 if (connection.Value<Boolean?>("secure")    != true ||
                     connection.Value<Boolean?>("keyPinned") == true ||
                     !URL.TryParse(connection.Value<String>("url") ?? "", out var url))
@@ -1273,7 +1281,8 @@ namespace cloud.charging.open.ChargingStation
                                                        SshTrustOf(json),
                                                        KeyPinsOf(json, "serverKeyPins"),
                                                        KeyPinTrustOf(json),
-                                                       pins))
+                                                       pins,
+                                                       json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1326,7 +1335,8 @@ namespace cloud.charging.open.ChargingStation
                                                           KeyPinsOf(json, "serverKeyPins"),
                                                           KeyPinsOf(json, "serverKeyPinsAsShown"),
                                                           KeyPinTrustOf(json),
-                                                          pins))
+                                                          pins,
+                                                          json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1484,7 +1494,8 @@ namespace cloud.charging.open.ChargingStation
                                                     SshTrustOf(json),
                                                     KeyPinsOf(json, "serverKeyPins"),
                                                     KeyPinTrustOf(json),
-                                                    json[OCPP.ConnectionEntry.PinsKey])
+                                                    json[OCPP.ConnectionEntry.PinsKey],
+                                                    json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey))
                    );
 
         }

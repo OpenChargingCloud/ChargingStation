@@ -25,6 +25,7 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
@@ -1004,10 +1005,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         SshTrustSettings?                SshTrust        = null,
                                         String?                          ServerKeyPins   = null,
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
-                                        ServerPinsChange?                Pins            = null)
+                                        ServerPinsChange?                Pins            = null,
+                                        String?                          HTTPVersion     = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
@@ -1019,6 +1021,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none where it is checked by its CA or learns one on first use.</param>
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; none for neither.</param>
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; none for nothing.</param>
+        /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; none for "auto".</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -1033,7 +1036,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         SshTrustSettings?                SshTrust        = null,
                                         String?                          ServerKeyPins   = null,
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
-                                        ServerPinsChange?                Pins            = null)
+                                        ServerPinsChange?                Pins            = null,
+                                        String?                          HTTPVersion     = null)
         {
 
             Id        = null;
@@ -1041,6 +1045,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
                 return false;
 
             if (!ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out Error))
@@ -1097,7 +1104,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 RawPublicKeys              = rawPublicKeys,
                                 TrustOnFirstUse            = keyTrustOnFirstUse,
                                 ServerKeyPinProbationTime  = keyPinProbationTime,
-                                Pins                       = pins
+                                Pins                       = pins,
+                                HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
                             };
 
                 var peersBefore = SnapshotPeers();
@@ -1157,11 +1165,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          ServerKeyPins          = null,
                                            String?                          ServerKeyPinsAsShown   = null,
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
-                                           ServerPinsChange?                Pins                   = null)
+                                           ServerPinsChange?                Pins                   = null,
+                                           String?                          HTTPVersion            = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
                                    out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
-                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins);
+                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1175,6 +1184,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="ServerKeyPinsAsShown">The key pins the page showed when it was drawn. Where <paramref name="ServerKeyPins"/> are still those, those there are now stay: a signed pin set taken meanwhile is not undone by a change of something else.</param>
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; nothing to keep what it says.</param>
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; nothing to keep what it is held to.</param>
+        /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; nothing to keep the one it has.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -1191,13 +1201,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          ServerKeyPins          = null,
                                            String?                          ServerKeyPinsAsShown   = null,
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
-                                           ServerPinsChange?                Pins                   = null)
+                                           ServerPinsChange?                Pins                   = null,
+                                           String?                          HTTPVersion            = null)
         {
 
             NotSaved = false;
 
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
                 return false;
 
             // Whether the host key is to stay as it is: left out, or sent back
@@ -1327,6 +1341,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.AutoConnect  = AutoConnect ?? false;
                 entry.AuthenticationId    = authenticationId;
                 entry.CertificateId       = certificateId;
+
+                // Kept where the change does not say, and nothing of an
+                // ssh:// connection, which a ws:// one may have become.
+                entry.HTTPVersion         = url.Scheme == URIScheme.ssh
+                                                ? WebSocketHTTPVersion.Auto
+                                                : httpVersion ?? entry.HTTPVersion;
 
                 // A key learned on probation goes with the pins somebody wrote,
                 // and with a server elsewhere; so does the version of the
@@ -2203,6 +2223,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                Was.AutoConnect         != Now.AutoConnect         ||
                Was.AuthenticationId    != Now.AuthenticationId    ||
                Was.CertificateId       != Now.CertificateId       ||
+               Was.HTTPVersion         != Now.HTTPVersion         ||
                Was.SshHostKey          != Now.SshHostKey          ||
                Was.SshTrustOnFirstUse  != Now.SshTrustOnFirstUse  ||
                Was.SshOnPinMismatch    != Now.SshOnPinMismatch    ||
