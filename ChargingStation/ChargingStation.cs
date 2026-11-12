@@ -502,7 +502,10 @@ namespace cloud.charging.open.ChargingStation
 
                    // Beside "dns" and "nts": a TLS root may vouch for the meters
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
-                   CertificateUsages: [ MeterCertificateUsage ],
+                   //
+                   // And "ocpp": a TLS root may vouch for the servers of the OCPP
+                   // connections and for nothing else - see ChargingStation.ServerPins.cs.
+                   CertificateUsages: [ MeterCertificateUsage, OCPPCertificateUsage ],
                    Log:               Log,
                    LogToConsole:      LogToConsole,
                    ConsoleLogLevel:   ConsoleLogLevel,

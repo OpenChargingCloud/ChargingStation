@@ -6,6 +6,8 @@ import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, field, formatTime, formatTimestamp, whileSaving } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
+import { keysOf, pinsIn, saysAnything, type StoreOffers } from '@node/pages/pins';
+import { heldToView, judgementView, pinsFieldset, readPinsFieldset, storeOffers } from '@node/pages/pinViews';
 import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStates';
 
 /**
@@ -76,6 +78,10 @@ export const connectionsPage: Page = {
         let notAnswered: string | null = null;
 
         const opened = new Set<string>();
+
+        // What the certificate store keeps for the servers of the OCPP
+        // connections: the roots and certificates a pin can be picked from.
+        let offers: StoreOffers | null = null;
 
         /**
          * The connections as the station has them now. Whatever the store
@@ -281,6 +287,30 @@ export const connectionsPage: Page = {
 
                 </div>
 
+                <div data-server-pins>
+
+                    <p class="hint">
+                        The other way to know the server of a <code>wss://</code> URL: by its CA, and held to more than that -
+                        as a time server, a name server and a meter are. Its certificate must be issued for its name and chain
+                        to a root this machine trusts, or to a TLS root of this station's certificate store kept for
+                        <code>ocpp</code>; a CA of your own goes there, or into a group of roots, and not into a pin. One way
+                        or the other: none of this goes with key pins above, which ask no CA.
+                    </p>
+
+                    ${pinsFieldset(pinsIn(entry?.pins ?? {}), {
+                          service:   'ocpp',
+                          what:      'server',
+                          evidence:  false,
+                          shown:     entry?.judgement
+                                         ? { name:         entry.judgement.server,
+                                             certificate:  entry.judgement.certificate ?? null,
+                                             root:         entry.judgement.root        ?? null }
+                                         : null,
+                          offers
+                      })}
+
+                </div>
+
                 <div class="form-row">
 
                     <label>What is at the other end
@@ -423,6 +453,16 @@ export const connectionsPage: Page = {
                         ${entry.secure ? html`
                             <dt>Its server</dt>
                             <dd data-key-pins="${entry.id}">${keyPinsView(entry)}</dd>
+                        ` : nothing}
+                        ${entry.secure && entry.keyPinned !== true && saysAnything(pinsIn(entry.pins ?? {})) ? html`
+                            <dt>Held to</dt>
+                            <dd data-pins="${entry.id}">${heldToView(pinsIn(entry.pins ?? {}), offers?.nameOf)}${(entry.pinsVersion ?? 0) > 0
+                                ? html` <span class="hint">its roots from the signed pin set of version ${entry.pinsVersion}</span>`
+                                : nothing}</dd>
+                        ` : nothing}
+                        ${entry.judgement ? html`
+                            <dt>Its certificate</dt>
+                            <dd data-judgement="${entry.id}">${judgementView(entry.judgement)}</dd>
                         ` : nothing}
                         <dt>Written</dt> <dd>${formatTimestamp(entry.createdAt)}</dd>
                     </dl>
@@ -790,7 +830,25 @@ export const connectionsPage: Page = {
             const keyPins        = form.querySelector<HTMLInputElement>('[name="serverKeyPins"]');
             const keyProbation   = Number(form.querySelector<HTMLInputElement>('[name="serverKeyPinProbationTime"]')?.value ?? '600');
 
+            // What its server is held to. A line that is no pin is sent as it
+            // was typed: the station refuses it in the sentence that names it,
+            // which is the one a time server's dialog says.
+            const read           = readPinsFieldset(form);
+
+            const pins           = read.draft !== undefined
+                                       ? keysOf(read.draft)
+                                       : { certificateFingerprints:  linesOf(form, 'pinCertificates'),
+                                           rootFingerprints:         linesOf(form, 'pinRoots') };
+
+            // And what the page showed it held to, so that what the first
+            // connection learned since, or a signed pin set brought, stays.
+            const shown          = id !== undefined
+                                       ? store?.connections.find(one => one.id === id)?.pins ?? {}
+                                       : undefined;
+
             return {
+                pins,
+                ...(shown !== undefined ? { pinsAsShown: keysOf(pinsIn(shown)) } : {}),
                 sshHostKey:          hostKey?.value.trim() ?? '',
                 ...(id !== undefined && hostKey !== null ? { sshHostKeyAsShown: hostKey.defaultValue.trim() } : {}),
                 sshTrustOnFirstUse:  (form.querySelector<HTMLSelectElement>('[name="sshTrustOnFirstUse"]')?.value ?? 'None') as 'None' | 'HostKey',
@@ -813,6 +871,12 @@ export const connectionsPage: Page = {
 
         }
 
+
+        /** The lines of one of the pin fields, as they were typed. */
+        function linesOf(form: HTMLFormElement, name: string): string[] {
+            return (form.querySelector<HTMLTextAreaElement>(`textarea[name="${name}"]`)?.value ?? '').
+                       split(/[\r\n,;]+/).map(line => line.trim()).filter(line => line !== '');
+        }
 
         /** The key pins of a field, one each, as they are typed: separated by commas, semicolons or spaces. */
         function pinsOf(text: string): string[] {
@@ -1029,10 +1093,12 @@ export const connectionsPage: Page = {
 
             try
             {
-                const loaded = await api.connections.get();
+                const [ loaded, kept ] = await Promise.all([ api.connections.get(), storeOffers('ocpp') ]);
 
                 if (cancelled)
                     return;
+
+                offers = kept;
 
                 took(loaded);
                 draw();

@@ -10,7 +10,10 @@
  * says which host key the page showed; a wss:// connection says whether its
  * server is known by key pin, by a key pin learned on probation or by its CA,
  * a save of it says which key pins the page showed, and the test dialog says
- * which key pin the server showed.
+ * which key pin the server showed; and a wss:// connection checked by its CA
+ * says what its server is held to, as a time server's page does, takes the
+ * pin of a key beside a fingerprint, and a save of it says what the page
+ * showed.
  *
  * Run with `npm test`.
  */
@@ -33,6 +36,9 @@ let standing: Record<string, ConnectionState> = {};
 
 /** What the page sent the last time it saved a connection. */
 let lastSaved: ConnectionToSave | null = null;
+
+/** What the page sent the last time it wrote a connection down. */
+let lastAdded: ConnectionToSave | null = null;
 
 /** What the page sent the last time it tested a connection. */
 let lastTested: ConnectionToSave | null = null;
@@ -73,6 +79,7 @@ function station({ method, path, body }: Asked): unknown {
 
     if (path === '/configuration/connections' && method === 'POST') {
         const entry = body as ConnectionToSave;
+        lastAdded   = entry;
         // ConnectionEntry.TryParse
         if (entry.url.trim() === '')
             return refused(400, 'A connection needs somewhere to go.');
@@ -160,8 +167,33 @@ function aKeyPinnedStation(): StationConnections {
                               serverKeyPinProbationTime: 600, serverKeyPinLearned: learnedKey, serverKeyPinLearnedAt: '2026-11-11T10:00:00.000Z' } ] };
 }
 
+/** The pin of the key of a root, as the station keeps it. */
+const rootKey = 'spki:' + '5e'.repeat(32);
+
+/**
+ * A station whose first connection is checked by its CA and held to the key
+ * of a root - from a signed pin set - and to a group of roots, and was
+ * believed with it at its last handshake.
+ */
+function aHeldStation(): StationConnections {
+    const station = aStation();
+    return { ...station,
+             connections: [ { ...station.connections[0]!, keyPinned: false,
+                              pins:         { rootFingerprint: rootKey, rootGroup: 'backend' },
+                              pinsVersion:  4,
+                              judgement:    { server: 'csms.example.org', service: 'ocpp', at: '2026-11-12T10:00:00.0000000+00:00',
+                                              accepted: true, outcome: 'accepted',
+                                              certificate: 'c'.repeat(64), root: 'd'.repeat(64),
+                                              anchoredBy: 'The CA of the operator',
+                                              heldTo: { certificate: null, root: rootKey, certificates: [], roots: [ rootKey ], rootGroup: 'backend' },
+                                              learned: null, previously: null,
+                                              steps: [ { level: 'notice', text: `Held to root ${rootKey}: its chain ends there.` } ] } },
+                            station.connections[1]! ] };
+}
+
 async function opened(make: () => StationConnections = aStation): Promise<HTMLElement> {
     held     = make();
+    lastAdded = null;
     lastSaved = null;
     lastTested = null;
     standing = held.states;
@@ -460,6 +492,71 @@ describe('the Connections page', () => {
 
         dialog.querySelector<HTMLButtonElement>('#test-close')!.click();
         assert.equal(document.querySelector('dialog'), null, 'the dialog stayed');
+
+    });
+
+    it('says what the server of a wss:// connection checked by its CA is held to, and what its certificate came to', async () => {
+
+        const root = await opened(aHeldStation);
+
+        assert.match(root.querySelector('[data-pins="c1"]')?.textContent ?? '', /Held to/);
+        assert.match(root.querySelector('[data-pins="c1"]')?.textContent ?? '', /signed pin set of version 4/);
+        assert.match(root.querySelector('[data-judgement="c1"]')?.textContent ?? '', /Held to root/, 'what the judgement went through is not shown');
+
+        assert.equal(root.querySelector<HTMLTextAreaElement>('form[data-edit="c1"] textarea[name="pinRoots"]')!.value,         rootKey);
+        assert.equal(root.querySelector<HTMLTextAreaElement>('form[data-edit="c1"] textarea[name="pinCertificates"]')!.value,  '');
+        assert.equal(root.querySelector<HTMLInputElement>   ('form[data-edit="c1"] input[name="pinRootGroup"]')!.value,        'backend');
+
+        // One held to nothing says nothing of it, and one known by its key neither.
+        assert.equal(root.querySelector('[data-pins="c2"]'), null, 'a connection held to nothing says it is held to something');
+
+        const keyPinned = await opened(aKeyPinnedStation);
+        assert.equal(keyPinned.querySelector('[data-pins="c1"]'),       null);
+        assert.equal(keyPinned.querySelector('[data-judgement="c1"]'),  null);
+
+    });
+
+    it('sends what the server is held to, the pin of a key as the station keeps it, and what the page showed beside it', async () => {
+
+        const root = await opened(aHeldStation);
+
+        root.querySelector<HTMLTextAreaElement>('form[data-edit="c1"] textarea[name="pinCertificates"]')!.value =
+            `sha256//qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=\n${'B'.repeat(64)}`;
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] select[name="pinMismatch"]')!.value = 'record';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.deepEqual(lastSaved!.pins,
+                         { certificateFingerprints: [ 'spki:' + 'aa'.repeat(32), 'b'.repeat(64) ], rootFingerprint: rootKey,
+                           onMismatch: 'record', rootGroup: 'backend' });
+        assert.deepEqual(lastSaved!.pinsAsShown,
+                         { rootFingerprint: rootKey, rootGroup: 'backend' },
+                         'what the page showed was not sent beside it, or became what was typed');
+
+        // A line that is no pin goes as it was typed, for the station to refuse in words.
+        lastSaved = null;
+        await until(() => root.querySelector('[data-note="c1"]')?.textContent === 'Saved.', 'the save was not said');
+
+        root.querySelector<HTMLTextAreaElement>('form[data-edit="c1"] textarea[name="pinRoots"]')!.value = 'spki:abcd';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved again');
+
+        assert.deepEqual(lastSaved!.pins?.rootFingerprints, [ 'spki:abcd' ]);
+
+        // And one that is written down anew says nothing of what was shown.
+        const fresh = await opened();
+
+        field(fresh, '#add-form', 'description').value = 'A new one';
+        field(fresh, '#add-form', 'url').value         = 'wss://csms.example.org/new';
+        fresh.querySelector<HTMLTextAreaElement>('#add-form textarea[name="pinRoots"]')!.value = rootKey.toUpperCase();
+
+        submit(fresh, '#add-form');
+        await until(() => lastAdded !== null, 'the connection was not written down');
+
+        assert.deepEqual(lastAdded!.pins,  { rootFingerprint: rootKey });
+        assert.equal(lastAdded!.pinsAsShown, undefined);
 
     });
 

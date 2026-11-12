@@ -975,6 +975,24 @@ namespace cloud.charging.open.ChargingStation
 
             var json = Station.Connections.ToJSON();
 
+            // What this station made of the certificate the server of each
+            // wss:// connection checked by its CA showed last: what its page
+            // offers to hold it to, and says it came to.
+            foreach (var connection in json["connections"]?.OfType<JObject>() ?? [])
+            {
+
+                if (connection.Value<Boolean?>("secure")    != true ||
+                    connection.Value<Boolean?>("keyPinned") == true ||
+                    !URL.TryParse(connection.Value<String>("url") ?? "", out var url))
+                {
+                    continue;
+                }
+
+                if (Station.LastJudgementOf(ChargingStation.OCPPCertificateUsage, url.Host.ToString()) is { } judgement)
+                    connection.Add(new JProperty("judgement", judgement.ToJSON()));
+
+            }
+
             // Which certificates a connection may point at. Read from the
             // certificate store rather than remembered here, so that one
             // removed on the page next door is gone from this list too.
@@ -1238,6 +1256,9 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return errorResponse;
 
+            if (!TryPinsOf(json, out var pins, out var wrongPins))
+                return NotChanged(Request, HTTPStatusCode.BadRequest, wrongPins, false);
+
             if (!Station.Connections.TryAddConnection(json.Value<String>("description"),
                                                        json.Value<String>("url"),
                                                        json.Value<String>("connectionType"),
@@ -1251,7 +1272,8 @@ namespace cloud.charging.open.ChargingStation
                                                        json.Value<String>("sshHostKey"),
                                                        SshTrustOf(json),
                                                        KeyPinsOf(json, "serverKeyPins"),
-                                                       KeyPinTrustOf(json)))
+                                                       KeyPinTrustOf(json),
+                                                       pins))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1285,6 +1307,9 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return errorResponse;
 
+            if (!TryPinsOf(json, out var pins, out var wrongPins))
+                return NotChanged(Request, HTTPStatusCode.BadRequest, wrongPins, false);
+
             if (!Station.Connections.TryUpdateConnection(json.Value<String>("id"),
                                                           json.Value<String>("description"),
                                                           json.Value<String>("url"),
@@ -1300,7 +1325,8 @@ namespace cloud.charging.open.ChargingStation
                                                           SshTrustOf(json),
                                                           KeyPinsOf(json, "serverKeyPins"),
                                                           KeyPinsOf(json, "serverKeyPinsAsShown"),
-                                                          KeyPinTrustOf(json)))
+                                                          KeyPinTrustOf(json),
+                                                          pins))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1457,7 +1483,8 @@ namespace cloud.charging.open.ChargingStation
                                                     json.Value<String>("sshHostKey"),
                                                     SshTrustOf(json),
                                                     KeyPinsOf(json, "serverKeyPins"),
-                                                    KeyPinTrustOf(json))
+                                                    KeyPinTrustOf(json),
+                                                    json[OCPP.ConnectionEntry.PinsKey])
                    );
 
         }
@@ -1478,6 +1505,65 @@ namespace cloud.charging.open.ChargingStation
                    JValue { Type: JTokenType.Null } or null     => null,
                    var other                                    => other.ToString()
                };
+
+        /// <summary>
+        /// What the server of a wss:// connection checked by its CA is held to,
+        /// as it was sent under "pins" - with what the page showed it held to,
+        /// under "pinsAsShown", where it says so - or null, where neither was
+        /// sent, to keep what it is held to.
+        /// </summary>
+        /// <remarks>
+        /// Whether it is a wss:// connection at all is asked where the URL is
+        /// known. What is read here is whether the words are ones a server can
+        /// be held to: the same ones, and refused with the same sentences, as
+        /// those of a time server, a name server and a meter.
+        /// </remarks>
+        private static Boolean TryPinsOf(JObject                           JSON,
+                                         out OCPP.ServerPinsChange?        Pins,
+                                         [NotNullWhen(false)] out String?  Error)
+        {
+
+            Pins   = null;
+            Error  = null;
+
+            var sent   = JSON[OCPP.ConnectionEntry.PinsKey];
+            var shown  = JSON[OCPP.ConnectionEntry.PinsAsShownKey];
+
+            if (sent is null && shown is null)
+                return true;
+
+            if (!TryServerPins(sent,  OCPP.ConnectionEntry.PinsKey,        out var sentPins,  out Error) ||
+                !TryServerPins(shown, OCPP.ConnectionEntry.PinsAsShownKey, out var shownPins, out Error))
+            {
+                return false;
+            }
+
+            Pins = new OCPP.ServerPinsChange(sentPins, shownPins, shown is not null);
+            return true;
+
+        }
+
+        private static Boolean TryServerPins(JToken?                                              JSON,
+                                             String                                               Path,
+                                             out protocols.WWCP.Node.Configuration.ServerPins?    Pins,
+                                             [NotNullWhen(false)] out String?                     Error)
+        {
+
+            Pins   = null;
+            Error  = null;
+
+            if (JSON is null || JSON.Type == JTokenType.Null)
+                return true;
+
+            if (JSON is not JObject entry)
+            {
+                Error = $"'{Path}' is no object: it holds what the server is held to under 'certificateFingerprints', 'rootFingerprints', 'rootGroup', 'onMismatch' and 'trustOnFirstUse'.";
+                return false;
+            }
+
+            return protocols.WWCP.Node.Configuration.ServerPins.TryParse(entry, Path, out Pins, out Error);
+
+        }
 
         /// <summary>
         /// Whether a wss:// connection offers raw public keys and learns a key

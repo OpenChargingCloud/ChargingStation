@@ -25,6 +25,8 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.OCPP
@@ -185,6 +187,25 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// for a host key.
         /// </summary>
         public static readonly TimeSpan DefaultServerKeyPinProbationTime  = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// What the servers of the OCPP connections are to the node, where it
+        /// judges their certificates: the usage a TLS root of the store is
+        /// kept for, and the mark of a group of roots - "ocppca-&lt;group&gt;".
+        /// </summary>
+        public const String PinsService          = "ocpp";
+
+        /// <summary>
+        /// Where a connection says what its server is held to, in the file and
+        /// as a page sends it: under the keys every server of this node is
+        /// held to something with - see <see cref="ServerPins"/>.
+        /// </summary>
+        public const String PinsKey              = "pins";
+
+        /// <summary>
+        /// Where a page says what it showed the server held to.
+        /// </summary>
+        public const String PinsAsShownKey       = ServerPins.AsShownKey;
 
         #endregion
 
@@ -396,6 +417,32 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             => IsSecure &&
                (ServerKeyPins.Count > 0 || TrustOnFirstUse == KeyTrustOnFirstUse.Key);
+
+        /// <summary>
+        /// What the server of a wss:// connection checked by its CA is held to
+        /// beside that: the certificates it may show, the roots its chain may
+        /// end at - each by the fingerprint of the certificate or by the pin of
+        /// its key -, the group of roots that may vouch for it at all, what a
+        /// mismatch comes to, and what is learned on first use. Null for
+        /// nothing.
+        /// </summary>
+        /// <remarks>
+        /// What a time server, a name server and a meter of this station are
+        /// held to, under the same names and judged by the same judgement: a
+        /// pin narrows what the CA check believes and never widens it, and a
+        /// CA of the operator's own comes in through a group of roots, not
+        /// through a pin.
+        ///
+        /// Never beside key pins: a connection is checked by its CA or known
+        /// by its key - see <see cref="CheckOneWay"/>.
+        /// </remarks>
+        public ServerPins?            Pins                     { get; internal set; }
+
+        /// <summary>
+        /// The version of the signed pin set the roots came from; 0 where none
+        /// did. A signed pin set is taken only with a higher one.
+        /// </summary>
+        public UInt64                 PinsVersion              { get; internal set; }
 
         /// <summary>
         /// When this was written down.
@@ -1020,6 +1067,73 @@ namespace cloud.charging.open.ChargingStation.OCPP
         }
 
         /// <summary>
+        /// What the entry of a connection says its server is held to, under
+        /// <see cref="PinsKey"/> - or the one sentence that says what is wrong.
+        /// </summary>
+        /// <param name="URL">Where the connection goes.</param>
+        /// <param name="JSON">What stands under "pins", or under "pinsAsShown"; null or JSON null for nothing.</param>
+        /// <param name="Path">Where it is, to say which one is wrong.</param>
+        /// <param name="Pins">What the server is held to; null for nothing.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean ValidatePins(URL                              URL,
+                                           JToken?                          JSON,
+                                           String                           Path,
+                                           out ServerPins?                  Pins,
+                                           [NotNullWhen(false)] out String? Error)
+        {
+
+            Pins   = null;
+            Error  = null;
+
+            if (JSON is null || JSON.Type == JTokenType.Null)
+                return true;
+
+            if (JSON is not JObject entry)
+            {
+                Error = $"'{Path}' is no object: it holds what the server is held to under 'certificateFingerprints', 'rootFingerprints', 'rootGroup', 'onMismatch' and 'trustOnFirstUse'.";
+                return false;
+            }
+
+            if (!ServerPins.TryParse(entry, Path, out Pins, out Error))
+                return false;
+
+            if (Pins is not null && URL.Scheme != URIScheme.wss && URL.Scheme != URIScheme.https)
+            {
+                Pins   = null;
+                Error  = $"'{URL}' makes no TLS handshake, so its server shows no certificate to hold it to.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// One way or the other: a connection whose server is known by its key
+        /// is not held to a certificate, a root or a group of roots as well -
+        /// its key is the whole check, and nothing a CA says is asked.
+        /// </summary>
+        public static Boolean CheckOneWay(IReadOnlyList<KeyPin>            KeyPins,
+                                          KeyTrustOnFirstUse               Trust,
+                                          ServerPins?                      Pins,
+                                          [NotNullWhen(false)] out String? Error)
+        {
+
+            Error = null;
+
+            if (Pins is not null && Pins.SaysAnything && (KeyPins.Count > 0 || Trust == KeyTrustOnFirstUse.Key))
+            {
+                Error = "A connection is checked by its CA or known by the key of its server, not both: one with key pins, or learning " +
+                        "the key on first use, checks no chain, so a certificate, a root or a group of roots it is held to would never be asked. " +
+                        "Take the key pins away, or what it is held to.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
         /// Raw public keys only where the connection is key-pinned: by key pins,
         /// or by trust on first use ("Key Pins and Raw Public Keys", section
         /// 7.2). A connection checked by its CA never accepts a raw key.
@@ -1119,6 +1233,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out Error))
                 return false;
 
+            if (!ValidatePins(url, JSON[PinsKey], $"connection '{id}'.{PinsKey}", out var pins, out Error) ||
+                !CheckOneWay(serverKeyPins, keyTrustOnFirstUse, pins, out Error))
+            {
+                return false;
+            }
+
             // A key pin learned on first use is on probation only where nothing
             // is pinned, and only where the connection still learns.
             var learnsKeyPin       = serverKeyPins.Count == 0 && keyTrustOnFirstUse == KeyTrustOnFirstUse.Key;
@@ -1158,7 +1278,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         TrustOnFirstUse            = keyTrustOnFirstUse,
                         ServerKeyPinProbationTime  = keyPinProbationTime,
                         ServerKeyPinLearned        = keyPinLearned,
-                        ServerKeyPinLearnedAt      = keyPinLearnedAt
+                        ServerKeyPinLearnedAt      = keyPinLearnedAt,
+                        Pins                       = pins,
+                        PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0
                     };
 
             Error = null;
@@ -1239,6 +1361,23 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     json.Add(new JProperty("serverKeyPinLearnedAt",  ServerKeyPinLearnedAt?.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")));
                 }
 
+                // What a connection checked by its CA is held to beside that,
+                // as the entry of a time server, a name server or a meter
+                // writes it.
+                if (Pins is not null && Pins.SaysAnything)
+                {
+
+                    var pins = new JObject();
+
+                    Pins.WriteInto(pins);
+
+                    json.Add(new JProperty(PinsKey, pins));
+
+                    if (PinsVersion > 0)
+                        json.Add(new JProperty("pinsVersion", PinsVersion));
+
+                }
+
             }
 
             if (Warnings.Count > 0)
@@ -1278,7 +1417,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    TrustOnFirstUse            = TrustOnFirstUse,
                    ServerKeyPinLearned        = ServerKeyPinLearned,
                    ServerKeyPinLearnedAt      = ServerKeyPinLearnedAt,
-                   ServerKeyPinProbationTime  = ServerKeyPinProbationTime
+                   ServerKeyPinProbationTime  = ServerKeyPinProbationTime,
+                   Pins                       = Pins,
+                   PinsVersion                = PinsVersion
                };
 
         #endregion

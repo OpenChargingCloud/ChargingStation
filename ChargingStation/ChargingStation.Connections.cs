@@ -407,9 +407,20 @@ namespace cloud.charging.open.ChargingStation
                     return;
                 }
 
+                // Checked by its CA otherwise, and judged as this station judges
+                // every server it connects to - a time server, a name server, a
+                // meter: its name, its chain, and what the connection holds it
+                // to at that moment.
+                var validator   = keyPins is not null
+                                      ? keyPins.Validator
+                                      : Connection.IsSecure
+                                            ? JudgedAsAServer(Connection.Id, dialledURL)
+                                            : null;
+
                 Log.Info($"Dialling {where} as {ConnectionEntry.AsText(Connection.OCPPVersion)} " +
                          $"{Connection.ConnectionType}" +
                          (keyPins is not null ? $"; {WhatItBelieves(keyPins)}" : "") +
+                         (keyPins is null && Connection.Pins?.Text is String heldTo ? $"; its server is held to {heldTo}" : "") +
                          ".", "ocpp", "connections");
 
                 // Under a name of its own, and the primary under the name of the
@@ -421,7 +432,7 @@ namespace cloud.charging.open.ChargingStation
                                              NextHopNetworkingNodeId:     NextHopOf(Connection),
                                              RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
                                              HTTPAuthentication:          basic,
-                                             RemoteCertificateValidator:  keyPins?.Validator,
+                                             RemoteCertificateValidator:  validator,
                                              ClientCertificates:          certificates,
                                              TOTPConfig:                  totp,
                                              TOTPLogin:                   totpLogin,
@@ -434,7 +445,7 @@ namespace cloud.charging.open.ChargingStation
                                              NextHopNetworkingNodeId:     NextHopOf(Connection),
                                              RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
                                              HTTPAuthentication:          basic,
-                                             RemoteCertificateValidator:  keyPins?.Validator,
+                                             RemoteCertificateValidator:  validator,
                                              ClientCertificates:          certificates,
                                              TOTPConfig:                  totp,
                                              TOTPLogin:                   totpLogin,
@@ -1586,6 +1597,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="SshTrust">How an ssh:// connection believes its server beyond its pins: what a mismatch leads to, and whether it would learn a key.</param>
         /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none for one checked by its CA, or one that would learn the key.</param>
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and would learn a key pin on first use.</param>
+        /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that, as the form writes it under "pins"; nothing for nothing.</param>
         public async Task<JObject> TestConnection(String?                Description,
                                                   String?                URL,
                                                   String?                ConnectionType,
@@ -1597,7 +1609,8 @@ namespace cloud.charging.open.ChargingStation
                                                   String?                SshHostKey            = null,
                                                   SshTrustSettings?      SshTrust              = null,
                                                   String?                ServerKeyPins         = null,
-                                                  ServerKeyPinSettings?  KeyPinTrust           = null)
+                                                  ServerKeyPinSettings?  KeyPinTrust           = null,
+                                                  JToken?                Pins                  = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -1648,7 +1661,9 @@ namespace cloud.charging.open.ChargingStation
                 !ConnectionEntry.ValidateServerKeyPins(url, ServerKeyPins, out var serverKeyPins, out notYet) ||
                 !ConnectionEntry.ValidateKeyPinTrust(url, KeyPinTrust?.RawPublicKeys, KeyPinTrust?.TrustOnFirstUse, KeyPinTrust?.ProbationSeconds,
                                                      out var rawPublicKeys, out var keyTrustOnFirstUse, out var keyPinProbationTime, out notYet) ||
-                !ConnectionEntry.CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out notYet))
+                !ConnectionEntry.CheckKeyPinned(serverKeyPins, rawPublicKeys, keyTrustOnFirstUse, out notYet) ||
+                !ConnectionEntry.ValidatePins(url, Pins, ConnectionEntry.PinsKey, out var pins, out notYet) ||
+                !ConnectionEntry.CheckOneWay(serverKeyPins, keyTrustOnFirstUse, pins, out notYet))
             {
                 Step("error", notYet);
                 return Done(null, false);
@@ -1674,8 +1689,13 @@ namespace cloud.charging.open.ChargingStation
                                  ServerKeyPins              = serverKeyPins,
                                  RawPublicKeys              = rawPublicKeys,
                                  TrustOnFirstUse            = keyTrustOnFirstUse,
-                                 ServerKeyPinProbationTime  = keyPinProbationTime
+                                 ServerKeyPinProbationTime  = keyPinProbationTime,
+                                 Pins                       = pins
                              };
+
+            // What this station made of the certificate of a server checked by
+            // its CA: its name, its chain, and what the form holds it to.
+            protocols.WWCP.Node.ServerJudgement? judged = null;
 
             #endregion
 
@@ -1892,11 +1912,27 @@ namespace cloud.charging.open.ChargingStation
                                                               ? keyPins.Validator
                                                               : connection.IsSecure
                                                                     ? (sender, certificate, chain, webSocketClient, policyErrors) => {
+
                                                                           shownKeyPin  = certificate is not null ? KeyPin.FromCertificate(certificate) : null;
                                                                           caSaid       = policyErrors;
-                                                                          return policyErrors == SslPolicyErrors.None
+
+                                                                          // As the dialling judges it, but only asked: a test
+                                                                          // learns nothing, remembers nothing, and logs nothing
+                                                                          // as the judgement of a connection in effect.
+                                                                          judged       = JudgeServer(ConnectionEntry.PinsService,
+                                                                                                     connection.URL.Host.ToString(),
+                                                                                                     connection.Pins,
+                                                                                                     certificate,
+                                                                                                     chain,
+                                                                                                     policyErrors,
+                                                                                                     Evidence:  false,
+                                                                                                     Learn:     null,
+                                                                                                     Remember:  false);
+
+                                                                          return judged.Accepted
                                                                                      ? TLSValidationResult.Success()
-                                                                                     : TLSValidationResult.Failed($"The certificate was not accepted: {policyErrors}.");
+                                                                                     : TLSValidationResult.Failed(WhyRefused(judged));
+
                                                                       }
                                                                     : null,
                              ClientCertificates:          certificates,
@@ -1943,6 +1979,28 @@ namespace cloud.charging.open.ChargingStation
                                                          "Pin it to decide yourself.",
                              _                       => $"Not believed: {keyPins.WhyRefused()}. Nothing was asked of it."
                          });
+
+                else if (judged is not null)
+                {
+
+                    Step(judged.Accepted ? "info" : "error",
+                         judged.Accepted
+                             ? $"The server showed the certificate {judged.CertificateFingerprint}, which this station accepts" +
+                               (judged.RootFingerprint is not null ? $": its chain ends at the root {judged.RootFingerprint} ({judged.RootKeyPin})" : "") +
+                               $". Its key has the key pin {shownKeyPin}."
+                             : $"The server showed the certificate {judged.CertificateFingerprint}, which this station does not accept ({judged.Outcome}), " +
+                               $"for a key whose key pin is {shownKeyPin}. Pinned as a key pin, that key would be believed by itself, without a CA.");
+
+                    // Everything the judgement went through, in its own words:
+                    // which root vouched for it, what it is held to, what it
+                    // showed instead.
+                    foreach (var (level, text) in judged.Steps)
+                        Step(level, text);
+
+                    if (judged.Accepted && connection.Pins is { TrustOnFirstUse: not protocols.WWCP.Node.Configuration.TrustOnFirstUse.None } learning)
+                        Step("info", $"A test writes nothing down: the first connection this station makes holds the server to its {protocols.WWCP.Node.Configuration.TrustOnFirstUseExtensions.AsText(learning.TrustOnFirstUse)}.");
+
+                }
 
                 else if (shownKeyPin is not null)
                     Step(caSaid == SslPolicyErrors.None ? "info" : "error",

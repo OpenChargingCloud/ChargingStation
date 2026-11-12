@@ -816,6 +816,16 @@ export interface StationConnection {
     /** The key pin learned on the first connection, while it is on probation. */
     serverKeyPinLearned?:        string;
     serverKeyPinLearnedAt?:      string;
+    /**
+     * What the server of a wss:// connection checked by its CA is held to
+     * beside that, in the keys a time server, a name server and a meter are
+     * held to something with. Never beside key pins.
+     */
+    pins?:                       PinKeys;
+    /** The version of the signed pin set the roots came from. */
+    pinsVersion?:                number;
+    /** What the station made of the certificate its server showed last, where it is checked by its CA. */
+    judgement?:                  ServerJudgement | null;
     warnings?:           string[];
 }
 
@@ -847,6 +857,10 @@ export interface ConnectionToSave {
     rawPublicKeys?:              'Off' | 'Prefer' | 'Require';
     trustOnFirstUse?:            'None' | 'Key';
     serverKeyPinProbationTime?:  number;
+    /** What its server is to be held to; nothing in it for nothing. */
+    pins?:                       PinKeys;
+    /** What the page showed it held to when it was drawn: what was learned since, or taken from a signed pin set, stays. */
+    pinsAsShown?:                PinKeys;
 }
 
 /** A key a signed pin set is believed of: the point of an elliptic curve, in base64, as an OCPP signature's keyId carries it. */
