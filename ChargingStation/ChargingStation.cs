@@ -573,6 +573,11 @@ namespace cloud.charging.open.ChargingStation
             this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
             this.Connections.OnConnectionsChanged += () => FollowSSHClientComponents(cs02);
 
+            // Before the dialling below, which is told after it: a connection
+            // dialled again has its TLSClientController instance by then - see
+            // ChargingStation.TLSClient.cs.
+            this.Connections.OnConnectionsChanged += () => FollowTLSClientComponents(cs02);
+
             // What is written down is what is dialled, from the moment it is
             // written - see ChargingStation.Peers.cs.
             this.Connections.OnConnectionsChanged += () => _ = ApplyConnectionChanges();

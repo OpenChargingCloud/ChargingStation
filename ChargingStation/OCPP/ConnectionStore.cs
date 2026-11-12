@@ -2179,6 +2179,142 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region TryChangeKeyPinTrust(Id, Settings, out Forgotten, out KeyPinnedChanged, out Error)
+
+        /// <summary>
+        /// Change how a wss:// connection believes its server beyond its key
+        /// pins - what a signed SetVariables of TLSClientController says of raw
+        /// public keys, trust on first use and the probation: what is not said
+        /// stays ("Key Pins and Raw Public Keys", section 7.2).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// What <see cref="TryChangeSshTrust"/> is for a connection over SSH,
+        /// checked as the same change on the page is: raw public keys only where
+        /// the connection is key-pinned. A key pin learned on probation goes
+        /// where trust on first use is switched off, as on the page - nothing
+        /// would learn it any more - and is handed back, so that the station
+        /// ends the probation that went with it.
+        /// </para>
+        /// <para>
+        /// Not dialled again here, even where the change makes a connection
+        /// key-pinned that was checked by its CA, or the other way round - whose
+        /// client was made with the validator of the one or the other, and would
+        /// go on with it until the next start. That is said in
+        /// <paramref name="KeyPinnedChanged"/>, and the caller dials it again
+        /// with <see cref="DialAgain"/> once it answered what asked for the
+        /// change, over the very connection that is hung up then. Every other
+        /// change is read at the next handshake, as the key pins are, and drops
+        /// nothing.
+        /// </para>
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        /// <param name="Settings">What changes: "Off", "Prefer" or "Require"; "None" or "Key"; seconds of probation.</param>
+        /// <param name="Forgotten">The key pin learned on probation that went with trust on first use; null where none did.</param>
+        /// <param name="KeyPinnedChanged">Whether the connection is key-pinned now where it was not, or the other way round: it has to be dialled again.</param>
+        /// <param name="Error">Why nothing was changed.</param>
+        public Boolean TryChangeKeyPinTrust(String                            Id,
+                                            ServerKeyPinSettings              Settings,
+                                            out KeyPin?                       Forgotten,
+                                            out Boolean                       KeyPinnedChanged,
+                                            [NotNullWhen(false)] out String?  Error)
+        {
+
+            Forgotten         = null;
+            KeyPinnedChanged  = false;
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry) || !entry.IsSecure)
+                {
+                    Error = $"There is no wss:// connection '{Id}' here.";
+                    return false;
+                }
+
+                if (!ConnectionEntry.ValidateKeyPinTrust(entry.URL,
+                                                         Settings.RawPublicKeys    ?? entry.RawPublicKeys.  ToString(),
+                                                         Settings.TrustOnFirstUse  ?? entry.TrustOnFirstUse.ToString(),
+                                                         Settings.ProbationSeconds ?? (Int64) entry.ServerKeyPinProbationTime.TotalSeconds,
+                                                         out var rawPublicKeys,
+                                                         out var trustOnFirstUse,
+                                                         out var probationTime,
+                                                         out Error))
+                    return false;
+
+                if (!ConnectionEntry.CheckKeyPinned(entry.ServerKeyPins, rawPublicKeys, trustOnFirstUse, out Error))
+                    return false;
+
+                var was = entry.Copy();
+
+                entry.RawPublicKeys              = rawPublicKeys;
+                entry.TrustOnFirstUse            = trustOnFirstUse;
+                entry.ServerKeyPinProbationTime  = probationTime;
+
+                if (trustOnFirstUse == KeyTrustOnFirstUse.None && entry.ServerKeyPinLearned is not null)
+                {
+                    Forgotten                    = entry.ServerKeyPinLearned;
+                    entry.ServerKeyPinLearned    = null;
+                    entry.ServerKeyPinLearnedAt  = null;
+                }
+
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id] = was;
+                    Forgotten = null;
+                    return false;
+                }
+
+                KeyPinnedChanged = was.IsKeyPinned != entry.IsKeyPinned;
+
+                Notice(LogLevel.Notice,
+                       $"'{entry.Description}' believes its server as a signed pin set said: raw public keys {rawPublicKeys}, trust on first use " +
+                       $"{trustOnFirstUse}, a probation of {probationTime.TotalSeconds:0} s" +
+                       (Forgotten is not null
+                            ? $"; the key pin {Forgotten} it learned on probation is forgotten with trust on first use."
+                            : "."));
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
+        #region (internal) DialAgain(Id)
+
+        /// <summary>
+        /// Have the given connection dialled again, as after a change of how it
+        /// is dialled: the one made before is hung up.
+        /// </summary>
+        /// <remarks>
+        /// For a change written before, whose dialling had to wait - see
+        /// <see cref="TryChangeKeyPinTrust"/>. Its revision is raised, and whoever
+        /// follows the connections is told, as after a change written down.
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        internal void DialAgain(String Id)
+        {
+
+            lock (updateLock)
+            {
+
+                if (!connections.ContainsKey(Id))
+                    return;
+
+                BumpDialRevision(Id);
+
+            }
+
+            if (OnConnectionsChanged is Action changed)
+                Task.Run(changed);
+
+        }
+
+        #endregion
+
         #region (internal) CopyOf(Id) / (private static) SamePins(Text1, Text2)
 
         /// <summary>

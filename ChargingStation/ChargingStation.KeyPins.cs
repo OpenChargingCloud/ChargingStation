@@ -46,9 +46,9 @@ namespace cloud.charging.open.ChargingStation
     /// <remarks>
     /// What an ssh:// connection does with the host key of its server, done for
     /// the key of a TLS server: the same probation, the same gate, the same
-    /// clock. The signed pin set itself arrives over the OCPP Device Model,
-    /// whose variables are not built here: <see cref="TryTakeSignedServerKeyPins"/>
-    /// is where they hand it over.
+    /// clock. The signed pin set itself arrives over the OCPP Device Model, as
+    /// SetVariables of TLSClientController (ChargingStation.TLSClient.cs), and
+    /// is handed over in <see cref="TryTakeSignedServerKeyPins"/>.
     /// </remarks>
     public partial class ChargingStation
     {
@@ -339,11 +339,11 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (internal) TryTakeSignedServerKeyPins(Connection, Pins, Version, Signer, out Error)
+        #region (internal) TryTakeSignedServerKeyPins(Connection, Pins, Version, Signer, out Error, AfterAnswer = null)
 
         /// <summary>
         /// Take the key pins of a signed pin set for a wss:// connection: what
-        /// ServerKeyPins and ServerKeyPinsVersion of NetworkConfiguration (OCPP
+        /// ServerKeyPins and ServerKeyPinsVersion of TLSClientController (OCPP
         /// 2.x) or evqi.serverKeyPins (OCPP 1.6) hand over, once a signer this
         /// station believes was found to have signed them ("Key Pins and Raw
         /// Public Keys", sections 5.7, 7.2 and 7.3).
@@ -360,11 +360,13 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Version">The version of the pin set.</param>
         /// <param name="Signer">Who signed it, for the log.</param>
         /// <param name="Error">Why the pins were not taken.</param>
+        /// <param name="AfterAnswer">Done once the answer to the request that brought the pin set is out: a connection to a server the pins refuse is dropped then, and refused everything until. At once, where nothing is answered.</param>
         internal Boolean TryTakeSignedServerKeyPins(String                           Connection,
                                                     String                           Pins,
                                                     UInt64                           Version,
                                                     String                           Signer,
-                                                    [NotNullWhen(false)] out String? Error)
+                                                    [NotNullWhen(false)] out String? Error,
+                                                    Task?                            AfterAnswer   = null)
         {
 
             // A key pin learned on first use that could not be written down is
@@ -382,7 +384,7 @@ namespace cloud.charging.open.ChargingStation
                 confirmed  = Connections.CopyOf(Connection)?.ServerKeyPins.Contains(held) == true;
             }
 
-            ServerKeyPinSetTaken(Connection, learned, confirmed, Version, Signer);
+            ServerKeyPinSetTaken(Connection, learned, confirmed, Version, Signer, AfterAnswer ?? Task.CompletedTask);
 
             return true;
 
@@ -390,17 +392,24 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) ServerKeyPinSetTaken(Connection, Learned, Confirmed, Version, Signer)
+        #region (private) ServerKeyPinSetTaken(Connection, Learned, Confirmed, Version, Signer, AfterAnswer)
 
         /// <summary>
         /// A signed pin set was taken for a wss:// connection: a probation ends -
         /// confirmed, or with the server it learned refused.
         /// </summary>
+        /// <remarks>
+        /// A connection to a server refused is closed once the answer to the pin
+        /// set is out, which goes over it: closed before, it took the answer with
+        /// it. Until then the gate refuses everything over it, as it did while it
+        /// was on probation.
+        /// </remarks>
         private void ServerKeyPinSetTaken(String   Connection,
                                           KeyPin?  Learned,
                                           Boolean  Confirmed,
                                           UInt64   Version,
-                                          String   Signer)
+                                          String   Signer,
+                                          Task     AfterAnswer)
         {
 
             if (Connections.CopyOf(Connection) is not ConnectionEntry entry)
@@ -443,8 +452,18 @@ namespace cloud.charging.open.ChargingStation
                                     $"Key pin {Learned} of endpoint '{entry.Id}' ({entry.URL}) is not among the signed pins of version {Version}, which replace it");
 
                 foreach (var probation in onIt)
+                {
+
+                    notBelieved.AddOrUpdate(probation.Key, $"This station no longer believes its server by the key pin {Learned} it learned on its first " +
+                                                           $"connection: the signed pin set of version {Version} does not have it, and the connection is closed.");
+
                     if (probation.Key is WebSocketClientConnection current)
-                        _ = current.Close(WebSocketFrame.ClosingStatusCode.PolicyViolation, "The key of this server is not among the signed pins.");
+                        _ = Task.Run(async () => {
+                                await AfterAnswer;
+                                await current.Close(WebSocketFrame.ClosingStatusCode.PolicyViolation, "The key of this server is not among the signed pins.");
+                            });
+
+                }
 
             }
 

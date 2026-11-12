@@ -56,7 +56,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// with an empty answer, and keeps what it was sent.
     /// </remarks>
     [TestFixture]
-    public class DiallingWithKeyPinsTests
+    public partial class DiallingWithKeyPinsTests
     {
 
         #region (class) LocalController
@@ -135,10 +135,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// Ask the station something over the connection it has now, and wait
             /// for the answer: a CALLRESULT or a CALLERROR.
             /// </summary>
-            public async Task<JArray> Ask(String Action, JObject Payload)
+            /// <param name="Id">The message id, for a request signed for it; a new one otherwise.</param>
+            public async Task<JArray> Ask(String Action, JObject Payload, String? Id = null)
             {
 
-                var id = Guid.NewGuid().ToString();
+                var id = Id ?? Guid.NewGuid().ToString();
 
                 await Server.SendTextMessage(Server.WebSocketConnections.Last(), new JArray(2, id, Action, Payload).ToString(Formatting.None));
 
@@ -493,13 +494,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(Reported("KeyPinLearned")[0].Value<String>("techInfo"), Does.Contain(KeyPin.FromKey(lcKey).ToHex()).And.Contain(id));
 
-            // On probation: what the server asks is not executed, but a pin set is let through.
+            // On probation: what the server asks is not executed, but a pin set of
+            // the TLSClientController instance of this connection is let through.
             var reset   = await lc!.Ask("Reset", new JObject(new JProperty("type", "Immediate")));
             var pinSet  = await lc.Ask("SetVariables", new JObject(new JProperty("setVariableData", new JArray(
-                                           new JObject(new JProperty("component",      new JObject(new JProperty("name", "NetworkConfiguration"), new JProperty("instance", "1"))),
+                                           new JObject(new JProperty("component",      new JObject(new JProperty("name", "TLSClientController"), new JProperty("instance", id))),
                                                        new JProperty("variable",       new JObject(new JProperty("name", "ServerKeyPins"))),
                                                        new JProperty("attributeValue", KeyPin.FromKey(lcKey).ToHex())),
-                                           new JObject(new JProperty("component",      new JObject(new JProperty("name", "NetworkConfiguration"), new JProperty("instance", "1"))),
+                                           new JObject(new JProperty("component",      new JObject(new JProperty("name", "TLSClientController"), new JProperty("instance", id))),
                                                        new JProperty("variable",       new JObject(new JProperty("name", "ServerKeyPinsVersion"))),
                                                        new JProperty("attributeValue", "1"))))));
 

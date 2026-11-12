@@ -25,6 +25,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.Messaging;
 
 using cloud.charging.open.protocols.WWCP;
+using cloud.charging.open.protocols.WWCP.SSH;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
@@ -135,14 +136,38 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
-        #region (private) SignedByPinSetSigner(Request, out Signer, out Why)
+        #region (private) SignedByPinSetSigner(Request, Connection, WithoutTimeWindow, out Signer, out Why)
 
         /// <summary>
-        /// Whether a signer this station believes signed the given SetVariables request: one of the pin
-        /// set signers on its Connections page (white paper "OCPP over SSH", section 10.4; "Key Pins and
-        /// Raw Public Keys", section 5.7, way 1).
+        /// Whether a signer this station believes signed the given SetVariables request for the given
+        /// connection: one of the pin set signers on its Connections page (white paper "OCPP over SSH",
+        /// section 10.4; "Key Pins and Raw Public Keys", section 5.7, way 1).
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Without a time window for a pin set: it carries a version of its own, which the store compares
+        /// with the one it holds and keeps under its lock, so that an older one cannot come back - and a
+        /// station whose clock was never set, the very one that learns a key on first use, would otherwise
+        /// refuse every pin set, or take any, depending on how wrong its clock is. With the time window, by
+        /// this station's clock, for what has no version to stop a replay: how a connection believes its
+        /// server beyond its pins.
+        /// </para>
+        /// <para>
+        /// The signature names the station as its destination: by the identity it has on this connection
+        /// - which is what its CSMS knows it as, and signs for, where the request comes through the Local
+        /// Controller at the other end - or by the id of its OCPP node, which an incoming request is
+        /// addressed to (see <see cref="NodeIdentityOf"/>). The message id may be "*" with a nonce: a Local
+        /// Controller sends a request on under a message id of its own.
+        /// </para>
+        /// </remarks>
+        /// <param name="Request">The request.</param>
+        /// <param name="Connection">The connection whose variables it writes.</param>
+        /// <param name="WithoutTimeWindow">Whether the signature's time is left out: for a pin set only.</param>
+        /// <param name="Signer">Who signed it, as the Connections page says.</param>
+        /// <param name="Why">Why it is not taken as signed.</param>
         private Boolean SignedByPinSetSigner(OCPPv2_1.CSMS.SetVariablesRequest?   Request,
+                                             ConnectionEntry                      Connection,
+                                             Boolean                              WithoutTimeWindow,
                                              [NotNullWhen(true)]  out String?     Signer,
                                              [NotNullWhen(false)] out String?     Why)
         {
@@ -166,18 +191,22 @@ namespace cloud.charging.open.ChargingStation
 
             if (!Request.Signatures.Any())
             {
-                Why = "A pin set for a connection over SSH is taken only from a SetVariables request signed by a signer this station believes, and this one is not signed.";
+                Why = $"A pin set for a connection over {(Connection.IsSSH ? "SSH" : "TLS")} is taken only from a SetVariables request signed by a signer this " +
+                       "station believes, and this one is not signed.";
                 return false;
             }
 
-            var json = Request.ToJSON(true,
-                                      cs02.OCPP.CustomSetVariablesRequestSerializer,
-                                      cs02.OCPP.CustomSetVariableDataSerializer,
-                                      cs02.OCPP.CustomComponentSerializer,
-                                      cs02.OCPP.CustomEVSESerializer,
-                                      cs02.OCPP.CustomVariableSerializer,
-                                      cs02.OCPP.CustomSignatureSerializer,
-                                      cs02.OCPP.CustomCustomDataSerializer);
+            var json      = Request.ToJSON(true,
+                                           cs02.OCPP.CustomSetVariablesRequestSerializer,
+                                           cs02.OCPP.CustomSetVariableDataSerializer,
+                                           cs02.OCPP.CustomComponentSerializer,
+                                           cs02.OCPP.CustomEVSESerializer,
+                                           cs02.OCPP.CustomVariableSerializer,
+                                           cs02.OCPP.CustomSignatureSerializer,
+                                           cs02.OCPP.CustomCustomDataSerializer);
+
+            var identity  = NodeIdentityOf(Connection) ?? cs02.Id;
+            String? why   = null;
 
             foreach (var signer in signers)
             {
@@ -185,18 +214,88 @@ namespace cloud.charging.open.ChargingStation
                 var policy = new SignaturePolicy(VerificationRules: [ new VerificationRule(Request.Context,
                                                                                            0,
                                                                                            VerificationRuleActions.VerifyAny,
-                                                                                           new KeyPair(signer.Bytes)) ]);
+                                                                                           new KeyPair(signer.Bytes),
+                                                                                           WithoutTimeWindow: WithoutTimeWindow) ]) {
+                                 Now = () => TimeProvider.GetUtcNow()
+                             }.BindTo(identity, OCPPv2_1.Version.WebSocketSubProtocolId);
 
-                if (policy.VerifyRequestMessage(Request, json, out _))
+                if (policy.VerifyRequestMessage(Request, json, out var error))
                 {
                     Signer = signer.Description;
                     return true;
                 }
 
+                // Why the signer's own signature was not taken: another key is
+                // no reason worth saying.
+                if (Request.Signatures.Any(signature => signature.Status != VerificationStatus.UnknownSigner))
+                    why ??= error;
+
             }
 
-            Why = "None of the request's signatures is a valid one of a signer this station believes.";
+            Why = "None of the request's signatures is a valid one of a signer this station believes" + (why is not null ? $": {why}" : ".");
             return false;
+
+        }
+
+        #endregion
+
+        #region (internal) NodeIdentityOf(Connection)
+
+        /// <summary>
+        /// Who this station is on the given connection, as the server at the other end names it: the
+        /// networking node its CSMS knows it as, where it comes through that server - or null, where it
+        /// is the id of its OCPP node.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Over a WebSocket, as WWCPWebSocketServer names a client: the last segment of the URL's path
+        /// ("wss://lc.local/ocpp/CS001" is "CS001"), else the common name of its client certificate, else
+        /// the login of its credentials. A server that took the certificate by its key pin names nobody by
+        /// it, and goes on to the login - this station cannot tell which it does, and every station of
+        /// OCPP-J names itself in the path anyway.
+        /// </para>
+        /// <para>
+        /// Over SSH, as WWCPSshServer names a client: the node its HELLO connects as, the last segment of
+        /// the path, else its login - the URL's, or that of its credentials.
+        /// </para>
+        /// <para>
+        /// The node itself has a fixed id, which an incoming request is addressed to whatever its sender
+        /// called the station: a signature names the one its CSMS knows, so the one of the connection is
+        /// what it is verified against, the node's id as well.
+        /// </para>
+        /// </remarks>
+        internal NetworkingNode_Id? NodeIdentityOf(ConnectionEntry Connection)
+        {
+
+            var login = Connection.AuthenticationId is String authenticationId
+                            ? Connections.Authentications.FirstOrDefault(entry => entry.Id == authenticationId)?.Login
+                            : null;
+
+            if (Connection.IsSSH)
+            {
+
+                if (WWCPSshClient.ConnectAsFrom(Connection.URL) is NetworkingNode_Id connectsAs)
+                    return connectsAs;
+
+                return (Connection.URL.Login ?? login) is String sshLogin
+                           ? NetworkingNode_Id.TryParse(sshLogin)
+                           : null;
+
+            }
+
+            var path = Connection.URL.Path.ToString();
+
+            if (NetworkingNode_Id.TryParse(path[(path.LastIndexOf('/') + 1)..]) is NetworkingNode_Id fromPath)
+                return fromPath;
+
+            if (Connection.CertificateId is String certificateId &&
+                ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == certificateId)?.Certificate is System.Security.Cryptography.X509Certificates.X509Certificate2 certificate &&
+                NetworkingNode_Id.TryParse(certificate.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, forIssuer: false)) is NetworkingNode_Id fromCertificate)
+                return fromCertificate;
+
+            return login is not null
+                       ? NetworkingNode_Id.TryParse(login)
+                       : null;
 
         }
 
@@ -573,7 +672,17 @@ namespace cloud.charging.open.ChargingStation
 
                     var connection = group.Key;
 
-                    if (!Station.SignedByPinSetSigner(Entries[group.First()].Request, out var signer, out var why))
+                    if (Station.Connections.CopyOf(connection) is not ConnectionEntry connectionEntry)
+                    {
+                        foreach (var index in group)
+                            Result(index, OCPPv2_1.SetVariableStatus.UnknownComponent, "NotFound", $"This station has no connection '{connection}' any more.");
+                        continue;
+                    }
+
+                    // Who signed it, without a time window: a pin set is kept from
+                    // coming back by its version. What has no version is held to the
+                    // time window below.
+                    if (!Station.SignedByPinSetSigner(Entries[group.First()].Request, connectionEntry, WithoutTimeWindow: true, out var signer, out var why))
                     {
                         foreach (var index in group)
                             Result(index, OCPPv2_1.SetVariableStatus.Rejected, "Unsigned", why);
@@ -630,7 +739,17 @@ namespace cloud.charging.open.ChargingStation
                                            Select(name => (Name: name, values[name].Index, values[name].Value)).
                                            ToArray();
 
-                    if (trustEntries.Length > 0)
+                    // No version keeps an older one of these from coming back: they
+                    // are taken within the time window of the signature, by this
+                    // station's clock, as before pin sets were taken without one.
+                    if (trustEntries.Length > 0 &&
+                        !Station.SignedByPinSetSigner(Entries[group.First()].Request, connectionEntry, WithoutTimeWindow: false, out _, out var notNow))
+                    {
+                        foreach (var one in trustEntries)
+                            Result(one.Index, OCPPv2_1.SetVariableStatus.Rejected, "OutOfTime", notNow);
+                    }
+
+                    else if (trustEntries.Length > 0)
                     {
 
                         var settings = new SshTrustSettings(trustEntries.FirstOrDefault(one => one.Name == "TrustOnFirstUse").Value,

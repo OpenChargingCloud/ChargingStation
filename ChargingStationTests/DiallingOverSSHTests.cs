@@ -388,27 +388,38 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private) PinSet(Connection, Pins, Version, Signer)
+        #region (private) PinSet(Connection, Pins, Version, Signer, Destination = null, SignedAt = null, Others = null)
 
         /// <summary>
         /// A SetVariables request of SSHClientController for the given connection - its pins and their
         /// version - signed by the given key, or by none: as the CSMS sends it, with the message id it
         /// is to go under, which the signature names.
         /// </summary>
-        private (JObject Payload, String Id) PinSet(String       Connection,
-                                                    String       Pins,
-                                                    UInt64       Version,
-                                                    ECCKeyPair?  Signer)
+        /// <param name="Destination">Whom it is for, as the signature names it: the station's own id, unless said otherwise.</param>
+        /// <param name="SignedAt">When it was signed: now, unless said otherwise.</param>
+        /// <param name="Others">Entries of the connection beside the pin set, or instead of it where the pins are null.</param>
+        private (JObject Payload, String Id) PinSet(String                                         Connection,
+                                                    String?                                        Pins,
+                                                    UInt64                                         Version,
+                                                    ECCKeyPair?                                    Signer,
+                                                    String?                                        Destination   = null,
+                                                    DateTimeOffset?                                SignedAt      = null,
+                                                    IEnumerable<(String Variable, String Value)>?  Others        = null)
         {
 
             var id      = Guid.NewGuid().ToString();
 
             var request = new SetVariablesRequest(
                               // To the station by its own id, which the signature names.
-                              SourceRouting.To(station!.OCPPv2_1Node.Id),
+                              SourceRouting.To(Destination is not null ? NetworkingNode_Id.Parse(Destination) : station!.OCPPv2_1Node.Id),
                               [
-                                  new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPins"),        Pins),
-                                  new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPinsVersion"), Version.ToString())
+                                  .. Pins is not null
+                                         ? new[] {
+                                               new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPins"),        Pins),
+                                               new SetVariableData(new Component("SSHClientController", Connection), new Variable("HostKeyPinsVersion"), Version.ToString())
+                                           }
+                                         : [],
+                                  .. (Others ?? []).Select(other => new SetVariableData(new Component("SSHClientController", Connection), new Variable(other.Variable), other.Value))
                               ],
                               RequestId: Request_Id.Parse(id)
                           );
@@ -418,7 +429,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 // protocol version, and the station takes only one for its own.
                 Assert.That(new SignaturePolicy().BindTo(NetworkingNode_Id.CSMS, protocols.OCPPv2_1.Version.WebSocketSubProtocolId).
                                 SignRequestMessage(request, request.ToJSON(true), out var notSigned,
-                                                   Signer.ToSignInfo1("CSMS", I18NString.Create("pin set"), DateTimeOffset.UtcNow)),
+                                                   Signer.ToSignInfo1("CSMS", I18NString.Create("pin set"), SignedAt ?? DateTimeOffset.UtcNow)),
                             Is.True, notSigned);
 
             return (request.ToJSON(false), id);
@@ -481,6 +492,58 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(heartbeat[0].Value<Int32>(), Is.EqualTo(3), $"A request was refused after the probation ended: {heartbeat}");
                 Assert.That(replayed[2]!["setVariableResult"]![0]!.Value<String>("attributeStatus"), Is.EqualTo("Rejected"));
                 Assert.That(replayed[2]!["setVariableResult"]![0]!["attributeStatusInfo"]!.Value<String>("additionalInfo"), Does.Contain("only a higher one is taken"));
+            });
+
+        }
+
+        #endregion
+
+        #region APinSetIsTakenWithoutAClock_ForTheStationByItsLogin_AndTheTrustWithinTheTimeWindow()
+
+        /// <summary>
+        /// A pin set is taken whenever it was signed - a month before - as one over TLS is: its version
+        /// keeps an older one from coming back. It may name the station by its login, as its CSMS knows it
+        /// on that connection, and not as another station. What has no version - TrustOnFirstUse,
+        /// ProbationTime, OnPinMismatch - is still held to the time window.
+        /// </summary>
+        [Test]
+        public async Task APinSetIsTakenWithoutAClock_ForTheStationByItsLogin_AndTheTrustWithinTheTimeWindow()
+        {
+
+            var signer    = ECCKeyPair.GenerateKeys()!;
+
+            Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                             out var id, out error,
+                                                             SshTrust: new SshTrustSettings("HostKey", null, null)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null, "Learning the host key", () => SaidOf(id!));
+
+            var monthAgo  = DateTimeOffset.UtcNow - TimeSpan.FromDays(30);
+
+            var another   = await csms!.Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, signer, Destination: "cs002", SignedAt: monthAgo));
+            var byLogin   = await csms.  Ask("SetVariables", PinSet(id!, csms.Fingerprint, 1, signer, Destination: "cs001", SignedAt: monthAgo));
+            var oldTrust  = await csms.  Ask("SetVariables", PinSet(id!, null, 0, signer, SignedAt: monthAgo, Others: [ ("ProbationTime", "120") ]));
+            var newTrust  = await csms.  Ask("SetVariables", PinSet(id!, null, 0, signer, Others: [ ("ProbationTime", "120") ]));
+
+            static String? Reason(JArray Answer)
+                => Answer[2]!["setVariableResult"]![0]!["attributeStatusInfo"]?.Value<String>("reasonCode");
+
+            Assert.Multiple(() => {
+                Assert.That(Reason(another),                                              Is.EqualTo("Unsigned"), another.ToString());
+                Assert.That(byLogin[2]!["setVariableResult"]!.Select(result => result.Value<String>("attributeStatus")),
+                                                                                          Is.All.EqualTo("Accepted"), byLogin.ToString());
+                Assert.That(station.Connections.Connections.Single().SshHostKey,          Is.EqualTo(csms.Fingerprint));
+                Assert.That(station.Connections.Connections.Single().SshHostKeysVersion,  Is.EqualTo(1));
+                Assert.That(Reason(oldTrust),                                             Is.EqualTo("OutOfTime"), oldTrust.ToString());
+                Assert.That(newTrust[2]!["setVariableResult"]![0]!.Value<String>("attributeStatus"),
+                                                                                          Is.EqualTo("Accepted"), newTrust.ToString());
+                Assert.That(station.Connections.Connections.Single().SshProbationTime,    Is.EqualTo(TimeSpan.FromSeconds(120)));
             });
 
         }

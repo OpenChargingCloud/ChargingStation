@@ -1353,18 +1353,40 @@ namespace cloud.charging.open.ChargingStation
         /// with a SecurityError.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Over SSH a pin set for the SSH client: SetVariables of
         /// SSHClientController, or ChangeConfiguration of an SSHClient key in
-        /// OCPP 1.6. Over a wss:// WebSocket one of key pins: SetVariables of
-        /// ServerKeyPins and ServerKeyPinsVersion of NetworkConfiguration, or
+        /// OCPP 1.6. Over a wss:// WebSocket one of key pins: SetVariables of the
+        /// TLSClientController instance of this very connection, or
         /// ChangeConfiguration of evqi.serverKeyPins and evqi.serverKeyPinsVersion
         /// in OCPP 1.6 ("Key Pins and Raw Public Keys", sections 7.2 and 7.3).
         /// Each only over its own kind of connection.
+        /// </para>
+        /// <para>
+        /// Over a wss:// WebSocket also what a CSMS reads to find that instance:
+        /// GetVariables, and GetReport, of TLSClientController alone. Of any
+        /// instance, since the instance is named by this station's id of the
+        /// connection, which the CSMS does not know before it read the URL, the
+        /// key pin shown or the one learned of each: what that tells is the
+        /// station's servers and the key pins of their public keys, nothing a
+        /// server on probation could use against it. GetBaseReport is refused:
+        /// it names no component, and reports the whole Device Model.
+        /// </para>
+        /// <para>
+        /// A connection whose learned key pin a signed pin set or a change of
+        /// trust ended without confirming it is refused everything until it is
+        /// closed - after its answer, which goes over it - see
+        /// ChargingStation.TLSClient.cs.
+        /// </para>
         /// </remarks>
         private String? GateOnProbation(IMessageConnection  Connection,
                                         String              Action,
                                         JObject?            Payload)
         {
+
+            // Off probation, and about to be closed: its server is not believed.
+            if (notBelieved.TryGetValue(Connection, out var notBelievedAnyMore))
+                return notBelievedAnyMore;
 
             if (!onProbation.TryGetValue(Connection, out var probation) || !probation.OnIt)
                 return null;
@@ -1386,10 +1408,23 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
+            // A write of the instance of this connection, and of no other: a server
+            // on probation does not confirm another one's key pins, nor its own
+            // through another instance's.
             if (Action == "SetVariables" &&
                 Payload?["setVariableData"] is JArray pinSet && pinSet.Count > 0 &&
-                pinSet.All(entry => entry?["component"]?["name"]?.Value<String>() == "NetworkConfiguration" &&
-                                    entry?["variable"]?["name"]?.Value<String>() is "ServerKeyPins" or "ServerKeyPinsVersion"))
+                pinSet.All(entry => entry?["component"]?["name"]?.    Value<String>() == "TLSClientController" &&
+                                    entry?["component"]?["instance"]?.Value<String>() == probation.Connection.Id))
+                return null;
+
+            if (Action == "GetVariables" &&
+                Payload?["getVariableData"] is JArray reads && reads.Count > 0 &&
+                reads.All(entry => entry?["component"]?["name"]?.Value<String>() == "TLSClientController"))
+                return null;
+
+            if (Action == "GetReport" &&
+                Payload?["componentVariable"] is JArray asked && asked.Count > 0 &&
+                asked.All(entry => entry?["component"]?["name"]?.Value<String>() == "TLSClientController"))
                 return null;
 
             if (Action == "ChangeConfiguration" &&

@@ -1964,6 +1964,7 @@ namespace cloud.charging.open.ChargingStation
             deviceModelBridge.Configure(chargingStation);
             AttachSSHClient(chargingStation);
             AttachStationCertificate(chargingStation);
+            AttachTLSClient(chargingStation);
             deviceModelBridge.Configure(chargePoint);
 
             // The roots of its CSMS are the station's, whichever version
