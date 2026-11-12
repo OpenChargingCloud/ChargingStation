@@ -809,6 +809,11 @@ not let the station in - also while the station is still trying to reach it
 for the first time. The connection test says which host key it was shown
 and writes nothing down.
 
+What the server needs for it - the station's public key given with
+`stationKeys`, a group that takes SSH keys - and the whole way step by step is in
+[Charging stations over SSH: a walk-through](https://github.com/OpenChargingCloud/LocalControllerCLI/blob/master/docs/Charging-stations-over-SSH.md)
+of LocalControllerCLI; a CSMS takes the same steps.
+
 **Names are resolved by the station's name servers, and by nothing else.** The
 host of a connection - WebSocket or SSH - and the host of a meter are looked
 up with the station's DNS client, the one `dns` configures; the resolver of the
