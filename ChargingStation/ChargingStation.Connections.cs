@@ -635,7 +635,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// The version of HTTP the WebSocket this station has to the given
-        /// address was opened over - "1.1" or "2" - or null, where it has none.
+        /// address was opened over - "1.1", "2" or "3" - or null, where it has none.
         /// </summary>
         internal String? HTTPVersionInUseAt(URL URL)
 
@@ -1996,10 +1996,13 @@ namespace cloud.charging.open.ChargingStation
 
                 Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection.OCPPVersion))}" +
                              connection.HTTPVersion switch {
+                                 WebSocketHTTPVersion.HTTP3    => ", over HTTP/3 and nothing else",
                                  WebSocketHTTPVersion.HTTP2    => ", over HTTP/2 and nothing else",
                                  WebSocketHTTPVersion.HTTP1_1  => ", over HTTP/1.1 and nothing else",
                                  _                             => connection.IsSecure
-                                                                      ? ", over HTTP/2 or HTTP/1.1 as the server chooses"
+                                                                      ? WebSocketAlternativeServices.TryGetHTTP3(connection.URL, out _)
+                                                                            ? ", over HTTP/3, where the server said before that it is reached"
+                                                                            : ", over HTTP/2 or HTTP/1.1 as the server chooses"
                                                                       : ", over HTTP/1.1: without TLS there is nothing to agree on another with"
                              } +
                              " ...");

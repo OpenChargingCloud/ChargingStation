@@ -834,16 +834,23 @@ right when it was opened is not the answer to that.
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
-over HTTP/1.1 (the Upgrade of RFC 6455) or over HTTP/2 (the extended CONNECT of
-RFC 8441), and a connection says which under `httpVersion`: `"1.1"` or `"2"`
-is that one and nothing else - a back end that does not take it is not reached
-some other way - and `"auto"`, which a connection that says nothing is, leaves
-it to the back end: the station offers both (ALPN) and takes what the server
-chooses, and without TLS, where there is nothing to choose with, HTTP/1.1. Who
-the station is, what it shows for it and what its server is held to are the
-same over both. The page and the log say which version a connection came to,
-and so does its test. `"3"` is refused in words: a WebSocket over HTTP/3 is
-not built yet.
+over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of
+RFC 8441) or over HTTP/3 (the same over QUIC, RFC 9220), and a connection says
+which under `httpVersion`: `"1.1"`, `"2"` or `"3"` is that one and nothing
+else - a back end that does not take it is not reached some other way - and
+`"auto"`, which a connection that says nothing is, leaves it to the back end:
+the station offers HTTP/2 and HTTP/1.1 (ALPN) and takes what the server
+chooses, and without TLS, where there is nothing to choose with, HTTP/1.1.
+HTTP/3 goes over UDP, on the port of the number of the back end's TCP port,
+and needs a `wss://` address, as QUIC is TLS and nothing else. `"auto"` comes
+to it by the back end's own word: a back end that says with a connection it
+accepts that it is reached over HTTP/3 (`Alt-Svc: h3=":port"`, RFC 7838) is
+dialled over HTTP/3 the next time, for as long as it said and no longer than
+the station runs; where it is not found there, it is dialled as before. Who
+the station is, what it shows for it and what its server is held to - its
+roots, its pins, its key - are the same over all three; a client certificate
+is shown over HTTP/3 with a key of ECDSA P-256, ECDSA P-384 or RSA. The page
+and the log say which version a connection came to, and so does its test.
 
 **Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
 the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's

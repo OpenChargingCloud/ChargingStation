@@ -1488,10 +1488,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 case "auto":  Version = WebSocketHTTPVersion.Auto;     break;
                 case "1.1":   Version = WebSocketHTTPVersion.HTTP1_1;  break;
                 case "2":     Version = WebSocketHTTPVersion.HTTP2;    break;
-
-                case "3":
-                    Error = "This station does not open a WebSocket over HTTP/3 yet: the version of HTTP is \"auto\", \"1.1\" or \"2\".";
-                    return false;
+                case "3":     Version = WebSocketHTTPVersion.HTTP3;    break;
 
                 default:
                     Error = $"'{Text}' is no version of HTTP a WebSocket is opened over: it is \"auto\", \"1.1\", \"2\" or \"3\".";
@@ -1503,6 +1500,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
             {
                 Version  = null;
                 Error    = "It names a version of HTTP, and an ssh:// connection speaks no HTTP to open a WebSocket over.";
+                return false;
+            }
+
+            // HTTP/3 is HTTP over QUIC, and QUIC is TLS and nothing else.
+            if (Version == WebSocketHTTPVersion.HTTP3 && URL.Scheme != URIScheme.wss && URL.Scheme != URIScheme.https)
+            {
+                Version  = null;
+                Error    = "It names HTTP/3, which is HTTP over TLS and nothing else: a WebSocket over HTTP/3 needs a wss:// address.";
                 return false;
             }
 
@@ -1527,9 +1532,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public static String AsText(HTTPVersion Version)
 
-            => Version == org.GraphDefined.Vanaheimr.Hermod.HTTP.HTTPVersion.HTTP_2_0
-                   ? "2"
-                   : "1.1";
+            => Version == org.GraphDefined.Vanaheimr.Hermod.HTTP.HTTPVersion.HTTP_3_0
+                   ? "3"
+                   : Version == org.GraphDefined.Vanaheimr.Hermod.HTTP.HTTPVersion.HTTP_2_0
+                         ? "2"
+                         : "1.1";
 
         #endregion
 

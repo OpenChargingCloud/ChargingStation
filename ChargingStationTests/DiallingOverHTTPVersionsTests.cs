@@ -41,10 +41,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     /// <summary>
     /// A ws:// or wss:// connection says which version of HTTP its WebSocket
-    /// is opened over - "1.1", "2", or "auto", which it is where it says
+    /// is opened over - "1.1", "2", "3", or "auto", which it is where it says
     /// nothing: the station then offers HTTP/2 and HTTP/1.1 and its server
-    /// chooses. Named, a version is that and nothing else. The station says
-    /// which one it came to.
+    /// chooses, and goes over HTTP/3 once its server said it is reached over
+    /// it. Named, a version is that and nothing else. The station says which
+    /// one it came to.
     /// </summary>
     [TestFixture]
     public class DiallingOverHTTPVersionsTests
@@ -65,17 +66,25 @@ namespace cloud.charging.open.ChargingStation.Tests
             public IPPort                        Port        { get; }
             public ConcurrentQueue<HTTPVersion>  OpenedOver  { get; } = new ();
 
-            public CSMS(X509Certificate2 Certificate, Boolean AcceptHTTP2)
+            public CSMS(X509Certificate2 Certificate, Boolean AcceptHTTP2, Boolean AcceptHTTP3 = false)
             {
 
-                this.Port  = IPPort.Parse(TestPorts.Free());
+                this.Port  = IPPort.Parse(AcceptHTTP3 ? APortFreeForBoth() : TestPorts.Free());
 
                 Server = new WebSocketServer(HTTPPort:                   Port,
                                              RequireAuthentication:      false,
                                              ServerCertificateSelector:  (tcpServer, tcpClient) => Certificate,
                                              AutoStart:                  true) {
-                             AcceptHTTP2 = AcceptHTTP2
+                             AcceptHTTP2 = AcceptHTTP2,
+                             AcceptHTTP3 = AcceptHTTP3
                          };
+
+                if (AcceptHTTP3)
+                {
+                    // The listener tells of its start in its own time.
+                    SpinWait.SpinUntil(() => Server.HTTP3Port is not null || Server.WhyNoHTTP3 is not null, TimeSpan.FromSeconds(10));
+                    Assert.That(Server.HTTP3Port, Is.EqualTo(Port), "The back end takes no WebSockets over HTTP/3: " + Server.WhyNoHTTP3);
+                }
 
                 Server.OnNewWebSocketConnection += (timestamp, server, connection, sharedSubprotocols, selectedSubprotocol, eventTrackingId, cancellationToken) => {
                     OpenedOver.Enqueue(connection.HTTPVersion);
@@ -102,6 +111,46 @@ namespace cloud.charging.open.ChargingStation.Tests
                     await Server.SendTextMessage(connection, answer.ToString(Formatting.None));
 
                 };
+
+            }
+
+            /// <summary>
+            /// A port that is free for UDP as for TCP, on both loopback
+            /// addresses: Windows keeps ranges of ports for itself, for UDP and
+            /// TCP apart, so the UDP port of the number of a free TCP port may
+            /// not be there to have.
+            /// </summary>
+            private static UInt16 APortFreeForBoth()
+            {
+
+                for (var attempt = 0; attempt < 200; attempt++)
+                {
+
+                    var port = Random.Shared.Next(20000, 32768);
+
+                    try
+                    {
+
+                        using var udp4 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback,     port));
+                        using var udp6 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.IPv6Loopback, port));
+
+                        var tcp4 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,     port);
+                        tcp4.Start();
+                        tcp4.Stop();
+
+                        var tcp6 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.IPv6Loopback, port);
+                        tcp6.Start();
+                        tcp6.Stop();
+
+                        return (UInt16) port;
+
+                    }
+                    catch (System.Net.Sockets.SocketException)
+                    { }
+
+                }
+
+                throw new InvalidOperationException("No port is free for UDP and TCP.");
 
             }
 
@@ -168,7 +217,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                 await station.DisposeAsync();
 
             if (csms is not null)
+            {
+                // What a back end said of itself is kept for the process, and this one is gone.
+                WebSocketAlternativeServices.Forget(URL.Parse(Address));
                 await csms.DisposeAsync();
+            }
 
             ca.  Dispose();
             leaf.Dispose();
@@ -187,8 +240,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String Address
             => $"wss://127.0.0.1:{csms!.Port}/cs001";
 
-        private void ACSMS(Boolean AcceptHTTP2)
-            => csms = new CSMS(leaf, AcceptHTTP2);
+        private void ACSMS(Boolean AcceptHTTP2, Boolean AcceptHTTP3 = false)
+            => csms = new CSMS(leaf, AcceptHTTP2, AcceptHTTP3);
 
         private async Task Start()
             => station = await TestStations.Started(station!, directory);
@@ -280,6 +333,149 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AConnectionThatNamesHTTP3OpensItsWebSocketOverIt()
+
+        /// <summary>
+        /// Over QUIC, on the UDP port of the number of the back end's TCP
+        /// port, with the back end believed by the root the station keeps for
+        /// it - and OCPP goes over it.
+        /// </summary>
+        [Test]
+        public async Task AConnectionThatNamesHTTP3OpensItsWebSocketOverIt()
+        {
+
+            ACSMS(AcceptHTTP2: true, AcceptHTTP3: true);
+
+            var id = Added("3");
+
+            await Start();
+
+            await Until(() => IsConnected(id),     "Connecting",                      () => SaidOf(id));
+            await Until(() => csms!.Boots > 0,     "A BootNotification over HTTP/3");
+
+            Assert.Multiple(() => {
+                Assert.That(csms!.OpenedOver,  Is.EqualTo(new[] { HTTPVersion.HTTP_3_0 }),  "what the back end says the WebSocket was opened over");
+                Assert.That(InUse,             Is.EqualTo("3"),                             "what the station says it was opened over");
+                Assert.That(Entry.ToJSON().Value<String>(ConnectionEntry.HTTPVersionKey),  Is.EqualTo("3"),  "what is written down");
+            });
+
+        }
+
+        #endregion
+
+        #region NothingButHTTP3WillDo_AndTheBackEndDoesNotTakeIt()
+
+        [Test]
+        public async Task NothingButHTTP3WillDo_AndTheBackEndDoesNotTakeIt()
+        {
+
+            ACSMS(AcceptHTTP2: true, AcceptHTTP3: false);
+
+            var id = Added("3");
+
+            await Start();
+
+            await Until(() => station!.ConnectionStates.TryGetValue(id, out var state) &&
+                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotDialled,
+                        "Giving up", () => SaidOf(id));
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() => {
+                Assert.That(IsConnected(id),   Is.False,  "It was reached some other way.");
+                Assert.That(csms!.OpenedOver,  Is.Empty,  "A WebSocket was opened over something else.");
+                Assert.That(InUse,             Is.Null);
+            });
+
+        }
+
+        #endregion
+
+        #region ABackEndTheStationDoesNotBelieveIsNotAskedOverHTTP3Either()
+
+        /// <summary>
+        /// What its server is held to is the same over HTTP/3: a back end
+        /// whose certificate no root of the station stands behind is not asked.
+        /// </summary>
+        [Test]
+        public async Task ABackEndTheStationDoesNotBelieveIsNotAskedOverHTTP3Either()
+        {
+
+            using var key      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request        = new CertificateRequest("CN=127.0.0.1", key, HashAlgorithmName.SHA256);
+            var names          = new SubjectAlternativeNameBuilder();
+            names.AddIpAddress(System.Net.IPAddress.Loopback);
+            request.CertificateExtensions.Add(names.Build());
+
+            using var signed   = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+            using var someone  = X509CertificateLoader.LoadPkcs12(signed.Export(X509ContentType.Pfx, "x"), "x", X509KeyStorageFlags.UserKeySet);
+
+            csms = new CSMS(someone, AcceptHTTP2: true, AcceptHTTP3: true);
+
+            var id = Added("3");
+
+            await Start();
+
+            await Until(() => station!.ConnectionStates.TryGetValue(id, out var state) &&
+                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotDialled,
+                        "Giving up", () => SaidOf(id));
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Multiple(() => {
+                Assert.That(IsConnected(id),   Is.False);
+                Assert.That(csms!.OpenedOver,  Is.Empty,  "A back end that was not believed was asked.");
+                Assert.That(csms.Boots,        Is.Zero);
+            });
+
+        }
+
+        #endregion
+
+        #region WhereItsServerChoosesItIsHTTP3OnceTheBackEndSaidSo()
+
+        /// <summary>
+        /// "auto" comes to HTTP/3 by the back end's own word (Alt-Svc): the
+        /// first time it is asked over TCP, the next time over HTTP/3 - and
+        /// the test of a connection says so.
+        /// </summary>
+        [Test]
+        public async Task WhereItsServerChoosesItIsHTTP3OnceTheBackEndSaidSo()
+        {
+
+            ACSMS(AcceptHTTP2: true, AcceptHTTP3: true);
+
+            var first   = await station!.TestConnection("The CSMS", Address, "CSMS");
+            var second  = await station. TestConnection("The CSMS", Address, "CSMS");
+            var named   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "3");
+            var other   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "2");
+
+            Assert.Multiple(() => {
+
+                Assert.That(first.Value<Boolean>("ok"),   Is.True,  Steps(first));
+                Assert.That(Steps(first),                 Does.Contain("over HTTP/2 or HTTP/1.1 as the server chooses"));
+                Assert.That(Steps(first),                 Does.Contain("The WebSocket was opened over HTTP/2, which the server chose."));
+
+                Assert.That(second.Value<Boolean>("ok"),  Is.True,  Steps(second));
+                Assert.That(Steps(second),                Does.Contain("over HTTP/3, where the server said before that it is reached"));
+                Assert.That(Steps(second),                Does.Contain("The WebSocket was opened over HTTP/3, which the server chose."));
+
+                Assert.That(named.Value<Boolean>("ok"),   Is.True,  Steps(named));
+                Assert.That(Steps(named),                 Does.Contain("over HTTP/3 and nothing else"));
+                Assert.That(Steps(named),                 Does.Contain("The WebSocket was opened over HTTP/3."));
+
+                // A connection that names its version is not moved by what the back end said.
+                Assert.That(other.Value<Boolean>("ok"),   Is.True,  Steps(other));
+                Assert.That(Steps(other),                 Does.Contain("The WebSocket was opened over HTTP/2."));
+
+                Assert.That(csms!.OpenedOver,  Is.EqualTo(new[] { HTTPVersion.HTTP_2_0, HTTPVersion.HTTP_3_0, HTTPVersion.HTTP_3_0, HTTPVersion.HTTP_2_0 }));
+
+            });
+
+        }
+
+        #endregion
+
         #region NothingButHTTP2WillDo_AndTheBackEndDoesNotTakeIt()
 
         [Test]
@@ -347,7 +543,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #region WhatIsNoVersionIsRefusedInWords(Named, Address, Expected)
 
-        [TestCase("3",         "wss://csms.example.org/cs001",  "does not open a WebSocket over HTTP/3 yet")]
+        [TestCase("3",         "ws://csms.example.org/cs001",   "a WebSocket over HTTP/3 needs a wss:// address")]
         [TestCase("h2",        "wss://csms.example.org/cs001",  "is no version of HTTP a WebSocket is opened over")]
         [TestCase("1.0",       "wss://csms.example.org/cs001",  "is no version of HTTP a WebSocket is opened over")]
         [TestCase("2",         "ssh://csms.example.org/",       "an ssh:// connection speaks no HTTP")]
@@ -380,7 +576,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var chosen  = await station!.TestConnection("The CSMS", Address, "CSMS");
             var named   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "1.1");
-            var wrong   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "3");
+            var wrong   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "h2");
 
             Assert.Multiple(() => {
 
@@ -393,7 +589,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Steps(named),                 Does.Contain("The WebSocket was opened over HTTP/1.1."));
 
                 Assert.That(wrong.Value<Boolean>("ok"),   Is.False);
-                Assert.That(Steps(wrong),                 Does.Contain("does not open a WebSocket over HTTP/3 yet"));
+                Assert.That(Steps(wrong),                 Does.Contain("is no version of HTTP a WebSocket is opened over"));
 
                 Assert.That(station.Connections.Connections,  Is.Empty,  "a test wrote something down");
 
@@ -443,7 +639,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             }
 
-            var refused      = await http.PostAsync("api/v1/configuration/connections", Body(Connection("3")));
+            var refused      = await http.PostAsync("api/v1/configuration/connections", Body(Connection("h2")));
             var refusal      = await refused.Content.ReadAsStringAsync();
 
             var added        = await http.PostAsync("api/v1/configuration/connections", Body(Connection("2")));
@@ -464,7 +660,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
 
                 Assert.That((Int32) refused.StatusCode,             Is.EqualTo(400));
-                Assert.That(refusal,                                Does.Contain("does not open a WebSocket over HTTP/3 yet"));
+                Assert.That(refusal,                                Does.Contain("is no version of HTTP a WebSocket is opened over"));
 
                 Assert.That(added.IsSuccessStatusCode,              Is.True,  addedJSON.ToString());
                 Assert.That(updated.IsSuccessStatusCode,            Is.True,  updatedJSON.ToString());

@@ -828,17 +828,18 @@ export interface StationConnection {
     judgement?:                  ServerJudgement | null;
     /**
      * The version of HTTP its WebSocket is opened over, where it names one:
-     * "1.1" or "2", and that alone. Left out, it is "auto": the station
-     * offers HTTP/2 and HTTP/1.1 and the server chooses.
+     * "1.1", "2" or "3", and that alone. Left out, it is "auto": the station
+     * offers HTTP/2 and HTTP/1.1 and the server chooses, and goes over
+     * HTTP/3 once the server said it is reached over it.
      */
     httpVersion?:                HTTPVersionOfAConnection;
     /** The version of HTTP the WebSocket it has now was opened over. */
-    httpVersionInUse?:           '1.1' | '2';
+    httpVersionInUse?:           '1.1' | '2' | '3';
     warnings?:           string[];
 }
 
 /** The version of HTTP a ws:// or wss:// connection opens its WebSocket over. */
-export type HTTPVersionOfAConnection = 'auto' | '1.1' | '2';
+export type HTTPVersionOfAConnection = 'auto' | '1.1' | '2' | '3';
 
 /** What goes in when a connection is written down or changed. */
 export interface ConnectionToSave {

@@ -578,7 +578,8 @@ describe('the Connections page', () => {
         assert.equal(marked('form[data-edit="c1"]'), '2');
         assert.equal(marked('form[data-edit="c2"]'), 'auto', 'a connection that names no version is not left to the server');
         assert.equal(marked('#add-form'),            'auto');
-        assert.equal(root.querySelectorAll('form[data-edit="c1"] select[name="httpVersion"] option').length, 3);
+        assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>('form[data-edit="c1"] select[name="httpVersion"] option')].map(option => option.value),
+                         [ 'auto', '1.1', '2', '3' ]);
 
         assert.equal(root.querySelector('[data-http="c1"]')?.textContent?.trim(), 'HTTP/2');
         assert.equal(root.querySelector('[data-http="c2"]')?.textContent?.trim(), 'HTTP/1.1');

@@ -14,7 +14,8 @@ import { noLongerWrittenDown, stateLine, type StateLine } from './connectionStat
 const httpVersions: ReadonlyArray<readonly [HTTPVersionOfAConnection, string]> = [
     [ 'auto', 'As the server chooses' ],
     [ '1.1',  'HTTP/1.1 and nothing else' ],
-    [ '2',    'HTTP/2 and nothing else' ]
+    [ '2',    'HTTP/2 and nothing else' ],
+    [ '3',    'HTTP/3 and nothing else' ]
 ];
 
 /**
