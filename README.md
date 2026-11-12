@@ -153,6 +153,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
+| `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, and "cbor" for OCPP 1.6; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
@@ -860,6 +861,21 @@ what was asked; the test gets through with a warning. No answer within ten
 seconds (`ChargingStation.TestAnswerWithin`) fails the test, although the
 connection could be made. `"ocppRequest": "none"` - `none` as the last word at
 the command line - asks nothing, and is the test up to the handshake.
+
+**JSON or CBOR.** The OCPP messages of a connection are JSON in text frames,
+as OCPP defines it, unless the connection says otherwise under `encoding`:
+`"cbor"` is OCPP 2.1 with every message as CBOR in a binary frame, agreed on
+as the subprotocol `ocpp2.1cbor` and nothing else - a back end that does not
+speak it is not connected to some other way - and `"auto"` offers
+`ocpp2.1cbor` first and `ocpp2.1` and `ocpp2.0.1` after it, and takes what the
+back end chooses. `"json"` is what a connection that says nothing is. It is
+the same over a WebSocket and over `ssh://`, which agree on the same
+subprotocols; OCPP 1.6 has no CBOR, and a 1.6 connection that names `"cbor"`
+or `"auto"` is refused. What a connection came to stands in the log, on the
+connections page (a chip "CBOR") and under `subprotocolInUse` in what
+`GET /api/v1/configuration/connections` answers. A connection test offers
+what the connection would, asks its Heartbeat as CBOR where the handshake came
+to it, and shows the frames it receives as the JSON they stand for.
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
 over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of

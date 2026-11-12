@@ -835,16 +835,29 @@ export interface StationConnection {
     httpVersion?:                HTTPVersionOfAConnection;
     /** The version of HTTP the WebSocket it has now was opened over. */
     httpVersionInUse?:           '1.1' | '2' | '3';
+    /**
+     * How its OCPP messages are written, where it is not JSON: "cbor" offers
+     * the CBOR subprotocol of its OCPP version and nothing else, "auto"
+     * offers it first and takes what the back end chooses. Left out, it is "json".
+     */
+    encoding?:                   EncodingOfAConnection;
+    /** The subprotocol the WebSocket it has now agreed on: "ocpp2.1", "ocpp2.1cbor". */
+    subprotocolInUse?:           string;
     warnings?:           string[];
 }
 
 /** The version of HTTP a ws:// or wss:// connection opens its WebSocket over. */
 export type HTTPVersionOfAConnection = 'auto' | '1.1' | '2' | '3';
 
+/** How the OCPP messages of a connection are written. */
+export type EncodingOfAConnection = 'json' | 'cbor' | 'auto';
+
 /** What goes in when a connection is written down or changed. */
 export interface ConnectionToSave {
     /** The version of HTTP its WebSocket is opened over; left out, the station keeps the one it has. */
     httpVersion?:        HTTPVersionOfAConnection;
+    /** How its OCPP messages are written; left out, the station keeps what it says. */
+    encoding?:           EncodingOfAConnection;
     id?:                 string;
     description:         string;
     url:                 string;

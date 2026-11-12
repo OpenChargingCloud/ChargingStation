@@ -1,4 +1,4 @@
-import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
@@ -16,6 +16,13 @@ const httpVersions: ReadonlyArray<readonly [HTTPVersionOfAConnection, string]> =
     [ '1.1',  'HTTP/1.1 and nothing else' ],
     [ '2',    'HTTP/2 and nothing else' ],
     [ '3',    'HTTP/3 and nothing else' ]
+];
+
+/** How the OCPP messages of a connection may be written, as the station names it. */
+const encodings: ReadonlyArray<readonly [EncodingOfAConnection, string]> = [
+    [ 'json', 'JSON, as OCPP defines it' ],
+    [ 'cbor', 'CBOR and nothing else' ],
+    [ 'auto', 'CBOR where the back end speaks it' ]
 ];
 
 /**
@@ -367,6 +374,22 @@ export const connectionsPage: Page = {
                         </span>
                     </label>
 
+                    <label>Messages as
+                        <select name="encoding" ?disabled=${!mayManage}>
+                            ${encodings.map(([value, text]) => html`
+                                <option value="${value}" ?selected=${value === (entry?.encoding ?? 'json')}>
+                                    ${text}
+                                </option>
+                            `)}
+                        </select>
+                        <span class="hint">
+                            How the OCPP messages of this connection are written. CBOR is OCPP 2.1 in
+                            binary frames, agreed on as the subprotocol "ocpp2.1cbor": a back end that
+                            does not speak it is not connected to with "CBOR and nothing else", and is
+                            spoken to in JSON with "CBOR where the back end speaks it". OCPP 1.6 has no CBOR.
+                        </span>
+                    </label>
+
                 </div>
 
                 <label class="checkbox">
@@ -438,6 +461,12 @@ export const connectionsPage: Page = {
                                   title="${(entry.httpVersion ?? 'auto') === 'auto'
                                               ? 'Its WebSocket was opened over this version of HTTP, which its server chose.'
                                               : 'Its WebSocket was opened over this version of HTTP, and is over no other.'}">HTTP/${entry.httpVersionInUse}</span>
+                        ` : nothing}
+                        ${entry.subprotocolInUse?.endsWith('cbor') ? html`
+                            <span class="chip" data-encoding="${entry.id}"
+                                  title="${(entry.encoding ?? 'json') === 'auto'
+                                              ? `It agreed on ${entry.subprotocolInUse}: its messages are CBOR, which its back end chose.`
+                                              : `It agreed on ${entry.subprotocolInUse}: its messages are CBOR.`}">CBOR</span>
                         ` : nothing}
                         ${entry.transport === 'ssh'
                               ? html`<span class="chip on">SSH</span>`
@@ -895,6 +924,7 @@ export const connectionsPage: Page = {
                 connectionType:      field(form, 'connectionType'),
                 ocppVersion:         field(form, 'ocppVersion'),
                 httpVersion:         (form.querySelector<HTMLSelectElement>('[name="httpVersion"]')?.value ?? 'auto') as HTTPVersionOfAConnection,
+                encoding:            (form.querySelector<HTMLSelectElement>('[name="encoding"]')?.value ?? 'json') as EncodingOfAConnection,
                 autoConnect:  form.querySelector<HTMLInputElement>('[name="autoConnect"]')?.checked ?? false,
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       proves.startsWith('cert:') ? proves.slice(5) : null

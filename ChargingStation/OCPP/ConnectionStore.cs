@@ -1006,10 +1006,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         String?                          ServerKeyPins   = null,
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
                                         ServerPinsChange?                Pins            = null,
-                                        String?                          HTTPVersion     = null)
+                                        String?                          HTTPVersion     = null,
+                                        String?                          Encoding        = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion, Encoding);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
@@ -1022,6 +1023,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; none for neither.</param>
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; none for nothing.</param>
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; none for "auto".</param>
+        /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; none for "json".</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -1037,7 +1039,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         String?                          ServerKeyPins   = null,
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
                                         ServerPinsChange?                Pins            = null,
-                                        String?                          HTTPVersion     = null)
+                                        String?                          HTTPVersion     = null,
+                                        String?                          Encoding        = null)
         {
 
             Id        = null;
@@ -1048,6 +1051,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out Error))
                 return false;
 
             if (!ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out Error))
@@ -1105,7 +1111,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 TrustOnFirstUse            = keyTrustOnFirstUse,
                                 ServerKeyPinProbationTime  = keyPinProbationTime,
                                 Pins                       = pins,
-                                HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
+                                HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
+                                Encoding                   = encoding    ?? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON
                             };
 
                 var peersBefore = SnapshotPeers();
@@ -1166,11 +1173,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          ServerKeyPinsAsShown   = null,
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
                                            ServerPinsChange?                Pins                   = null,
-                                           String?                          HTTPVersion            = null)
+                                           String?                          HTTPVersion            = null,
+                                           String?                          Encoding               = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
                                    out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
-                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion);
+                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion, Encoding);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1185,6 +1193,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and learns a key pin on first use, and how long that waits; nothing to keep what it says.</param>
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; nothing to keep what it is held to.</param>
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; nothing to keep the one it has.</param>
+        /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing to keep what it says.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -1202,7 +1211,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            String?                          ServerKeyPinsAsShown   = null,
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
                                            ServerPinsChange?                Pins                   = null,
-                                           String?                          HTTPVersion            = null)
+                                           String?                          HTTPVersion            = null,
+                                           String?                          Encoding               = null)
         {
 
             NotSaved = false;
@@ -1212,6 +1222,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
 
             if (!ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out Error))
                 return false;
 
             // Whether the host key is to stay as it is: left out, or sent back
@@ -1347,6 +1360,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.HTTPVersion         = url.Scheme == URIScheme.ssh
                                                 ? WebSocketHTTPVersion.Auto
                                                 : httpVersion ?? entry.HTTPVersion;
+
+                // Kept where the change does not say, and nothing of a
+                // connection that speaks OCPP 1.6 now, which has no CBOR.
+                entry.Encoding            = version == global::cloud.charging.open.ChargingStation.OCPP.OCPPVersion.OCPP1_6
+                                                ? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON
+                                                : encoding ?? entry.Encoding;
 
                 // A key learned on probation goes with the pins somebody wrote,
                 // and with a server elsewhere; so does the version of the
@@ -2296,6 +2315,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                Was.AuthenticationId    != Now.AuthenticationId    ||
                Was.CertificateId       != Now.CertificateId       ||
                Was.HTTPVersion         != Now.HTTPVersion         ||
+               Was.Encoding            != Now.Encoding            ||
                Was.SshHostKey          != Now.SshHostKey          ||
                Was.SshTrustOnFirstUse  != Now.SshTrustOnFirstUse  ||
                Was.SshOnPinMismatch    != Now.SshOnPinMismatch    ||

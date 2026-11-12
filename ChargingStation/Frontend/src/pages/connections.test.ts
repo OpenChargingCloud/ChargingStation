@@ -599,4 +599,35 @@ describe('the Connections page', () => {
 
     });
 
+    it('says how the messages of a connection are written, and what it agreed on', async () => {
+
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connections: [ { ...station.connections[0]!, encoding: 'auto' as const, subprotocolInUse: 'ocpp2.1cbor' },
+                                    { ...station.connections[1]!, subprotocolInUse: 'ocpp2.1' } ] };
+        });
+
+        const marked = (form: string): string | undefined =>
+            root.querySelector<HTMLOptionElement>(`${form} select[name="encoding"] option[selected]`)?.value;
+
+        assert.equal(marked('form[data-edit="c1"]'), 'auto');
+        assert.equal(marked('form[data-edit="c2"]'), 'json', 'a connection that says nothing is JSON');
+        assert.equal(marked('#add-form'),            'json');
+        assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>('form[data-edit="c1"] select[name="encoding"] option')].map(option => option.value),
+                         [ 'json', 'cbor', 'auto' ]);
+
+        assert.equal(root.querySelector('[data-encoding="c1"]')?.textContent?.trim(), 'CBOR');
+        assert.match(root.querySelector('[data-encoding="c1"]')?.getAttribute('title') ?? '', /ocpp2\.1cbor.*which its back end chose/);
+        assert.equal(root.querySelector('[data-encoding="c2"]'), null, 'a connection that speaks JSON says nothing of it');
+
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] select[name="encoding"]')!.value = 'cbor';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal(lastSaved!.encoding, 'cbor');
+
+    });
+
 });

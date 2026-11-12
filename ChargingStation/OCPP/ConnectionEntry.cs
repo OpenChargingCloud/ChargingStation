@@ -26,6 +26,8 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
+using cloud.charging.open.protocols.OCPP.WebSockets;
+
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
@@ -208,6 +210,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// connection is opened over stands under: "auto", "1.1", "2" or "3".
         /// </summary>
         public const String HTTPVersionKey       = "httpVersion";
+
+        /// <summary>
+        /// The key the way the messages of a connection are written stands
+        /// under: "json", "cbor" or "auto".
+        /// </summary>
+        public const String EncodingKey          = "encoding";
 
         /// <summary>
         /// Where a page says what it showed the server held to.
@@ -466,6 +474,21 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// of them. Not said of an ssh:// connection, which has no HTTP.
         /// </remarks>
         public WebSocketHTTPVersion   HTTPVersion              { get; internal set; } = WebSocketHTTPVersion.Auto;
+
+        /// <summary>
+        /// How the OCPP messages of this connection are written: JSON in text
+        /// frames, as OCPP defines it, or CBOR in binary frames.
+        /// </summary>
+        /// <remarks>
+        /// "json", and what a connection that says nothing gets. "cbor"
+        /// offers the CBOR subprotocol of its OCPP version and nothing else
+        /// ("ocpp2.1cbor") - a back end that does not speak it is not
+        /// connected to some other way. "auto" offers the CBOR subprotocol
+        /// first and the JSON ones after it, and takes what the back end
+        /// chooses. The same over a WebSocket and over ssh://, which agree on
+        /// the same subprotocols. OCPP 1.6 has no CBOR, and says "json" or nothing.
+        /// </remarks>
+        public MessageEncodings       Encoding                 { get; internal set; } = MessageEncodings.JSON;
 
         /// <summary>
         /// When this was written down.
@@ -1265,6 +1288,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!TryParseHTTPVersion(url, JSON.Value<String>(HTTPVersionKey), out var httpVersion, out Error))
                 return false;
 
+            if (!TryParseEncoding(version, JSON.Value<String>(EncodingKey), out var encoding, out Error))
+                return false;
+
             // A key pin learned on first use is on probation only where nothing
             // is pinned, and only where the connection still learns.
             var learnsKeyPin       = serverKeyPins.Count == 0 && keyTrustOnFirstUse == KeyTrustOnFirstUse.Key;
@@ -1307,7 +1333,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         ServerKeyPinLearnedAt      = keyPinLearnedAt,
                         Pins                       = pins,
                         PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0,
-                        HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
+                        HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
+                        Encoding                   = encoding    ?? MessageEncodings.JSON
                     };
 
             Error = null;
@@ -1412,6 +1439,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!IsSSH && HTTPVersion != WebSocketHTTPVersion.Auto)
                 json.Add(new JProperty(HTTPVersionKey, AsText(HTTPVersion)));
 
+            // Said where it is not what OCPP defines: "json" is what a
+            // connection that says nothing gets.
+            if (Encoding != MessageEncodings.JSON)
+                json.Add(new JProperty(EncodingKey, AsText(Encoding)));
+
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
 
@@ -1452,7 +1484,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    ServerKeyPinProbationTime  = ServerKeyPinProbationTime,
                    Pins                       = Pins,
                    PinsVersion                = PinsVersion,
-                   HTTPVersion                = HTTPVersion
+                   HTTPVersion                = HTTPVersion,
+                   Encoding                   = Encoding
                };
 
         #endregion
@@ -1537,6 +1570,68 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    : Version == org.GraphDefined.Vanaheimr.Hermod.HTTP.HTTPVersion.HTTP_2_0
                          ? "2"
                          : "1.1";
+
+        #endregion
+
+        #region TryParseEncoding(OCPPVersion, Text, out Encoding, out Error) / AsText(Encoding)
+
+        /// <summary>
+        /// How a connection says its messages are written - "json", "cbor" or
+        /// "auto" - or the one sentence that says what is wrong. Nothing for
+        /// nothing: a connection that does not say is not told what it said.
+        /// </summary>
+        /// <param name="OCPPVersion">Which OCPP the connection speaks: OCPP 1.6 has no CBOR.</param>
+        /// <param name="Text">What stands under <see cref="EncodingKey"/>.</param>
+        /// <param name="Encoding">The encoding, or null where none is named.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean TryParseEncoding(OCPPVersion                       OCPPVersion,
+                                               String?                           Text,
+                                               out MessageEncodings?             Encoding,
+                                               [NotNullWhen(false)] out String?  Error)
+        {
+
+            Encoding  = null;
+            Error     = null;
+
+            var text  = Text?.Trim().ToLowerInvariant();
+
+            if (text is null || text.Length == 0)
+                return true;
+
+            switch (text)
+            {
+
+                case "json":  Encoding = MessageEncodings.JSON;  break;
+                case "cbor":  Encoding = MessageEncodings.CBOR;  break;
+                case "auto":  Encoding = MessageEncodings.Auto;  break;
+
+                default:
+                    Error = $"'{Text}' is no way the messages of a connection are written: it is \"json\", \"cbor\" or \"auto\".";
+                    return false;
+
+            }
+
+            if (OCPPVersion == OCPPVersion.OCPP1_6 && Encoding != MessageEncodings.JSON)
+            {
+                Encoding  = null;
+                Error     = $"It names \"{text}\", and OCPP 1.6 has no CBOR: its messages are JSON.";
+                return false;
+            }
+
+            return true;
+
+        }
+
+        /// <summary>
+        /// The way messages are written as a connection names it.
+        /// </summary>
+        public static String AsText(MessageEncodings Encoding)
+
+            => Encoding switch {
+                   MessageEncodings.CBOR  => "cbor",
+                   MessageEncodings.Auto  => "auto",
+                   _                      => "json"
+               };
 
         #endregion
 

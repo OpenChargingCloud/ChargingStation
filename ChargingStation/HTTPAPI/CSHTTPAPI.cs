@@ -989,6 +989,14 @@ namespace cloud.charging.open.ChargingStation
                     connection.Add(new JProperty("httpVersionInUse", httpVersionInUse));
                 }
 
+                // Which subprotocol it agreed on, and so how its messages are
+                // written: where the back end chose, the entry does not say.
+                if (URL.TryParse(connection.Value<String>("url") ?? "", out var agreedAt) &&
+                    Station.SubprotocolInUseAt(agreedAt) is String subprotocolInUse)
+                {
+                    connection.Add(new JProperty("subprotocolInUse", subprotocolInUse));
+                }
+
                 if (connection.Value<Boolean?>("secure")    != true ||
                     connection.Value<Boolean?>("keyPinned") == true ||
                     !URL.TryParse(connection.Value<String>("url") ?? "", out var url))
@@ -1284,7 +1292,8 @@ namespace cloud.charging.open.ChargingStation
                                                        KeyPinsOf(json, "serverKeyPins"),
                                                        KeyPinTrustOf(json),
                                                        pins,
-                                                       json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey)))
+                                                       json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey),
+                                                       json.Value<String>(OCPP.ConnectionEntry.EncodingKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1338,7 +1347,8 @@ namespace cloud.charging.open.ChargingStation
                                                           KeyPinsOf(json, "serverKeyPinsAsShown"),
                                                           KeyPinTrustOf(json),
                                                           pins,
-                                                          json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey)))
+                                                          json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey),
+                                                          json.Value<String>(OCPP.ConnectionEntry.EncodingKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }

@@ -370,20 +370,44 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private static) SubProtocolsOf(Version)
+        #region (private static) SubProtocolsOf(Connection)
 
         /// <summary>
-        /// What this station offers in the WebSocket handshake.
+        /// What this station offers for the given connection, in the WebSocket
+        /// handshake and over ssh:// alike.
         /// </summary>
         /// <remarks>
         /// 2.1 offers 2.0.1 as well, which is what the OCPP node does and what
-        /// most back ends of that generation actually answer with.
+        /// most back ends of that generation actually answer with. A
+        /// connection that says "cbor" offers "ocpp2.1cbor" and nothing else;
+        /// one that says "auto" offers it first, and the others after it.
+        /// OCPP 1.6 has no CBOR.
         /// </remarks>
-        private static String[] SubProtocolsOf(OCPP.OCPPVersion Version)
+        private static String[] SubProtocolsOf(ConnectionEntry Connection)
 
-            => Version == OCPP.OCPPVersion.OCPP1_6
+            => Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
                    ? [ OCPPv1_6.Version.WebSocketSubProtocolId ]
-                   : [ OCPPv2_1.Version.WebSocketSubProtocolId, "ocpp2.0.1" ];
+                   : [.. OCPPCommon.WebSockets.OCPPSubprotocols.Offer(
+                             [ OCPPv2_1.Version.WebSocketSubProtocolId, "ocpp2.0.1" ],
+                             Connection.Encoding
+                         )];
+
+        #endregion
+
+        #region (private static) CBORFrameOf(Text)
+
+        /// <summary>
+        /// The request of a connection test as the frame of a connection that
+        /// agreed on CBOR: the same array, with nothing in its payload.
+        /// </summary>
+        private static Byte[] CBORFrameOf(String Text)
+
+            => OCPPCommon.WebSockets.OCPP_CBORFrame.Join(
+                   JArray.Parse(Text),
+                   org.GraphDefined.Vanaheimr.Illias.CBORValue.FromMap(
+                       Array.Empty<KeyValuePair<org.GraphDefined.Vanaheimr.Illias.CBORValue, org.GraphDefined.Vanaheimr.Illias.CBORValue>>()
+                   )
+               ).ToByteArray();
 
         #endregion
 
@@ -467,6 +491,7 @@ namespace cloud.charging.open.ChargingStation
                                              RemoteURL:                   Connection.URL,
                                              NextHopNetworkingNodeId:     NextHopOf(Connection),
                                              RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
+                                             SecWebSocketProtocols:       SubProtocolsOf(Connection),
                                              HTTPAuthentication:          basic,
                                              RemoteCertificateValidator:  validator,
                                              ClientCertificates:          certificates,
@@ -500,6 +525,18 @@ namespace cloud.charging.open.ChargingStation
                              (Connection.HTTPVersion == WebSocketHTTPVersion.Auto ? ", which its server chose" : "") +
                              ".", "ocpp", "connections");
 
+                // How its messages are written: where the back end chose, this
+                // is the only place that says.
+                if (response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols &&
+                    Connection.Encoding     != OCPPCommon.WebSockets.MessageEncodings.JSON &&
+                    SubprotocolInUseAt(Connection.URL) is String agreed)
+                {
+                    Log.Info($"The connection to {where} agreed on {agreed}: its messages are " +
+                             (OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(agreed) ? "CBOR" : "JSON") +
+                             (Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.Auto ? ", which its back end chose" : "") +
+                             ".", "ocpp", "connections");
+                }
+
                 if (keyPins is not null && client is not null)
                     FollowKeyPins(Connection, client, keyPins, dialledURL, response.HTTPStatusCode == HTTPStatusCode.SwitchingProtocols);
 
@@ -530,6 +567,24 @@ namespace cloud.charging.open.ChargingStation
 
                     if (client is not null && keepsTrying)
                         Follow(Connection, client, Connected: false);
+
+                    return;
+
+                }
+
+                // A connection that says "cbor" speaks nothing else. A back end
+                // that took the handshake without agreeing on the CBOR
+                // subprotocol is let go of before anything is said to it.
+                if (Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.CBOR &&
+                    !OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(SubprotocolInUseAt(Connection.URL)))
+                {
+
+                    await Disconnect(client, "No CBOR subprotocol was agreed on");
+
+                    Fail(Connection,
+                         ConnectionStatus.Refused,
+                         $"{where} took the connection without agreeing on {String.Join(", ", SubProtocolsOf(Connection))}: " +
+                         "it does not speak OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
 
                     return;
 
@@ -667,6 +722,24 @@ namespace cloud.charging.open.ChargingStation
                     LastOrDefault(one => one.RemoteURL == URL) is { Connected: true, HTTPVersionInUse: HTTPVersion over }
 
                    ? ConnectionEntry.AsText(over)
+                   : null;
+
+        #endregion
+
+        #region (internal) SubprotocolInUseAt(URL)
+
+        /// <summary>
+        /// The subprotocol the WebSocket this station has to the given address
+        /// agreed on - "ocpp2.1", "ocpp2.1cbor" - or null, where it has none.
+        /// </summary>
+        internal String? SubprotocolInUseAt(URL URL)
+
+            => cs01.OCPPWebSocketClients.
+                    Concat(cs02.OCPPWebSocketClients).
+                    OfType<WWCPWebSocketClient>().
+                    LastOrDefault(one => one.RemoteURL == URL) is { Connected: true } client
+
+                   ? client.WebSocketClientConnection?.Subprotocol
                    : null;
 
         #endregion
@@ -867,6 +940,7 @@ namespace cloud.charging.open.ChargingStation
                                     NextHopNetworkingNodeId:   NextHopOf(Connection),
                                     RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
                                     Ssh:                       login,
+                                    Subprotocols:              SubProtocolsOf(Connection),
                                     DNSClient:                 DNSClient,
                                     PingEvery:                 SshPingEvery,
                                     CancellationToken:         CancellationToken
@@ -900,6 +974,23 @@ namespace cloud.charging.open.ChargingStation
 
                 if (keepsTrying)
                     FollowOverSSH(Connection, dialledURL, client!, trust, Connected: false);
+
+                return;
+
+            }
+
+            // As over a WebSocket: a connection that says "cbor" speaks nothing else.
+            if (Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.CBOR &&
+                client is not null                                                 &&
+                !OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(client.MessageClient.Connection?.Subprotocol))
+            {
+
+                await LetGo(client, "No CBOR subprotocol was agreed on.");
+
+                Fail(Connection,
+                     ConnectionStatus.Refused,
+                     $"{Where} took the connection without agreeing on {String.Join(", ", SubProtocolsOf(Connection))}: " +
+                     "it does not speak OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else; it is not tried again.");
 
                 return;
 
@@ -1653,6 +1744,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that, as the form writes it under "pins"; nothing for nothing.</param>
         /// <param name="HTTPVersion">Which version of HTTP a WebSocket is opened over; nothing for what the server chooses.</param>
         /// <param name="OCPPRequest">What is asked in OCPP once it is connected: "heartbeat", which it is where nothing is said, or "none".</param>
+        /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing for "json".</param>
         public async Task<JObject> TestConnection(String?                Description,
                                                   String?                URL,
                                                   String?                ConnectionType,
@@ -1667,7 +1759,8 @@ namespace cloud.charging.open.ChargingStation
                                                   ServerKeyPinSettings?  KeyPinTrust           = null,
                                                   JToken?                Pins                  = null,
                                                   String?                HTTPVersion           = null,
-                                                  String?                OCPPRequest           = null)
+                                                  String?                OCPPRequest           = null,
+                                                  String?                Encoding              = null)
         {
 
             var clock  = Stopwatch.StartNew();
@@ -1719,6 +1812,7 @@ namespace cloud.charging.open.ChargingStation
             if (!ConnectionEntry.Validate(Description, URL, ConnectionType, OCPPVersion,
                                           out var url, out var type, out var version, out var notYet) ||
                 !ConnectionEntry.TryParseHTTPVersion(url, HTTPVersion, out var httpVersion, out notYet) ||
+                !ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out notYet) ||
                 !ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out notYet) ||
                 !ConnectionEntry.ValidateSshTrust(SshTrust?.TrustOnFirstUse, SshTrust?.OnPinMismatch, SshTrust?.ProbationSeconds,
                                                   out var trustOnFirstUse, out var onPinMismatch, out var probationTime, out notYet) ||
@@ -1773,7 +1867,8 @@ namespace cloud.charging.open.ChargingStation
                                  TrustOnFirstUse            = keyTrustOnFirstUse,
                                  ServerKeyPinProbationTime  = keyPinProbationTime,
                                  Pins                       = pins,
-                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto
+                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
+                                 Encoding                   = encoding    ?? OCPPCommon.WebSockets.MessageEncodings.JSON
                              };
 
             // What this station made of the certificate of a server checked by
@@ -1990,7 +2085,7 @@ namespace cloud.charging.open.ChargingStation
                              connection.URL,
                              DNSClient:                   DNSClient,
                              HTTPAuthentication:          basic,
-                             SecWebSocketProtocols:       SubProtocolsOf(connection.OCPPVersion),
+                             SecWebSocketProtocols:       SubProtocolsOf(connection),
                              RemoteCertificateValidator:  keyPins is not null
                                                               ? keyPins.Validator
                                                               : connection.IsSecure
@@ -2025,6 +2120,9 @@ namespace cloud.charging.open.ChargingStation
                              DisableLogging:              true
                          );
 
+                // Whether the handshake came to a CBOR subprotocol: known once it is through.
+                var speaksCBOR = false;
+
                 client.OnTextMessageReceived   += (timestamp, sender, conn, frame, tracking, message, token) => {
                     // The answer to what the test asked is said where it is waited for.
                     if (asked?.IsAnsweredBy(message) != true)
@@ -2033,8 +2131,23 @@ namespace cloud.charging.open.ChargingStation
                 };
 
                 client.OnBinaryMessageReceived += (timestamp, sender, conn, frame, tracking, message, token) => {
-                    Step("info", $"Received {message.Length} byte(s) of binary.");
+
+                    // What a connection that agreed on CBOR carries, shown as the JSON it stands for.
+                    if (speaksCBOR && OCPPCommon.WebSockets.OCPP_CBORFrame.TryAsJSON(message, out var shown, out _))
+                    {
+
+                        var text = shown.ToString(Newtonsoft.Json.Formatting.None);
+
+                        if (asked?.IsAnsweredBy(text) != true)
+                            Step("info", $"Received, as CBOR: {(text.Length > 400 ? text[..400] + " ..." : text)}");
+
+                    }
+
+                    else
+                        Step("info", $"Received {message.Length} byte(s) of binary.");
+
                     return Task.CompletedTask;
+
                 };
 
                 client.OnCloseMessageReceived  += (timestamp, sender, conn, frame, tracking, status, reason, token) => {
@@ -2045,7 +2158,7 @@ namespace cloud.charging.open.ChargingStation
                 // As the dialling would: over the version of HTTP the form names.
                 client.WebSocketOver = connection.HTTPVersion;
 
-                Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection.OCPPVersion))}" +
+                Step("info", $"Connecting, offering {String.Join(", ", SubProtocolsOf(connection))}" +
                              connection.HTTPVersion switch {
                                  WebSocketHTTPVersion.HTTP3    => ", over HTTP/3 and nothing else",
                                  WebSocketHTTPVersion.HTTP2    => ", over HTTP/2 and nothing else",
@@ -2150,6 +2263,25 @@ namespace cloud.charging.open.ChargingStation
                                    : "Connected, but the handshake named no sub-protocol. Whatever is there took the " +
                                      "connection without agreeing to speak OCPP.");
 
+                speaksCBOR = OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(agreedOn);
+
+                if (speaksCBOR)
+                    Step("info", "Its messages are CBOR in binary frames.");
+
+                // As the dialling would: a connection that says "cbor" speaks nothing else.
+                else if (connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.CBOR)
+                {
+
+                    Step("error", $"It did not agree on {String.Join(", ", SubProtocolsOf(connection))}: whatever is there does not speak " +
+                                  "OCPP as CBOR, and a connection that says \"cbor\" speaks nothing else. The station would let go of it again.");
+
+                    Log.Warning($"The connection test for '{connection.Description}' got through, and its back end does not speak CBOR.",
+                                "ocpp", "connections", "test");
+
+                    return Done(connection, false);
+
+                }
+
                 #endregion
 
                 #region Ask it something in OCPP
@@ -2159,7 +2291,9 @@ namespace cloud.charging.open.ChargingStation
                 // and its answer comes back - is only known once it was asked.
                 var answered = asked is null ||
                                await asked.Ask(
-                                         async text => await client.SendTextMessage(text, CancellationToken: CancellationToken) == SentStatus.Success,
+                                         async text => speaksCBOR
+                                                           ? await client.SendBinaryMessage(CBORFrameOf(text), CancellationToken: CancellationToken) == SentStatus.Success
+                                                           : await client.SendTextMessage  (text,              CancellationToken: CancellationToken) == SentStatus.Success,
                                          Step,
                                          TestAnswerWithin,
                                          CancellationToken
@@ -2443,7 +2577,8 @@ namespace cloud.charging.open.ChargingStation
                               CSHTTPAPI.KeyPinTrustOf(Fields),
                               Fields[ConnectionEntry.PinsKey],
                               Fields.Value<String>(ConnectionEntry.HTTPVersionKey),
-                              Fields.Value<String>(TestRequestKey));
+                              Fields.Value<String>(TestRequestKey),
+                              Fields.Value<String>(ConnectionEntry.EncodingKey));
 
         /// <summary>
         /// Under which name a test is told what to ask in OCPP: "ocppRequest".
@@ -2472,7 +2607,10 @@ namespace cloud.charging.open.ChargingStation
                                                 CancellationToken                    CancellationToken)
         {
 
-            var subprotocols  = SubProtocolsOf(Connection.OCPPVersion);
+            var subprotocols  = SubProtocolsOf(Connection);
+
+            // Whether the server took a CBOR subprotocol: known once it is connected.
+            var speaksCBOR    = false;
 
             var client        = new WWCPSshClient(
                                     NodeOf(Connection.OCPPVersion),
@@ -2488,8 +2626,23 @@ namespace cloud.charging.open.ChargingStation
             };
 
             client.MessageClient.OnBinaryMessageReceived += (timestamp, sender, connection, bytes, cancellationToken) => {
-                Step("info", $"Received {bytes.Length} byte(s) of binary.");
+
+                // What a connection that agreed on CBOR carries, shown as the JSON it stands for.
+                if (speaksCBOR && OCPPCommon.WebSockets.OCPP_CBORFrame.TryAsJSON(bytes, out var shown, out _))
+                {
+
+                    var text = shown.ToString(Newtonsoft.Json.Formatting.None);
+
+                    if (Asked?.IsAnsweredBy(text) != true)
+                        Step("info", $"Received, as CBOR: {(text.Length > 400 ? text[..400] + " ..." : text)}");
+
+                }
+
+                else
+                    Step("info", $"Received {bytes.Length} byte(s) of binary.");
+
                 return Task.CompletedTask;
+
             };
 
             client.OnConnectionClosed                    += (timestamp, transport, connection, networkingNodeId, close, cancellationToken) => {
@@ -2510,6 +2663,22 @@ namespace cloud.charging.open.ChargingStation
 
                 var connection = await client.Connect(CancellationToken);
 
+                speaksCBOR = OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(connection.Subprotocol);
+
+                // As the dialling would: a connection that says "cbor" speaks nothing else.
+                if (!speaksCBOR && Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.CBOR)
+                {
+
+                    Step("error", $"The server did not take {String.Join(", ", subprotocols)}: it does not speak OCPP as CBOR, and a " +
+                                  "connection that says \"cbor\" speaks nothing else. The station would let go of it again.");
+
+                    Log.Warning($"The connection test for '{Connection.Description}' got through, and its back end does not speak CBOR.",
+                                "ocpp", "connections", "test");
+
+                    return Done(Connection, false);
+
+                }
+
                 Step(Trust.Mismatched ? "warning" : "info",
                      Trust.Mismatched
                          ? $"The server showed the host key {ShownKey()}, which is none of those pinned; it was believed all the same, as OnPinMismatch " +
@@ -2527,10 +2696,15 @@ namespace cloud.charging.open.ChargingStation
                 // known once it was asked.
                 var answered = Asked is null ||
                                await Asked.Ask(
-                                         async text => (await client.SendJSONMessage(JArray.Parse(text),
-                                                                                     TimeProvider.GetUtcNow(),
-                                                                                     org.GraphDefined.Vanaheimr.Illias.EventTracking_Id.New,
-                                                                                     CancellationToken)).Result == SentMessageResults.Success,
+                                         async text => (speaksCBOR
+                                                            ? await client.SendBinaryMessage(CBORFrameOf(text),
+                                                                                             TimeProvider.GetUtcNow(),
+                                                                                             org.GraphDefined.Vanaheimr.Illias.EventTracking_Id.New,
+                                                                                             CancellationToken)
+                                                            : await client.SendJSONMessage  (JArray.Parse(text),
+                                                                                             TimeProvider.GetUtcNow(),
+                                                                                             org.GraphDefined.Vanaheimr.Illias.EventTracking_Id.New,
+                                                                                             CancellationToken)).Result == SentMessageResults.Success,
                                          Step,
                                          TestAnswerWithin,
                                          CancellationToken
