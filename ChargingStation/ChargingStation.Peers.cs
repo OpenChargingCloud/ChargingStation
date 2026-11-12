@@ -17,8 +17,6 @@
 
 #region Usings
 
-using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
-
 using cloud.charging.open.protocols.WWCP.SSH;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
@@ -558,7 +556,8 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Close the connection a peer is dialled at, so that it does not come
-        /// back by itself, and end what it was registered as.
+        /// back by itself, have the node forget its client, and end what it
+        /// was registered as.
         /// </summary>
         private async Task HangUpEndpoint(LiveEndpoint Live, String Reason)
         {
@@ -569,13 +568,12 @@ namespace cloud.charging.open.ChargingStation
                 switch (Live.Client ?? ClientOf(Live.Dialled))
                 {
 
-                    case WebSocketClient client:
-                        client.ReconnectPolicy = null;
-                        await client.Close(WebSocketFrame.ClosingStatusCode.NormalClosure, Reason);
-                        break;
-
                     case WWCPSshClient sshClient:
                         await LetGo(sshClient, Reason);
+                        break;
+
+                    case Object client:
+                        await Disconnect(client, Reason);
                         break;
 
                 }

@@ -204,6 +204,53 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region RoundAfterRoundTheNodeKeepsTheClientDialledOnly()
+
+        /// <summary>
+        /// Where neither endpoint can be reached, round after round, the OCPP
+        /// node keeps the client of the endpoint dialled and no other: every
+        /// one the station went on from it let go of.
+        /// </summary>
+        /// <remarks>
+        /// The node kept every client it made, and a station that went round
+        /// its endpoints for as long as its back end was away gathered one for
+        /// every endpoint it dialled - two a round here, one more per second.
+        /// </remarks>
+        [Test]
+        public async Task RoundAfterRoundTheNodeKeepsTheClientDialledOnly()
+        {
+
+            var (mainId, spareId) = OnePeerOfTwo(IPPort.Parse(TestPorts.Free()), IPPort.Parse(TestPorts.Free()));
+
+            station!.NetworkProfileConnectionAttempts = 1;
+
+            station = await TestStations.Started(station, directory);
+
+            Assert.That(await Within(() => Status(spareId) is ConnectionStatus.Standby &&
+                                           Said(spareId).Contains("1 attempt(s) failed", StringComparison.Ordinal)), Is.True,
+                        $"the second endpoint was not tried and left: '{Said(spareId)}', '{Said(mainId)}'");
+
+            // Two more rounds, at the least: a pause of a second each.
+            var most   = 0;
+            var watch  = Stopwatch.StartNew();
+
+            while (watch.Elapsed < TimeSpan.FromSeconds(3))
+            {
+                most = Math.Max(most, station.OCPPv2_1Node.WWCPWebSocketClients.Count());
+                await Task.Delay(20);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(station.OCPPv2_1Node.WWCPWebSocketClients.Count(), Is.LessThanOrEqualTo(1),
+                            "The node kept clients of endpoints the station had gone on from.");
+                Assert.That(most,                                               Is.LessThanOrEqualTo(1),
+                            "The node held more than the client of the endpoint dialled at one time.");
+            });
+
+        }
+
+        #endregion
+
         #region APeerOfOneEndpointGoesOnTryingIt()
 
         /// <summary>

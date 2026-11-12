@@ -20,6 +20,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
@@ -39,6 +40,7 @@ using OCPPv1_6   = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1   = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.protocols.WWCP.SSH;
+using cloud.charging.open.protocols.WWCP.WebSockets;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.OCPP;
@@ -92,8 +94,10 @@ namespace cloud.charging.open.ChargingStation
         /// <remarks>
         /// What a WebSocket client's reconnect policy taken away is for those:
         /// an SSH client keeps its policy, and is told to stop by being closed.
+        /// Kept weakly: a client let go of is forgotten by its node, and here
+        /// with it - a station that fails over for hours lets go of many.
         /// </remarks>
-        private readonly HashSet<WWCPSshClient> lettingGo = [];
+        private readonly ConditionalWeakTable<WWCPSshClient, Object> lettingGo = new();
 
         /// <summary>
         /// How long connecting over SSH may take - the TCP connection, the
@@ -1266,12 +1270,11 @@ namespace cloud.charging.open.ChargingStation
         private async Task LetGo(WWCPSshClient Client, String Reason)
         {
 
-            lock (lettingGo)
-                lettingGo.Add(Client);
+            lettingGo.AddOrUpdate(Client, Reason);
 
             try
             {
-                await Client.Close(MessageCloseCode.NormalClosure, Reason);
+                await Disconnect(Client, Reason);
             }
             catch (Exception e)
             {
@@ -1284,9 +1287,55 @@ namespace cloud.charging.open.ChargingStation
         /// Whether this station let go of the given SSH client.
         /// </summary>
         private Boolean IsLetGo(WWCPSshClient Client)
+
+            => lettingGo.TryGetValue(Client, out _);
+
+        #endregion
+
+        #region (private static) Disconnect(Client, Reason)
+
+        /// <summary>
+        /// Close a client this station is done with, for good, and have the
+        /// node that made it forget it.
+        /// </summary>
+        /// <remarks>
+        /// A node keeps every client it made, closed or not, until it is told
+        /// to let go of one: a station that went from endpoint to endpoint
+        /// while none could be reached gathered a client for every one it
+        /// dialled. Closed for good: a WebSocket client without its reconnect
+        /// policy, an SSH client told to connect no more.
+        /// </remarks>
+        /// <param name="Client">The client: a WebSocket or an SSH client.</param>
+        /// <param name="Reason">Why, sent with the close.</param>
+        private static async Task Disconnect(Object? Client, String Reason)
         {
-            lock (lettingGo)
-                return lettingGo.Contains(Client);
+
+            var node = (Client switch {
+                            WWCPWebSocketClient webSocketClient  => webSocketClient.NetworkingNode,
+                            WWCPSshClient       sshClient        => sshClient.NetworkingNode,
+                            _                                    => null
+                        }) as AWWCPNetworkingNode;
+
+            if (node is not null && Client is IWWCPClient client)
+            {
+                await node.DisconnectClient(client, Reason);
+                return;
+            }
+
+            switch (Client)
+            {
+
+                case WebSocketClient webSocketClient:
+                    webSocketClient.ReconnectPolicy = null;
+                    await webSocketClient.Close(WebSocketFrame.ClosingStatusCode.NormalClosure, Reason);
+                    break;
+
+                case WWCPSshClient sshClient:
+                    await sshClient.Close(MessageCloseCode.NormalClosure, Reason);
+                    break;
+
+            }
+
         }
 
         #endregion
@@ -2247,12 +2296,12 @@ namespace cloud.charging.open.ChargingStation
             EndRegistrations(cs01, cs02);
 
             foreach (var client in cs01.OCPPWebSocketClients.OfType<WebSocketClient>().
-                                   Concat(cs02.OCPPWebSocketClients.OfType<WebSocketClient>()))
+                                   Concat(cs02.OCPPWebSocketClients.OfType<WebSocketClient>()).
+                                   ToArray())
             {
                 try
                 {
-                    client.ReconnectPolicy = null;
-                    await client.Close();
+                    await Disconnect(client, "This station hangs up.");
                 }
                 catch (Exception e)
                 {
