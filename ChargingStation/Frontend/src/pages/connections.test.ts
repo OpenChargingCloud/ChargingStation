@@ -41,7 +41,10 @@ let lastSaved: ConnectionToSave | null = null;
 let lastAdded: ConnectionToSave | null = null;
 
 /** What the page sent the last time it tested a connection. */
-let lastTested: ConnectionToSave | null = null;
+let lastTested: (ConnectionToSave & { ocppRequest?: string }) | null = null;
+
+/** What the station says of what a test asked in OCPP; nothing where it is not said. */
+let testAnswers: ((asked: string | undefined) => object) | null = null;
 
 /** Two key pins, as the station writes them: 64 lowercase hexadecimal digits. */
 const pinnedKey   = '6a1f0c3e'.repeat(8);
@@ -117,11 +120,12 @@ function station({ method, path, body }: Asked): unknown {
     }
 
     if (path === '/configuration/connections/test') {
-        lastTested = body as ConnectionToSave;
+        lastTested = body as ConnectionToSave & { ocppRequest?: string };
         // A TLS server shows a key, and the station says its key pin.
         return { ok: true, runtime_ms: 2012, steps: [ { at_ms: 0, level: 'info', text: 'Connecting.' },
                                                       { at_ms: 2012, level: 'info', text: 'Stayed connected.' } ],
-                 ...(lastTested.url.startsWith('wss://') ? { serverKeyPin: learnedKey } : {}) };
+                 ...(lastTested.url.startsWith('wss://') ? { serverKeyPin: learnedKey } : {}),
+                 ...(testAnswers?.(lastTested.ocppRequest) ?? {}) };
     }
 
     if (path === '/status/connections')
@@ -196,6 +200,7 @@ async function opened(make: () => StationConnections = aStation): Promise<HTMLEl
     lastAdded = null;
     lastSaved = null;
     lastTested = null;
+    testAnswers = null;
     standing = held.states;
     return open(connectionsPage, '/configuration/connections', [ 'connections:read', 'connections:edit', 'connections:run' ],
                 station, root => root.querySelector('#add-form') !== null);
@@ -475,6 +480,64 @@ describe('the Connections page', () => {
         assert.equal(document.querySelector('#test-key-pin'), null, 'a key pin was said of a connection over SSH');
 
         document.querySelector<HTMLButtonElement>('dialog #test-close')!.click();
+
+    });
+
+    it('asks for a Heartbeat unless told to ask nothing, and says what came of the question', async () => {
+
+        const heartbeat = { request: 'Heartbeat', sent: [ 2, 'test-1', 'Heartbeat', {} ], sentAt_ms: 40 };
+
+        const root = await opened();
+        const edit = editOf(root, 'c1');
+        const asks = edit.querySelector<HTMLSelectElement>('[name="testAsks"]')!;
+
+        // A back end that answers, as long as it is asked.
+        testAnswers = asked => asked === 'none'
+                                   ? {}
+                                   : { ocpp: { ...heartbeat, answered: true, roundTrip_ms: 17 } };
+
+        assert.equal(asks.value, 'heartbeat', 'untold, a test does not ask for a Heartbeat');
+
+        edit.querySelector<HTMLButtonElement>('[data-test]')!.click();
+        await until(() => document.querySelector('dialog .test-log') !== null, 'the test did not say what came of it');
+
+        assert.equal(lastTested!.ocppRequest, 'heartbeat');
+        assert.match(document.querySelector('#test-ocpp')?.textContent ?? '', /answered the Heartbeat within 17 ms/);
+
+        document.querySelector<HTMLButtonElement>('dialog #test-close')!.click();
+
+        // Told to ask nothing, the station is told so, and nothing is said of a question.
+        asks.value = 'none';
+
+        edit.querySelector<HTMLButtonElement>('[data-test]')!.click();
+        await until(() => document.querySelector('dialog .test-log') !== null, 'the test that asks nothing did not say what came of it');
+
+        assert.equal(lastTested!.ocppRequest, 'none');
+        assert.equal(document.querySelector('#test-ocpp'), null, 'something was said of a question that was not asked');
+
+        document.querySelector<HTMLButtonElement>('dialog #test-close')!.click();
+
+        // A back end that takes the connection and answers nothing: the
+        // connection can be made, and that is not all there is to say.
+        testAnswers = () => ({ ok: false, ocpp: { ...heartbeat, answered: false } });
+        asks.value  = 'heartbeat';
+
+        edit.querySelector<HTMLButtonElement>('[data-test]')!.click();
+        await until(() => document.querySelector('dialog .test-log') !== null, 'the unanswered test did not say what came of it');
+
+        const dialog = document.querySelector('dialog')!;
+
+        assert.match(dialog.querySelector('.error-box')?.textContent ?? '', /can be made, and what was asked on it in OCPP was not answered/);
+        assert.match(dialog.querySelector('#test-ocpp')?.textContent ?? '', /did not answer the Heartbeat/);
+
+        dialog.querySelector<HTMLButtonElement>('#test-close')!.click();
+
+        // What is asked is no field of the connection: saving does not carry it.
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal('testAsks'    in lastSaved!, false);
+        assert.equal('ocppRequest' in lastSaved!, false);
 
     });
 

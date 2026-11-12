@@ -913,6 +913,15 @@ export interface ConnectionTestStep {
     text:   string;
 }
 
+/**
+ * What a connection test asks its back end in OCPP once it is connected: a
+ * Heartbeat, or nothing - everything up to the handshake and no further.
+ */
+export type ConnectionTestAsks = 'heartbeat' | 'none';
+
+/** How long the station waits for the answer to what a connection test asked, in seconds. */
+export const connectionTestAnswerWithin = 10;
+
 /** What came of testing one connection. */
 export interface ConnectionTest {
     description:  string;
@@ -1215,11 +1224,13 @@ export const api = {
          *
          * Slower than the other writes on purpose: the station stays connected
          * for about two seconds to see whether anything is said, so the
-         * deadline has to cover the connection plus that.
+         * deadline has to cover the connection plus that - and, where the
+         * back end is asked something, the time the station waits for an
+         * answer that may never come.
          */
-        test:    (entry: ConnectionToSave) =>
-                     request<ConnectionTest>('POST', '/configuration/connections/test', entry,
-                                             afterAsking([ 2 ]))
+        test:    (entry: ConnectionToSave, asks: ConnectionTestAsks = 'heartbeat') =>
+                     request<ConnectionTest>('POST', '/configuration/connections/test', { ...entry, ocppRequest: asks },
+                                             afterAsking(asks === 'none' ? [ 2 ] : [ connectionTestAnswerWithin, 2 ]))
 
     },
 

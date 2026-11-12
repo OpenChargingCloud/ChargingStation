@@ -860,7 +860,10 @@ anything else, and has then read a request and answered it in OCPP, which is
 what was asked; the test gets through with a warning. No answer within ten
 seconds (`ChargingStation.TestAnswerWithin`) fails the test, although the
 connection could be made. `"ocppRequest": "none"` - `none` as the last word at
-the command line - asks nothing, and is the test up to the handshake.
+the command line, **and ask nothing** in the choice beside the button - asks
+nothing, and is the test up to the handshake. The page says above the log what
+came of the question: answered and within how many milliseconds, answered with
+an error, or not answered.
 
 **JSON or CBOR.** The OCPP messages of a connection are JSON in text frames,
 as OCPP defines it, unless the connection says otherwise under `encoding`:

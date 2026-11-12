@@ -1,4 +1,4 @@
-import { api, type ConnectionState, type ConnectionTest, type ConnectionToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
@@ -147,12 +147,16 @@ export const connectionsPage: Page = {
                                     ?disabled=${!mayTest} @click=${testThisForm}>
                                 <i class="fa-solid fa-plug-circle-check"></i> Test it
                             </button>
+                            ${whatATestAsks(mayTest)}
                             <span id="add-note"  class="form-notice" role="status"></span>
                             <span id="add-error" class="form-error"  role="alert"></span>
                         </div>
                         <span class="hint">
-                            Testing does not write anything down: it makes the connection once, says what
-                            happened, and lets go. Worth doing before saving rather than after.
+                            Testing does not write anything down: it makes the connection once, asks its back
+                            end for a Heartbeat, says what happened and when, and lets go. Worth doing before
+                            saving rather than after. A back end that is not to be asked anything - one that
+                            takes a Heartbeat for a station having come - is tested by asking nothing: then the
+                            test ends with the handshake.
                         </span>
                     </form>
 
@@ -550,6 +554,7 @@ export const connectionsPage: Page = {
                                         ?disabled=${!mayTest} @click=${testThisForm}>
                                     <i class="fa-solid fa-plug-circle-check"></i> Test it
                                 </button>
+                                ${whatATestAsks(mayTest)}
                                 <span class="form-notice" data-note="${entry.id}"  role="status"></span>
                                 <span class="form-error"  data-error="${entry.id}" role="alert"></span>
                             </div>
@@ -860,6 +865,24 @@ export const connectionsPage: Page = {
                 opened.delete(id);
         }
 
+        /**
+         * What the test beside it asks the back end in OCPP once it is
+         * connected.
+         *
+         * Beside the button rather than among the fields, and not one of
+         * them: it says how to test, not what the connection is, and is
+         * neither saved nor read with the rest of the form.
+         */
+        function whatATestAsks(MayTest: boolean): TemplateResult {
+            return html`
+                <select name="testAsks" class="test-asks" ?disabled=${!MayTest}
+                        aria-label="What the test asks the back end in OCPP">
+                    <option value="heartbeat" selected>and ask for a Heartbeat</option>
+                    <option value="none">and ask nothing</option>
+                </select>
+            `;
+        }
+
         /** Test what the form the button is in says. */
         function testThisForm(event: Event): void {
             void test((event.currentTarget as HTMLElement).closest('form'));
@@ -1061,6 +1084,13 @@ export const connectionsPage: Page = {
             // looking at is the one they mean.
             const entry  = readFrom(form);
 
+            // And asked what the choice beside the button says; a Heartbeat
+            // where there is none, which is what the station asks untold.
+            const asks: ConnectionTestAsks
+                         = form.querySelector<HTMLSelectElement>('[name="testAsks"]')?.value === 'none'
+                               ? 'none'
+                               : 'heartbeat';
+
             const dialog = document.createElement('dialog');
 
             dialog.className = 'test-dialog';
@@ -1079,7 +1109,9 @@ export const connectionsPage: Page = {
                 </div>
             `);
 
-            drawDialog(html`<div class="loading">Connecting, and staying connected for two seconds ...</div>`, true);
+            drawDialog(html`<div class="loading">${asks === 'none'
+                                                        ? 'Connecting, and staying connected for two seconds ...'
+                                                        : 'Connecting, asking for a Heartbeat, and staying connected for two seconds ...'}</div>`, true);
 
             document.body.appendChild(dialog);
             dialog.showModal();
@@ -1108,7 +1140,7 @@ export const connectionsPage: Page = {
 
             try
             {
-                result = await api.connections.test(entry);
+                result = await api.connections.test(entry, asks);
             }
             catch (problem)
             {
@@ -1123,8 +1155,19 @@ export const connectionsPage: Page = {
                 <div class="${result.ok ? 'notice' : 'error-box'}">
                     ${result.ok
                           ? html`The connection can be made. ${result.runtime_ms} ms altogether.`
-                          : html`The connection could not be made. ${result.runtime_ms} ms altogether.`}
+                          : result.ocpp !== undefined && !result.ocpp.answered
+                                ? html`The connection can be made, and what was asked on it in OCPP was not answered. ${result.runtime_ms} ms altogether.`
+                                : html`The connection could not be made. ${result.runtime_ms} ms altogether.`}
                 </div>
+                ${result.ocpp === undefined ? nothing : html`
+                    <p class="hint" id="test-ocpp">
+                        ${result.ocpp.answered
+                              ? result.ocpp.error === true
+                                    ? html`Its back end answered the ${result.ocpp.request} with an error, within ${result.ocpp.roundTrip_ms} ms: it speaks OCPP on this connection.`
+                                    : html`Its back end answered the ${result.ocpp.request} within ${result.ocpp.roundTrip_ms} ms.`
+                              : html`Its back end did not answer the ${result.ocpp.request}: something took the connection, and nothing there speaks OCPP on it.`}
+                    </p>
+                `}
                 ${result.serverKeyPin === undefined ? nothing : html`
                     <p class="hint">
                         The key pin of the key its server showed, believed or not - what it would be pinned to:
