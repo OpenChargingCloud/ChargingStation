@@ -144,6 +144,12 @@ namespace cloud.charging.open.ChargingStation
                 return false;
             }
 
+            if (WhyNoSessionStarts() is String notNow)
+            {
+                Error = notNow;
+                return false;
+            }
+
             if (sessions.ContainsKey(evse.Id))
             {
                 Error = $"EVSE {evse.Id} is already charging.";

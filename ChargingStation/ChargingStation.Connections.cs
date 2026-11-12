@@ -2822,11 +2822,11 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) DialAgain(Old16, Old21, Changed)
+        #region (private) DialAgain(Old16, Old21, Because)
 
         /// <summary>
-        /// After a change of the EVSEs, or of what this station says it is:
-        /// hang up what the OCPP nodes it replaced were connected to, stop
+        /// After a change of the EVSEs, or of what this station says it is, or
+        /// after a restart: hang up what the OCPP nodes it replaced were connected to, stop
         /// them, and dial again through the new ones what this station dials
         /// at its start.
         /// </summary>
@@ -2846,10 +2846,10 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         /// <param name="Old16">The OCPP 1.6 node replaced.</param>
         /// <param name="Old21">The OCPP 2.1 node replaced.</param>
-        /// <param name="Changed">What changed, as the start of a sentence: "The EVSEs of this charging station".</param>
+        /// <param name="Because">Why, as a sentence without its full stop: "The EVSEs of this charging station changed".</param>
         private async Task DialAgain(OCPPv1_6.   TestChargePointNode      Old16,
                                      OCPPv2_1.CS.TestChargingStationNode  Old21,
-                                     String                               Changed)
+                                     String                               Because)
         {
 
             // Nothing more is asked of a CSMS for nodes let go of.
@@ -2870,7 +2870,7 @@ namespace cloud.charging.open.ChargingStation
 
                 // Before the nodes stop, which closes them too - as a loss.
                 foreach (var sshClient in sshClients)
-                    await LetGo(sshClient, $"{Changed} changed; it connects again.");
+                    await LetGo(sshClient, $"{Because}; it connects again.");
 
                 // As HangUp does: without its policy first, so that the close
                 // is neither a loss nor something to come back from.
@@ -2880,7 +2880,7 @@ namespace cloud.charging.open.ChargingStation
                     {
                         client.ReconnectPolicy = null;
                         await client.Close(WebSocketFrame.ClosingStatusCode.NormalClosure,
-                                           $"{Changed} changed; it connects again.");
+                                           $"{Because}; it connects again.");
                     }
                     catch (Exception e)
                     {
@@ -2892,7 +2892,7 @@ namespace cloud.charging.open.ChargingStation
                 {
                     try
                     {
-                        await node.Stop(Message: $"{Changed} changed.");
+                        await node.Stop(Message: $"{Because}.");
                     }
                     catch (Exception e)
                     {
@@ -2903,7 +2903,7 @@ namespace cloud.charging.open.ChargingStation
                 if (started && clients.Length + sshClients.Length > 0)
                 {
 
-                    Log.Notice($"{Changed} changed, so what the OCPP nodes it replaced were connected to was hung up " +
+                    Log.Notice($"{Because}, so what the OCPP nodes it replaced were connected to was hung up " +
                                $"({clients.Length + sshClients.Length} connection(s)); it is dialled again.", "ocpp", "connections");
 
                     await DialConfiguredConnections();

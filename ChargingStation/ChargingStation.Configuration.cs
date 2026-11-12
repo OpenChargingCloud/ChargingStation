@@ -752,7 +752,7 @@ namespace cloud.charging.open.ChargingStation
                 Log.Notice($"This station now says it is {wanted}.", "ocpp", "config");
 
                 // Not waited for, as after a change of the EVSEs.
-                _ = DialAgain(old16, old21, "What this charging station says it is").
+                _ = DialAgain(old16, old21, "What this charging station says it is changed").
                         ContinueWith(task => Log.Warning($"Dialling again after what this station says it is changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
@@ -1299,7 +1299,7 @@ namespace cloud.charging.open.ChargingStation
                 // waited for: the old nodes would go on answering a CSMS with
                 // the EVSEs as they were, and nothing said from now on goes
                 // through them.
-                _ = DialAgain(old16, old21, "The EVSEs of this charging station").
+                _ = DialAgain(old16, old21, "The EVSEs of this charging station changed").
                         ContinueWith(task => Log.Warning($"Dialling again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
@@ -1958,6 +1958,10 @@ namespace cloud.charging.open.ChargingStation
             // over OCPP 1.6 as over OCPP 2.1.
             HoldSignersToTheRoles(chargingStation);
             HoldSignersToTheRoles(chargePoint);
+
+            // A Reset is the station's to answer: what a restart is, and
+            // whether it waits for a session - see ChargingStation.Reset.cs.
+            AttachReset(chargePoint, chargingStation);
 
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.

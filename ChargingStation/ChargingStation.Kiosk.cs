@@ -379,6 +379,12 @@ namespace cloud.charging.open.ChargingStation
                 return false;
             }
 
+            if (WhyNoSessionStarts() is String notNow)
+            {
+                Error = notNow;
+                return false;
+            }
+
             if (sessions.ContainsKey(EVSEId))
             {
                 Error = $"EVSE {EVSEId} is already charging.";
@@ -667,6 +673,14 @@ namespace cloud.charging.open.ChargingStation
             else
             {
 
+                // A card that charges here stops, above; a new one waits for
+                // the restart that waits for the others.
+                if (WhyNoSessionStarts() is String notNow)
+                {
+                    Error = notNow;
+                    return false;
+                }
+
                 var provider = Operator.ProviderOf(token);
 
                 // Taken only where nothing is, for the same reason as a payment:
@@ -952,6 +966,9 @@ namespace cloud.charging.open.ChargingStation
             }
 
             sessions.Clear();
+
+            // Each ended above while the others were still there.
+            RestartIfIdle();
 
             Log.Notice($"{ended} session(s) on the display were ended: {Why}.", "kiosk");
 

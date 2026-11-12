@@ -143,6 +143,9 @@ namespace cloud.charging.open.ChargingStation
         private void SessionEnded(Byte EVSEId)
         {
 
+            // The last one a restart waited for: see ChargingStation.Reset.cs.
+            RestartIfIdle();
+
             if (!signing.TryRemove(EVSEId, out var id) ||
                 SignedSessions.Of(id) is not SignedSession signed)
                 return;
