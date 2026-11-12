@@ -83,6 +83,28 @@ namespace cloud.charging.open.ChargingStation
         public static readonly TimeSpan TestHoldsFor = TimeSpan.FromSeconds(2);
 
         /// <summary>
+        /// How long a connection test waits for the answer to what it asked in OCPP.
+        /// </summary>
+        /// <remarks>
+        /// A back end answers a Heartbeat in milliseconds. One that has not
+        /// within this is not slow: nothing there speaks OCPP on this
+        /// connection, and that is what the test says.
+        /// </remarks>
+        public static TimeSpan TestAnswerWithin { get; set; } = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// What a connection test asks in OCPP once it is connected, where it
+        /// is not told: a Heartbeat.
+        /// </summary>
+        public const String TestAsksHeartbeat = "heartbeat";
+
+        /// <summary>
+        /// A connection test that asks nothing in OCPP: everything up to the
+        /// handshake, as it was before it asked anything.
+        /// </summary>
+        public const String TestAsksNothing   = "none";
+
+        /// <summary>
         /// One DialAgain at a time - see there.
         /// </summary>
         private readonly SemaphoreSlim dialAgainLock = new (1, 1);
@@ -1629,6 +1651,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="ServerKeyPins">The key pins of the keys the server of a wss:// connection may show, separated by commas; none for one checked by its CA, or one that would learn the key.</param>
         /// <param name="KeyPinTrust">Whether a wss:// connection offers raw public keys and would learn a key pin on first use.</param>
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that, as the form writes it under "pins"; nothing for nothing.</param>
+        /// <param name="HTTPVersion">Which version of HTTP a WebSocket is opened over; nothing for what the server chooses.</param>
+        /// <param name="OCPPRequest">What is asked in OCPP once it is connected: "heartbeat", which it is where nothing is said, or "none".</param>
         public async Task<JObject> TestConnection(String?                Description,
                                                   String?                URL,
                                                   String?                ConnectionType,
@@ -1642,11 +1666,15 @@ namespace cloud.charging.open.ChargingStation
                                                   String?                ServerKeyPins         = null,
                                                   ServerKeyPinSettings?  KeyPinTrust           = null,
                                                   JToken?                Pins                  = null,
-                                                  String?                HTTPVersion           = null)
+                                                  String?                HTTPVersion           = null,
+                                                  String?                OCPPRequest           = null)
         {
 
             var clock  = Stopwatch.StartNew();
             var steps  = new JArray();
+
+            // What is asked in OCPP once it is connected, and what came of it.
+            TestRequest? asked = null;
 
             // The key pin of the key the server of a wss:// connection showed,
             // whether it was believed or not: what somebody commissioning the
@@ -1676,6 +1704,9 @@ namespace cloud.charging.open.ChargingStation
                 if (shownKeyPin is not null)
                     result.Add(new JProperty("serverKeyPin", shownKeyPin.ToHex()));
 
+                if (asked is not null && asked.WasSent)
+                    result.Add(new JProperty("ocpp", asked.ToJSON()));
+
                 return result;
 
             }
@@ -1700,6 +1731,24 @@ namespace cloud.charging.open.ChargingStation
             {
                 Step("error", notYet);
                 return Done(null, false);
+            }
+
+            switch ((OCPPRequest ?? "").Trim().ToLowerInvariant())
+            {
+
+                case "":
+                case TestAsksHeartbeat:
+                    asked = new TestRequest("Heartbeat", clock, TimeProvider);
+                    break;
+
+                case TestAsksNothing:
+                    break;
+
+                default:
+                    Step("error", $"'{OCPPRequest!.Trim()}' is nothing a connection test asks in OCPP: it is '{TestAsksHeartbeat}', " +
+                                  $"which it is where nothing is said, or '{TestAsksNothing}'.");
+                    return Done(null, false);
+
             }
 
             // A throwaway, so that everything below reads one shape whether it
@@ -1924,7 +1973,7 @@ namespace cloud.charging.open.ChargingStation
             #endregion
 
             if (connection.IsSSH)
-                return await TestOverSSH(connection, sshLogin!, sshTrust!, Step, Done, CancellationToken);
+                return await TestOverSSH(connection, sshLogin!, sshTrust!, asked, Step, Done, CancellationToken);
 
             WebSocketClient? client = null;
 
@@ -1977,7 +2026,9 @@ namespace cloud.charging.open.ChargingStation
                          );
 
                 client.OnTextMessageReceived   += (timestamp, sender, conn, frame, tracking, message, token) => {
-                    Step("info", $"Received: {(message.Length > 400 ? message[..400] + " ..." : message)}");
+                    // The answer to what the test asked is said where it is waited for.
+                    if (asked?.IsAnsweredBy(message) != true)
+                        Step("info", $"Received: {(message.Length > 400 ? message[..400] + " ..." : message)}");
                     return Task.CompletedTask;
                 };
 
@@ -2101,6 +2152,21 @@ namespace cloud.charging.open.ChargingStation
 
                 #endregion
 
+                #region Ask it something in OCPP
+
+                // The handshake says that something took the connection. Whether
+                // it speaks OCPP on it - whether a request goes there, is read,
+                // and its answer comes back - is only known once it was asked.
+                var answered = asked is null ||
+                               await asked.Ask(
+                                         async text => await client.SendTextMessage(text, CancellationToken: CancellationToken) == SentStatus.Success,
+                                         Step,
+                                         TestAnswerWithin,
+                                         CancellationToken
+                                     );
+
+                #endregion
+
                 #region Hold it briefly, then let go
 
                 Step("info", $"Staying connected for {TestHoldsFor.TotalSeconds:0.#} second(s), to see whether anything is said.");
@@ -2114,6 +2180,18 @@ namespace cloud.charging.open.ChargingStation
                           "Connection test finished",
                           CancellationToken: CancellationToken
                       );
+
+                if (!answered)
+                {
+
+                    Step("error", "Closed. The connection can be made, and what the station asked on it was not answered.");
+
+                    Log.Warning($"The connection test for '{connection.Description}' got through, and its {asked!.Action} was not answered.",
+                                "ocpp", "connections", "test");
+
+                    return Done(connection, false);
+
+                }
 
                 Step("notice", "Closed. The connection can be made.");
 
@@ -2158,7 +2236,223 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) TestOverSSH(Connection, Login, Trust, Step, Done, CancellationToken)
+        #region (private class) TestRequest
+
+        /// <summary>
+        /// What a connection test asks in OCPP once it is connected, and what
+        /// came of it: the request as it was sent, the answer as it came, and
+        /// how long that took.
+        /// </summary>
+        /// <remarks>
+        /// A Heartbeat, and written by hand: it is the one request that is the
+        /// same in OCPP 1.6 and 2.x, asks nothing of the back end but the time,
+        /// and changes nothing there - a BootNotification would register a
+        /// station that is only being tried. It does not go through the OCPP
+        /// nodes, as the test's connection does not: nothing of a test reaches
+        /// them.
+        ///
+        /// An error is an answer. A back end that has not accepted a
+        /// BootNotification of this station may answer anything else with a
+        /// CALLERROR (OCPP 2.x: SecurityError), and it has then read a
+        /// request and answered it in OCPP, which is what was asked.
+        /// </remarks>
+        private sealed class TestRequest(String Action, Stopwatch Clock, TimeProvider TimeProvider)
+        {
+
+            private readonly TaskCompletionSource<JArray> answer = new (TaskCreationOptions.RunContinuationsAsynchronously);
+
+            private Int64?           sentAt_ms;
+            private Int64?           answeredAt_ms;
+            private DateTimeOffset?  answeredAt;
+            private JArray?          answered;
+
+            /// <summary>The action of the request: "Heartbeat".</summary>
+            public String   Action   { get; } = Action;
+
+            /// <summary>What its answer is known by.</summary>
+            public String   Id       { get; } = "test-" + Guid.NewGuid().ToString("N")[..12];
+
+            /// <summary>The request as it is sent: an OCPP CALL.</summary>
+            public JArray   Message
+                => new (2, Id, Action, new JObject());
+
+            /// <summary>Whether it was sent at all: not where the connection did not come that far.</summary>
+            public Boolean  WasSent
+                => sentAt_ms.HasValue;
+
+            /// <summary>
+            /// Whether the given text is the answer to this request - a
+            /// CALLRESULT or a CALLERROR with its id - which is then kept.
+            /// </summary>
+            public Boolean IsAnsweredBy(String Text)
+            {
+
+                try
+                {
+
+                    if (JToken.Parse(Text) is JArray { Count: >= 2 } message &&
+                        message[0].Type == JTokenType.Integer &&
+                        message[0].Value<Int32>() is 3 or 4   &&
+                        message[1].Type == JTokenType.String  &&
+                        message[1].Value<String>() == Id)
+                    {
+
+                        answeredAt_ms ??= Clock.ElapsedMilliseconds;
+                        answeredAt    ??= TimeProvider.GetUtcNow();
+
+                        return answer.TrySetResult(message);
+
+                    }
+
+                }
+                catch (Newtonsoft.Json.JsonException)
+                { }
+
+                return false;
+
+            }
+
+            /// <summary>
+            /// Send it, wait for its answer, and say what came of it.
+            /// </summary>
+            /// <param name="Send">Sends a text over the connection, and says whether it left.</param>
+            /// <param name="Step">Writes down what happened.</param>
+            /// <param name="Within">How long the answer is waited for.</param>
+            /// <returns>Whether it was answered, by a result or by an error.</returns>
+            public async Task<Boolean> Ask(Func<String, Task<Boolean>>  Send,
+                                           Action<String, String>       Step,
+                                           TimeSpan                     Within,
+                                           CancellationToken            CancellationToken)
+            {
+
+                var text = Message.ToString(Newtonsoft.Json.Formatting.None);
+
+                Step("info", $"Asking in OCPP, to see whether it is spoken here: {text}");
+
+                sentAt_ms = Clock.ElapsedMilliseconds;
+
+                if (!await Send(text))
+                {
+                    Step("error", $"The {Action} could not be sent: the connection was gone.");
+                    return false;
+                }
+
+                try
+                {
+                    answered = await answer.Task.WaitAsync(Within, CancellationToken);
+                }
+                catch (TimeoutException)
+                {
+                    Step("error", $"No answer to the {Action} within {Within.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} second(s). Whatever is there took the " +
+                                   "connection, and does not answer OCPP on it.");
+                    return false;
+                }
+
+                var took = answeredAt_ms!.Value - sentAt_ms.Value;
+                var said = answered.ToString(Newtonsoft.Json.Formatting.None);
+
+                if (said.Length > 400)
+                    said = said[..400] + " ...";
+
+                if (answered[0].Value<Int32>() == 3)
+                {
+
+                    // What a Heartbeat is answered with: the time of the back
+                    // end, which says how far this station's clock is from it.
+                    var theirs = answered.Count > 2 && answered[2] is JObject payload &&
+                                 payload["currentTime"] is JValue { Value: not null } currentTime
+                                     ? currentTime.Type == JTokenType.Date
+                                           ? new DateTimeOffset(currentTime.Value<DateTime>().ToUniversalTime())
+                                           : DateTimeOffset.TryParse(currentTime.Value<String>(),
+                                                                     System.Globalization.CultureInfo.InvariantCulture,
+                                                                     System.Globalization.DateTimeStyles.AssumeUniversal |
+                                                                     System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                                                     out var parsed)
+                                                 ? parsed
+                                                 : (DateTimeOffset?) null
+                                     : null;
+
+                    Step("notice", $"Answered after {took} ms: {said}" +
+                                   (theirs is { } time
+                                        ? $" Its clock says {time.UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ}, " +
+                                          $"{Math.Abs((Int64) (time - answeredAt!.Value).TotalMilliseconds)} ms " +
+                                          $"{(time >= answeredAt.Value ? "ahead of" : "behind")} this station's."
+                                        : ""));
+
+                }
+
+                else
+                    Step("warning", $"Answered after {took} ms, with an error: {said} OCPP is spoken here. A back end answers so " +
+                                     "where it does not take the request - one that has not accepted a BootNotification of this " +
+                                     "station yet may.");
+
+                return true;
+
+            }
+
+            /// <summary>
+            /// What was asked and what came of it, for the answer of the test.
+            /// </summary>
+            public JObject ToJSON()
+            {
+
+                var json = new JObject(
+                               new JProperty("request",   Action),
+                               new JProperty("sent",      Message),
+                               new JProperty("sentAt_ms", sentAt_ms),
+                               new JProperty("answered",  answered is not null)
+                           );
+
+                if (answered is not null)
+                {
+                    json.Add(new JProperty("answer",        answered));
+                    json.Add(new JProperty("error",         answered[0].Value<Int32>() == 4));
+                    json.Add(new JProperty("roundTrip_ms",  answeredAt_ms!.Value - sentAt_ms!.Value));
+                }
+
+                return json;
+
+            }
+
+        }
+
+        #endregion
+
+        #region TestConnection(Fields, CancellationToken = default)
+
+        /// <summary>
+        /// Test a connection by its fields as JSON: what the page sends of the
+        /// form somebody is looking at, and what a connection that is written
+        /// down says of itself.
+        /// </summary>
+        /// <param name="Fields">The fields of the connection, and "ocppRequest" for what is asked in OCPP.</param>
+        public Task<JObject> TestConnection(JObject            Fields,
+                                            CancellationToken  CancellationToken   = default)
+
+            => TestConnection(Fields.Value<String>("description"),
+                              Fields.Value<String>("url"),
+                              Fields.Value<String>("connectionType"),
+                              Fields.Value<String>("ocppVersion"),
+                              Fields.Value<Boolean?>("autoConnect") ?? false,
+                              Fields.Value<String>("authenticationId"),
+                              Fields.Value<String>("certificateId"),
+                              CancellationToken,
+                              Fields.Value<String>("sshHostKey"),
+                              CSHTTPAPI.SshTrustOf(Fields),
+                              CSHTTPAPI.KeyPinsOf(Fields, "serverKeyPins"),
+                              CSHTTPAPI.KeyPinTrustOf(Fields),
+                              Fields[ConnectionEntry.PinsKey],
+                              Fields.Value<String>(ConnectionEntry.HTTPVersionKey),
+                              Fields.Value<String>(TestRequestKey));
+
+        /// <summary>
+        /// Under which name a test is told what to ask in OCPP: "ocppRequest".
+        /// </summary>
+        public const String TestRequestKey = "ocppRequest";
+
+        #endregion
+
+        #region (private) TestOverSSH(Connection, Login, Trust, Asked, Step, Done, CancellationToken)
 
         /// <summary>
         /// The rest of a connection test over SSH, once a TCP connection could
@@ -2172,6 +2466,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<JObject> TestOverSSH(ConnectionEntry                      Connection,
                                                 SshClientOptions                     Login,
                                                 SshHostKeyTrust                      Trust,
+                                                TestRequest?                         Asked,
                                                 Action<String, String>               Step,
                                                 Func<ConnectionEntry?, Boolean, JObject>  Done,
                                                 CancellationToken                    CancellationToken)
@@ -2186,7 +2481,9 @@ namespace cloud.charging.open.ChargingStation
                                 );
 
             client.MessageClient.OnTextMessageReceived   += (timestamp, sender, connection, text, cancellationToken) => {
-                Step("info", $"Received: {(text.Length > 400 ? text[..400] + " ..." : text)}");
+                // The answer to what the test asked is said where it is waited for.
+                if (Asked?.IsAnsweredBy(text) != true)
+                    Step("info", $"Received: {(text.Length > 400 ? text[..400] + " ..." : text)}");
                 return Task.CompletedTask;
             };
 
@@ -2226,6 +2523,19 @@ namespace cloud.charging.open.ChargingStation
                                    : $"Connected, and the server let '{Login.Username}' in, but it named no OCPP version. Whatever is " +
                                       "there took the connection without agreeing to speak OCPP.");
 
+                // As over a WebSocket: whether OCPP is spoken on it is only
+                // known once it was asked.
+                var answered = Asked is null ||
+                               await Asked.Ask(
+                                         async text => (await client.SendJSONMessage(JArray.Parse(text),
+                                                                                     TimeProvider.GetUtcNow(),
+                                                                                     org.GraphDefined.Vanaheimr.Illias.EventTracking_Id.New,
+                                                                                     CancellationToken)).Result == SentMessageResults.Success,
+                                         Step,
+                                         TestAnswerWithin,
+                                         CancellationToken
+                                     );
+
                 Step("info", $"Staying connected for {TestHoldsFor.TotalSeconds:0.#} second(s), to see whether anything is said.");
 
                 await Task.Delay(TestHoldsFor, CancellationToken);
@@ -2233,6 +2543,18 @@ namespace cloud.charging.open.ChargingStation
                 Step("info", "Closing.");
 
                 await client.Close(MessageCloseCode.NormalClosure, "Connection test finished");
+
+                if (!answered)
+                {
+
+                    Step("error", "Closed. The connection can be made, and what the station asked on it was not answered.");
+
+                    Log.Warning($"The connection test for '{Connection.Description}' got through, and its {Asked!.Action} was not answered.",
+                                "ocpp", "connections", "test");
+
+                    return Done(Connection, false);
+
+                }
 
                 Step("notice", "Closed. The connection can be made.");
 

@@ -1119,6 +1119,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(steps,                         Does.Contain("took ocpp2.1"));
                 Assert.That(station.Connections.Connections, Is.Empty, "A test wrote something down.");
 
+                // Asked in OCPP over the subsystem, and answered by the CSMS.
+                Assert.That(result["ocpp"]?.Value<String>("request"),     Is.EqualTo("Heartbeat"));
+                Assert.That(result["ocpp"]?.Value<Boolean>("answered"),   Is.True, steps);
+                Assert.That(result["ocpp"]?["answer"]?[0]?.Value<Int32>(), Is.EqualTo(3), steps);
+                Assert.That(steps,                                        Does.Match(@"Answered after \d+ ms: \[3,""test-"));
+
             });
 
         }

@@ -460,7 +460,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestWithAOneTimePasswordGetsThrough()
         {
 
-            var listening = ABackEndThatKnows("cs001");
+            var listening = AnsweringAHeartbeat(ABackEndThatKnows("cs001"));
 
             try
             {
@@ -627,6 +627,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region (private static) AnsweringAHeartbeat(BackEnd)
+
+        /// <summary>
+        /// A test asks its back end for a Heartbeat once it is connected, and
+        /// one that gets through was answered: so this one answers it, and
+        /// nothing else.
+        /// </summary>
+        private static WebSocketServer AnsweringAHeartbeat(WebSocketServer BackEnd)
+        {
+
+            BackEnd.OnTextMessageReceived += async (timestamp, server, connection, frame, eventTrackingId, text, cancellationToken) => {
+
+                var message = JArray.Parse(text);
+
+                if (message[0].Value<Int32>() == 2 && message[2].Value<String>() == "Heartbeat")
+                    await BackEnd.SendTextMessage(
+                              connection,
+                              new JArray(3, message[1], new JObject(
+                                  new JProperty("currentTime", DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"))
+                              )).ToString(Newtonsoft.Json.Formatting.None)
+                          );
+
+            };
+
+            return BackEnd;
+
+        }
+
+        #endregion
+
         #region (private) TestOf(Description)
 
         /// <summary>
@@ -723,11 +753,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Anybody may connect: a WebSocket server asks for credentials
             // unless it is told not to, and this station proves itself with
             // nothing here.
-            var listening = new WebSocketServer(
+            var listening = AnsweringAHeartbeat(new WebSocketServer(
                                 HTTPPort:               ForABackEnd(),
                                 RequireAuthentication:  false,
                                 AutoStart:              true
-                            );
+                            ));
 
             try
             {

@@ -67,7 +67,10 @@ for signing in with it.
 
 The command line itself - at the console and over SSH - is this library's:
 `StationCLI` and the commands beside it in `CommandLine/`, among them
-`evses`, how each EVSE stands right now and at what power a car is charging.
+`evses`, how each EVSE stands right now and at what power a car is charging,
+and `testconnection <connection> [heartbeat|none]`, which makes a connection
+that is written down once and says what happened and when (see "Trying a
+connection" below).
 The station makes it for every session over SSH, so every program that runs a
 station offers the same commands; a new one is a new file there, tested in
 `ChargingStationTests`.
@@ -153,6 +156,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
+| `ConnectionTestRequestTests` | what a connection test asks in OCPP: a Heartbeat as it was sent, its answer and how long it took, and how far the back end's clock is off; an error as an answer; no answer, or one to something else, failing the test; `none` asking nothing; and `testconnection` at the command line, by description and by identification, line by line with its milliseconds |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 | `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
@@ -832,6 +836,30 @@ right when it was opened is not the answer to that.
 | refused     | answered with something that means no - a 401, a 404, a host key not believed, an SSH login not taken - and not tried again |
 | not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
+
+**Trying a connection.** A connection that is only written down is never
+tried, so the **Test** button beside it, `POST
+/api/v1/configuration/connections/test` with its fields, and
+`testconnection <id or description>` at the command line make it once: its own
+client, nothing written down, nothing left connected. The answer is a log with
+the milliseconds since the test began at every step - the name looked up, the
+TCP connection, what the server showed and why it is believed, the handshake
+and what it was opened over - and `ok`, `runtime_ms` and the `steps`.
+
+A handshake says that something took the connection; whether OCPP is spoken
+on it is known once it was asked. So a test asks: a **Heartbeat**
+(`[2,"test-…","Heartbeat",{}]`), which is the same in OCPP 1.6 and 2.x and
+changes nothing at the back end, over the WebSocket or the SSH subsystem the
+test opened. The answer says what was sent, what came back and how long that
+took, as steps and under `ocpp`: `request`, `sent`, `sentAt_ms`, `answered`,
+`answer`, `error` and `roundTrip_ms` - and how far the back end's clock is
+from the station's, where it said its time. A CALLERROR is an answer: a back
+end that has not accepted a BootNotification of the station may refuse
+anything else, and has then read a request and answered it in OCPP, which is
+what was asked; the test gets through with a warning. No answer within ten
+seconds (`ChargingStation.TestAnswerWithin`) fails the test, although the
+connection could be made. `"ocppRequest": "none"` - `none` as the last word at
+the command line - asks nothing, and is the test up to the handshake.
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
 over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of

@@ -909,6 +909,17 @@ export interface ConnectionTest {
     steps:        ConnectionTestStep[];
     /** The key pin of the key the server of a wss:// connection showed, believed or not: what it would be pinned to. */
     serverKeyPin?: string;
+    /** What the test asked in OCPP once it was connected, and what came of it; absent where it did not come that far, or asked nothing. */
+    ocpp?: {
+        request:        string;
+        sent:           unknown[];
+        sentAt_ms:      number;
+        answered:       boolean;
+        answer?:        unknown[];
+        /** Whether the answer is a CALLERROR: an answer in OCPP all the same. */
+        error?:         boolean;
+        roundTrip_ms?:  number;
+    };
 }
 
 /**

@@ -118,7 +118,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                     var message = JArray.Parse(text);
 
                     // The connection the station speaks OCPP on - and not one
-                    // of a connection test, which says nothing and goes again.
+                    // of a connection test, which is told to ask nothing here
+                    // and goes again.
                     latest = connection;
 
                     received.Enqueue(message);
@@ -672,7 +673,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var (_, keyId, _) = await Connected();
 
             async Task<JObject> Test()
-                => await station!.TestConnection("A test", URL, "CSMS", "OCPP2.1", CertificateId: keyId);
+                => await station!.TestConnection("A test", URL, "CSMS", "OCPP2.1", CertificateId: keyId, OCPPRequest: ChargingStation.TestAsksNothing);
 
             // The server the CSMS moves to has a certificate of its next CA,
             // which nobody here knows yet.

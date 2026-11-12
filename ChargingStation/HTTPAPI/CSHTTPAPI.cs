@@ -1481,23 +1481,12 @@ namespace cloud.charging.open.ChargingStation
 
             Log.Info($"'{user.Id}' asked this station to test a connection.", "ocpp", "connections", "test", "web");
 
+            // With "ocppRequest" for what is asked in OCPP once it is
+            // connected: "heartbeat", which it is where nothing is said, or "none".
             return JSONResponse(
                        Request,
                        HTTPStatusCode.OK,
-                       await Station.TestConnection(json.Value<String>("description"),
-                                                    json.Value<String>("url"),
-                                                    json.Value<String>("connectionType"),
-                                                    json.Value<String>("ocppVersion"),
-                                                    json.Value<Boolean?>("autoConnect") ?? false,
-                                                    json.Value<String>("authenticationId"),
-                                                    json.Value<String>("certificateId"),
-                                                    Request.CancellationToken,
-                                                    json.Value<String>("sshHostKey"),
-                                                    SshTrustOf(json),
-                                                    KeyPinsOf(json, "serverKeyPins"),
-                                                    KeyPinTrustOf(json),
-                                                    json[OCPP.ConnectionEntry.PinsKey],
-                                                    json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey))
+                       await Station.TestConnection(json, Request.CancellationToken)
                    );
 
         }
@@ -1509,7 +1498,7 @@ namespace cloud.charging.open.ChargingStation
         /// what there is; a list with something in it that is no text is sent
         /// on as it is, to be refused in words.
         /// </summary>
-        private static String? KeyPinsOf(JObject JSON, String Name)
+        internal static String? KeyPinsOf(JObject JSON, String Name)
 
             => JSON[Name] switch {
                    JArray list                                  => String.Join(",", list.Select(pin => pin.Type == JTokenType.String
@@ -1583,7 +1572,7 @@ namespace cloud.charging.open.ChargingStation
         /// pin on first use, and how long that waits, as it was sent - or null,
         /// where none of it was, to keep what it says.
         /// </summary>
-        private static OCPP.ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
+        internal static OCPP.ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
         {
 
             var probation = JSON["serverKeyPinProbationTime"];
@@ -1610,7 +1599,7 @@ namespace cloud.charging.open.ChargingStation
         /// probation that is no whole number is sent on as one no connection
         /// takes, so that it is refused in words rather than with a 500.
         /// </summary>
-        private static OCPP.SshTrustSettings? SshTrustOf(JObject JSON)
+        internal static OCPP.SshTrustSettings? SshTrustOf(JObject JSON)
         {
 
             var probation = JSON["sshProbationTime"];
