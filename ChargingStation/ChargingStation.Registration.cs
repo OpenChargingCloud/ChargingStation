@@ -336,6 +336,7 @@ namespace cloud.charging.open.ChargingStation
 
             // A key older than its maximum age is rotated once a back end can be told.
             _ = RotateIfOld();
+            _ = RenewStationCertificateIfDue();
 
             AWWCPNetworkingNode node = Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6 ? cs01 : cs02;
 

@@ -1034,6 +1034,26 @@ station believes, and somebody who can add one can make it believe a server
 nobody else would. `CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 
+### The certificate it shows its CSMS, brought over OCPP
+
+After the first certificate nothing has to be copied by hand. Over OCPP 2.1
+the station asks its CSMS for the next one, and the CSMS brings it:
+
+| | |
+|---|---|
+| `TriggerMessage` of `SignChargingStationCertificate` | the station makes a new key - with the subject and the kind of the one it replaces - and sends its signing request in `SignCertificate`. The key never leaves the station. |
+| by itself | where the certificate a `wss://` connection shows runs out within 30 days, the station asks when it connects - once a day at most |
+| `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is dialled again with the new one. |
+| a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both keys are kept; the old one is removed on `/configuration/client-keys`. |
+| `InstallCertificate` of `CSMSRootCertificate` | a TLS root of the certificate store kept for `ocpp` - on the certificates page, and vouching for the server of a `wss://` connection from the next handshake on. `GetInstalledCertificateIds` lists it, `DeleteCertificate` takes it out again; a root kept for every use is deleted on the page and not for the back ends alone. OCPP 1.6 installs the same as `CentralSystemRootCertificate`. |
+
+A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps
+no key of its own a vehicle is shown. Asking for a certificate over OCPP 1.6
+is not built. `StationCertificateTests` holds the station to all of it against
+a CSMS over TLS that asks for a client certificate; the code is in
+`ChargingStation.StationCertificate.cs` and `OCPP/CSMSRootCertificates.cs`.
+
+
 ## Meters
 
 The meter of an EVSE is read over Modbus/TLS, as a SunSpec meter, once a second

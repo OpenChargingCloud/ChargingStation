@@ -1961,7 +1961,12 @@ namespace cloud.charging.open.ChargingStation
             // them to every node of either version.
             deviceModelBridge.Configure(chargingStation);
             AttachSSHClient(chargingStation);
+            AttachStationCertificate(chargingStation);
             deviceModelBridge.Configure(chargePoint);
+
+            // The roots of its CSMS are the station's, whichever version
+            // installs them; a certificate is asked for over OCPP 2.1 alone.
+            chargePoint.CertificateSources.Add(CSMSRootCertificates);
 
             // The station's queues and monitors, whichever node this is.
             chargePoint.    OfflineQueue      = ocppQueue16;

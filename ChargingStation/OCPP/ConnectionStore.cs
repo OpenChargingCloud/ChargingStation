@@ -1449,6 +1449,78 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region TrySetCertificate(Id, CertificateId, out Error)
+
+        /// <summary>
+        /// Have one connection show the certificate of another key, and nothing
+        /// else about it changed: what CertificateSigned does once the
+        /// certificate a station asked its CSMS for has come.
+        /// </summary>
+        /// <remarks>
+        /// The connection is dialled again, as after a change of its
+        /// certificate by somebody's hand.
+        /// </remarks>
+        /// <param name="Id">The connection.</param>
+        /// <param name="CertificateId">The key whose certificate it shows from now on.</param>
+        /// <param name="Error">Why it was not changed.</param>
+        public Boolean TrySetCertificate(String                           Id,
+                                         String                           CertificateId,
+                                         [NotNullWhen(false)] out String? Error)
+        {
+
+            lock (updateLock)
+            {
+
+                if (!connections.TryGetValue(Id, out var entry))
+                {
+                    Error = $"There is no connection '{Id}' here.";
+                    return false;
+                }
+
+                if (!entry.IsSecure || entry.IsSSH)
+                {
+                    Error = $"'{entry.Description}' makes no TLS handshake a certificate could be shown in.";
+                    return false;
+                }
+
+                if (KnownCertificateIds is not null && !KnownCertificateIds().Contains(CertificateId))
+                {
+                    Error = $"This station has no client key '{CertificateId}'.";
+                    return false;
+                }
+
+                if (entry.CertificateId == CertificateId)
+                {
+                    Error = null;
+                    return true;
+                }
+
+                var was          = entry.Copy();
+                var revisionWas  = BumpDialRevision(Id);
+
+                entry.CertificateId = CertificateId;
+
+                if (!TrySaveConnections(out Error))
+                {
+                    connections[Id]    = was;
+                    dialRevisions[Id]  = revisionWas;
+                    return false;
+                }
+
+                Notice(LogLevel.Notice,
+                       $"'{entry.Description}' shows the certificate of the key {CertificateId} from now on" +
+                       (was.CertificateId is not null ? $", and no longer that of {was.CertificateId}" : "") +
+                        ". It is dialled again.");
+
+                Error = null;
+                return true;
+
+            }
+
+        }
+
+        #endregion
+
         #region TryLearnHostKey(Id, URL, HostKey, out Error)
 
         /// <summary>
