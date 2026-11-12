@@ -94,6 +94,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             public Int32            BootInterval   { get; set; } = 300;
 
             /// <summary>
+            /// What it says of a card it is asked about with an Authorize:
+            /// "Accepted", "Blocked", "Invalid" and so on.
+            /// </summary>
+            public String           CardStatus     { get; set; } = "Accepted";
+
+            /// <summary>
             /// A CSMS listening on the given port, or on a free one.
             /// </summary>
             /// <param name="Port">A port nothing listens on yet, for a CSMS that comes after the station dialled it.</param>
@@ -156,6 +162,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                            "Heartbeat"         => new JObject(
                                                       new JProperty("currentTime",  DateTimeOffset.UtcNow.ToString("o"))
+                                                  ),
+
+                           // Both versions' answers in one: "idTagInfo" is
+                           // OCPP 1.6's, "idTokenInfo" OCPP 2.1's, and each
+                           // reads its own.
+                           "Authorize"         => new JObject(
+                                                      new JProperty("idTagInfo",    new JObject(new JProperty("status", CardStatus))),
+                                                      new JProperty("idTokenInfo",  new JObject(new JProperty("status", CardStatus)))
                                                   ),
 
                            _                   => new JObject()
