@@ -20,6 +20,7 @@
 using cloud.charging.open.protocols.WWCP;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
+using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.ChargingStation.Web;
@@ -155,6 +156,36 @@ namespace cloud.charging.open.ChargingStation
                                                                  Variable:     pinSet.Variable,
                                                                  Description:  "A pin set: held to the pin set signers of its connection by the station itself"
                                                              )));
+
+        }
+
+        /// <summary>
+        /// Hold the signers of what a Central System sends to the OCPP 1.6 node
+        /// to this station's roles, as those of the OCPP 2.1 node are.
+        /// </summary>
+        /// <remarks>
+        /// Instead of what the node makes of it by itself, where only an "admin"
+        /// may do anything. The table is the one of OCPP 1.6: a soft reset is
+        /// the restart once idle, a hard one the restart at once, and
+        /// ChangeConfiguration and GetConfiguration are decided key by key - a
+        /// key of the DNS client or of the network time by "dns" or "nts", any
+        /// other by "configuration". No key of OCPP 1.6 is a pin set of a
+        /// connection, so there is nothing to leave to pin set signers.
+        /// </remarks>
+        private void HoldSignersToTheRoles(OCPPv1_6.TestChargePointNode Node)
+        {
+
+            var policy = Node.OCPP.SignaturePolicy;
+
+            policy.IncomingDirection    = "CSMS->CS";
+            policy.PermissionsOfRole    = PermissionsOfRole;
+            policy.ResourceOfComponent  = ResourceOfComponent;
+
+            policy.ClearActionPermissions();
+            policy.AddActionPermissions(OCPPv1_6.CP.ChargePointActionPermissions.Default(() => IsMetrologicallyRelevant));
+
+            foreach (var action in OCPPv1_6.CP.ChargePointActionPermissions.ActionsDecidedPerKey)
+                policy.ActionsDecidedPerEntry.Add(action);
 
         }
 

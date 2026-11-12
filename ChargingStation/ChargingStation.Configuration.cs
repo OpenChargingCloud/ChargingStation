@@ -1954,8 +1954,10 @@ namespace cloud.charging.open.ChargingStation
             ConfigureWebPayments(chargingStation);
 
             // Who signed what a CSMS sends, held to this station's roles: what
-            // a key's role may do is what the same role may do on the page.
+            // a key's role may do is what the same role may do on the page,
+            // over OCPP 1.6 as over OCPP 2.1.
             HoldSignersToTheRoles(chargingStation);
+            HoldSignersToTheRoles(chargePoint);
 
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.
