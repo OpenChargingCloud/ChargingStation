@@ -63,9 +63,22 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             directory  = TestStations.TemporaryDirectory("authorize");
             csms       = new CSMS();
+            station    = AStation();
 
-            // One outlet, and a reader whose cards are typed in beside it.
+        }
+
+        /// <summary>
+        /// A station with one outlet and a reader whose cards are typed in
+        /// beside it - whose operator says nothing of cards it cannot ask
+        /// about, or what is given.
+        /// </summary>
+        private ChargingStation AStation(String? OfflineCards = null)
+        {
+
             var configuration = TestStations.Offline;
+
+            if (OfflineCards is not null)
+                configuration.Add(new JProperty("operator", new JObject(new JProperty("offlineCards", OfflineCards))));
 
             configuration.Add(new JProperty("evses", new JArray(
                 new JObject(
@@ -86,7 +99,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 )
             )));
 
-            station    = TestStations.New(directory, configuration);
+            return TestStations.New(directory, configuration);
 
         }
 
@@ -302,21 +315,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AStationItsBackEndDidNotAcceptAsksNothingOfIt()
+        #region (private) DiallingABackEndThatWaits()
 
         /// <summary>
-        /// A back end that has not accepted this station is told nothing but
-        /// the BootNotification - a card neither - and the station is on its
-        /// own with it.
+        /// The station dials a back end that tells it to wait: connected, and
+        /// not accepted.
         /// </summary>
-        [Test]
-        public async Task AStationItsBackEndDidNotAcceptAsksNothingOfIt()
+        private async Task DiallingABackEndThatWaits()
         {
 
             csms!.BootStatus = "Pending";
 
             Assert.That(station!.Connections.TryAddConnection("A CSMS that waits", $"ws://127.0.0.1:{csms.Port}/cs001", "CSMS", true, null, null,
-                                                              out var id, out var error, OCPPVersion: "2.1"),
+                                                              out _, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 
             var started = station = await TestStations.Started(station, directory);
@@ -324,11 +335,146 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(await Within(() => started.RegistrationJSON()["2.1"]?["state"]?.Value<String>() == "Pending"), Is.True,
                         "the station was not told to wait");
 
+        }
+
+        #endregion
+
+        #region AStationItsBackEndDidNotAcceptStartsNoCard()
+
+        /// <summary>
+        /// A back end that has not accepted this station is told nothing but
+        /// the BootNotification - a card neither - and a station that cannot
+        /// ask starts no card: at a reader and for a local app alike.
+        /// </summary>
+        [Test]
+        public async Task AStationItsBackEndDidNotAcceptStartsNoCard()
+        {
+
+            await DiallingABackEndThatWaits();
+
+            var (atTheReader, readerError)        = await station!.PresentToken("reader", null, ACard);
+            var (inTheApp,    refusal, appError)  = await station. StartLocally(null, ACard);
+
+            Assert.Multiple(() => {
+                Assert.That(atTheReader,                  Is.Null, "a card started a session at a station that could ask nobody");
+                Assert.That(readerError,                  Does.Contain("cannot reach its back end"));
+                Assert.That(inTheApp,                     Is.Null);
+                Assert.That(refusal,                      Is.EqualTo(LocalAppRefusal.Offline));
+                Assert.That(appError,                     Does.Contain("cannot reach its back end"));
+                Assert.That(Charging,                     Is.False);
+                Assert.That(csms!.Requests("Authorize"),  Is.Empty, "a back end that did not accept the station was asked about a card");
+            });
+
+        }
+
+        #endregion
+
+        #region AStationWhoseBackEndIsGoneStartsNoCard_AndStopsTheOneThatCharges()
+
+        /// <summary>
+        /// The back end accepted the station and went away: a new card starts
+        /// nothing - and the one that is charging still stops, as whoever
+        /// started a session may end it.
+        /// </summary>
+        [Test]
+        public async Task AStationWhoseBackEndIsGoneStartsNoCard_AndStopsTheOneThatCharges()
+        {
+
+            await Registered("2.1");
+
+            var (started, startError) = await station!.PresentToken("reader", null, ACard);
+
+            Assert.That(started, Is.Not.Null, startError);
+
+            await csms!.DisposeAsync();
+
+            Assert.That(await Within(() => !station.ConnectionStates.Values.Any(state => state.Status == OCPP.ConnectionStatus.Connected)), Is.True,
+                        "the station did not notice that its back end is gone");
+
+            var (another, refusal, why) = await station.StartLocally(null, "04BBBBBBBBBBBB");
+            var (stopped, stopError)    = await station.PresentToken("reader", null, ACard);
+
+            Assert.Multiple(() => {
+                Assert.That(another,                              Is.Null);
+                Assert.That(refusal,                              Is.EqualTo(LocalAppRefusal.Busy).Or.EqualTo(LocalAppRefusal.Offline), why);
+                Assert.That(stopped,                              Is.Not.Null, stopError);
+                Assert.That(stopped?.Value<Boolean>("stopped"),   Is.True);
+            });
+
+            // The outlet is free now, and the back end still gone.
+            var (afterwards, afterRefusal, afterWhy) = await station.StartLocally(null, ACard);
+
+            Assert.Multiple(() => {
+                Assert.That(afterwards,     Is.Null, "a card started a session with the back end gone");
+                Assert.That(afterRefusal,   Is.EqualTo(LocalAppRefusal.Offline));
+                Assert.That(afterWhy,       Does.Contain("cannot reach its back end"));
+                Assert.That(Charging,       Is.False);
+            });
+
+        }
+
+        #endregion
+
+        #region AnOperatorMayLetCardsStartOffline()
+
+        /// <summary>
+        /// "offlineCards": "allow" in the operator section: a card starts a
+        /// session while the back end cannot be asked - and the log says that
+        /// it was not asked about.
+        /// </summary>
+        [Test]
+        public async Task AnOperatorMayLetCardsStartOffline()
+        {
+
+            await station!.DisposeAsync();
+
+            station = AStation(OfflineCards: "allow");
+
+            await DiallingABackEndThatWaits();
+
             var (session, startError) = await station.PresentToken("reader", null, ACard);
 
             Assert.Multiple(() => {
                 Assert.That(session,                      Is.Not.Null, startError);
-                Assert.That(csms.Requests("Authorize"),   Is.Empty, "a back end that did not accept the station was asked about a card");
+                Assert.That(Charging,                     Is.True);
+                Assert.That(csms!.Requests("Authorize"),  Is.Empty);
+                Assert.That(station.Log.Recent(100).Select(entry => entry.Message),
+                            Has.Some.Contains("was not asked about").And.Contains("its operator lets a card start then"));
+            });
+
+        }
+
+        #endregion
+
+        #region WhatOfflineCardsMaySay(Value, Taken)
+
+        /// <summary>
+        /// "deny" and "allow", however they are written, and nothing else.
+        /// </summary>
+        [TestCase("deny",   true)]
+        [TestCase("Allow",  true)]
+        [TestCase("maybe",  false)]
+        public void WhatOfflineCardsMaySay(String Value, Boolean Taken)
+        {
+
+            var parsed = Configuration.OperatorConfiguration.TryParse(new JObject(new JProperty("offlineCards", Value)), out var configuration, out var error);
+
+            Assert.Multiple(() => {
+
+                Assert.That(parsed, Is.EqualTo(Taken), error);
+
+                if (Taken)
+                {
+                    Assert.That(configuration!.AllowsOfflineCards,                           Is.EqualTo(Value.ToLowerInvariant() == "allow"));
+                    Assert.That(configuration.ToJSON().Value<String>("offlineCards"),        Is.EqualTo(Value.ToLowerInvariant()));
+                }
+
+                else
+                    Assert.That(error, Does.Contain("offlineCards"));
+
+                // Where the file says nothing: turned away.
+                Assert.That(new Configuration.OperatorConfiguration().AllowsOfflineCards,   Is.False);
+
             });
 
         }

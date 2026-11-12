@@ -318,6 +318,7 @@ namespace cloud.charging.open.ChargingStation
                    LocalAppRefusal.NotYet         => HTTPStatusCode.NotImplemented,
                    LocalAppRefusal.NotAuthorized  => HTTPStatusCode.Forbidden,
                    LocalAppRefusal.BackEndSilent  => HTTPStatusCode.GatewayTimeout,
+                   LocalAppRefusal.Offline        => HTTPStatusCode.ServiceUnavailable,
                    _                              => HTTPStatusCode.BadRequest
                };
 

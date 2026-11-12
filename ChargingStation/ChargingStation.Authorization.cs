@@ -43,10 +43,18 @@ namespace cloud.charging.open.ChargingStation
     {
 
         /// <summary>
-        /// Nobody was asked: this station has no back end that accepted it and
-        /// that it is connected to right now, and is on its own.
+        /// Nobody was asked, and the card may start: this station dials no
+        /// back end at all and is on its own - or it cannot ask the one it
+        /// dials, and its operator said that a card may start a session then.
         /// </summary>
         NotAsked,
+
+        /// <summary>
+        /// Nobody could be asked: this station dials a back end, and that one
+        /// has not accepted it or is not connected right now - and its
+        /// operator did not say that a card may start a session then.
+        /// </summary>
+        Offline,
 
         /// <summary>
         /// The back end accepted the card.
@@ -86,17 +94,18 @@ namespace cloud.charging.open.ChargingStation
     /// by being the same card, and whoever started a session has to be able to
     /// end it whatever the back end says by then.
     ///
-    /// A station with no back end that accepted it, or one it is not
-    /// connected to at the moment, is on its own and lets a card start as it
-    /// did before there was anybody to ask: nothing here can tell a station
-    /// that is offline from one that never had a back end, and one that
-    /// stopped charging whenever its uplink was down would be a station
-    /// nobody can rely on. What a station offline is to do with a card it
-    /// cannot ask about is the operator's to decide one day - OCPP calls it
-    /// OfflineTxForUnknownIdEnabled - and until then it is this.
+    /// A station that dials no back end at all is on its own, and lets a card
+    /// start as it did before there was anybody to ask.
     ///
-    /// A back end that was asked and did not answer in time is not that case:
-    /// the card is turned away, and told why.
+    /// A station that dials one and cannot ask it - the line is down, or the
+    /// back end has not accepted it - starts no card: one that did would
+    /// charge for whoever pulled its network cable. Its operator may say
+    /// otherwise, with "offlineCards": "allow" in the operator section, where
+    /// being of use while offline matters more to them - what OCPP calls
+    /// OfflineTxForUnknownIdEnabled.
+    ///
+    /// A back end that was asked and did not answer in time is turned away
+    /// whatever the operator said: it is there, and did not say yes.
     /// </remarks>
     public partial class ChargingStation
     {
@@ -129,7 +138,23 @@ namespace cloud.charging.open.ChargingStation
                                ReachableRegistrationOf(cs01);
 
             if (registration is null)
-                return (TokenAuthorization.NotAsked, null);
+            {
+
+                // A station that dials nobody has nobody to ask.
+                if (!Connections.Connections.Any(connection => connection.AutoConnect))
+                    return (TokenAuthorization.NotAsked, null);
+
+                if (Operator.AllowsOfflineCards)
+                {
+                    Log.Notice($"Card {Token} was not asked about: this station cannot ask its back end right now, and its operator lets a card start then.", "rfid", "ocpp", "authorization");
+                    return (TokenAuthorization.NotAsked, null);
+                }
+
+                Log.Notice($"Card {Token} was turned away: this station cannot ask its back end about it right now.", "rfid", "ocpp", "authorization");
+
+                return (TokenAuthorization.Offline, "This station cannot reach its back end right now, and starts no card it cannot ask about.");
+
+            }
 
             var backEnd = BackEndOf(registration);
 
@@ -252,7 +277,7 @@ namespace cloud.charging.open.ChargingStation
 
                 var (authorization, why) = await AuthorizeAtTheBackEnd(token, CancellationToken);
 
-                if (authorization is TokenAuthorization.Refused or TokenAuthorization.Unanswered)
+                if (authorization is TokenAuthorization.Refused or TokenAuthorization.Unanswered or TokenAuthorization.Offline)
                     return (null, why);
 
             }
@@ -301,6 +326,9 @@ namespace cloud.charging.open.ChargingStation
 
                     if (authorization == TokenAuthorization.Unanswered)
                         return (null, LocalAppRefusal.BackEndSilent, why);
+
+                    if (authorization == TokenAuthorization.Offline)
+                        return (null, LocalAppRefusal.Offline, why);
 
                 }
 

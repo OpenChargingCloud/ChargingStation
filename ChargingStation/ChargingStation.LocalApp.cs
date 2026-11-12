@@ -70,7 +70,13 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// The back end this station asked about the card did not answer.
         /// </summary>
-        BackEndSilent
+        BackEndSilent,
+
+        /// <summary>
+        /// This station cannot ask its back end about the card right now, and
+        /// starts none it cannot ask about.
+        /// </summary>
+        Offline
 
     }
 

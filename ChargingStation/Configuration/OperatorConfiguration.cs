@@ -57,6 +57,18 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public const Int32   MaxLanguageLength  = 12;
 
+        /// <summary>
+        /// What "offlineCards" says where a card this station cannot ask its
+        /// back end about is turned away - which is also what it means where
+        /// the file says nothing.
+        /// </summary>
+        public const String  DenyOfflineCards   = "deny";
+
+        /// <summary>
+        /// What "offlineCards" says where such a card may start a session.
+        /// </summary>
+        public const String  AllowOfflineCards  = "allow";
+
         #endregion
 
         #region Properties
@@ -65,7 +77,29 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this section says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => Name is null && Logo is null && Language is null && EMPs is null;
+            => Name is null && Logo is null && Language is null && EMPs is null && OfflineCards is null;
+
+        /// <summary>
+        /// What becomes of a card while this station cannot ask its back end
+        /// about it - "deny" or "allow" - or null where the file does not say,
+        /// which is "deny".
+        /// </summary>
+        /// <remarks>
+        /// A station dials a back end because that one decides which cards may
+        /// charge. While it cannot be asked - the line is down, or it has not
+        /// accepted this station - a station that started a session for every
+        /// card would charge for whoever pulled its network cable. So it starts
+        /// none, unless its operator says here that being of use while offline
+        /// matters more to them: OCPP's OfflineTxForUnknownIdEnabled.
+        /// </remarks>
+        public String? OfflineCards { get; init; }
+
+        /// <summary>
+        /// Whether a card may start a session while this station cannot ask
+        /// its back end about it. Not unless the operator said so.
+        /// </summary>
+        public Boolean AllowsOfflineCards
+            => OfflineCards == AllowOfflineCards;
 
 
         /// <summary>
@@ -204,7 +238,22 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new OperatorConfiguration(name, logo, language, emps);
+            #region Offline cards
+
+            var offlineCards = JSON.Value<String>("offlineCards")?.Trim().ToLowerInvariant();
+
+            if (String.IsNullOrEmpty(offlineCards))
+                offlineCards = null;
+
+            else if (offlineCards is not (DenyOfflineCards or AllowOfflineCards))
+            {
+                Error = $"'{SectionName}.offlineCards' is \"{DenyOfflineCards}\" or \"{AllowOfflineCards}\".";
+                return false;
+            }
+
+            #endregion
+
+            Configuration = new OperatorConfiguration(name, logo, language, emps) { OfflineCards = offlineCards };
             return true;
 
         }
@@ -232,6 +281,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             if (EMPs is not null)
                 json.Add("emps", new JArray(EMPs.Select(provider => provider.ToJSON())));
+
+            if (OfflineCards is not null)
+                json.Add("offlineCards", OfflineCards);
 
             return json;
 
