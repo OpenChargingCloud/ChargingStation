@@ -142,7 +142,8 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `OCPPNodeTimersTests`   | a station that is let go of stops its OCPP nodes, and those a change of its EVSEs replaced: none of their timers ticks on; and both nodes resolve names with the station's DNS client rather than one of their own, whose cache's timer nothing stopped |
 | `LocalAppTests`         | an app starting and stopping a charge with a card's UID, over HTTP and over the WebSocket, the same way through both, racing a card and a payment for an outlet - and nothing else on its port |
 | `PortTests`             | what a station says when one of its ports is taken, that it lets go of the others, and that the ports a test gives it are given to nobody else in the run |
-| `AccessMatrixTests`     | every guarded route of the API asked by each of the four roles: let in where it was, and nowhere else |
+| `AccessMatrixTests`     | every guarded route of the API asked by each of the five roles: let in where it was, and nowhere else |
+| `SignerRolesTests`      | a request a CSMS sends, signed, held to the role of its key as the page holds an account to it: the support restarts an idle station, lets go of a cable and has the EVSE status reported again, and nothing more; the operator restarts at once and updates the firmware, until a calibration certificate makes the station metrologically relevant and the firmware the installer's; a pin set left to its signers; and nothing asked while the policy is off |
 | `RolesFromTheFileTests` | roles the configuration file adds, where only a station can say it: kept out of the station's own routes, and named in a refusal among the station's roles |
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
@@ -151,7 +152,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
-| `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends |
+| `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
 | `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
@@ -209,7 +210,8 @@ is handed something else.
 | `ChargingStation.LocalApp.cs` | what those do: a card's UID held up by an app, and the handle it is given to stop what it started |
 | `ChargingStation.Display.cs` | the display's own server: built, and moved to another port while the station runs, the old port saying where it went for a while |
 | `ChargingStation.Logos.cs`, `Kiosk/Logos.cs` | the logos the display shows as files put up over SFTP: the two areas in `logos/`, what a logo file may be, and the URL the display fetches it by |
-| `Web/StationAccess.cs`    | the resources a station adds to the node's, and its two roles as data - `cpo` and `installer`, beside the node's `viewer` and `systemadmin` |
+| `Web/StationAccess.cs`    | the resources a station adds to the node's, and its three roles as data - `cpo`, `installer` and its own `support`, beside the node's `viewer` and `systemadmin` |
+| `ChargingStation.SignerRoles.cs` | what the signer of a request a CSMS sends may have done: the role of its key, held to this station's roles, and whether the station is metrologically relevant |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
 | `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
@@ -473,8 +475,11 @@ A role is a list of permissions, each an operation on a resource and written
 `dns:edit` - the same on every node, so that a role means here what it means
 on a vehicle. The operations are three: `read`, `edit` for what stays changed,
 and `run` for what is done now - a test, a message on the screen, a session.
-The resources are the node's - `configuration`, `dns`, `nts`, `certificates` -
-and the station's thirteen, in `Web/StationAccess.cs`:
+The resources are the node's - `configuration`, `dns`, `nts`, `certificates`,
+`ssh`, `log`, and what every node can be asked over OCPP: `node`, `reset` (a
+restart once idle), `reset-immediate`, `state` (what is going on, apart from
+how it is set up), `firmware` and `signatures` - and the station's fourteen, in
+`Web/StationAccess.cs`:
 
 | | |
 |---|---|
@@ -491,16 +496,33 @@ and the station's thirteen, in `Web/StationAccess.cs`:
 | `providers`    | read, the e-mobility providers and their logos; edited, a logo put up, replaced or removed over SFTP |
 | `nameplate`    | read, what the station tells a CSMS it is and whether it is accepted; edited, by the system administrator alone - it says what the equipment is |
 | `commissioning` | read, whether a tool may speak OCPP to the station over SSH and who does; edited, switched on or off; run, the subsystem `ocpp@open.charging.cloud` for the account |
+| `unlock`       | run, a stuck cable let go of - UnlockConnector |
 
 Asked of the node, which answers from the roles it put together at the start:
-its own two, the station's two, and whatever the configuration file adds.
+its own three, the station's three - whose `support` is the node's and one
+thing more - and whatever the configuration file adds.
 
 | role | may |
 |---|---|
 | `viewer`      | `*:read` - look at everything, and change nothing |
-| `cpo`         | that, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run |
+| `support`     | `state:read`, `state:run`, `reset:run` and `unlock:run` - sees what is going on, has it reported again, restarts the station once nothing is charging and lets go of a stuck cable, and nothing else |
+| `cpo`         | `*:read`, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run, `node`, `reset`, `reset-immediate`, `state` and `unlock` run, and `firmware:edit` |
 | `installer`   | that, plus `power:edit`, `calibration:edit`, `meters:edit`, `meters:run`, `commissioning:edit` and `commissioning:run` |
 | `systemadmin` | everything, and nothing the file can take away - the certificate store included, which nobody else may edit |
+
+The **support** is the operator's telephone support. A restart is what a caller
+at a station most often needs, so many people hold it - and that is why it may
+do so little: no configuration, no log, no restart while somebody is charging,
+no session started or stopped.
+
+What is going on is therefore apart from how the station is set up. How each
+EVSE stands right now - `GET /api/v1/status/evses`, the **EVSEs** page outside
+Configuration, and `evses` at the command line - needs `state:read`, which
+everybody who may read anything holds and the support holds too; what is fitted
+there, where the station dials and what its meters are set to stay with
+`evses`, `connections` and `meters`. The support is shown the EVSEs as they
+stand and nothing under Configuration, and is not sent to a page that is not
+theirs.
 
 The three about the same EVSE are kept apart, because they are different kinds
 of statement for different people, and that is the whole reason there are two
@@ -548,8 +570,11 @@ The configuration file may add roles, or say differently what one of them may
 do - but not what `systemadmin` may do:
 
 ```json
-"roles": { "support": [ "dns:read", "nts:read" ] }
+"roles": { "helpdesk": [ "dns:read", "nts:read" ] }
 ```
+
+A role of the file named `support` - or `cpo`, or `installer` - says
+differently what the station's role of that name may do.
 
 A role there that names a resource this station does not have stops the start,
 because a typo in `dns` would otherwise be a role that quietly grants nothing,
@@ -561,6 +586,26 @@ The browser is told its own permissions, spelled out resource by resource, so a
 page can grey out what it may not do. That is a copy of what the station
 enforces, not the enforcement: every request is checked again on arrival, so
 editing the list in a browser buys a button that answers 403.
+
+### What a signer may have done
+
+A request a CSMS sends may be signed, and a signature names a key the station's
+OCPP 2.1 node knows by a role - one of the roles above. What that role may do is
+what it may do on the page and over SSH: a key of the support restarts an idle
+station, lets go of a cable and has the EVSE status reported again, and a request
+it signed to restart at once is refused. What each action needs is the table
+WWCP_OCPP ships for every charging station (white paper "Signed OCPP Messages
+and Signer Roles", section 5.3); the station adds that it is **metrologically
+relevant** when it runs under a calibration certificate or a meter it reads signs
+its sessions - and then a firmware update needs `calibration:edit` too, which is
+the installer's. That is the station's to say, never the request's, and both are
+the installer's to change.
+
+A pin set is signed by a key of the CSMS that holds no role: it is left to the
+pin set signers of its connection, which the station holds it to itself.
+
+Nothing of it is asked while the policy is off, which it is unless somebody sets
+another mode.
 
 ### DNS
 

@@ -29,7 +29,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// Every guarded route of the JSON API, asked by each of the four roles a
+    /// Every guarded route of the JSON API, asked by each of the five roles a
     /// station brings: which of them are let in, and which are turned away.
     /// </summary>
     /// <remarks>
@@ -53,7 +53,18 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #region Data
 
+        /// <summary>
+        /// The roles a station brings, each of which asks every route.
+        /// </summary>
+        private static readonly String[] TheRoles        = [ "viewer", "support", "cpo", "installer", "systemadmin" ];
+
         private static readonly String[] Everybody       = [ "viewer", "cpo", "installer", "systemadmin" ];
+
+        /// <summary>
+        /// Who may see what is going on: everybody, and the support, who sees
+        /// nothing else.
+        /// </summary>
+        private static readonly String[] WhatIsGoingOn   = [ "viewer", "support", "cpo", "installer", "systemadmin" ];
         private static readonly String[] TheOperator     = [         "cpo", "installer", "systemadmin" ];
         private static readonly String[] TheInstaller    = [                "installer", "systemadmin" ];
         private static readonly String[] TheAdministrator = [                             "systemadmin" ];
@@ -65,7 +76,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             ("GET",    "api/v1/configuration",                           Everybody),
             ("GET",    "api/v1/status/connections",                      Everybody),
-            ("GET",    "api/v1/status/evses",                            Everybody),
+            ("GET",    "api/v1/status/evses",                            WhatIsGoingOn),
             ("GET",    "api/v1/status/meters",                           Everybody),
 
             ("GET",    "api/v1/configuration/dns",                       Everybody),
@@ -159,7 +170,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var wrong       = new List<String>();
             var holding     = "systemadmin";
 
-            foreach (var role in Everybody)
+            foreach (var role in TheRoles)
             {
 
                 holding = await Become(role, holding);

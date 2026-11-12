@@ -57,13 +57,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             var roles        = me["roles"]?.      Values<String>().ToArray() ?? [];
             var permissions  = me["permissions"]?.Values<String>().ToArray() ?? [];
 
-            // Every operation on every resource, spelled out: the node's six and
-            // the station's thirteen - what a page asks "dns:edit" of, rather
+            // Every operation on every resource, spelled out: the node's twelve
+            // and the station's fourteen - what a page asks "dns:edit" of, rather
             // than having to know that "*" means that too.
             var resources = new[] { "configuration", "dns", "nts", "certificates", "ssh", "log",
+                                    "node", "reset", "reset-immediate", "state", "firmware", "signatures",
                                     "evses", "rfid", "availability", "power", "calibration",
                                     "display", "session", "connections", "v2g", "meters",
-                                    "providers", "nameplate", "commissioning" };
+                                    "providers", "nameplate", "commissioning", "unlock" };
 
             Assert.Multiple(() => {
                 Assert.That(roles,       Is.EquivalentTo(new[] { "systemadmin" }));

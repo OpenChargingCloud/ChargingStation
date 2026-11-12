@@ -124,7 +124,7 @@ describe('the EVSEs page', () => {
 
         evses = [ anEVSE(1, 'A'), anEVSE(2, 'B', { status: 'inoperative', operative: false }) ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 2) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 2) !== null);
 
         const tabs = [...root.querySelectorAll('[role="tab"]')].map(tab => tab.textContent!.trim());
 
@@ -141,7 +141,7 @@ describe('the EVSEs page', () => {
 
         evses = [ anEVSE(1, 'A'), anEVSE(2, 'B') ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 2) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 2) !== null);
 
         root.querySelector<HTMLButtonElement>('#tab-evse-2')!.click();
 
@@ -155,7 +155,7 @@ describe('the EVSEs page', () => {
 
         evses = [ anEVSE(1, 'A'), anEVSE(2, 'B') ];
 
-        const root = await open(evseStatusPage, '/evses?tab=evse-2', [ 'evses:read' ], station, root => panel(root, 2) !== null);
+        const root = await open(evseStatusPage, '/evses?tab=evse-2', [ 'state:read', 'evses:read' ], station, root => panel(root, 2) !== null);
 
         assert.equal(panel(root, 2)!.hidden, false);
         assert.equal(panel(root, 1)!.hidden, true);
@@ -168,7 +168,7 @@ describe('the EVSEs page', () => {
 
         logs.start();
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 1) !== null);
 
         Stream.latest!.publish('evses', {
             evses: [
@@ -191,7 +191,7 @@ describe('the EVSEs page', () => {
 
         evses = [ anEVSE(1, 'A', { meter: { type: 'SunSpec 213', serialNumber: 'EnergyMeter01', read: false } }) ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read', 'meters:read' ], station, root => panel(root, 1) !== null);
 
         assert.match(panel(root, 1)!.textContent!, /EnergyMeter01/);
         assert.match(panel(root, 1)!.textContent!, /Where it is read over Modbus\/TLS is set/);
@@ -203,7 +203,7 @@ describe('the EVSEs page', () => {
         evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
         meters = [ aMeter(1, 'A') ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read', 'meters:read' ], station,
                                 root => (panel(root, 1)?.querySelector('table.meter-phases') ?? null) !== null);
         const text = panel(root, 1)!.textContent!;
         const rows = [...panel(root, 1)!.querySelectorAll('.table-scroll table.meter-phases tbody tr')].map(row => row.textContent!.replace(/\s+/g, ' ').trim());
@@ -226,7 +226,7 @@ describe('the EVSEs page', () => {
 
         logs.start();
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read', 'meters:read' ], station,
                                 root => (panel(root, 1)?.querySelector('table.meter-phases') ?? null) !== null);
 
         const later = aMeter(1, 'A');
@@ -246,7 +246,7 @@ describe('the EVSEs page', () => {
         evses = [ anEVSE(1, 'A', { meter: { type: null, serialNumber: null, read: true } }) ];
         meters = [ aMeter(1, 'A') ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 1) !== null);
 
         assert.deepEqual(asked.map(request => request.path), [ '/status/evses' ]);
         assert.match(panel(root, 1)!.textContent!, /for those who may read the meters/);
@@ -267,7 +267,7 @@ describe('the EVSEs page', () => {
             reading:     null
         } ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read', 'meters:read' ], station,
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read', 'meters:read' ], station,
                                 root => (panel(root, 1)?.querySelector('.meter-state') ?? null) !== null);
 
         assert.match(panel(root, 1)!.querySelector('.meter-state')!.textContent!, /nothing to show it/);
@@ -298,7 +298,7 @@ describe('the EVSEs page', () => {
             }
         }) ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 1) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 1) !== null);
         const text = panel(root, 1)!.textContent!;
 
         assert.match(text, /\[fe80::2\]:15118/,           'the SDP answer is not said');
@@ -313,7 +313,7 @@ describe('the EVSEs page', () => {
 
         evses = [ anEVSE(1, 'A'), anEVSE(2, 'B', { v2g: { up: false } }) ];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => panel(root, 2) !== null);
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => panel(root, 2) !== null);
 
         assert.match(panel(root, 1)!.textContent!, /offers no ISO 15118/);
         assert.match(panel(root, 2)!.textContent!, /nothing came up below this cable/);
@@ -324,15 +324,35 @@ describe('the EVSEs page', () => {
 
         evses = [];
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ], station, root => /No EVSEs/.test(root.textContent ?? ''));
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ], station, root => /No EVSEs/.test(root.textContent ?? ''));
 
         assert.ok(root.querySelector('a[href$="/configuration/evses"]'), 'no link to where EVSEs are added');
 
     });
 
+    it('sends the support, who sees what is going on and nothing else, to no page that is not theirs', async () => {
+
+        evses = [ anEVSE(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'state:read' ], station, root => panel(root, 1) !== null);
+
+        assert.match(panel(root, 1)!.textContent!, /Available/);
+        assert.equal(root.querySelector('a[href$="/configuration/evses"]'), null, 'sent to the EVSEs page under Configuration');
+
+        leave();
+
+        evses = [];
+
+        const none = await open(evseStatusPage, '/evses', [ 'state:read' ], station, root => /No EVSEs/.test(root.textContent ?? ''));
+
+        assert.match(none.textContent!, /This station has no EVSEs\./);
+        assert.equal(none.querySelector('a[href$="/configuration/evses"]'), null, 'sent to where EVSEs are added');
+
+    });
+
     it('says so when the station cannot be asked', async () => {
 
-        const root = await open(evseStatusPage, '/evses', [ 'evses:read' ],
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'evses:read' ],
                                 () => refused(500, 'The station is busy.'),
                                 root => root.querySelector('.error-box') !== null);
 

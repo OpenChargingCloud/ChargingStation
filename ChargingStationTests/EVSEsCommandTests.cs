@@ -21,6 +21,14 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.CLI;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
+
+using cloud.charging.open.protocols.WWCP.Node.CommandLine;
+
 using cloud.charging.open.ChargingStation.CommandLine;
 using cloud.charging.open.ChargingStation.Kiosk;
 
@@ -199,6 +207,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That((await EVSEs())[0], Does.StartWith("A  charging at ").
                                             And.EndWith("; out of service once this session ends"));
+
+        }
+
+        #endregion
+
+        #region TheSupportSeesHowEachEVSEStands()
+
+        /// <summary>
+        /// Over SSH, the support may ask how each EVSE stands: that is what is
+        /// going on, which the support sees, and nothing of how the station is
+        /// set up, which it does not.
+        /// </summary>
+        [Test]
+        public async Task TheSupportSeesHowEachEVSEStands()
+        {
+
+            await Become("support", "systemadmin");
+
+            Assert.That(Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser), out var stored) && stored is User, Is.True);
+
+            var account = (User) stored!;
+            var session = new SshSessionInfo("42", account.Id.ToString(), "publickey", null, null, null, null, SshSessionRestrictions.None);
+
+            await using var terminal  = new VT100Terminal((bytes, cancellationToken) => ValueTask.CompletedTask);
+            using       var cli       = new StationCLI(Station, terminal, new CLICaller(account, session));
+
+            var said = await new EVSEsCommand(cli).Execute([ EVSEsCommand.CommandName ], CancellationToken.None);
+
+            Assert.That(said, Is.Not.Empty);
+            Assert.That(said[0], Does.StartWith("A  available"), String.Join(Environment.NewLine, said));
 
         }
 

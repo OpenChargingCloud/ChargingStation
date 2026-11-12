@@ -181,11 +181,23 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Commissioning = "commissioning";
 
         /// <summary>
+        /// The lock of a connector: run, a cable that is stuck let go of - what
+        /// a CSMS asks with UnlockConnector.
+        /// </summary>
+        /// <remarks>
+        /// Its own resource rather than a part of the sessions, because it is
+        /// what a caller at the station asks the operator's telephone support
+        /// for, and the support may start and stop no session (white paper
+        /// "Signed OCPP Messages and Signer Roles", section 5.3).
+        /// </remarks>
+        public const String  Unlock        = "unlock";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
                                                                     Display, Session, Connections, V2G, Meters, Providers,
-                                                                    Nameplate, Commissioning ];
+                                                                    Nameplate, Commissioning, Unlock ];
 
         #endregion
 
@@ -197,7 +209,11 @@ namespace cloud.charging.open.ChargingStation.Web
         /// what, may take an outlet or a reader out of service, runs the
         /// display and the sessions, and puts up the providers' logos - but may
         /// not redescribe the hardware it is bolted to, nor change what it may
-        /// deliver.
+        /// deliver. It restarts the station, once idle and at once, has what is
+        /// going on reported again, asks for any other message, lets go of a
+        /// stuck cable and updates the firmware - where the station is
+        /// metrologically relevant, a firmware update needs the installer's
+        /// "calibration:edit" too.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
                                                        [ Permission.Read(Permission.AnyResource),
@@ -212,8 +228,14 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Edit(Display),
                                                          Permission.Run (Display),
                                                          Permission.Run (Session),
-                                                         Permission.Edit(Providers) ],
-                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos and the sessions");
+                                                         Permission.Edit(Providers),
+                                                         Permission.Run (NodeResources.Node),
+                                                         Permission.Run (NodeResources.Reset),
+                                                         Permission.Run (NodeResources.ResetImmediate),
+                                                         Permission.Run (NodeResources.State),
+                                                         Permission.Edit(NodeResources.Firmware),
+                                                         Permission.Run (Unlock) ],
+                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts and the firmware");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator
@@ -244,9 +266,27 @@ namespace cloud.charging.open.ChargingStation.Web
                                                        "commissions the station: everything the operator may do, its power limits and calibration certificates, its meters - how each is read, and what is written to it - and OCPP over SSH from a commissioning tool");
 
         /// <summary>
-        /// Both, in the order a sentence naming them reads best.
+        /// The operator's telephone support: sees what is going on, has it
+        /// reported again, restarts the station once nothing is charging, and
+        /// lets go of a cable that is stuck - and nothing else: no
+        /// configuration, no log, no restart at once, no session started or
+        /// stopped.
         /// </summary>
-        public static readonly IReadOnlyList<Role>  Roles = [ CPO, Installer ];
+        /// <remarks>
+        /// The node's support and a station's one thing more. Many people hold
+        /// it, because a restart is what a caller at a station most often needs,
+        /// and that is why it may do so little (white paper "Signed OCPP
+        /// Messages and Signer Roles", section 5.3).
+        /// </remarks>
+        public static readonly Role  Support    = new ("support",
+                                                       [ .. Role.Support.Permissions,
+                                                         Permission.Run (Unlock) ],
+                                                       "the operator's telephone support: sees what is going on, has it reported again, restarts the station once it is idle and lets go of a stuck cable");
+
+        /// <summary>
+        /// All three, in the order a sentence naming them reads best.
+        /// </summary>
+        public static readonly IReadOnlyList<Role>  Roles = [ CPO, Installer, Support ];
 
         #endregion
 

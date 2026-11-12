@@ -25,7 +25,6 @@ using cloud.charging.open.protocols.WWCP.Node.Web;
 
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.Kiosk;
-using cloud.charging.open.ChargingStation.Web;
 
 #endregion
 
@@ -76,7 +75,9 @@ namespace cloud.charging.open.ChargingStation.CommandLine
             if (Arguments.Length > 1)
                 return Task.FromResult<String[]>([ $"Usage: {CommandName}" ]);
 
-            if (!cli.MayDo(Permission.Read(StationAccess.EVSEs), CommandName, out var refused))
+            // What is going on, as GET /api/v1/status/evses says it: the
+            // support may ask it, and see nothing of how the station is set up.
+            if (!cli.MayDo(Permission.Read(NodeResources.State), CommandName, out var refused))
                 return Task.FromResult<String[]>([ refused ]);
 
             var evses = cli.Station.EVSEsNow();

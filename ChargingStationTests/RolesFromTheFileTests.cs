@@ -36,8 +36,10 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// <remarks>
     /// A role is a list of permissions, each an operation on a resource, as on
     /// every node - so the file can add one the station never heard of: a
-    /// support desk that may look at the name and time servers and nothing
-    /// else, and one that may change the name servers as well.
+    /// help desk that may look at the name and time servers and nothing
+    /// else, and one that may change the name servers as well. Not called
+    /// "support": that is a role of the station's own, which a role of the
+    /// file by that name would say differently what it may do.
     ///
     /// What every node does with such roles - enforced, told to the browser,
     /// named in a refusal, said in the log - is WWCP_Node's conformance suite,
@@ -59,7 +61,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 var file = (JObject) TestStations.Offline.DeepClone();
 
                 file["roles"] = new JObject(
-                                    new JProperty("support",  new JArray("dns:read", "nts:read")),
+                                    new JProperty("helpdesk", new JArray("dns:read", "nts:read")),
                                     new JProperty("dnsdesk",  new JArray("dns:read", "dns:edit"))
                                 );
 
@@ -79,7 +81,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http = await SignedIn();
 
-            await Become("support", "systemadmin");
+            await Become("helpdesk", "systemadmin");
 
             var dns      = await http.GetAsync("api/v1/configuration/dns");
             var nts      = await http.GetAsync("api/v1/configuration/nts");
@@ -92,7 +94,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(nts.StatusCode,     Is.EqualTo(HttpStatusCode.OK),        "and the time servers");
                 Assert.That(evses.StatusCode,   Is.EqualTo(HttpStatusCode.Forbidden), "the EVSEs are none of its business");
                 Assert.That(change.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden), "reading is not changing");
-                Assert.That(me["roles"]!.Values<String>(),        Is.EqualTo(new[] { "support" }));
+                Assert.That(me["roles"]!.Values<String>(),        Is.EqualTo(new[] { "helpdesk" }));
                 Assert.That(me["permissions"]!.Values<String>(),  Is.EquivalentTo(new[] { "dns:read", "nts:read" }));
             });
 

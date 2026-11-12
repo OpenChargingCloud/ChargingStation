@@ -1077,13 +1077,15 @@ namespace cloud.charging.open.ChargingStation
         /// <remarks>
         /// What the EVSEs page draws when it is opened; every change after that
         /// reaches it as an "evses" event on the stream. At the permission that
-        /// reads the EVSEs' configuration, because what an EVSE is doing is about
-        /// the same outlets.
+        /// reads what is going on, apart from how the station is set up: the
+        /// support sees how each EVSE stands, and not what is fitted, nor where
+        /// the station dials (white paper "Signed OCPP Messages and Signer
+        /// Roles", section 5.3).
         /// </remarks>
         private Task<HTTPResponse> GetEVSEStates(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Read(StationAccess.EVSEs), false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.State), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(

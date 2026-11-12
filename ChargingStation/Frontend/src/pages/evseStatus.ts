@@ -22,7 +22,9 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
  * again and again.
  *
  * The configuration of the same EVSEs - what is fitted, what they may deliver
- * - is a page of its own, under Configuration. This one changes nothing.
+ * - is a page of its own, under Configuration. This one changes nothing, and
+ * reads what is going on rather than how the station is set up: the support
+ * sees it, and is not sent to a page that is not theirs.
  */
 export const evseStatusPage: Page = {
 
@@ -47,6 +49,9 @@ export const evseStatusPage: Page = {
         const meters    = new Map<number, MeterStatus>();
         const mayMeters = auth.can('meters', 'read');
 
+        /** Whether the page about how the EVSEs are set up is theirs to be sent to. */
+        const mayConfigure = auth.can('evses', 'read');
+
 
         function tabsOf(List: readonly EVSEStatus[]): Tab[] {
             return List.map(evse => ({ id: tabIdOf(evse), label: `EVSE ${evse.label}`, icon: 'fa-plug' }));
@@ -69,8 +74,8 @@ export const evseStatusPage: Page = {
                         <section class="card">
                             <h2><i class="fa-solid fa-plug"></i> No EVSEs</h2>
                             <p class="muted small">
-                                This station has no EVSEs. They are added on the
-                                <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.
+                                This station has no EVSEs.${mayConfigure ? html` They are added on the
+                                <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.` : nothing}
                             </p>
                         </section>
                     </div>
@@ -91,7 +96,7 @@ export const evseStatusPage: Page = {
 
                 ${repeat(evses, evse => evse.id, evse => html`
                     <div id="panel-${tabIdOf(evse)}" role="tabpanel" aria-labelledby="tab-${tabIdOf(evse)}" ?hidden=${shown !== tabIdOf(evse)}>
-                        ${evseView(evse, meters.get(evse.id) ?? null, mayMeters)}
+                        ${evseView(evse, meters.get(evse.id) ?? null, mayMeters, mayConfigure)}
                     </div>
                 `)}
 
@@ -304,7 +309,7 @@ function certificateView(Heading: string, Certificate: CertificateSummary): Temp
 
 
 /** One EVSE, drawn in the panel of its tab. */
-function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: boolean): TemplateResult {
+function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: boolean, MayConfigure: boolean): TemplateResult {
 
     return html`
         <div class="cards">
@@ -341,10 +346,12 @@ function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: bo
                     </table>
                 </div>
 
-                <p class="muted small">
-                    What is fitted and what it may deliver is set on the
-                    <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.
-                </p>
+                ${MayConfigure ? html`
+                    <p class="muted small">
+                        What is fitted and what it may deliver is set on the
+                        <a href="${toURL('/configuration/evses')}">EVSEs</a> page under Configuration.
+                    </p>
+                ` : nothing}
 
             </section>
 
