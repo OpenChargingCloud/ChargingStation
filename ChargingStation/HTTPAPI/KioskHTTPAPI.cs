@@ -271,16 +271,16 @@ namespace cloud.charging.open.ChargingStation
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return errorResponse;
 
-            if (!Station.TryPresentToken(json.Value<String>("reader"),
-                                         json["evse"]?.Type == JTokenType.Integer ? (Byte?) json.Value<Byte>("evse") : null,
-                                         json.Value<String>("uid"),
-                                         out var result,
-                                         out var error))
-            {
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, error);
-            }
+            // A card that would start a session is asked about at the back
+            // end first, where this station has one.
+            var (result, error) = await Station.PresentToken(
+                                            json.Value<String>("reader"),
+                                            json["evse"]?.Type == JTokenType.Integer ? (Byte?) json.Value<Byte>("evse") : null,
+                                            json.Value<String>("uid")
+                                        );
 
-            await Task.CompletedTask;
+            if (result is null)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, error ?? "The card did nothing.");
 
             return JSONResponse(Request, HTTPStatusCode.OK, result);
 

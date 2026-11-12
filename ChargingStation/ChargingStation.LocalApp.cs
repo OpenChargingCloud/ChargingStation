@@ -60,7 +60,17 @@ namespace cloud.charging.open.ChargingStation
         /// Something this station is going to check one day and does not yet -
         /// a one-time password, a certificate.
         /// </summary>
-        NotYet
+        NotYet,
+
+        /// <summary>
+        /// The back end this station asked said the card may not charge.
+        /// </summary>
+        NotAuthorized,
+
+        /// <summary>
+        /// The back end this station asked about the card did not answer.
+        /// </summary>
+        BackEndSilent
 
     }
 
