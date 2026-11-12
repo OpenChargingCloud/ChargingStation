@@ -83,6 +83,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             public Boolean           LetsIn         { get; set; } = true;
 
             /// <summary>
+            /// Whether it serves OCPP to whoever it let in - or refuses the
+            /// subsystem, as a server does whose access rules deny it.
+            /// </summary>
+            public Boolean           ServesOCPP     { get; set; } = true;
+
+            /// <summary>
             /// An NTS server whose key exchange it serves beside OCPP, as the
             /// subsystem "ntske/1@open.charging.cloud" on the same listener -
             /// section 8.3 of the white paper "NTS Key Establishment over SSH" -
@@ -166,7 +172,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                  }),
                                 Subsystems     = (session, name, cancellationToken) =>
                                                      ValueTask.FromResult(name == Messages.Subsystem
-                                                                              ? Messages.Handler
+                                                                              ? ServesOCPP ? Messages.Handler : null
                                                                               : name == NTSKE_SSH.SubsystemName && Time is NTSServer time
                                                                                     ? time.ServeSSHSubsystemAsync
                                                                                     : null)
@@ -799,6 +805,83 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Task.Delay(TimeSpan.FromSeconds(3));
 
             Assert.That(csms.Logins.Length, Is.EqualTo(logins), "The station went on trying a login that was turned away.");
+
+        }
+
+        #endregion
+
+        #region TheOCPPSubsystemRefusedIsFinal()
+
+        /// <summary>
+        /// A server that lets the station in and refuses it the OCPP subsystem
+        /// - an access rule that denies it, or no OCPP served there at all -
+        /// answered no, and is not tried again. Before, the station took it for
+        /// a server it could not reach, and signed in again and again.
+        /// </summary>
+        [Test]
+        public async Task TheOCPPSubsystemRefusedIsFinal()
+        {
+
+            csms!.ServesOCPP = false;
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error, SshHostKey: csms.Fingerprint),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
+                        "Being refused the OCPP subsystem", () => SaidOf(id!));
+
+            Assert.That(SaidOf(id!), Does.Contain("refused it the OCPP subsystem").And.Contain("not tried again"));
+
+            var logins = csms.Logins.Length;
+
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            Assert.That(csms.Logins.Length, Is.EqualTo(logins), "The station went on signing in to a server that refused it the OCPP subsystem.");
+
+        }
+
+        #endregion
+
+        #region TheOCPPSubsystemRefusedOnceTheCSMSIsUpIsFinal()
+
+        /// <summary>
+        /// The same of an attempt the station made by itself: it starts while
+        /// its CSMS is down, and the CSMS that then comes up lets it in and
+        /// refuses it the OCPP subsystem.
+        /// </summary>
+        [Test]
+        public async Task TheOCPPSubsystemRefusedOnceTheCSMSIsUpIsFinal()
+        {
+
+            var port   = csms!.Port;
+            var later  = SshHostKey.GenerateEd25519();
+
+            await csms.DisposeAsync();
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{port}", "CSMS", true, null, null,
+                                                              out var id, out var error, SshHostKey: SshFingerprint.Sha256(later.PublicKeyBlob)),
+                        Is.True, error);
+
+            await Start();
+
+            Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
+
+            csms        = new SshCSMS(later) { ServesOCPP = false };
+            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, IPPort.Parse(port)), CancellationToken.None);
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
+                        "Being refused the OCPP subsystem once the CSMS is up", () => SaidOf(id!));
+
+            Assert.That(SaidOf(id!), Does.Contain("refused it the OCPP subsystem").And.Contain("not tried again"));
+
+            var logins = csms.Logins.Length;
+
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            Assert.That(csms.Logins.Length, Is.EqualTo(logins), "The station went on signing in to a server that refused it the OCPP subsystem.");
 
         }
 

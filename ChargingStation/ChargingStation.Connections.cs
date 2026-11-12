@@ -886,6 +886,7 @@ namespace cloud.charging.open.ChargingStation
 
             => FinalOrNot(Error) switch {
                    SshMessageRefusedException refused  => refused.RetryAfter is null,
+                   SshSubsystemRefusedException        => true,
                    SshAuthenticationException          => true,
                    SshStrictKexRequiredException       => true,
                    _                                   => false
@@ -897,7 +898,7 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private static Exception? FinalOrNot(Exception? Error)
 
-            => Error is SshAuthenticationException or SshMessageRefusedException or SshStrictKexRequiredException
+            => Error is SshAuthenticationException or SshMessageRefusedException or SshSubsystemRefusedException or SshStrictKexRequiredException
                    ? Error
                    : Error?.GetBaseException();
 
@@ -937,6 +938,9 @@ namespace cloud.charging.open.ChargingStation
                                                    => $"{Where} let this station in, and keeps another connection of it that still answers " +
                                                       $"({error.Message}); it is tried again in {after.TotalSeconds:0} s at the earliest",
                        SshMessageRefusedException  => $"{Where} let this station in, and refused it the OCPP subsystem: {error.Message}",
+                       SshSubsystemRefusedException
+                                                   => $"{Where} let this station in, and refused it the OCPP subsystem: " +
+                                                       "it serves no OCPP over SSH, or an access rule there denies it to this station",
                        null                        => $"{Where} could not be reached over SSH",
                        _                           => $"{Where} could not be reached over SSH: {ReasonOf(error)}"
                    };
@@ -2209,6 +2213,9 @@ namespace cloud.charging.open.ChargingStation
                                                                   => "The server does not signal strict KEX, which this station requires against Terrapin " +
                                                                      "(CVE-2023-48795): its SSH server needs OpenSSH 9.6 or later.",
                                       SshMessageRefusedException  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: {error.Message}",
+                                      SshSubsystemRefusedException
+                                                                  => $"The server let '{Login.Username}' in, and refused the OCPP subsystem: " +
+                                                                      "it serves no OCPP over SSH, or an access rule there denies it to this station.",
                                       _                           => $"{error.GetType().Name}: {ReasonOf(error)}"
                                   });
 
