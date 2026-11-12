@@ -323,3 +323,12 @@ textarea.mono {
     }
 
 }
+
+// What a connection test asks, beside its button: of the button's size, and
+// no wider than what it says - a choice about the button, not a field of the
+// form.
+.form-stack .form-actions select.test-asks {
+    width:      auto;
+    font-size:  0.85rem;
+    padding:    0.3rem 0.5rem;
+}
