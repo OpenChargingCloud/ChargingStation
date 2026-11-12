@@ -80,14 +80,16 @@ namespace cloud.charging.open.ChargingStation
         /// a running session goes out of service when that session ends, not
         /// while somebody is standing at it. Out of service beats held, because
         /// a hold on an outlet nobody can use is let go of at the same moment.
+        /// A free outlet is out of service while a restart waits for the others
+        /// to end, as nobody may start on it until then.
         /// </remarks>
-        private static EVSEStatus StatusOf(EVSEConfig        EVSE,
+        private EVSEStatus StatusOf(EVSEConfig        EVSE,
                                            ChargingSession?  Session,
                                            JObject?          Reservation)
 
             => Session is not null
                    ? EVSEStatus.Occupied
-                   : !EVSE.Operative
+                   : !EVSE.Operative || RestartOnceIdle is not null
                          ? EVSEStatus.Inoperative
                          : Reservation is not null
                                ? EVSEStatus.Reserved

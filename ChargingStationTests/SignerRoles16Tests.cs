@@ -333,12 +333,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var support = Enforced("support")["support"];
 
-            var soft      = await Reset           (ResetType.Soft,                     support);
             var unlocked  = await Unlock          (                                    support);
             var status    = await Trigger         (MessageTrigger.StatusNotification,  support);
             var hard      = await Reset           (ResetType.Hard,                     support);
             var inop      = await TakeOutOfService(                                    support);
             var boot      = await Trigger         (MessageTrigger.BootNotification,    support);
+
+            // Last: it is a restart, and what the test set on the nodes goes with them.
+            var soft      = await Reset           (ResetType.Soft,                     support);
 
             Assert.Multiple(() => {
                 Assert.That(Refused(soft),      Is.False, "a soft reset");

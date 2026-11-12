@@ -326,12 +326,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var support = Enforced("support")["support"];
 
-            var onceIdle  = await Reset           (ResetType.OnIdle,                   support);
             var unlocked  = await Unlock          (                                    support);
             var status    = await Trigger         (MessageTrigger.StatusNotification,  support);
             var atOnce    = await Reset           (ResetType.Immediate,                support);
             var inop      = await TakeOutOfService(                                    support);
             var boot      = await Trigger         (MessageTrigger.BootNotification,    support);
+
+            // Last: it is a restart, and what the test set on the nodes goes with them.
+            var onceIdle  = await Reset           (ResetType.OnIdle,                   support);
 
             Assert.Multiple(() => {
                 Assert.That(Refused(onceIdle),  Is.False, "a restart once idle");
