@@ -524,6 +524,66 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheSSHPeersAreTheConnections_AndAnybodysWhileThePolicyIsOff()
+
+        /// <summary>
+        /// The keys of the SSH peers, "sshPeers" and "sshPeer.&lt;name&gt;.*",
+        /// are the connections' to the policy, as SSHPeerController is in OCPP
+        /// 2.1 - and no pin set held to a signer whatever the mode. While the
+        /// policy is off a ChangeConfiguration nobody signed adds a peer by its
+        /// URL, as a Central System that signs nothing has to; enforced, the
+        /// operator does, and neither the support nor a request nobody signed.
+        /// </summary>
+        [Test]
+        public async Task TheSSHPeersAreTheConnections_AndAnybodysWhileThePolicyIsOff()
+        {
+
+            await Connected();
+
+            static String URL(String Name)
+                => $"ssh://cs001@{Name}.example.org:22#SHA256:{new String('A', 43)}";
+
+            static String? Status(JArray Answer)
+                => Answer[0].Value<Int32>() == 3 ? Answer[2]?["status"]?.Value<String>() : "CALLERROR";
+
+            Assert.That(new[] { "sshPeers", "sshPeers.clientPublicKey", "sshPeer.time.url", "SSHPEER.time.hostKeyPins" }.
+                            Select(cloud.charging.open.protocols.OCPPv1_6.CP.ChargePointActionPermissions.ComponentOfKey),
+                        Is.All.EqualTo("SSHPeerController"));
+
+            // Off, as it is unless somebody sets another: nobody signed, and it is written.
+            var whileOff = await ChangeKey("sshPeer.time.url", URL("time"), null);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(whileOff),                                    Is.False, "the policy is off, and refused a peer nobody signed");
+                Assert.That(Status(whileOff),                                     Is.EqualTo("Accepted"), whileOff.ToString(Formatting.None));
+                Assert.That(station!.ConfiguredSSHPeers.Select(peer => peer.Id),  Is.EqualTo(new[] { "time" }));
+            });
+
+            var keys = Enforced("cpo", "support");
+
+            var byNobody       = await ChangeKey("sshPeer.names.url", URL("names"), null);
+            var byTheSupport   = await ChangeKey("sshPeer.names.url", URL("names"), keys["support"]);
+            var listBySupport  = await ChangeKey("sshPeers",          "",           keys["support"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(byNobody),                                    Is.True,  "enforced, a peer nobody signed was written");
+                Assert.That(Refused(byTheSupport),                                Is.True,  "the support writes a peer");
+                Assert.That(Refused(listBySupport),                               Is.True,  "the support takes the peers out");
+                Assert.That(station!.ConfiguredSSHPeers.Select(peer => peer.Id),  Is.EqualTo(new[] { "time" }), "a refused request changed the peers");
+            });
+
+            var byTheOperator  = await ChangeKey("sshPeer.files.url", URL("files"), keys["cpo"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(byTheOperator),                               Is.False, "the operator, who may edit the connections, writes no peer");
+                Assert.That(Status(byTheOperator),                                Is.EqualTo("Accepted"), byTheOperator.ToString(Formatting.None));
+                Assert.That(station!.ConfiguredSSHPeers.Select(peer => peer.Id),  Is.EqualTo(new[] { "time", "files" }));
+            });
+
+        }
+
+        #endregion
+
         #region WhileThePolicyIsOffNothingIsAsked()
 
         /// <summary>

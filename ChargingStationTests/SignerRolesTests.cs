@@ -555,6 +555,84 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheSSHPeersAreTheConnections_AndAnybodysWhileThePolicyIsOff()
+
+        /// <summary>
+        /// The SSH peers of the station - who a host is believed by, and where
+        /// its files may go - are a component like every other to the policy.
+        /// While it is off a request nobody signed writes them, as a CSMS that
+        /// signs nothing has to. Enforced, they are the connections': the
+        /// operator, who may edit those, writes a peer and what it may be used
+        /// for, and neither the support nor a request nobody signed does.
+        /// </summary>
+        [Test]
+        public async Task TheSSHPeersAreTheConnections_AndAnybodysWhileThePolicyIsOff()
+        {
+
+            await Connected();
+
+            Task<JArray> Peer(String Name, ECCKeyPair? Signer, params (String Variable, String Value)[] Further)
+
+                => Ask("SetVariables",
+                       (destination, id) => new SetVariablesRequest(
+                                                destination,
+                                                [
+                                                    new SetVariableData(new Component("SSHPeerController"),        new Variable("Peers"),       String.Join(",", station!.ConfiguredSSHPeers.Select(peer => peer.Id).Append(Name).Distinct())),
+                                                    new SetVariableData(new Component("SSHPeerController", Name),  new Variable("Address"),     $"{Name}.example.org"),
+                                                    new SetVariableData(new Component("SSHPeerController", Name),  new Variable("HostKeyPins"), "SHA256:" + new String('A', 43)),
+                                                    .. Further.Select(further => new SetVariableData(new Component("SSHPeerController", Name), new Variable(further.Variable), further.Value))
+                                                ],
+                                                DataConsistencyModel.ACID,
+                                                RequestId: id
+                                            ),
+                       (request, context) => request.ToJSON(context),
+                       Signer);
+
+            static IEnumerable<String?> Statuses(JArray Answer)
+                => Answer[2]?["setVariableResult"]?.Select(result => result["attributeStatus"]?.Value<String>()) ?? [];
+
+            // The policy decides SetVariables entry by entry: what it refuses is
+            // an entry that is "Rejected" as "NotAuthorized", not a request that fails.
+            static IEnumerable<String?> Reasons(JArray Answer)
+                => Answer[2]?["setVariableResult"]?.Select(result => result["attributeStatusInfo"]?["reasonCode"]?.Value<String>()) ?? [];
+
+            // Off, as it is unless somebody sets another: nobody signed, and it is written.
+            Assert.That(station!.OCPPv2_1Node.OCPP.SignaturePolicy.Mode, Is.EqualTo(MessagePolicyModes.Off));
+
+            var whileOff = await Peer("time", null);
+
+            Assert.Multiple(() => {
+                Assert.That(Statuses(whileOff),                                   Is.Not.Empty.And.All.EqualTo("Accepted"), "the policy is off, and a peer nobody signed was not written: " + whileOff.ToString(Formatting.None));
+                Assert.That(station.ConfiguredSSHPeers.Select(peer => peer.Id),   Is.EqualTo(new[] { "time" }));
+            });
+
+            var keys = Enforced("cpo", "support");
+
+            var byNobody       = await Peer("names", null);
+            var byTheSupport   = await Peer("names", keys["support"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Statuses(byNobody),                                   Is.Not.Empty.And.All.EqualTo("Rejected"),       "enforced, a peer nobody signed was written: " + byNobody.ToString(Formatting.None));
+                Assert.That(Reasons (byNobody),                                   Is.All.EqualTo("NotAuthorized"),                byNobody.ToString(Formatting.None));
+                Assert.That(Statuses(byTheSupport),                               Is.Not.Empty.And.All.EqualTo("Rejected"),       "the support writes a peer: " + byTheSupport.ToString(Formatting.None));
+                Assert.That(Reasons (byTheSupport),                               Is.All.EqualTo("NotAuthorized"),                byTheSupport.ToString(Formatting.None));
+                Assert.That(byNobody.    ToString(Formatting.None),               Does.Contain("connections:edit"),               "the peers are not held to the right of the connections");
+                Assert.That(byTheSupport.ToString(Formatting.None),               Does.Contain("connections:edit"),               "the peers are not held to the right of the connections");
+                Assert.That(station.ConfiguredSSHPeers.Select(peer => peer.Id),   Is.EqualTo(new[] { "time" }), "a refused request made a peer");
+            });
+
+            var byTheOperator  = await Peer("files", keys["cpo"], ("FileTransfers", "Upload"), ("UploadPaths", "/upload/{id}/"));
+
+            Assert.Multiple(() => {
+                Assert.That(Statuses(byTheOperator),                              Is.Not.Empty.And.All.EqualTo("Accepted"), "the operator, who may edit the connections, writes no peer: " + byTheOperator.ToString(Formatting.None));
+                Assert.That(station.ConfiguredSSHPeers.Select(peer => peer.Id),   Is.EqualTo(new[] { "time", "files" }));
+                Assert.That(station.FileServers.Select(server => server.Host),    Is.EqualTo(new[] { "files.example.org" }));
+            });
+
+        }
+
+        #endregion
+
         #region WhileThePolicyIsOffNothingIsAsked()
 
         /// <summary>

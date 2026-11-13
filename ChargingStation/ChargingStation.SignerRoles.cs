@@ -96,11 +96,20 @@ namespace cloud.charging.open.ChargingStation
         /// The resource of this station's role model a device model component
         /// belongs to: where this station dials is its connections.
         /// </summary>
+        /// <remarks>
+        /// Its SSH peers among them: who a host is believed by, what goes over
+        /// the connection to it, and where the station's files may go. They are
+        /// no pin set left to the signers of a connection, though: a peer is
+        /// written as every other variable is - by anybody while the policy is
+        /// off, as a CSMS that signs nothing has to, and by a signer whose role
+        /// may edit the connections once it is enforced.
+        /// </remarks>
         private static String ResourceOfComponent(String Component)
 
             => Component switch {
                    "SSHClientController"  => StationAccess.Connections,
                    "TLSClientController"  => StationAccess.Connections,
+                   "SSHPeerController"    => StationAccess.Connections,
                    _                      => protocols.WWCP.SignaturePolicy.DefaultResourceOfComponent(Component)
                };
 
