@@ -1,31 +1,14 @@
 // The web interface of a charging station. What every node shows alike -
 // the frame, the forms, sign-in, logs, DNS, NTS, pins, the certificate store -
-// is WWCP_Node's, in the station's colour; below it, what only the station's
-// own pages need: its forms' rows of short fields, its EVSEs, card readers and
-// calibration certificates, the keys it dials with, and where a connection
-// stands.
+// is WWCP_Node's, in the station's colour; what the pages of its connections
+// need - the keys it dials with, and where a connection stands - is
+// WWCP_OCPP_Node's, as the pages are; below them, what only the station's own
+// pages need: its EVSEs, card readers and calibration certificates.
 @use '@node/styles/node' as * with (
     $color-accent:       #1b7f4d,
     $color-accent-dark:  #14633c
 );
-
-
-// Short fields that are read together rather than one after another: the
-// three numbers that make up a time-based password, or a choice and the
-// checkbox that qualifies it. Stacked, they turn one decision into a page of
-// scrolling.
-.form-stack .form-row {
-
-    display:    flex;
-    flex-wrap:  wrap;
-    gap:        0.85rem;
-
-    > label {
-        flex:       1 1 10rem;
-        min-width:  0;
-    }
-
-}
+@use '@ocpp/styles/connections';
 
 
 // EVSEs
@@ -258,79 +241,12 @@ textarea.mono {
 }
 
 
-// One key in the list of certificates: what it is called, and the chips that
-// say what state it is in.
-.key-head {
-
-    display:      flex;
-    align-items:  center;
-    flex-wrap:    wrap;
-    gap:          0.5rem;
-    margin-bottom: 0.6rem;
-
-    strong {
-        font-size:      0.95rem;
-        word-break:     break-word;
-    }
-
-}
-
-// The certificate this station is dialling with, marked where somebody is
-// looking for it rather than only in a chip.
-.card.in-use {
-    border-color: $color-accent;
-}
-
-// Where a connection stands, under its name: the chip and since when on one
-// line, what the station said below it. Its own block, because it is drawn
-// again every few seconds and the rest of the card is not.
-.connection-state {
-
-    margin-bottom: 0.6rem;
-
-    &:empty {
-        display: none;
-    }
-
-    .state-head {
-        display:      flex;
-        align-items:  baseline;
-        flex-wrap:    wrap;
-        gap:          0.5rem;
-    }
-
-    .hint {
-        word-break:   break-word;
-    }
-
-}
-
 // Why a session is not signed, under its chip: a sentence, which wraps
 // rather than widening a table of one-line cells to the length of it.
 .signed-sessions .signed-error {
     white-space:  normal;
     min-width:    14rem;
     max-width:    24rem;
-}
-
-// A connection removed on the page and still dialled until the next start.
-.removed-state {
-
-    margin-top:  0.5rem;
-
-    code {
-        word-break: break-all;
-    }
-
-}
-
-// What a connection test asks, beside its button: of the button's size, and
-// no wider than what it says - a choice about the button, not a field of the
-// form.
-.form-stack .form-actions select.test-asks {
-    width:      auto;
-    font-size:  0.85rem;
-    padding:    0.3rem 0.5rem;
 }
 
 // What the station is told to do, on the EVSEs page: a row of buttons that

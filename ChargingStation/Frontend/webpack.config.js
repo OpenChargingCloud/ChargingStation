@@ -63,7 +63,12 @@ module.exports = (env, argv) => {
             // found by ChargingStation.csproj. They are bundled into both
             // bundles like their own files; nothing is loaded from elsewhere.
             alias: {
-                '@node': path.resolve(__dirname, '../../../WWCP_Node/Frontend/src')
+                '@node': path.resolve(__dirname, '../../../WWCP_Node/Frontend/src'),
+                // And what the nodes that dial a CSMS share, the pages of
+                // their connections, as "@ocpp/...": the files of
+                // WWCP_OCPP_Node/Frontend/src, in the WWCP_OCPP this
+                // repository pins, found and bundled the same way.
+                '@ocpp': path.resolve(__dirname, '../../../WWCP_OCPP/WWCP_OCPP_Node/Frontend/src')
             },
             // A package a shared file imports - lit-html, which @node/view
             // draws with - comes from this directory's node_modules: from

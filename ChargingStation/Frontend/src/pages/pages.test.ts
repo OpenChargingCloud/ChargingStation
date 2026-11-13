@@ -9,6 +9,6 @@ import { everyPageIn } from '@node/../test/pages.ts';
 
 
 everyPageIn(new URL('./', import.meta.url), {
-    withForms: [ 'authentication.ts', 'calibration.ts', 'clientKeys.ts', 'commissioning.ts', 'connections.ts',
-                 'display.ts', 'meters.ts', 'nameplate.ts', 'power.ts', 'rfid.ts', 'signerRoles.ts', 'v2g.ts' ]
+    withForms: [ 'calibration.ts', 'commissioning.ts', 'display.ts', 'meters.ts', 'nameplate.ts', 'power.ts',
+                 'rfid.ts', 'signerRoles.ts', 'v2g.ts' ]
 });
