@@ -43,6 +43,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     [TestFixture] public class DNSDeviceModelOnAStation         : DNSDeviceModelTests          { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
     [TestFixture] public class DNSDeviceModelWritingOnAStation  : DNSDeviceModelWritingTests   { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
+    [TestFixture] public class SSHPeerDeviceModelOnAStation : SSHPeerDeviceModelTests { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
+    [TestFixture] public class SSHPeerKeys16OnAStation : SSHPeerKeys16Tests { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
     [TestFixture] public class DNSEquivalenceOnAStation         : DNSEquivalenceTests          { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
     [TestFixture] public class DNSEventsOnAStation              : DNSEventsTests               { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }
     [TestFixture] public class DNSKeys16OnAStation              : DNSKeys16Tests               { protected override IBridgedNodes Nodes { get; } = new StationNodes(); }

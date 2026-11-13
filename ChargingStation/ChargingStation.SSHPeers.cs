@@ -20,6 +20,7 @@
 using System.Collections.Concurrent;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 
 using cloud.charging.open.protocols.WWCP.SSH;
@@ -68,6 +69,50 @@ namespace cloud.charging.open.ChargingStation
         // The peer each SSH client of OCPP is a channel of, for as long as the
         // station holds on to that client.
         private readonly ConcurrentDictionary<WWCPSshClient, SSHPeer> sshPeerOf = new ();
+
+        #endregion
+
+        #region (protected override) SSHPeerClientKey, SSHPeerClientPublicKey, DefaultSSHPeerUser
+
+        /// <summary>
+        /// The key this station signs in with at the SSH peers of its
+        /// configuration: its own, the one of the purpose "Station" - the key
+        /// it is known by wherever it signs in over SSH, and the one OCPP is a
+        /// channel under as well. Made at the first need.
+        /// </summary>
+        protected override ISshHostKey? SSHPeerClientKey
+        {
+            get
+            {
+                try
+                {
+                    return SshKey.MakeIfNeeded().GetAwaiter().GetResult();
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"The SSH key of this station could not be had for its SSH peers: {e.Message}", "ocpp", "connections", "ssh", "security");
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The public key this station signs in with at its SSH peers, as a
+        /// line of an authorized_keys file.
+        /// </summary>
+        public override String? SSHPeerClientPublicKey
+
+            => SSHPeerClientKey is not null
+                   ? SshKey.PublicKeyLine
+                   : null;
+
+        /// <summary>
+        /// The user name this station signs in under at an SSH peer whose entry
+        /// names none: what it calls itself in OCPP.
+        /// </summary>
+        protected override String DefaultSSHPeerUser
+
+            => cs02.Id.ToString();
 
         #endregion
 

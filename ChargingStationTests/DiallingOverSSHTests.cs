@@ -671,13 +671,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             var next     = shown.Value<String>("publicKey")!;
 
             Assert.Multiple(() => {
-                Assert.That(shown.Value<String>("purpose"),    Is.EqualTo("OCPP"));
+                Assert.That(shown.Value<String>("purpose"),    Is.EqualTo("Station"));
                 Assert.That(next,                              Is.Not.EqualTo(before));
                 Assert.That(station.SshKey.PublicKeyLine,      Is.EqualTo(before), "The next key signed in before it was confirmed.");
             });
 
             var stranger = await csms.Ask("SSHKeySigned", new JObject(new JProperty("purpose", "OCPP"), new JProperty("publicKey", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStranger")));
-            var signed   = await csms.Ask("SSHKeySigned", new JObject(new JProperty("purpose", "OCPP"), new JProperty("publicKey", next)));
+            var signed   = await csms.Ask("SSHKeySigned", new JObject(new JProperty("purpose", "Station"), new JProperty("publicKey", next)));
 
             Assert.Multiple(() => {
                 Assert.That(stranger[2]!.Value<String>("status"),  Is.EqualTo("Rejected"));

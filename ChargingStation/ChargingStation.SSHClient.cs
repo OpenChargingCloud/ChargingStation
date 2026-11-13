@@ -82,7 +82,7 @@ namespace cloud.charging.open.ChargingStation
         private SshClientKey? KeyOf(OCPPv2_1.SSHKeyPurpose Purpose)
 
             => Purpose switch {
-                   OCPPv2_1.SSHKeyPurpose.OCPP  => SshKey,
+                   OCPPv2_1.SSHKeyPurpose.Station  => SshKey,
                    OCPPv2_1.SSHKeyPurpose.SFTP  => SftpKey,
                    _                            => null
                };
@@ -375,7 +375,7 @@ namespace cloud.charging.open.ChargingStation
 
             var purposeText = trigger.Length > "SignSSHKey".Length && trigger["SignSSHKey".Length] == ':'
                                   ? trigger["SignSSHKey:".Length..]
-                                  : trigger == "SignSSHKey" ? "OCPP" : "";
+                                  : trigger == "SignSSHKey" ? "Station" : "";
 
             if (!OCPPv2_1.SSHKeyPurposeExtensions.TryParse(purposeText, out var purpose) || KeyOf(purpose) is null)
                 return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(
@@ -441,7 +441,7 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private async Task RotateIfOld()
         {
-            foreach (var purpose in new[] { OCPPv2_1.SSHKeyPurpose.OCPP, OCPPv2_1.SSHKeyPurpose.SFTP })
+            foreach (var purpose in new[] { OCPPv2_1.SSHKeyPurpose.Station, OCPPv2_1.SSHKeyPurpose.SFTP })
             {
                 if (KeyOf(purpose) is SshClientKey key                                       &&
                     key.MaxAgeDays > 0                                                       &&
@@ -523,7 +523,7 @@ namespace cloud.charging.open.ChargingStation
 
             public IEnumerable<String> ConnectionVariables          => [ "HostKeyPins", "HostKeyPinsVersion", "TrustOnFirstUse", "ProbationTime", "OnPinMismatch", "HostKeyFingerprint", "LearnedHostKey" ];
             public IEnumerable<String> WritableConnectionVariables  => [ "HostKeyPins", "HostKeyPinsVersion", "TrustOnFirstUse", "ProbationTime", "OnPinMismatch" ];
-            public IEnumerable<String> Purposes                     => [ "OCPP", "NTS", "SFTP" ];
+            public IEnumerable<String> Purposes                     => [ "Station", "NTS", "SFTP" ];
             public IEnumerable<String> KeyVariables                 => [ "ClientPublicKey", "ClientPendingPublicKey", "ClientCertificate", "ClientKeyMaxAge", "ClientKeyAlgorithms" ];
             public IEnumerable<String> WritableKeyVariables         => [ "ClientKeyMaxAge" ];
 
