@@ -597,10 +597,6 @@ namespace cloud.charging.open.ChargingStation
 
             this.SshKey.OnNotice                 += (level, message) => this.Log.Log(level, message, "ocpp", "connections", "ssh", "security");
 
-            // A time server may make its key exchange over the SSH connection of
-            // OCPP to its host, with this key.
-            ShareTheConnectionsOfOCPP();
-
             #endregion
 
             #region What the configuration file says about a charging station

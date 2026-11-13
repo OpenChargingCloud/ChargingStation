@@ -1002,12 +1002,18 @@ namespace cloud.charging.open.ChargingStation
                     SshSecurityEvent(Connection, "InvalidCsmsHostKey", $"Host key {trust.Shown} of '{Connection.Id}' matches no pin; went ahead (Record)");
             };
 
+            // The host becomes an SSH peer of this station, and OCPP one more
+            // channel of the connection the station keeps to it - which whatever
+            // else shares it may have had made before (ChargingStation.SSHPeers.cs).
+            var peer    = SshPeerFor(Connection, login, trust);
+
             // Named as over a WebSocket - see Dial.
             var result  = await node.ConnectOCPPClient(
                                     RemoteURL:                 Connection.URL,
                                     NextHopNetworkingNodeId:   NextHopOf(Connection),
                                     RoutingNetworkingNodeIds:  CSMSNamesOf(Connection),
                                     Ssh:                       login,
+                                    SshConnection:             peer is not null ? peer.Connection.GetAsync : null,
                                     Subprotocols:              SubProtocolsOf(Connection),
                                     DNSClient:                 DNSClient,
                                     PingEvery:                 SshPingEvery,
@@ -1015,6 +1021,15 @@ namespace cloud.charging.open.ChargingStation
                                 );
 
             var client  = result.Client as WWCPSshClient;
+
+            // The peer lasts as long as the station holds on to the client.
+            if (peer is not null)
+            {
+                if (client is not null)
+                    sshPeerOf[client] = peer;
+                else
+                    await ReleaseSshPeer(peer);
+            }
 
             RememberClient(Connection, client);
 
@@ -1439,6 +1454,11 @@ namespace cloud.charging.open.ChargingStation
                         await current.Close(MessageCloseCode.PolicyViolation, "The host key of this server was not confirmed in time.");
                 }
 
+                // And the SSH connection OCPP was a channel of: coming back as a
+                // new channel of it would be coming back to the server nobody
+                // confirmed, without a handshake to learn from.
+                await DropSshConnectionOf(Client);
+
             });
 
         }
@@ -1553,6 +1573,9 @@ namespace cloud.charging.open.ChargingStation
             {
                 Log.Debug($"A connection to {Client.TransportDescription} did not close cleanly: {e.Message}", "ocpp", "connections");
             }
+
+            // And the SSH peer it was a channel of, with its connection.
+            await ReleaseSshPeerOf(Client);
 
         }
 

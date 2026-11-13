@@ -1079,18 +1079,20 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ATimeServerOfTheCSMSIsAskedOverTheConnectionOfOCPP()
+        #region ATimeServerOfTheCSMSSharesTheStationsConnectionToIt()
 
         /// <summary>
-        /// SSHUseOCPPConnection: the CSMS serves NTS-KE beside OCPP on its SSH
+        /// SSHConnection Shared: the CSMS serves NTS-KE beside OCPP on its SSH
         /// listener, and the station's time server there makes its key exchange
-        /// as one more channel of the connection the station dialled for OCPP -
-        /// signed in once, with the station's OCPP key, and the host key the one
-        /// OCPP believed. Before that connection there is no key exchange, and
-        /// nothing else is tried; after it, the connection of OCPP goes on.
+        /// as one more channel of the one connection the station keeps to that
+        /// host - signed in once, with the station's key, and the host key the
+        /// one its connection entry holds it to. The host is an SSH peer of the
+        /// station from when it is dialled: before, there is no key exchange,
+        /// and nothing else is tried. After the key exchange the connection
+        /// goes on, OCPP with it; and it is the one connection there ever was.
         /// </summary>
         [Test]
-        public async Task ATimeServerOfTheCSMSIsAskedOverTheConnectionOfOCPP()
+        public async Task ATimeServerOfTheCSMSSharesTheStationsConnectionToIt()
         {
 
             var ntpPort = FreeUDPPort();
@@ -1114,7 +1116,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var model   = new NTSDeviceModel(station, Log: null);
 
-                // Before OCPP is connected: no connection to share.
+                // Before the station dials: the host is no SSH peer yet.
                 var before  = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
 
                 await Start();
@@ -1130,17 +1132,24 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.Multiple(() => {
 
-                    Assert.That(before.Value<Boolean>("ok"),                                   Is.False, "a key exchange without a connection of OCPP");
+                    Assert.That(before.Value<Boolean>("ok"),                                   Is.False, "a key exchange with a host that is no SSH peer yet");
 
                     Assert.That(after. Value<Boolean>("ok"),                                   Is.True,  after.ToString());
                     Assert.That(model.ClientValue("csms-time", "Mode"),                        Is.EqualTo("NTSv4SSH"));
-                    Assert.That(model.ClientValue("csms-time", "SSHUseOCPPConnection"),        Is.EqualTo("true"));
+                    Assert.That(model.ClientValue("csms-time", "SSHConnection"),               Is.EqualTo("Shared"));
                     Assert.That(model.ClientValue("csms-time", "SSHClientPublicKey"),          Is.EqualTo(station.SshKey.PublicKeyLine));
                     Assert.That(model.ClientValue("csms-time", "SSHHostKeyFingerprint"),       Is.EqualTo(csms.Fingerprint));
                     Assert.That(Int32.Parse(model.ClientValue("csms-time", "Cookies") ?? "0"), Is.GreaterThan(0));
 
                     Assert.That(csms.Logins.Length,                                            Is.EqualTo(logins), "the key exchange signed in again");
-                    Assert.That(station.ConnectionStates[id!].Status,                          Is.EqualTo(ConnectionStatus.Connected), "the connection of OCPP went with the key exchange");
+                    Assert.That(station.ConnectionStates[id!].Status,                          Is.EqualTo(ConnectionStatus.Connected), "OCPP went with the key exchange");
+
+                    var peer = station.SSHPeerTo(DomainName.Parse("csms.test"));
+
+                    Assert.That(peer,                                                          Is.Not.Null, "the CSMS's host is no SSH peer of the station");
+                    Assert.That(peer?.Port,                                                    Is.EqualTo(csms.Port));
+                    Assert.That(peer?.Connection.Made,                                         Is.EqualTo(1), "more than the one connection was made");
+                    Assert.That(station.SSHPeers.Count(),                                      Is.EqualTo(1));
                     Assert.That(File.Exists(station.NTSKEClientKeyPath),                       Is.False, "a key of the node's own was made");
 
                 });
@@ -1158,11 +1167,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ATimeServerIsNotAskedOverAConnectionOnProbation()
 
         /// <summary>
-        /// SSHUseOCPPConnection over a connection whose host key was learned on
+        /// SSHConnection Shared over a connection whose host key was learned on
         /// first use: while it is on probation the station sends nothing but its
         /// BootNotification (section 10.4 of the white paper "OCPP over SSH"),
-        /// so its time server makes no key exchange over it. Once a signed pin
-        /// set confirms the key, it does.
+        /// and nothing but OCPP goes over the connection to a host held to no
+        /// pinned key - so its time server makes no key exchange over it. Once a
+        /// signed pin set confirms the key, it does.
         /// </summary>
         [Test]
         public async Task ATimeServerIsNotAskedOverAConnectionOnProbation()
@@ -1228,7 +1238,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// Instead of the station of the set-up, a station whose one time server
-        /// is the CSMS's host, over the connection of OCPP, with the name
+        /// is the CSMS's host, over the connection shared with it, with the name
         /// "csms.test" known to its name servers.
         /// </summary>
         private async Task AStationWithItsTimeAtTheCSMS(UInt16 NTPPort)
@@ -1247,7 +1257,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                           new JProperty("id",        "csms-time"),
                                           new JProperty("hostname",  "csms.test"),
                                           new JProperty("ntpPort",   NTPPort),
-                                          new JProperty("ssh",       new JObject(new JProperty("useOCPPConnection", true)))
+                                          new JProperty("ssh",       new JObject(new JProperty("connection", "shared")))
                                       )))
                                   ))
                               ))
