@@ -111,7 +111,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
             => TryNormalize(JSON.Value<String>("publicKey"), out var publicKey, out _)
                    ? new PinSetSigner(publicKey,
                                       JSON.Value<String>("description") ?? "",
-                                      DateTimeOffset.TryParse(JSON.Value<String>("createdAt"), out var createdAt) ? createdAt : DateTimeOffset.UnixEpoch)
+                                      DateTimeOffset.TryParse(JSON.Value<String>("createdAt"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var createdAt) ? createdAt : DateTimeOffset.UnixEpoch)
                    : null;
 
     }

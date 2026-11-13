@@ -1250,8 +1250,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                   out Error))
                 return false;
 
+            // Read in no culture of the machine's: Newtonsoft hands a time
+            // it recognised back as "11/13/2026 ...", which a German machine
+            // reads as the 11th of a 13th month - no time at all - and, up
+            // to the 12th of a month, as day and month the other way round.
             var learnedAt = JSON.Value<String>("sshLearnedAt") is String learnedAtText &&
-                            DateTimeOffset.TryParse(learnedAtText, out var learnedAtValue)
+                            DateTimeOffset.TryParse(learnedAtText, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var learnedAtValue)
                                 ? learnedAtValue
                                 : (DateTimeOffset?) null;
 
@@ -1301,7 +1305,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             var keyPinLearnedAt    = keyPinLearned is not null &&
                                      JSON.Value<String>("serverKeyPinLearnedAt") is String keyPinLearnedAtText &&
-                                     DateTimeOffset.TryParse(keyPinLearnedAtText, out var keyPinLearnedAtValue)
+                                     DateTimeOffset.TryParse(keyPinLearnedAtText, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var keyPinLearnedAtValue)
                                          ? keyPinLearnedAtValue
                                          : (DateTimeOffset?) null;
 
