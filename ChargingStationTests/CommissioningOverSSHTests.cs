@@ -74,6 +74,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             public JArray[] Received
                 => [.. received];
 
+            /// <summary>How many messages came as CBOR.</summary>
+            public Int32 InCBOR
+                => inCBOR;
+
+            private Int32 inCBOR;
+
             public Tool(SshMessageClient Client)
             {
 
@@ -84,6 +90,19 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Client.OnTextMessageReceived += (timestamp, sender, connection, text, cancellationToken) => {
                     received.Enqueue(JArray.Parse(text));
                     return Task.CompletedTask;
+                };
+
+                // What a tool that agreed on CBOR is told, as the JSON it stands for.
+                Client.OnBinaryMessageReceived += (timestamp, sender, connection, bytes, cancellationToken) => {
+
+                    if (cloud.charging.open.protocols.OCPP.WebSockets.OCPP_CBORFrame.TryAsJSON(bytes, out var message, out _))
+                    {
+                        received.Enqueue(message);
+                        Interlocked.Increment(ref inCBOR);
+                    }
+
+                    return Task.CompletedTask;
+
                 };
 
             }
@@ -100,7 +119,17 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var id = $"tool-{Interlocked.Increment(ref next)}";
 
-                await Connection.SendTextMessage(new JArray(2, id, Action, Payload).ToString(Formatting.None));
+                // The way the connection speaks: CBOR in a binary message, or JSON in a text.
+                if (Connection.Subprotocol?.EndsWith("cbor") == true)
+                    await Connection.SendBinaryMessage(
+                              cloud.charging.open.protocols.OCPP.WebSockets.OCPP_CBORFrame.Join(
+                                  new JArray(2, id, Action, new JObject()),
+                                  CBORJSON.ToCBOR(Payload.ToString(Formatting.None))
+                              ).ToByteArray()
+                          );
+
+                else
+                    await Connection.SendTextMessage(new JArray(2, id, Action, Payload).ToString(Formatting.None));
 
                 var until = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
 
@@ -470,6 +499,45 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AToolThatSpeaksCBOR_IsAnsweredInCBOR()
+
+        /// <summary>
+        /// A tool that offers "ocpp2.1cbor" is handed to the station's OCPP 2.1
+        /// node as one that offers "ocpp2.1" is, and speaks to it in CBOR.
+        /// </summary>
+        [Test]
+        public async Task AToolThatSpeaksCBOR_IsAnsweredInCBOR()
+        {
+
+            await AStation(Commissioning: true);
+
+            var (tool, why) = await Connect(Subprotocol: "ocpp2.1cbor");
+
+            Assert.That(tool, Is.Not.Null, why);
+            Assert.That(tool!.Connection.Subprotocol, Is.EqualTo("ocpp2.1cbor"));
+
+            var answer = await tool.Ask("TriggerMessage", TriggerABootNotification);
+
+            Assert.That(answer, Is.Not.Null, "The station did not answer the tool.");
+
+            Assert.Multiple(() => {
+
+                Assert.That(answer![0].Value<Int32>(), Is.EqualTo(3), $"The station answered with an error: {answer}");
+                Assert.That(answer[2]["status"]?.Value<String>(), Is.EqualTo("Accepted"), answer.ToString());
+
+                Assert.That(tool.InCBOR, Is.GreaterThan(0), "The answer did not come as CBOR.");
+
+                Assert.That(station!.CommissioningTools.Select(id => id.ToString()), Is.EqualTo(new[] { Root }),
+                            "The tool is not known by its account's name.");
+
+            });
+
+            await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");
+
+        }
+
+        #endregion
+
         #region AToolOfOCPP16_IsAnsweredByTheNodeOfOCPP16()
 
         /// <summary>
@@ -495,7 +563,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(answer![0].Value<Int32>(),    Is.EqualTo(3), $"The station answered with an error: {answer}");
                 Assert.That(answer[2]["configurationKey"], Is.Not.Null, answer.ToString());
                 Assert.That(station!.CommissioningTools.Select(id => id.ToString()), Is.EqualTo(new[] { Root }));
-                Assert.That(station.CommissioningJSON()["subprotocols"]!.Values<String>(), Is.EquivalentTo(new[] { "ocpp2.1", "ocpp2.0.1", "ocpp1.6" }));
+                Assert.That(station.CommissioningJSON()["subprotocols"]!.Values<String>(), Is.EquivalentTo(new[] { "ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor", "ocpp1.6" }));
             });
 
             await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");

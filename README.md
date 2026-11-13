@@ -160,7 +160,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
 | `ConnectionTestRequestTests` | what a connection test asks in OCPP: a Heartbeat as it was sent, its answer and how long it took, and how far the back end's clock is off; an error as an answer; no answer, or one to something else, failing the test; `none` asking nothing; and `testconnection` at the command line, by description and by identification, line by line with its milliseconds |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
-| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
+| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; a tool that offers `ocpp2.1cbor` answered in CBOR; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -1013,13 +1013,16 @@ connected; switched off, every tool connected is let go of:
     GET  /api/v1/configuration/commissioning
     {"enabled": true, "served": true, "sshServer": true, "url": "ssh://127.0.0.1:22348",
      "hostKey": "ssh-ed25519 SHA256:...", "subsystem": "ocpp@open.charging.cloud",
-     "subprotocols": ["ocpp2.1", "ocpp2.0.1"], "station": "test02",
+     "subprotocols": ["ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor"], "station": "test02",
      "permission": "commissioning:run", "tools": ["installer"], ...}
     PUT  /api/v1/configuration/commissioning    {"enabled": false}
 
 The tool signs in as an account of the station with its own key and asks for
 the subsystem `ocpp@open.charging.cloud`, which only an account that may run
-`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be.
+`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be. A
+tool that offers `ocpp2.1cbor` in its HELLO speaks OCPP 2.1 as CBOR, in the
+binary messages of the subsystem; one that offers `ocpp2.1` is spoken to in
+JSON, as before.
 
 It is a networking node of its own, named after its account - not the CSMS.
 A route is one per destination, and the newest connection takes it: a tool
