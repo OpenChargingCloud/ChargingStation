@@ -300,7 +300,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(PermissionsOf("support"),    Is.EquivalentTo(new[] { "state:read", "state:run", "reset:run", "unlock:run" }));
 
                 Assert.That(PermissionsOf("cpo"),        Is.SupersetOf  (new[] { "node:run", "reset:run", "reset-immediate:run",
-                                                                                 "state:run", "firmware:edit", "unlock:run", "monitoring:edit" }));
+                                                                                 "state:run", "firmware:edit", "unlock:run", "monitoring:edit", "authorization:edit" }));
 
                 Assert.That(PermissionsOf("installer"),  Is.SupersetOf  (PermissionsOf("cpo")));
 
@@ -479,6 +479,40 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(Refused(byTheOperator),  Is.False, "the operator sets the level of the monitoring");
                 Assert.That(Refused(byTheSupport),   Is.True,  "the support sets the level of the monitoring");
+            });
+
+        }
+
+        #endregion
+
+        #region TheAuthorizationIsTheOperators()
+
+        /// <summary>
+        /// The local authorization list and the authorization cache are a
+        /// right of their own, "authorization": the operator clears the cache,
+        /// and the support, who sets nothing up, does not.
+        /// </summary>
+        [Test]
+        public async Task TheAuthorizationIsTheOperators()
+        {
+
+            await Connected();
+
+            var keys = Enforced("cpo", "support");
+
+            Task<JArray> Clear(ECCKeyPair Signer)
+
+                => Ask("ClearCache",
+                       (destination, id) => new ClearCacheRequest(destination, RequestId: id),
+                       (request, context) => request.ToJSON(context),
+                       Signer);
+
+            var byTheOperator  = await Clear(keys["cpo"]);
+            var byTheSupport   = await Clear(keys["support"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(byTheOperator),  Is.False, "the operator clears the authorization cache");
+                Assert.That(Refused(byTheSupport),   Is.True,  "the support clears the authorization cache");
             });
 
         }

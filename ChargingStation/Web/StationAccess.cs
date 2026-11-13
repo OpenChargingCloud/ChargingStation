@@ -208,11 +208,25 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Monitoring    = "monitoring";
 
         /// <summary>
+        /// Whom the station lets charge without asking: read, the version of
+        /// its local authorization list - GetLocalListVersion; edited, the
+        /// list sent and the authorization cache cleared - SendLocalList and
+        /// ClearCache.
+        /// </summary>
+        /// <remarks>
+        /// Not "rfid", which is the card readers as equipment: this is the
+        /// list of cards and what the station remembers of the answers of its
+        /// back end (white paper "Signed OCPP Messages and Signer Roles",
+        /// section 5.3).
+        /// </remarks>
+        public const String  Authorization = "authorization";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
                                                                     Display, Session, Connections, V2G, Meters, Providers,
-                                                                    Nameplate, Commissioning, Unlock, Monitoring ];
+                                                                    Nameplate, Commissioning, Unlock, Monitoring, Authorization ];
 
         #endregion
 
@@ -229,7 +243,8 @@ namespace cloud.charging.open.ChargingStation.Web
         /// stuck cable and updates the firmware - where the station is
         /// metrologically relevant, a firmware update needs the installer's
         /// "calibration:edit" too. It says how much of the station is
-        /// monitored, and reads what is.
+        /// monitored, and reads what is; and it sends the local authorization
+        /// list and clears the authorization cache.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
                                                        [ Permission.Read(Permission.AnyResource),
@@ -251,8 +266,9 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (NodeResources.State),
                                                          Permission.Edit(NodeResources.Firmware),
                                                          Permission.Run (Unlock),
-                                                         Permission.Edit(Monitoring) ],
-                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts, the firmware and the monitoring");
+                                                         Permission.Edit(Monitoring),
+                                                         Permission.Edit(Authorization) ],
+                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts, the firmware, the monitoring and the local authorization list");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator

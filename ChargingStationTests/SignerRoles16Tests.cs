@@ -177,6 +177,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                        UpdateFirmwareRequest       firmware   => firmware.  ToJSON(),
                        ChangeConfigurationRequest  change     => change.    ToJSON(),
                        GetConfigurationRequest     get        => get.       ToJSON(),
+                       ClearCacheRequest           clear      => clear.     ToJSON(),
                        _                                      => throw new ArgumentException($"A request of this test that it cannot write: {request.GetType().Name}")
                    };
 
@@ -448,6 +449,39 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(bySupport    [2]?["status"]?.Value<String>(), Is.EqualTo("Rejected"), "the support changed a key of the DNS client");
                 Assert.That(byTheOperator[2]?["status"]?.Value<String>(), Is.EqualTo("Accepted"), "the operator changed a key of the DNS client");
+            });
+
+        }
+
+        #endregion
+
+        #region TheAuthorizationIsTheOperators()
+
+        /// <summary>
+        /// The local authorization list and the authorization cache are a
+        /// right of their own, "authorization": the operator clears the cache,
+        /// and the support, who sets nothing up, does not.
+        /// </summary>
+        [Test]
+        public async Task TheAuthorizationIsTheOperators()
+        {
+
+            await Connected();
+
+            var keys = Enforced("cpo", "support");
+
+            Task<JArray> Clear(ECCKeyPair Signer)
+
+                => Ask("ClearCache",
+                       (destination, id) => new ClearCacheRequest(destination, RequestId: id),
+                       Signer);
+
+            var byTheOperator  = await Clear(keys["cpo"]);
+            var byTheSupport   = await Clear(keys["support"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(byTheOperator),  Is.False, "the operator clears the authorization cache");
+                Assert.That(Refused(byTheSupport),   Is.True,  "the support clears the authorization cache");
             });
 
         }
