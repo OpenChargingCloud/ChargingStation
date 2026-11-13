@@ -1293,7 +1293,8 @@ namespace cloud.charging.open.ChargingStation
                                                        KeyPinTrustOf(json),
                                                        pins,
                                                        json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey),
-                                                       json.Value<String>(OCPP.ConnectionEntry.EncodingKey)))
+                                                       json.Value<String>(OCPP.ConnectionEntry.EncodingKey),
+                                                       json.Value<String>(OCPP.ConnectionEntry.SignatureFormatsKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }
@@ -1348,7 +1349,8 @@ namespace cloud.charging.open.ChargingStation
                                                           KeyPinTrustOf(json),
                                                           pins,
                                                           json.Value<String>(OCPP.ConnectionEntry.HTTPVersionKey),
-                                                          json.Value<String>(OCPP.ConnectionEntry.EncodingKey)))
+                                                          json.Value<String>(OCPP.ConnectionEntry.EncodingKey),
+                                                          json.Value<String>(OCPP.ConnectionEntry.SignatureFormatsKey)))
             {
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved);
             }

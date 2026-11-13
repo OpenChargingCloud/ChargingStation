@@ -590,6 +590,11 @@ namespace cloud.charging.open.ChargingStation
 
                 }
 
+                // Which signatures the messages for this connection get, said before
+                // the first of them is signed. Of an OCPP 2.1 connection: 1.6 has no COSE.
+                if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is IWWCPClient itsClient)
+                    cs02.OCPP.SetSignatureFormats(itsClient, Connection.SignatureFormats);
+
                 if (client is not null)
                     Follow(Connection, client, Connected: true);
 
@@ -723,6 +728,18 @@ namespace cloud.charging.open.ChargingStation
 
                    ? ConnectionEntry.AsText(over)
                    : null;
+
+        #endregion
+
+        #region (internal) SignatureFormatsOf(Connection)
+
+        /// <summary>
+        /// Which signatures the OCPP 2.1 node of this station writes for the
+        /// given connection now - or null, where its signature policy decides.
+        /// </summary>
+        internal cloud.charging.open.protocols.WWCP.SignatureFormats? SignatureFormatsOf(ConnectionEntry Connection)
+
+            => cs02.OCPP.SignatureFormatsFor(NextHopOf(Connection));
 
         #endregion
 
@@ -995,6 +1012,10 @@ namespace cloud.charging.open.ChargingStation
                 return;
 
             }
+
+            // As over a WebSocket: which signatures the messages for this connection get.
+            if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is not null)
+                cs02.OCPP.SetSignatureFormats(client, Connection.SignatureFormats);
 
             if (client is not null)
             {

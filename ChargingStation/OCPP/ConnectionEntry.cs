@@ -28,6 +28,8 @@ using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 using cloud.charging.open.protocols.OCPP.WebSockets;
 
+using WWCPSignatureFormats = cloud.charging.open.protocols.WWCP.SignatureFormats;
+
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
@@ -216,6 +218,17 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// under: "json", "cbor" or "auto".
         /// </summary>
         public const String EncodingKey          = "encoding";
+
+        /// <summary>
+        /// The key the signatures a connection writes stand under: "jws",
+        /// "cose", "both" - or "policy", which is saying nothing.
+        /// </summary>
+        public const String SignatureFormatsKey  = "signatureFormats";
+
+        /// <summary>
+        /// What a connection says where it leaves its signatures to the policy.
+        /// </summary>
+        public const String SignaturesAsThePolicySays = "policy";
 
         /// <summary>
         /// Where a page says what it showed the server held to.
@@ -489,6 +502,21 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// the same subprotocols. OCPP 1.6 has no CBOR, and says "json" or nothing.
         /// </remarks>
         public MessageEncodings       Encoding                 { get; internal set; } = MessageEncodings.JSON;
+
+        /// <summary>
+        /// Which signatures the messages this station signs for this connection
+        /// get: the JWS over their JSON, the COSE_Sign1 over their CBOR, or
+        /// both - or null, where the signature policy of the station decides.
+        /// </summary>
+        /// <remarks>
+        /// What a message is signed with is a matter of who reads it, and so of
+        /// the connection: a back end that verifies COSE signatures gets them,
+        /// another one beside it the JWS. It says nothing of what the station
+        /// verifies - every signature it can read. A COSE signature signs the
+        /// CBOR of a message whatever the connection carries, JSON or CBOR.
+        /// OCPP 1.6 has no CBOR and so no COSE signature.
+        /// </remarks>
+        public WWCPSignatureFormats?  SignatureFormats         { get; internal set; }
 
         /// <summary>
         /// When this was written down.
@@ -1291,6 +1319,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (!TryParseEncoding(version, JSON.Value<String>(EncodingKey), out var encoding, out Error))
                 return false;
 
+            if (!TryParseSignatureFormats(version, JSON.Value<String>(SignatureFormatsKey), out _, out var signatureFormats, out Error))
+                return false;
+
             // A key pin learned on first use is on probation only where nothing
             // is pinned, and only where the connection still learns.
             var learnsKeyPin       = serverKeyPins.Count == 0 && keyTrustOnFirstUse == KeyTrustOnFirstUse.Key;
@@ -1334,7 +1365,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                         Pins                       = pins,
                         PinsVersion                = pins is { Roots.Count: > 0 } ? JSON.Value<UInt64?>("pinsVersion") ?? 0 : 0,
                         HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
-                        Encoding                   = encoding    ?? MessageEncodings.JSON
+                        Encoding                   = encoding    ?? MessageEncodings.JSON,
+                        SignatureFormats           = signatureFormats
                     };
 
             Error = null;
@@ -1444,6 +1476,10 @@ namespace cloud.charging.open.ChargingStation.OCPP
             if (Encoding != MessageEncodings.JSON)
                 json.Add(new JProperty(EncodingKey, AsText(Encoding)));
 
+            // Said where the connection says it: nothing is what the policy says.
+            if (SignatureFormats.HasValue)
+                json.Add(new JProperty(SignatureFormatsKey, AsText(SignatureFormats)));
+
             if (Warnings.Count > 0)
                 json.Add(new JProperty("warnings", new JArray(Warnings)));
 
@@ -1485,7 +1521,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    Pins                       = Pins,
                    PinsVersion                = PinsVersion,
                    HTTPVersion                = HTTPVersion,
-                   Encoding                   = Encoding
+                   Encoding                   = Encoding,
+                   SignatureFormats           = SignatureFormats
                };
 
         #endregion
@@ -1631,6 +1668,74 @@ namespace cloud.charging.open.ChargingStation.OCPP
                    MessageEncodings.CBOR  => "cbor",
                    MessageEncodings.Auto  => "auto",
                    _                      => "json"
+               };
+
+        #endregion
+
+        #region TryParseSignatureFormats(OCPPVersion, Text, out Said, out Formats, out Error) / AsText(Formats)
+
+        /// <summary>
+        /// Which signatures a connection says it writes - "jws", "cose" or
+        /// "both", or "policy" for what the signature policy of the station
+        /// says - or the one sentence that says what is wrong.
+        /// </summary>
+        /// <param name="OCPPVersion">Which OCPP the connection speaks: OCPP 1.6 has no COSE signature.</param>
+        /// <param name="Text">What stands under <see cref="SignatureFormatsKey"/>.</param>
+        /// <param name="Said">Whether anything was said: a change that says nothing keeps what there is.</param>
+        /// <param name="Formats">The signatures, or null for what the policy says.</param>
+        /// <param name="Error">What is wrong.</param>
+        public static Boolean TryParseSignatureFormats(OCPPVersion                       OCPPVersion,
+                                                       String?                           Text,
+                                                       out Boolean                       Said,
+                                                       out WWCPSignatureFormats?         Formats,
+                                                       [NotNullWhen(false)] out String?  Error)
+        {
+
+            Said     = false;
+            Formats  = null;
+            Error    = null;
+
+            var text = Text?.Trim().ToLowerInvariant();
+
+            if (text is null || text.Length == 0)
+                return true;
+
+            switch (text)
+            {
+
+                case "jws":                      Formats = WWCPSignatureFormats.JWS;   break;
+                case "cose":                     Formats = WWCPSignatureFormats.COSE;  break;
+                case "both":                     Formats = WWCPSignatureFormats.Both;  break;
+                case SignaturesAsThePolicySays:  Formats = null;                       break;
+
+                default:
+                    Error = $"'{Text}' names no signatures a connection writes: it is \"jws\", \"cose\", \"both\" or \"policy\".";
+                    return false;
+
+            }
+
+            if (OCPPVersion == OCPPVersion.OCPP1_6 && Formats is WWCPSignatureFormats.COSE or WWCPSignatureFormats.Both)
+            {
+                Formats  = null;
+                Error    = $"It names \"{text}\", and OCPP 1.6 has no CBOR for a COSE signature to sign: its signatures are the JWS.";
+                return false;
+            }
+
+            Said = true;
+            return true;
+
+        }
+
+        /// <summary>
+        /// The signatures a connection writes as it names them.
+        /// </summary>
+        public static String AsText(WWCPSignatureFormats? Formats)
+
+            => Formats switch {
+                   WWCPSignatureFormats.JWS   => "jws",
+                   WWCPSignatureFormats.COSE  => "cose",
+                   WWCPSignatureFormats.Both  => "both",
+                   _                          => SignaturesAsThePolicySays
                };
 
         #endregion

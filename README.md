@@ -155,6 +155,7 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
 | `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, and "cbor" for OCPP 1.6; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
 | `AgainstACSMSNodeOverCBORTests` | the station program against a CSMS node of WWCP_OCPP, over `ocpp2.1` and over `ocpp2.1cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the CSMS for a Heartbeat and sending it; nothing told of as a message of the binary format |
+| `SignatureFormatsOfAConnectionTests` | a connection saying which signatures the messages the station signs for it get: "jws", "cose", "both" told the OCPP node when the connection is made, nothing and "policy" left to the signature policy; a change told the node as well; what names no signatures refused, and "cose" and "both" for OCPP 1.6; a change keeping what it does not say, and "policy" taking it back |
 | `DiallingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
@@ -881,6 +882,18 @@ connections page (a chip "CBOR") and under `subprotocolInUse` in what
 `GET /api/v1/configuration/connections` answers. A connection test offers
 what the connection would, asks its Heartbeat as CBOR where the handshake came
 to it, and shows the frames it receives as the JSON they stand for.
+
+**Which signatures.** What the station signs, it signs the way its signature
+policy says - the JWS over the JSON of a message, unless the policy says
+otherwise - and a connection may say otherwise for the messages that leave
+over it, under `signatureFormats`: `"jws"`, `"cose"` for the COSE_Sign1 over
+the CBOR of the message, or `"both"`, next to each other. `"policy"` is saying
+nothing, and takes back what a connection said. A COSE signature signs the
+CBOR of a message whatever the connection carries, so it does not need
+`"encoding": "cbor"`; it is read by a back end that knows the message. What
+the station verifies is no matter of this: every signature it can read. OCPP
+1.6 has no CBOR and so no COSE signature, and a 1.6 connection that names
+`"cose"` or `"both"` is refused.
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
 over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of

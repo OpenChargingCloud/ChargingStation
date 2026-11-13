@@ -1007,10 +1007,11 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
                                         ServerPinsChange?                Pins            = null,
                                         String?                          HTTPVersion     = null,
-                                        String?                          Encoding        = null)
+                                        String?                          Encoding        = null,
+                                        String?                          SignatureFormats = null)
 
             => TryAddConnection(Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
-                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion, Encoding);
+                                out Id, out Error, out _, OCPPVersion, SshHostKey, SshTrust, ServerKeyPins, KeyPinTrust, Pins, HTTPVersion, Encoding, SignatureFormats);
 
         /// <summary>
         /// Write down one connection - and say whether a refusal was the
@@ -1024,6 +1025,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; none for nothing.</param>
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; none for "auto".</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; none for "json".</param>
+        /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose" or "both"; none, or "policy", for what the signature policy says.</param>
         public Boolean TryAddConnection(String?                          Description,
                                         String?                          URL,
                                         String?                          ConnectionType,
@@ -1040,7 +1042,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                         ServerKeyPinSettings?            KeyPinTrust     = null,
                                         ServerPinsChange?                Pins            = null,
                                         String?                          HTTPVersion     = null,
-                                        String?                          Encoding        = null)
+                                        String?                          Encoding        = null,
+                                        String?                          SignatureFormats = null)
         {
 
             Id        = null;
@@ -1054,6 +1057,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
 
             if (!ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseSignatureFormats(version, SignatureFormats, out var saysSignatureFormats, out var signatureFormats, out Error))
                 return false;
 
             if (!ConnectionEntry.ValidateHostKey(url, SshHostKey, out var hostKey, out Error))
@@ -1112,7 +1118,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                 ServerKeyPinProbationTime  = keyPinProbationTime,
                                 Pins                       = pins,
                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
-                                Encoding                   = encoding    ?? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON
+                                Encoding                   = encoding    ?? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON,
+                                SignatureFormats           = signatureFormats
                             };
 
                 var peersBefore = SnapshotPeers();
@@ -1174,11 +1181,12 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
                                            ServerPinsChange?                Pins                   = null,
                                            String?                          HTTPVersion            = null,
-                                           String?                          Encoding               = null)
+                                           String?                          Encoding               = null,
+                                           String?                          SignatureFormats       = null)
 
             => TryUpdateConnection(Id, Description, URL, ConnectionType, AutoConnect, AuthenticationId, CertificateId,
                                    out Error, out _, OCPPVersion, SshHostKey, SshHostKeyAsShown, SshTrust,
-                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion, Encoding);
+                                   ServerKeyPins, ServerKeyPinsAsShown, KeyPinTrust, Pins, HTTPVersion, Encoding, SignatureFormats);
 
         /// <summary>
         /// Change one connection - and say whether a refusal was the file's
@@ -1194,6 +1202,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// <param name="Pins">What the server of a wss:// connection checked by its CA is held to beside that; nothing to keep what it is held to.</param>
         /// <param name="HTTPVersion">The version of HTTP the WebSocket is opened over - "auto", "1.1" or "2"; nothing to keep the one it has.</param>
         /// <param name="Encoding">How its messages are written - "json", "cbor" or "auto"; nothing to keep what it says.</param>
+        /// <param name="SignatureFormats">Which signatures it writes - "jws", "cose", "both", or "policy" for what the signature policy says; nothing to keep what it says.</param>
         public Boolean TryUpdateConnection(String?                          Id,
                                            String?                          Description,
                                            String?                          URL,
@@ -1212,7 +1221,8 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                            ServerKeyPinSettings?            KeyPinTrust            = null,
                                            ServerPinsChange?                Pins                   = null,
                                            String?                          HTTPVersion            = null,
-                                           String?                          Encoding               = null)
+                                           String?                          Encoding               = null,
+                                           String?                          SignatureFormats       = null)
         {
 
             NotSaved = false;
@@ -1225,6 +1235,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 return false;
 
             if (!ConnectionEntry.TryParseEncoding(version, Encoding, out var encoding, out Error))
+                return false;
+
+            if (!ConnectionEntry.TryParseSignatureFormats(version, SignatureFormats, out var saysSignatureFormats, out var signatureFormats, out Error))
                 return false;
 
             // Whether the host key is to stay as it is: left out, or sent back
@@ -1366,6 +1379,15 @@ namespace cloud.charging.open.ChargingStation.OCPP
                 entry.Encoding            = version == global::cloud.charging.open.ChargingStation.OCPP.OCPPVersion.OCPP1_6
                                                 ? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON
                                                 : encoding ?? entry.Encoding;
+
+                // Kept where the change does not say; "policy" says that the
+                // connection says nothing any more. OCPP 1.6 has no COSE signature.
+                entry.SignatureFormats    = saysSignatureFormats
+                                                ? signatureFormats
+                                                : version == global::cloud.charging.open.ChargingStation.OCPP.OCPPVersion.OCPP1_6 &&
+                                                  entry.SignatureFormats is not null and not cloud.charging.open.protocols.WWCP.SignatureFormats.JWS
+                                                      ? null
+                                                      : entry.SignatureFormats;
 
                 // A key learned on probation goes with the pins somebody wrote,
                 // and with a server elsewhere; so does the version of the
@@ -2452,6 +2474,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                Was.CertificateId       != Now.CertificateId       ||
                Was.HTTPVersion         != Now.HTTPVersion         ||
                Was.Encoding            != Now.Encoding            ||
+               Was.SignatureFormats    != Now.SignatureFormats    ||
                Was.SshHostKey          != Now.SshHostKey          ||
                Was.SshTrustOnFirstUse  != Now.SshTrustOnFirstUse  ||
                Was.SshOnPinMismatch    != Now.SshOnPinMismatch    ||

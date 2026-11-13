@@ -843,6 +843,11 @@ export interface StationConnection {
     encoding?:                   EncodingOfAConnection;
     /** The subprotocol the WebSocket it has now agreed on: "ocpp2.1", "ocpp2.1cbor". */
     subprotocolInUse?:           string;
+    /**
+     * Which signatures the messages the station signs for it get: "jws",
+     * "cose" or "both". Left out, the signature policy of the station decides.
+     */
+    signatureFormats?:           SignatureFormatsOfAConnection;
     warnings?:           string[];
 }
 
@@ -852,12 +857,17 @@ export type HTTPVersionOfAConnection = 'auto' | '1.1' | '2' | '3';
 /** How the OCPP messages of a connection are written. */
 export type EncodingOfAConnection = 'json' | 'cbor' | 'auto';
 
+/** Which signatures a connection writes; "policy" is what the signature policy of the station says. */
+export type SignatureFormatsOfAConnection = 'policy' | 'jws' | 'cose' | 'both';
+
 /** What goes in when a connection is written down or changed. */
 export interface ConnectionToSave {
     /** The version of HTTP its WebSocket is opened over; left out, the station keeps the one it has. */
     httpVersion?:        HTTPVersionOfAConnection;
     /** How its OCPP messages are written; left out, the station keeps what it says. */
     encoding?:           EncodingOfAConnection;
+    /** Which signatures it writes; left out, the station keeps what it says, and "policy" is saying nothing. */
+    signatureFormats?:   SignatureFormatsOfAConnection;
     id?:                 string;
     description:         string;
     url:                 string;

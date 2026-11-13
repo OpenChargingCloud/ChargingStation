@@ -1,4 +1,4 @@
-import { api, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type StationConnection, type StationConnections } from '../api/client';
+import { api, type ConnectionState, type ConnectionTest, type ConnectionTestAsks, type ConnectionToSave, type EncodingOfAConnection, type HTTPVersionOfAConnection, type SignatureFormatsOfAConnection, type StationConnection, type StationConnections } from '../api/client';
 import { auth } from '../auth';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
@@ -23,6 +23,14 @@ const encodings: ReadonlyArray<readonly [EncodingOfAConnection, string]> = [
     [ 'json', 'JSON, as OCPP defines it' ],
     [ 'cbor', 'CBOR and nothing else' ],
     [ 'auto', 'CBOR where the back end speaks it' ]
+];
+
+/** Which signatures a connection may write, as the station names them. */
+const signatureFormats: ReadonlyArray<readonly [SignatureFormatsOfAConnection, string]> = [
+    [ 'policy', 'As the signature policy says' ],
+    [ 'jws',    'JWS, over the JSON of a message' ],
+    [ 'cose',   'COSE, over the CBOR of a message' ],
+    [ 'both',   'Both, next to each other' ]
 ];
 
 /**
@@ -391,6 +399,23 @@ export const connectionsPage: Page = {
                             binary frames, agreed on as the subprotocol "ocpp2.1cbor": a back end that
                             does not speak it is not connected to with "CBOR and nothing else", and is
                             spoken to in JSON with "CBOR where the back end speaks it". OCPP 1.6 has no CBOR.
+                        </span>
+                    </label>
+
+                    <label>Signatures as
+                        <select name="signatureFormats" ?disabled=${!mayManage}>
+                            ${signatureFormats.map(([value, text]) => html`
+                                <option value="${value}" ?selected=${value === (entry?.signatureFormats ?? 'policy')}>
+                                    ${text}
+                                </option>
+                            `)}
+                        </select>
+                        <span class="hint">
+                            Which signatures the messages this station signs for this connection get.
+                            A COSE signature signs the CBOR of a message whatever the connection
+                            carries, and is read by a back end that knows the message. What the
+                            station verifies is not a matter of this: every signature it can read.
+                            OCPP 1.6 has no COSE signature.
                         </span>
                     </label>
 
@@ -948,6 +973,7 @@ export const connectionsPage: Page = {
                 ocppVersion:         field(form, 'ocppVersion'),
                 httpVersion:         (form.querySelector<HTMLSelectElement>('[name="httpVersion"]')?.value ?? 'auto') as HTTPVersionOfAConnection,
                 encoding:            (form.querySelector<HTMLSelectElement>('[name="encoding"]')?.value ?? 'json') as EncodingOfAConnection,
+                signatureFormats:    (form.querySelector<HTMLSelectElement>('[name="signatureFormats"]')?.value ?? 'policy') as SignatureFormatsOfAConnection,
                 autoConnect:  form.querySelector<HTMLInputElement>('[name="autoConnect"]')?.checked ?? false,
                 authenticationId:    proves.startsWith('auth:') ? proves.slice(5) : null,
                 certificateId:       proves.startsWith('cert:') ? proves.slice(5) : null
