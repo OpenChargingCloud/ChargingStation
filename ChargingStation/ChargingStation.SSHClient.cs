@@ -77,7 +77,7 @@ namespace cloud.charging.open.ChargingStation
         #region (private) KeyOf(Purpose)
 
         /// <summary>
-        /// The station's key of the given purpose; null for NTS, whose key is the node's.
+        /// The station's key of the given purpose; null for NTS and DNS, whose keys are the node's.
         /// </summary>
         private SshClientKey? KeyOf(OCPPv2_1.SSHKeyPurpose Purpose)
 
@@ -362,8 +362,8 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// TriggerMessage of CustomTrigger "SignSSHKey" - "SignSSHKey:SFTP" for the key of SFTP: a new key
-        /// is made, and shown to the CSMS in SignSSHKey (section 10.3). The NTS key is the node's, and is
-        /// not rotated this way.
+        /// is made, and shown to the CSMS in SignSSHKey (section 10.3). The keys of NTS and DNS are the
+        /// node's, and are not rotated this way.
         /// </summary>
         private Task<OCPPv2_1.CS.TriggerMessageResponse?> CustomTrigger(OCPPv2_1.CSMS.TriggerMessageRequest Request)
         {
@@ -523,7 +523,7 @@ namespace cloud.charging.open.ChargingStation
 
             public IEnumerable<String> ConnectionVariables          => [ "HostKeyPins", "HostKeyPinsVersion", "TrustOnFirstUse", "ProbationTime", "OnPinMismatch", "HostKeyFingerprint", "LearnedHostKey" ];
             public IEnumerable<String> WritableConnectionVariables  => [ "HostKeyPins", "HostKeyPinsVersion", "TrustOnFirstUse", "ProbationTime", "OnPinMismatch" ];
-            public IEnumerable<String> Purposes                     => [ "Station", "NTS", "SFTP" ];
+            public IEnumerable<String> Purposes                     => [ "Station", "NTS", "SFTP", "DNS" ];
             public IEnumerable<String> KeyVariables                 => [ "ClientPublicKey", "ClientPendingPublicKey", "ClientCertificate", "ClientKeyMaxAge", "ClientKeyAlgorithms" ];
             public IEnumerable<String> WritableKeyVariables         => [ "ClientKeyMaxAge" ];
 
@@ -555,9 +555,16 @@ namespace cloud.charging.open.ChargingStation
                 if (!OCPPv2_1.SSHKeyPurposeExtensions.TryParse(Purpose ?? "", out var purpose))
                     return null;
 
-                // The NTS key is the node's: shown, and neither rotated nor aged here.
+                // The keys of NTS and DNS are the node's: shown, and neither rotated
+                // nor aged here. Each its own - the one the station signs in with at
+                // its time servers, and the one for its name servers over SSH (white
+                // paper "DNS over SSH", section 7.3) - made at the first read.
                 if (Station.KeyOf(purpose) is not SshClientKey key)
-                    return Variable == "ClientPublicKey" ? Station.NTSKEClientPublicKey ?? "" : Variable == "ClientKeyMaxAge" ? "0" : "";
+                    return Variable == "ClientPublicKey"
+                               ? (purpose == OCPPv2_1.SSHKeyPurpose.DNS
+                                      ? Station.DNSSSHClientPublicKey
+                                      : Station.NTSKEClientPublicKey) ?? ""
+                               : Variable == "ClientKeyMaxAge" ? "0" : "";
 
                 return Variable switch {
                            "ClientPublicKey"         => key.PublicKeyLine ?? Made(key),
@@ -619,7 +626,7 @@ namespace cloud.charging.open.ChargingStation
 
                             else if (!OCPPv2_1.SSHKeyPurposeExtensions.TryParse(entry.Data.Variable.Instance ?? "", out var purpose) ||
                                      Station.KeyOf(purpose) is not SshClientKey key)
-                                Result(index, OCPPv2_1.SetVariableStatus.Rejected, "NotSupported", "Only the keys of OCPP and SFTP are this station's own; the NTS key is the node's.");
+                                Result(index, OCPPv2_1.SetVariableStatus.Rejected, "NotSupported", "Only the keys of OCPP and SFTP are this station's own; the keys of NTS and DNS are the node's.");
 
                             else if (!UInt32.TryParse(entry.Data.AttributeValue, out var days))
                                 Result(index, OCPPv2_1.SetVariableStatus.Rejected, "InvalidValue", $"'{entry.Data.AttributeValue}' is no number of days.");

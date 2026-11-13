@@ -72,7 +72,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (protected override) SSHPeerClientKey, SSHPeerClientPublicKey, DefaultSSHPeerUser
+        #region (protected override) SSHPeerClientKey, SSHPeerClientPublicKey, DefaultSSHPeerUser, SSHPeerHostsToBe
 
         /// <summary>
         /// The key this station signs in with at the SSH peers of its
@@ -113,6 +113,19 @@ namespace cloud.charging.open.ChargingStation
         protected override String DefaultSSHPeerUser
 
             => cs02.Id.ToString();
+
+        /// <summary>
+        /// The hosts of the connections this station dials over SSH: each
+        /// becomes an SSH peer when it is first dialled, and is one a name
+        /// server may be given to share the connection of before that - the
+        /// host of a network connection profile with an ssh:// URL, as section
+        /// 7.2 of the white paper "DNS over SSH" has it. A station that starts
+        /// cold has its names over that connection before OCPP went over it.
+        /// </summary>
+        protected override IEnumerable<String> SSHPeerHostsToBe
+
+            => [.. Connections.Connections.Where (entry => entry.IsSSH).
+                                           Select(entry => entry.URL.Host.ToString())];
 
         #endregion
 
