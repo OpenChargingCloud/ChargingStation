@@ -518,7 +518,7 @@ namespace cloud.charging.open.ChargingStation
 
             // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
             // and what TLSClientController reads and writes of them - see
-            // OCPPDiallingNode.KeyPins.cs and ChargingStation.TLSClient.cs.
+            // OCPPDiallingNode.KeyPins.cs and OCPPDiallingNode.TLSClient.cs.
             this.keyPinning       = NewKeyPinning();
             this.tlsClientSource  = NewTLSClientSource();
 
@@ -548,7 +548,7 @@ namespace cloud.charging.open.ChargingStation
 
             // Before the dialling below, which is told after it: a connection
             // dialled again has its TLSClientController instance by then - see
-            // ChargingStation.TLSClient.cs.
+            // OCPPDiallingNode.TLSClient.cs.
             this.Connections.OnConnectionsChanged += () => FollowTLSClientComponents(cs02);
 
             // What is written down is what is dialled, from the moment it is
