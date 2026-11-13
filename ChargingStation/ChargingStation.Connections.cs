@@ -279,10 +279,26 @@ namespace cloud.charging.open.ChargingStation
         ///
         /// A one-time password goes under its login, in "Authorization:
         /// TOTP", which is what an OCPP server verifies. One bound to the TLS
-        /// session is not sent at all: this station's TLS exports no keying
-        /// material to bind it with, and sending it unbound would be less than
+        /// session is bound on a connection that names HTTP/3 and nothing
+        /// else, where the TLS of QUIC exports the keying material to bind it
+        /// with. On any other connection it is not sent at all: the station's
+        /// TLS exports none there, and sending it unbound would be less than
         /// what was configured.
         /// </remarks>
+        /// <summary>
+        /// Whether a one-time password can be bound to the TLS session of
+        /// this connection: one that is opened over HTTP/3 and nothing else.
+        /// </summary>
+        /// <remarks>
+        /// Known before it is made, which is what is needed: a connection left
+        /// the choice of the version may come to an SslStream, which exports
+        /// nothing to bind a password with.
+        /// </remarks>
+        internal static Boolean BindsItsPassword(ConnectionEntry Connection)
+
+            => !Connection.IsSSH &&
+                Connection.HTTPVersion == WebSocketHTTPVersion.HTTP3;
+
         private Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
                                                out IHTTPAuthentication?    Basic,
                                                out TOTPConfig?             TOTP,
@@ -320,10 +336,11 @@ namespace cloud.charging.open.ChargingStation
                     return false;
                 }
 
-                if (TOTP is not null && credentials.TLSChannelBinding)
+                if (TOTP is not null && credentials.TLSChannelBinding && !BindsItsPassword(Connection))
                 {
-                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and this station's TLS " +
-                             "exports no keying material to bind one with. Switch the binding off for it to have it sent unbound";
+                    Error = $"it uses '{credentials.Description}', a one-time password bound to the TLS session, and one is bound only on " +
+                             "a connection that names HTTP/3 and nothing else: over HTTP/1.1 and HTTP/2 this station's TLS exports no " +
+                             "keying material to bind one with. Name HTTP/3 for it, or switch the binding off to have it sent unbound";
                     TOTP  = null;
                     return false;
                 }
@@ -332,7 +349,8 @@ namespace cloud.charging.open.ChargingStation
                     TOTPLogin = credentials.Login;
 
                 Says = TOTP is not null
-                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), unbound"
+                           ? $"HTTP TOTP as '{credentials.Login}' ('{credentials.Description}'), " +
+                             (credentials.TLSChannelBinding ? "bound to the TLS session of the connection" : "unbound")
                            : $"HTTP Basic as '{credentials.Login}' ('{credentials.Description}')";
 
             }
@@ -590,6 +608,11 @@ namespace cloud.charging.open.ChargingStation
 
                 }
 
+                // Which signatures the messages for this connection get, said before
+                // the first of them is signed. Of an OCPP 2.1 connection: 1.6 has no COSE.
+                if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is IWWCPClient itsClient)
+                    cs02.OCPP.SetSignatureFormats(itsClient, Connection.SignatureFormats);
+
                 if (client is not null)
                     Follow(Connection, client, Connected: true);
 
@@ -723,6 +746,51 @@ namespace cloud.charging.open.ChargingStation
 
                    ? ConnectionEntry.AsText(over)
                    : null;
+
+        #endregion
+
+        #region (internal) SignatureFormatsOf(Connection)
+
+        /// <summary>
+        /// Which signatures the OCPP 2.1 node of this station writes for the
+        /// given connection now - or null, where its signature policy decides.
+        /// </summary>
+        internal cloud.charging.open.protocols.WWCP.SignatureFormats? SignatureFormatsOf(ConnectionEntry Connection)
+
+            => cs02.OCPP.SignatureFormatsFor(NextHopOf(Connection));
+
+        #endregion
+
+        #region (internal) SubprotocolInUseOf(Connection)
+
+        /// <summary>
+        /// The subprotocol the given connection agreed on - "ocpp2.1",
+        /// "ocpp2.1cbor" - over a WebSocket or over ssh://, or null where it
+        /// is not connected.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the client that was made for the connection when it was
+        /// dialled. A WebSocket says it in its handshake, an ssh:// connection
+        /// in the WELCOME its server answers the HELLO with.
+        /// </remarks>
+        internal String? SubprotocolInUseOf(ConnectionEntry Connection)
+
+            => LiveOf(Connection)?.Client switch {
+
+                   WWCPWebSocketClient { Connected: true } webSocketClient
+                       => webSocketClient.WebSocketClientConnection?.Subprotocol,
+
+                   WWCPSshClient sshClient
+                       => sshClient.MessageClient.Connection is SshMessageConnection { IsAlive: true } connection
+                              ? connection.Subprotocol
+                              : null,
+
+                   // One that was dialled without a peer of its own.
+                   _   => Connection.IsSSH
+                              ? null
+                              : SubprotocolInUseAt(Connection.URL)
+
+               };
 
         #endregion
 
@@ -995,6 +1063,20 @@ namespace cloud.charging.open.ChargingStation
                 return;
 
             }
+
+            // How its messages are written: where the server chose, this is the only place that says.
+            if (Connection.Encoding != OCPPCommon.WebSockets.MessageEncodings.JSON &&
+                client?.MessageClient.Connection?.Subprotocol is String agreed)
+            {
+                Log.Info($"The connection to {Where} agreed on {agreed}: its messages are " +
+                         (OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(agreed) ? "CBOR" : "JSON") +
+                         (Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.Auto ? ", which its server chose" : "") +
+                         ".", "ocpp", "connections");
+            }
+
+            // As over a WebSocket: which signatures the messages for this connection get.
+            if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is not null)
+                cs02.OCPP.SetSignatureFormats(client, Connection.SignatureFormats);
 
             if (client is not null)
             {

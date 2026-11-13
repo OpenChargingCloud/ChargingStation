@@ -154,13 +154,15 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
 | `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, and "cbor" for OCPP 1.6; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
-| `DiallingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks |
+| `AgainstACSMSNodeOverCBORTests` | the station program against a CSMS node of WWCP_OCPP, over `ocpp2.1` and over `ocpp2.1cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the CSMS for a Heartbeat and sending it; nothing told of as a message of the binary format |
+| `SignatureFormatsOfAConnectionTests` | a connection saying which signatures the messages the station signs for it get: "jws", "cose", "both" told the OCPP node when the connection is made, nothing and "policy" left to the signature policy; a change told the node as well; what names no signatures refused, and "cose" and "both" for OCPP 1.6; a change keeping what it does not say, and "policy" taking it back |
+| `DiallingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks; what the connection agreed on said by the station as of a WebSocket; which signatures it writes told the OCPP node, and taken back by "policy" |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
 | `ConnectionTestRequestTests` | what a connection test asks in OCPP: a Heartbeat as it was sent, its answer and how long it took, and how far the back end's clock is off; an error as an answer; no answer, or one to something else, failing the test; `none` asking nothing; and `testconnection` at the command line, by description and by identification, line by line with its milliseconds |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
-| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
+| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; a tool that offers `ocpp2.1cbor` answered in CBOR; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -875,11 +877,24 @@ speak it is not connected to some other way - and `"auto"` offers
 back end chooses. `"json"` is what a connection that says nothing is. It is
 the same over a WebSocket and over `ssh://`, which agree on the same
 subprotocols; OCPP 1.6 has no CBOR, and a 1.6 connection that names `"cbor"`
-or `"auto"` is refused. What a connection came to stands in the log, on the
-connections page (a chip "CBOR") and under `subprotocolInUse` in what
-`GET /api/v1/configuration/connections` answers. A connection test offers
+or `"auto"` is refused. What a connection came to - over a WebSocket and over
+`ssh://` - stands in the log, on the connections page (a chip "CBOR") and
+under `subprotocolInUse` in what `GET /api/v1/configuration/connections`
+answers. A connection test offers
 what the connection would, asks its Heartbeat as CBOR where the handshake came
 to it, and shows the frames it receives as the JSON they stand for.
+
+**Which signatures.** What the station signs, it signs the way its signature
+policy says - the JWS over the JSON of a message, unless the policy says
+otherwise - and a connection may say otherwise for the messages that leave
+over it, under `signatureFormats`: `"jws"`, `"cose"` for the COSE_Sign1 over
+the CBOR of the message, or `"both"`, next to each other. `"policy"` is saying
+nothing, and takes back what a connection said. A COSE signature signs the
+CBOR of a message whatever the connection carries, so it does not need
+`"encoding": "cbor"`; it is read by a back end that knows the message. What
+the station verifies is no matter of this: every signature it can read. OCPP
+1.6 has no CBOR and so no COSE signature, and a 1.6 connection that names
+`"cose"` or `"both"` is refused.
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
 over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of
@@ -899,6 +914,17 @@ the station is, what it shows for it and what its server is held to - its
 roots, its pins, its key - are the same over all three; a client certificate
 is shown over HTTP/3 with a key of ECDSA P-256, ECDSA P-384 or RSA. The page
 and the log say which version a connection came to, and so does its test.
+
+**A one-time password bound to its connection.** Credentials of the kind
+TOTP may say `"tlsChannelBinding": true`: the password is then made with
+keying material of the TLS session it is sent over (RFC 8446, section 7.5), which
+the back end has too and nobody else, so a password read off one connection is
+none on another. The TLS of QUIC exports that material and .NET's `SslStream`
+does not, so the password is bound on a connection that says `"httpVersion": "3"`
+and on no other: one that names HTTP/1.1 or HTTP/2, or leaves the choice to the
+server, is not dialled with such credentials and says so, where it is written
+down and where it is dialled or tested. The back end has to verify the password
+as bound - a WebSocket server of this stack does, over HTTP/3.
 
 **Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
 the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's
@@ -1013,13 +1039,16 @@ connected; switched off, every tool connected is let go of:
     GET  /api/v1/configuration/commissioning
     {"enabled": true, "served": true, "sshServer": true, "url": "ssh://127.0.0.1:22348",
      "hostKey": "ssh-ed25519 SHA256:...", "subsystem": "ocpp@open.charging.cloud",
-     "subprotocols": ["ocpp2.1", "ocpp2.0.1"], "station": "test02",
+     "subprotocols": ["ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor"], "station": "test02",
      "permission": "commissioning:run", "tools": ["installer"], ...}
     PUT  /api/v1/configuration/commissioning    {"enabled": false}
 
 The tool signs in as an account of the station with its own key and asks for
 the subsystem `ocpp@open.charging.cloud`, which only an account that may run
-`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be.
+`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be. A
+tool that offers `ocpp2.1cbor` in its HELLO speaks OCPP 2.1 as CBOR, in the
+binary messages of the subsystem; one that offers `ocpp2.1` is spoken to in
+JSON, as before.
 
 It is a networking node of its own, named after its account - not the CSMS.
 A route is one per destination, and the newest connection takes it: a tool

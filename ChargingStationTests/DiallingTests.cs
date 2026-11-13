@@ -417,9 +417,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AOneTimePasswordBoundToTLSIsNotDialled()
 
         /// <summary>
-        /// A one-time password that is to be bound to the TLS session cannot be:
-        /// this station's TLS exports no keying material. It is not dialled,
-        /// and says why, rather than sent unbound.
+        /// A one-time password that is to be bound to the TLS session cannot be
+        /// on a connection that does not name HTTP/3: this station's TLS
+        /// exports no keying material there. It is not dialled, and says why,
+        /// rather than sent unbound.
         /// </summary>
         [Test]
         public async Task AOneTimePasswordBoundToTLSIsNotDialled()

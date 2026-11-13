@@ -163,7 +163,10 @@ namespace cloud.charging.open.ChargingStation
         private OCPPSshServer AttachCommissioning(OCPPv2_1.CS.TestChargingStationNode Node)
         {
 
-            var server = Node.AttachOCPPSshSubsystem(Subprotocols: [ "ocpp2.1", "ocpp2.0.1" ]);
+            // OCPP 2.1 as JSON, and as CBOR for a tool that offers it: the same
+            // subprotocols a back end agrees on. JSON first, so that a tool that
+            // offers both is spoken to as before.
+            var server = Node.AttachOCPPSshSubsystem(Subprotocols: [ "ocpp2.1", "ocpp2.0.1", OCPPv2_1.Version.WebSocketSubProtocolIdCBOR ]);
 
             server.MessageServer.ValidateHello = (messageServer, context, hello, subprotocol, cancellationToken) =>
                                                      ValueTask.FromResult(

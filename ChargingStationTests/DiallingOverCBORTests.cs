@@ -243,7 +243,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => station!.Connections.Connections.Single();
 
         private String? InUse
-            => station!.SubprotocolInUseAt(URL.Parse(Address));
+            => station!.SubprotocolInUseOf(Entry);
 
         private static String Steps(JObject Result)
             => String.Join("\n", Result["steps"]!.Select(step => step.Value<String>("text")));

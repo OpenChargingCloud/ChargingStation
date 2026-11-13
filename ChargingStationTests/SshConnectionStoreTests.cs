@@ -201,6 +201,65 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region WhenAKeyWasLearned_IsReadWhateverTheDayAndTheCulture(Culture, Day)
+
+        /// <summary>
+        /// When a host key was learned is read as it was written, on a machine
+        /// that writes the day first as on one that writes the month first, and
+        /// on every day of a month: a file is read with its times recognized,
+        /// and a time asked for as a text is written the invariant way.
+        /// </summary>
+        [TestCase("de-DE",  7)]
+        [TestCase("de-DE", 25)]
+        [TestCase("en-US",  7)]
+        [TestCase("en-US", 25)]
+        public void WhenAKeyWasLearned_IsReadWhateverTheDayAndTheCulture(String Culture, Int32 Day)
+        {
+
+            var before = System.Globalization.CultureInfo.CurrentCulture;
+
+            try
+            {
+
+                System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(Culture);
+
+                Assert.That(store.TryAddConnection("Over SSH", AnSshURL, "CSMS", true, null, null, out var id, out var error,
+                                                   SshTrust: new SshTrustSettings("HostKey", null, 120)),
+                            Is.True, error);
+
+                Assert.That(store.TryLearnHostKey(id!, URL.Parse(AnSshURL), Fingerprint, out error), Is.True, error);
+
+                var written = store.Connections.Single(entry => entry.Id == id).ToJSON();
+                var learned = $"2026-11-{Day:00}T10:11:12.000Z";
+
+                written["sshLearnedAt"] = learned;
+
+                // As a file is read: what looks like a time is one.
+                var asRead  = Newtonsoft.Json.Linq.JObject.Parse(written.ToString());
+
+                Assert.That(asRead["sshLearnedAt"]!.Type,  Is.EqualTo(Newtonsoft.Json.Linq.JTokenType.Date));
+
+                Assert.That(ConnectionEntry.TryParse(asRead, out var entry, out error), Is.True, error);
+
+                Assert.That(entry!.SshLearnedAt,
+                            Is.EqualTo(new DateTimeOffset(2026, 11, Day, 10, 11, 12, TimeSpan.Zero)));
+
+                // And as a text that was left a text.
+                Assert.That(ConnectionEntry.TryParse(written, out var fromText, out error), Is.True, error);
+
+                Assert.That(fromText!.SshLearnedAt,
+                            Is.EqualTo(new DateTimeOffset(2026, 11, Day, 10, 11, 12, TimeSpan.Zero)));
+
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentCulture = before;
+            }
+
+        }
+
+        #endregion
+
         #region ALearnedHostKeyIsWrittenDownOnlyWhereItTrustsOnFirstUse()
 
         /// <summary>

@@ -191,16 +191,19 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// Whether the password is bound to the TLS session it is sent over.
         /// </summary>
         /// <remarks>
-        /// False by default, because true cannot be done yet. Binding needs
-        /// keying material exported from the TLS session, and this station's
-        /// TLS - .NET's SslStream - exports none. A connection whose
-        /// credentials ask for the binding is therefore not dialled at all,
-        /// and says why: sending the password unbound instead would be less
-        /// than what was configured, quietly.
+        /// False by default, because true can be done on some connections
+        /// only. Binding needs keying material exported from the TLS session.
+        /// The TLS of QUIC exports it, so a connection that names HTTP/3 and
+        /// nothing else binds its password; .NET's SslStream, which is the
+        /// station's TLS over HTTP/1.1 and HTTP/2, exports none. A connection
+        /// of those whose credentials ask for the binding - one left the
+        /// choice of the version among them - is not dialled at all, and says
+        /// why: sending the password unbound instead would be less than what
+        /// was configured, quietly.
         ///
-        /// A bound password would be the better choice - it is no use to
-        /// anybody who copies it off one connection and tries it on another -
-        /// and becomes the default again once the station can make one.
+        /// A bound password is the better choice where it can be had: it is
+        /// no use to anybody who copies it off one connection and tries it on
+        /// another.
         /// </remarks>
         public Boolean             TLSChannelBinding   { get; internal set; }
 

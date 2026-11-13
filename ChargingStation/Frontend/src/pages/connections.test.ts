@@ -693,4 +693,31 @@ describe('the Connections page', () => {
 
     });
 
+    it('says which signatures a connection writes, and leaves them to the policy where it says nothing', async () => {
+
+        const root = await opened(() => {
+            const station = aStation();
+            return { ...station,
+                     connections: [ { ...station.connections[0]!, signatureFormats: 'cose' as const },
+                                    station.connections[1]! ] };
+        });
+
+        const marked = (form: string): string | undefined =>
+            root.querySelector<HTMLOptionElement>(`${form} select[name="signatureFormats"] option[selected]`)?.value;
+
+        assert.equal(marked('form[data-edit="c1"]'), 'cose');
+        assert.equal(marked('form[data-edit="c2"]'), 'policy', 'a connection that says nothing leaves it to the policy');
+        assert.equal(marked('#add-form'),            'policy');
+        assert.deepEqual([...root.querySelectorAll<HTMLOptionElement>('form[data-edit="c1"] select[name="signatureFormats"] option')].map(option => option.value),
+                         [ 'policy', 'jws', 'cose', 'both' ]);
+
+        root.querySelector<HTMLSelectElement>('form[data-edit="c1"] select[name="signatureFormats"]')!.value = 'policy';
+
+        submit(root, 'form[data-edit="c1"]');
+        await until(() => lastSaved !== null, 'the connection was not saved');
+
+        assert.equal(lastSaved!.signatureFormats, 'policy');
+
+    });
+
 });
