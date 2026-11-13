@@ -61,7 +61,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// The node that speaks OCPP 2.1 for this station.
         /// </summary>
-        protected override OCPPv2_1.NetworkingNode.AOCPPNetworkingNode? Node21
+        protected override OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node21
             => cs02;
 
         #endregion
