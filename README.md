@@ -486,7 +486,7 @@ and `run` for what is done now - a test, a message on the screen, a session.
 The resources are the node's - `configuration`, `dns`, `nts`, `certificates`,
 `ssh`, `log`, and what every node can be asked over OCPP: `node`, `reset` (a
 restart once idle), `reset-immediate`, `state` (what is going on, apart from
-how it is set up), `firmware` and `signatures` - and the station's fourteen, in
+how it is set up), `firmware` and `signatures` - and the station's fifteen, in
 `Web/StationAccess.cs`:
 
 | | |
@@ -505,6 +505,7 @@ how it is set up), `firmware` and `signatures` - and the station's fourteen, in
 | `nameplate`    | read, what the station tells a CSMS it is and whether it is accepted; edited, by the system administrator alone - it says what the equipment is |
 | `commissioning` | read, whether a tool may speak OCPP to the station over SSH and who does; edited, switched on or off; run, the subsystem `ocpp@open.charging.cloud` for the account |
 | `unlock`       | run, a stuck cable let go of - UnlockConnector |
+| `monitoring`   | read, the report of the station's monitors - GetMonitoringReport; edited, its base and level set and monitors cleared - SetMonitoringBase, SetMonitoringLevel, ClearVariableMonitoring |
 
 Asked of the node, which answers from the roles it put together at the start:
 its own three, the station's three - whose `support` is the node's and one
@@ -514,7 +515,7 @@ thing more - and whatever the configuration file adds.
 |---|---|
 | `viewer`      | `*:read` - look at everything, and change nothing |
 | `support`     | `state:read`, `state:run`, `reset:run` and `unlock:run` - sees what is going on, has it reported again, restarts the station once nothing is charging and lets go of a stuck cable, and nothing else |
-| `cpo`         | `*:read`, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run, `node`, `reset`, `reset-immediate`, `state` and `unlock` run, and `firmware:edit` |
+| `cpo`         | `*:read`, plus `dns`, `nts` and `connections` edited and run, `v2g`, `availability`, `display` and `providers` edited, `display` and `session` run, `node`, `reset`, `reset-immediate`, `state` and `unlock` run, `firmware:edit` and `monitoring:edit` |
 | `installer`   | that, plus `power:edit`, `calibration:edit`, `meters:edit`, `meters:run`, `commissioning:edit` and `commissioning:run` |
 | `systemadmin` | everything, and nothing the file can take away - the certificate store included, which nobody else may edit |
 

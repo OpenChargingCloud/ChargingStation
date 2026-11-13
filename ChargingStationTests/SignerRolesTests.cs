@@ -300,7 +300,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(PermissionsOf("support"),    Is.EquivalentTo(new[] { "state:read", "state:run", "reset:run", "unlock:run" }));
 
                 Assert.That(PermissionsOf("cpo"),        Is.SupersetOf  (new[] { "node:run", "reset:run", "reset-immediate:run",
-                                                                                 "state:run", "firmware:edit", "unlock:run" }));
+                                                                                 "state:run", "firmware:edit", "unlock:run", "monitoring:edit" }));
 
                 Assert.That(PermissionsOf("installer"),  Is.SupersetOf  (PermissionsOf("cpo")));
 
@@ -445,6 +445,40 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(policy.DecideVariable(request, "SSHClientController", "HostKeyPins",         "csms", null, "edit", out var pinSet),  Is.True,  pinSet);
                 Assert.That(policy.DecideVariable(request, "DNSClientController",  "NameServerAddresses", null,   null, "edit", out var dns),     Is.False, "a name server set by no role");
+            });
+
+        }
+
+        #endregion
+
+        #region TheMonitoringIsTheOperators()
+
+        /// <summary>
+        /// The monitoring of the station as a whole is a right of its own,
+        /// "monitoring": the operator sets its level, and the support, who
+        /// sets nothing up, does not.
+        /// </summary>
+        [Test]
+        public async Task TheMonitoringIsTheOperators()
+        {
+
+            await Connected();
+
+            var keys = Enforced("cpo", "support");
+
+            Task<JArray> SetLevel(ECCKeyPair Signer)
+
+                => Ask("SetMonitoringLevel",
+                       (destination, id) => new SetMonitoringLevelRequest(destination, Severities.Danger, RequestId: id),
+                       (request, context) => request.ToJSON(context),
+                       Signer);
+
+            var byTheOperator  = await SetLevel(keys["cpo"]);
+            var byTheSupport   = await SetLevel(keys["support"]);
+
+            Assert.Multiple(() => {
+                Assert.That(Refused(byTheOperator),  Is.False, "the operator sets the level of the monitoring");
+                Assert.That(Refused(byTheSupport),   Is.True,  "the support sets the level of the monitoring");
             });
 
         }

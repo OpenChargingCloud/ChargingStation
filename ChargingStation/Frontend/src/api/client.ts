@@ -25,12 +25,12 @@ export * from '@node/api/client';
 
 /**
  * What a role may be allowed to touch on this charging station: the node's
- * four resources, and the station's thirteen - see StationAccess.
+ * resources, and the station's fifteen - see StationAccess.
  */
 export type Resource = NodeResource
                      | 'evses' | 'rfid' | 'availability' | 'power' | 'calibration'
                      | 'display' | 'session' | 'connections' | 'v2g' | 'meters' | 'providers'
-                     | 'nameplate' | 'commissioning';
+                     | 'nameplate' | 'commissioning' | 'unlock' | 'monitoring';
 
 /** What somebody signed in to this station may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;

@@ -193,11 +193,26 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Unlock        = "unlock";
 
         /// <summary>
+        /// The monitoring of the station as a whole: read, the report of its
+        /// monitors - GetMonitoringReport; edited, its base and its level set
+        /// and monitors cleared - SetMonitoringBase, SetMonitoringLevel and
+        /// ClearVariableMonitoring.
+        /// </summary>
+        /// <remarks>
+        /// Its own resource, because these four are about no single component:
+        /// a monitor on a variable is set with the right to edit that
+        /// variable's component, and what is reported of all of them, and how
+        /// much, is the operator's to say (white paper "Signed OCPP Messages
+        /// and Signer Roles", section 5.3).
+        /// </remarks>
+        public const String  Monitoring    = "monitoring";
+
+        /// <summary>
         /// All of them, in the order a role in the file is checked against.
         /// </summary>
         public static readonly IReadOnlyList<String>  Resources = [ EVSEs, RFID, Availability, Power, Calibration,
                                                                     Display, Session, Connections, V2G, Meters, Providers,
-                                                                    Nameplate, Commissioning, Unlock ];
+                                                                    Nameplate, Commissioning, Unlock, Monitoring ];
 
         #endregion
 
@@ -213,7 +228,8 @@ namespace cloud.charging.open.ChargingStation.Web
         /// going on reported again, asks for any other message, lets go of a
         /// stuck cable and updates the firmware - where the station is
         /// metrologically relevant, a firmware update needs the installer's
-        /// "calibration:edit" too.
+        /// "calibration:edit" too. It says how much of the station is
+        /// monitored, and reads what is.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
                                                        [ Permission.Read(Permission.AnyResource),
@@ -234,8 +250,9 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (NodeResources.ResetImmediate),
                                                          Permission.Run (NodeResources.State),
                                                          Permission.Edit(NodeResources.Firmware),
-                                                         Permission.Run (Unlock) ],
-                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts and the firmware");
+                                                         Permission.Run (Unlock),
+                                                         Permission.Edit(Monitoring) ],
+                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts, the firmware and the monitoring");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator

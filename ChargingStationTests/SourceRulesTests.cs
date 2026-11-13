@@ -67,6 +67,35 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region ThePagesKnowTheResourcesTheStationKnows()
+
+        /// <summary>
+        /// The pages name the station's resources a second time, as a type, so
+        /// that asking for one that does not exist does not compile. That copy
+        /// had fallen behind: it knew no "unlock".
+        /// </summary>
+        [Test]
+        public void ThePagesKnowTheResourcesTheStationKnows()
+        {
+
+            var repository  = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "ChargingStation/ChargingStation.csproj",
+                                                                                    "ChargingStationTests/ChargingStationTests.csproj");
+
+            var client      = File.ReadAllText(Path.Combine(repository, "ChargingStation", "Frontend", "src", "api", "client.ts"));
+
+            var from        = client.IndexOf("export type Resource =", StringComparison.Ordinal);
+            Assert.That(from, Is.GreaterThanOrEqualTo(0), "api/client.ts has no type Resource any more!");
+
+            var type        = client[from .. client.IndexOf(';', from)];
+            var named       = System.Text.RegularExpressions.Regex.Matches(type, "'([^']+)'").
+                                  Select(match => match.Groups[1].Value);
+
+            Assert.That(named, Is.EqualTo(cloud.charging.open.ChargingStation.Web.StationAccess.Resources));
+
+        }
+
+        #endregion
+
     }
 
 }
