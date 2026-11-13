@@ -37,6 +37,19 @@ namespace cloud.charging.open.ChargingStation
     public partial class ChargingStation
     {
 
+        #region (static) Constructor
+
+        /// <summary>
+        /// What the connections of this process say of the node they are
+        /// the connections of: it is a station.
+        /// </summary>
+        static ChargingStation()
+        {
+            NodeWording.Is("station", "charging station");
+        }
+
+        #endregion
+
         #region Node16 / Node21
 
         /// <summary>
