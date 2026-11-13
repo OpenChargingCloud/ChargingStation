@@ -21,7 +21,7 @@ using NUnit.Framework;
 
 using Newtonsoft.Json.Linq;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion
 

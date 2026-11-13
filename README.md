@@ -222,7 +222,7 @@ is handed something else.
 | `Web/StationAccess.cs`    | the resources a station adds to the node's, and its three roles as data - `cpo`, `installer` and its own `support`, beside the node's `viewer` and `systemadmin` |
 | `ChargingStation.SignerRoles.cs` | what the signer of a request a CSMS sends may have done: the role of its key, held to this station's roles, and whether the station is metrologically relevant |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
-| `OCPP/`                   | the back ends this station dials, and the keys and certificates it holds up when it gets there |
+| `Connections/` of `WWCP_OCPP_Node` | the back ends this station dials, and the keys and certificates it holds up when it gets there: no code of the station's own any more, but that of every node that dials a CSMS |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
@@ -1137,7 +1137,7 @@ A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps
 no key of its own a vehicle is shown. Asking for a certificate over OCPP 1.6
 is not built. `StationCertificateTests` holds the station to all of it against
 a CSMS over TLS that asks for a client certificate; the code is in
-`ChargingStation.StationCertificate.cs` and `OCPP/CSMSRootCertificates.cs`.
+`ChargingStation.StationCertificate.cs` and `Connections/CSMSRootCertificates.cs` of `WWCP_OCPP_Node`.
 
 
 ## Meters

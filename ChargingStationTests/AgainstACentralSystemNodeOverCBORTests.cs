@@ -28,7 +28,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.OCPP.WebSockets;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using cloud.charging.open.protocols.OCPPv1_6.CS;

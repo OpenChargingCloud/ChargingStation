@@ -31,7 +31,7 @@ using Org.BouncyCastle.Pkcs;
 
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion
 

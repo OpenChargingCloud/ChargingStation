@@ -21,7 +21,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 

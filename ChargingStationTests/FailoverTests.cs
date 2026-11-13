@@ -30,7 +30,7 @@ using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using CSMS = cloud.charging.open.ChargingStation.Tests.TalkingToTheCSMSTests.CSMS;
 

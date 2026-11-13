@@ -39,7 +39,7 @@ using cloud.charging.open.ChargingStation.RFID;
 using cloud.charging.open.ChargingStation.ISO15118;
 using cloud.charging.open.protocols.OCPP.Node;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 using cloud.charging.open.ChargingStation.Web;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;

@@ -23,7 +23,7 @@ using cloud.charging.open.protocols.WWCP;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.Kiosk;
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 using cloud.charging.open.ChargingStation.RFID;
 
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;

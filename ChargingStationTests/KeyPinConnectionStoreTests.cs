@@ -25,7 +25,7 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 

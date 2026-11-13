@@ -43,7 +43,7 @@ using cloud.charging.open.protocols.WWCP.SSH;
 using cloud.charging.open.protocols.WWCP.WebSockets;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 
@@ -285,8 +285,7 @@ namespace cloud.charging.open.ChargingStation
         /// </remarks>
         internal static Boolean BindsItsPassword(ConnectionEntry Connection)
 
-            => !Connection.IsSSH &&
-                Connection.HTTPVersion == WebSocketHTTPVersion.HTTP3;
+            => Connection.BindsItsPassword;
 
         private Boolean WhatItProvesItselfWith(ConnectionEntry             Connection,
                                                out IHTTPAuthentication?    Basic,
@@ -1988,29 +1987,27 @@ namespace cloud.charging.open.ChargingStation
 
             // A throwaway, so that everything below reads one shape whether it
             // came from the store or from a form. Nothing writes it anywhere.
-            var connection = new ConnectionEntry(
-                                 "",
-                                 Description!.Trim(),
-                                 url,
-                                 type,
-                                 TimeProvider.GetUtcNow()
-                             ) {
-                                 OCPPVersion       = version,
-                                 AutoConnect       = AutoConnect,
-                                 AuthenticationId  = ConnectionEntry.Named(AuthenticationId),
-                                 CertificateId       = ConnectionEntry.Named(CertificateId),
-                                 SshHostKey          = hostKey,
-                                 SshTrustOnFirstUse  = trustOnFirstUse,
-                                 SshOnPinMismatch    = onPinMismatch,
-                                 SshProbationTime    = probationTime,
-                                 ServerKeyPins              = serverKeyPins,
-                                 RawPublicKeys              = rawPublicKeys,
-                                 TrustOnFirstUse            = keyTrustOnFirstUse,
-                                 ServerKeyPinProbationTime  = keyPinProbationTime,
-                                 Pins                       = pins,
-                                 HTTPVersion                = httpVersion ?? WebSocketHTTPVersion.Auto,
-                                 Encoding                   = encoding    ?? OCPPCommon.WebSockets.MessageEncodings.JSON
-                             };
+            var connection = ConnectionEntry.NotOfAStore(
+                                 Description:                Description!.Trim(),
+                                 URL:                        url,
+                                 ConnectionType:             type,
+                                 CreatedAt:                  TimeProvider.GetUtcNow(),
+                                 OCPPVersion:                version,
+                                 AutoConnect:                AutoConnect,
+                                 AuthenticationId:           AuthenticationId,
+                                 CertificateId:              CertificateId,
+                                 SshHostKey:                 hostKey,
+                                 SshTrustOnFirstUse:         trustOnFirstUse,
+                                 SshOnPinMismatch:           onPinMismatch,
+                                 SshProbationTime:           probationTime,
+                                 ServerKeyPins:              serverKeyPins,
+                                 RawPublicKeys:              rawPublicKeys,
+                                 TrustOnFirstUse:            keyTrustOnFirstUse,
+                                 ServerKeyPinProbationTime:  keyPinProbationTime,
+                                 Pins:                       pins,
+                                 HTTPVersion:                httpVersion ?? WebSocketHTTPVersion.Auto,
+                                 Encoding:                   encoding    ?? OCPPCommon.WebSockets.MessageEncodings.JSON
+                             );
 
             // What this station made of the certificate of a server checked by
             // its CA: its name, its chain, and what the form holds it to.

@@ -20,7 +20,7 @@
 using cloud.charging.open.protocols.WWCP.SSH;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
-using cloud.charging.open.ChargingStation.OCPP;
+using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion
 
