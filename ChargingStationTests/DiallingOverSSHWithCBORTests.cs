@@ -222,13 +222,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         private ConnectionStatus? StatusOf(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) ? state.Status : null;
 
-        private String Added(String? Encoding)
+        private String Added(String? Encoding, String? SignatureFormats = null)
         {
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL, "CSMS", true, null, null,
                                                               out var id, out var error,
-                                                              SshTrust:  new SshTrustSettings("HostKey", null, null),
-                                                              Encoding:  Encoding),
+                                                              SshTrust:          new SshTrustSettings("HostKey", null, null),
+                                                              Encoding:          Encoding,
+                                                              SignatureFormats:  SignatureFormats),
                         Is.True, error);
 
             return id!;
@@ -261,6 +262,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(csms!.Messages.Connections.Single().Subprotocol,  Is.EqualTo(Agreed));
 
+                // Said by the station as well, as of a WebSocket.
+                Assert.That(station.SubprotocolInUseOf(station.Connections.Connections.Single()),  Is.EqualTo(Agreed));
+
                 // One way and nothing of the other.
                 Assert.That(cbor ? csms.AsJSON : csms.AsCBOR,                 Is.Empty);
 
@@ -269,6 +273,50 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(boot[3]?["chargingStation"]?["vendorName"]?.Value<String>(),  Is.Not.Null.And.Not.Empty);
 
             });
+
+        }
+
+        #endregion
+
+        #region WhichSignaturesAnSSHConnectionWrites_IsToldTheNodeOfTheStation(Named, Encoding, Expected)
+
+        /// <summary>
+        /// What an ssh:// connection says of its signatures is told the OCPP
+        /// node of the station as what a WebSocket says is - whatever its
+        /// messages are written as - and taken back by "policy".
+        /// </summary>
+        [TestCase(null,   null,   null)]
+        [TestCase("cose", null,   cloud.charging.open.protocols.WWCP.SignatureFormats.COSE)]
+        [TestCase("both", "cbor", cloud.charging.open.protocols.WWCP.SignatureFormats.Both)]
+        [TestCase("jws",  "auto", cloud.charging.open.protocols.WWCP.SignatureFormats.JWS)]
+        public async Task WhichSignaturesAnSSHConnectionWrites_IsToldTheNodeOfTheStation(String?                                               Named,
+                                                                                         String?                                               Encoding,
+                                                                                         cloud.charging.open.protocols.WWCP.SignatureFormats?  Expected)
+        {
+
+            await ACSMS("ocpp2.1cbor", "ocpp2.1");
+
+            var id = Added(Encoding, Named);
+
+            station = await TestStations.Started(station!, directory);
+
+            await Until(() => StatusOf(id) == ConnectionStatus.Connected, "Connecting over SSH", () => SaidOf(id));
+
+            var entry = station.Connections.Connections.Single();
+
+            Assert.Multiple(() => {
+                Assert.That(entry.SignatureFormats,             Is.EqualTo(Expected));
+                Assert.That(station.SignatureFormatsOf(entry),  Is.EqualTo(Expected), "the OCPP node was not told what the connection says");
+            });
+
+            // "policy" takes it back, on the connection that is dialled again for the change.
+            Assert.That(station.Connections.TryUpdateConnection(id, "CSMS over SSH", SshURL, "CSMS", true, null, null, out var error,
+                                                                SignatureFormats: "policy"),
+                        Is.True, error);
+
+            await Until(() => StatusOf(id) == ConnectionStatus.Connected &&
+                              station.SignatureFormatsOf(station.Connections.Connections.Single()) is null,
+                        "taking it back", () => SaidOf(id));
 
         }
 
@@ -292,6 +340,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Task.Delay(500);
 
             Assert.Multiple(() => {
+                Assert.That(station.SubprotocolInUseOf(station.Connections.Connections.Single()),  Is.Null);
                 Assert.That(StatusOf(id),   Is.Not.EqualTo(ConnectionStatus.Connected), SaidOf(id));
                 Assert.That(csms!.AsJSON,   Is.Empty, "a connection that says CBOR spoke JSON");
                 Assert.That(csms.AsCBOR,    Is.Empty);

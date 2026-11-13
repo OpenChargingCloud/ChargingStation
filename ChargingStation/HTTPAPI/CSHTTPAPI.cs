@@ -991,8 +991,10 @@ namespace cloud.charging.open.ChargingStation
 
                 // Which subprotocol it agreed on, and so how its messages are
                 // written: where the back end chose, the entry does not say.
-                if (URL.TryParse(connection.Value<String>("url") ?? "", out var agreedAt) &&
-                    Station.SubprotocolInUseAt(agreedAt) is String subprotocolInUse)
+                // Over a WebSocket and over ssh:// alike.
+                if (connection.Value<String>("id") is String connectionId &&
+                    Station.Connections.Connections.FirstOrDefault(entry => entry.Id == connectionId) is OCPP.ConnectionEntry itsEntry &&
+                    Station.SubprotocolInUseOf(itsEntry) is String subprotocolInUse)
                 {
                     connection.Add(new JProperty("subprotocolInUse", subprotocolInUse));
                 }

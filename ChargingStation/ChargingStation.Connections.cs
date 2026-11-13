@@ -761,6 +761,39 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (internal) SubprotocolInUseOf(Connection)
+
+        /// <summary>
+        /// The subprotocol the given connection agreed on - "ocpp2.1",
+        /// "ocpp2.1cbor" - over a WebSocket or over ssh://, or null where it
+        /// is not connected.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the client that was made for the connection when it was
+        /// dialled. A WebSocket says it in its handshake, an ssh:// connection
+        /// in the WELCOME its server answers the HELLO with.
+        /// </remarks>
+        internal String? SubprotocolInUseOf(ConnectionEntry Connection)
+
+            => LiveOf(Connection)?.Client switch {
+
+                   WWCPWebSocketClient { Connected: true } webSocketClient
+                       => webSocketClient.WebSocketClientConnection?.Subprotocol,
+
+                   WWCPSshClient sshClient
+                       => sshClient.MessageClient.Connection is SshMessageConnection { IsAlive: true } connection
+                              ? connection.Subprotocol
+                              : null,
+
+                   // One that was dialled without a peer of its own.
+                   _   => Connection.IsSSH
+                              ? null
+                              : SubprotocolInUseAt(Connection.URL)
+
+               };
+
+        #endregion
+
         #region (internal) SubprotocolInUseAt(URL)
 
         /// <summary>
@@ -1029,6 +1062,16 @@ namespace cloud.charging.open.ChargingStation
 
                 return;
 
+            }
+
+            // How its messages are written: where the server chose, this is the only place that says.
+            if (Connection.Encoding != OCPPCommon.WebSockets.MessageEncodings.JSON &&
+                client?.MessageClient.Connection?.Subprotocol is String agreed)
+            {
+                Log.Info($"The connection to {Where} agreed on {agreed}: its messages are " +
+                         (OCPPCommon.WebSockets.OCPPSubprotocols.IsCBOR(agreed) ? "CBOR" : "JSON") +
+                         (Connection.Encoding == OCPPCommon.WebSockets.MessageEncodings.Auto ? ", which its server chose" : "") +
+                         ".", "ocpp", "connections");
             }
 
             // As over a WebSocket: which signatures the messages for this connection get.

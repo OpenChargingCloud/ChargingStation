@@ -841,7 +841,7 @@ export interface StationConnection {
      * offers it first and takes what the back end chooses. Left out, it is "json".
      */
     encoding?:                   EncodingOfAConnection;
-    /** The subprotocol the WebSocket it has now agreed on: "ocpp2.1", "ocpp2.1cbor". */
+    /** The subprotocol the connection it has now agreed on, over a WebSocket or over ssh://: "ocpp2.1", "ocpp2.1cbor". */
     subprotocolInUse?:           string;
     /**
      * Which signatures the messages the station signs for it get: "jws",
