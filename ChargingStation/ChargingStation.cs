@@ -834,6 +834,12 @@ namespace cloud.charging.open.ChargingStation
                                                         DialsOCPP2_1: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1),
                                                         DialsOCPP1_6: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP1_6));
 
+            // The SSH peers say who a host is believed by and where the files of
+            // this station may go: over OCPP they are written by a request one of
+            // its pin set signers signed, and by no other - see
+            // ChargingStation.SSHPeers.cs.
+            deviceModelBridge.SSHPeers.SignedBy = SSHPeersSignedBy;
+
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.
             var queues          = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".", OCPPQueueDirectoryName);

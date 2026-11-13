@@ -693,6 +693,96 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheSSHPeers_AreWrittenByASignedRequest_AndByNoOther()
+
+        private static (JObject Payload, String Id) SignedPeers(IEnumerable<(String? Peer, String Variable, String Value)>  Values,
+                                                                ECCKeyPair?                                              Signer,
+                                                                DateTimeOffset?                                          SignedAt   = null)
+        {
+
+            var id      = Guid.NewGuid().ToString();
+            var request = new SetVariablesRequest(
+                              SourceRouting.To(NetworkingNode_Id.Parse("cs001")),
+                              [.. Values.Select(value => new SetVariableData(new Component("SSHPeerController", value.Peer),
+                                                                             new Variable(value.Variable),
+                                                                             value.Value))],
+                              DataConsistencyModel.ACID,
+                              RequestId: Request_Id.Parse(id)
+                          );
+
+            if (Signer is not null)
+                Assert.That(new SignaturePolicy().
+                                BindTo(NetworkingNode_Id.CSMS, protocols.OCPPv2_1.Version.WebSocketSubProtocolId).
+                                SignRequestMessage(request, request.ToJSON(true), out var notSigned,
+                                                   Signer.ToSignInfo1("CSMS", I18NString.Create("SSH peers"), SignedAt ?? DateTimeOffset.UtcNow)),
+                            Is.True, notSigned);
+
+            return (request.ToJSON(false), id);
+
+        }
+
+        /// <summary>
+        /// The SSH peers of the station - who a host is believed by, and where
+        /// its files may go - are written over OCPP by a request one of its pin
+        /// set signers signed, within the time window, and by no other.
+        /// </summary>
+        [Test]
+        public async Task TheSSHPeers_AreWrittenByASignedRequest_AndByNoOther()
+        {
+
+            var signer    = ASigner();
+            var stranger  = ECCKeyPair.GenerateKeys()!;
+            var id        = Added(KeyPin.FromKey(lcKey).ToHex());
+
+            await Start();
+            await Until(() => IsConnected(id), "Connecting by key pin", () => SaidOf(id));
+
+            (String? Peer, String Variable, String Value)[] aFileServer = [
+                (null,    "Peers",          "files"),
+                ("files", "Address",        "logs.example.org"),
+                ("files", "HostKeyPins",    "SHA256:" + new String('A', 43)),
+                ("files", "FileTransfers",  "Upload"),
+                ("files", "UploadPaths",    "/upload/{id}/")
+            ];
+
+            var unsigned    = await Send(SignedPeers(aFileServer, null));
+            var ofAStranger = await Send(SignedPeers(aFileServer, stranger));
+            var longAgo     = await Send(SignedPeers(aFileServer, signer, SignedAt: DateTimeOffset.UtcNow - TimeSpan.FromDays(30)));
+
+            Assert.Multiple(() => {
+                Assert.That(Statuses(unsigned),      Is.All.EqualTo("Rejected"),  unsigned.   ToString());
+                Assert.That(Reasons (unsigned),      Is.All.EqualTo("Unsigned"),  unsigned.   ToString());
+                Assert.That(Reasons (ofAStranger),   Is.All.EqualTo("Unsigned"),  ofAStranger.ToString());
+                Assert.That(Statuses(longAgo),       Is.All.EqualTo("Rejected"),  longAgo.    ToString());
+                Assert.That(station!.ConfiguredSSHPeers, Is.Empty, "an unsigned, a stranger's or an old request made a peer");
+            });
+
+            var signed = await Send(SignedPeers(aFileServer, signer));
+
+            Assert.Multiple(() => {
+                Assert.That(Statuses(signed),                                 Is.All.EqualTo("Accepted"), signed.ToString());
+                Assert.That(station!.ConfiguredSSHPeers.Select(peer => peer.Id),   Is.EqualTo(new[] { "files" }));
+                Assert.That(station.FileServers.Select(server => server.Host),     Is.EqualTo(new[] { "logs.example.org" }));
+            });
+
+            // What is there is changed the same way: its pins, and what it may be used for.
+            var pinsUnsigned  = await Send(SignedPeers([ ("files", "HostKeyPins",   "SHA256:" + new String('B', 43)) ], null));
+            var usesUnsigned  = await Send(SignedPeers([ ("files", "FileTransfers", "Upload,Download") ],               null));
+            var usesSigned    = await Send(SignedPeers([ ("files", "FileTransfers", "Upload,Download") ],               signer));
+
+            Assert.Multiple(() => {
+                Assert.That(Reasons (pinsUnsigned),  Is.All.EqualTo("Unsigned"),  pinsUnsigned.ToString());
+                Assert.That(Reasons (usesUnsigned),  Is.All.EqualTo("Unsigned"),  usesUnsigned.ToString());
+                Assert.That(Statuses(usesSigned),    Is.All.EqualTo("Accepted"),  usesSigned.  ToString());
+                Assert.That(station!.ConfiguredSSHPeers[0].Trust.Pins,        Is.EqualTo(new[] { "SHA256:" + new String('A', 43) }), "an unsigned request changed the pins of a peer");
+                Assert.That(station.FileServers[0].FileTransfers.Allows(cloud.charging.open.protocols.WWCP.Node.SecureShell.FileTransferDirections.Download), Is.True);
+                Assert.That(IsConnected(id),                                  Is.True);
+            });
+
+        }
+
+        #endregion
+
     }
 
 }
