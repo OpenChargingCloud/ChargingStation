@@ -1978,6 +1978,12 @@ namespace cloud.charging.open.ChargingStation
             // whether it waits for a session - see ChargingStation.Reset.cs.
             AttachReset(chargePoint, chargingStation);
 
+            // So are a cable to let go of, and what is reported of the EVSEs
+            // and of the station when a CSMS asks for it again - see
+            // ChargingStation.Unlock.cs and ChargingStation.Reports.cs.
+            AttachUnlock (chargePoint, chargingStation);
+            AttachReports(chargePoint, chargingStation);
+
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.
             deviceModelBridge.Configure(chargingStation);

@@ -367,6 +367,22 @@ export interface EVSEStates {
     evses:       EVSEStatus[];
 }
 
+/** What a restart asked for on the page came to, as POST /restart and /restart/now say it. */
+export interface RestartAnswer {
+    /** Whether the station restarts now, or once what is charging has ended. */
+    restart:   'now' | 'onceIdle';
+    /** How many sessions were charging when it was asked. */
+    sessions:  number;
+    /** How many of them were ended for it. */
+    ended:     number;
+}
+
+/** A message the station sends again, and to how many back ends it goes. */
+export interface SentAgain {
+    message:   string;
+    backEnds:  number;
+}
+
 /** The EVSEs of this station, and what may be plugged into one. */
 export interface EVSEConfiguration {
     evses:                   EVSE[];
@@ -1211,6 +1227,18 @@ export const api = {
         get:   ()                      => request<PowerConfiguration>('GET', '/configuration/power'),
         /** null takes the limit away rather than setting it to nothing. */
         save:  (update: PowerUpdate)   => request<PowerConfiguration>('PUT', '/configuration/power', update)
+    },
+
+    /** What the station is told to do, apart from how it is configured - each a right of its own. */
+    station: {
+        /** Once nothing is charging any more ("reset:run"), or at once, which ends what is ("reset-immediate:run"). */
+        restart:       (atOnce: boolean)  => request<RestartAnswer>('POST', atOnce ? '/restart/now' : '/restart', {}),
+        /** Let go of the cable at an EVSE, where nobody is charging ("unlock:run"). */
+        unlock:        (evse: number)     => request<{ evse: number; unlocked: boolean }>('POST', '/evses/unlock', { evse }),
+        /** Tell every back end again how each EVSE stands ("state:run"). */
+        reportStatus:  ()                 => request<SentAgain>('POST', '/status/report', {}),
+        /** Register again, or send a heartbeat ("node:run"). */
+        send:          (message: 'BootNotification' | 'Heartbeat') => request<SentAgain>('POST', '/ocpp/send', { message })
     },
 
     evses: {

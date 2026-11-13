@@ -201,6 +201,12 @@ namespace cloud.charging.open.ChargingStation
             /// </summary>
             public CancellationTokenSource? Beating      { get; set; }
 
+            /// <summary>
+            /// What this back end is being told, one after the other - see
+            /// ChargingStation.Reports.cs.
+            /// </summary>
+            public Task                     Telling      { get; set; } = Task.CompletedTask;
+
         }
 
         #endregion
@@ -348,6 +354,9 @@ namespace cloud.charging.open.ChargingStation
                 case RegistrationState.Accepted:
                     if (registration.Primary)
                         SendWhatWaits(Connection);
+
+                    // What changed while the connection was down was told nobody.
+                    TellHowTheEVSEsStand(node, registration);
                     return;
 
                 // Told to wait: Rejected may not ask before its time is up,
@@ -383,9 +392,11 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Node">The node to register.</param>
         /// <param name="Registration">Where it stands.</param>
         /// <param name="ByTheClock">Whether the time to ask again is up, rather than a connection having come up.</param>
+        /// <param name="Triggered">Whether it was asked for - a TriggerMessage, the page, the command line: sent although the back end accepted this node already, and with that reason.</param>
         private async Task RegisterAsync(AWWCPNetworkingNode  Node,
                                          Registration         Registration,
-                                         Boolean              ByTheClock)
+                                         Boolean              ByTheClock,
+                                         Boolean              Triggered = false)
         {
 
             CancellationTokenSource asking;
@@ -395,7 +406,7 @@ namespace cloud.charging.open.ChargingStation
             {
 
                 if (Registration.Ended.IsCancellationRequested ||
-                    Registration.State == RegistrationState.Accepted ||
+                    (Registration.State == RegistrationState.Accepted && !Triggered) ||
                     (ByTheClock && Registration.State == RegistrationState.Asking))
                     return;
 
@@ -443,7 +454,9 @@ namespace cloud.charging.open.ChargingStation
                     OCPPv2_1.CS.TestChargingStationNode chargingStation
                         => Of(await OCPPv2_1.CS.IChargingStationNodeExtensions.SendBootNotification(
                                         chargingStation,
-                                        Registration.Reason,
+                                        Triggered
+                                            ? OCPPv2_1.BootReason.Triggered
+                                            : Registration.Reason,
                                         Destination:        SourceRouting.To(Registration.Destination),
                                         CancellationToken:  asking.Token
                                     )),
@@ -566,6 +579,10 @@ namespace cloud.charging.open.ChargingStation
 
             else
                 StartTheHeartbeat(Node, Registration, every);
+
+            // What a back end is told first of a station it accepted: how
+            // each of its EVSEs stands.
+            TellHowTheEVSEsStand(Node, Registration);
 
         }
 

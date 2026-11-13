@@ -193,6 +193,12 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/messages",        PostMessage,       HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/messages/clear",  PostClearMessage,  HTTPMethod.POST);
 
+            AddHandler(HTTPPath.Root + "v1/restart",         PostRestartOnceIdle,  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/restart/now",     PostRestartAtOnce,    HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/evses/unlock",    PostUnlock,           HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/status/report",   PostReportStatus,     HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/ocpp/send",       PostSendAgain,        HTTPMethod.POST);
+
         }
 
         #endregion
@@ -642,6 +648,159 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, result)
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostRestartOnceIdle(Request) / PostRestartAtOnce(Request)
+
+        /// <summary>
+        /// POST /api/v1/restart with {}: restart this station once nothing is
+        /// charging any more. No new session starts until then.
+        /// </summary>
+        /// <remarks>
+        /// "reset:run", which the operator's telephone support holds. A route
+        /// of its own beside the restart at once, as the two are rights of
+        /// their own: the door is the route, before anything sent is read.
+        /// </remarks>
+        private Task<HTTPResponse> PostRestartOnceIdle(HTTPRequest Request)
+
+            => PostRestart(Request, false);
+
+        /// <summary>
+        /// POST /api/v1/restart/now with {}: restart this station at once,
+        /// which ends what is charging.
+        /// </summary>
+        /// <remarks>
+        /// "reset-immediate:run": the one of the two that can do damage.
+        /// </remarks>
+        private Task<HTTPResponse> PostRestartAtOnce(HTTPRequest Request)
+
+            => PostRestart(Request, true);
+
+        private Task<HTTPResponse> PostRestart(HTTPRequest  Request,
+                                               Boolean      AtOnce)
+        {
+
+            if (!TryAuthorize(Request,
+                              Permission.Run(AtOnce ? NodeResources.ResetImmediate : NodeResources.Reset),
+                              true,
+                              out var user,
+                              out var refused))
+                return Task.FromResult(refused);
+
+            // Nothing in it is read. An object all the same: a restart is
+            // asked for by somebody who sent one, not by anything posted here.
+            if (!TryParseJSONObject(Request, out _, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.Restart(AtOnce, $"'{user.Id}' on the web page"))
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostUnlock(Request)
+
+        /// <summary>
+        /// POST /api/v1/evses/unlock with {"evse": 1} and, where it has
+        /// several, {"connector": 2}: let go of a cable that is stuck, where
+        /// nobody is charging.
+        /// </summary>
+        private Task<HTTPResponse> PostUnlock(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Run(StationAccess.Unlock), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var evse = json["evse"]?.Value<Byte?>();
+
+            if (evse is null)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "Which EVSE? Send \"evse\"."));
+
+            var result = Station.Unlock(evse.Value, json["connector"]?.Value<Byte?>(), $"'{user.Id}' on the web page");
+
+            return Task.FromResult(
+                       result == UnlockResult.Unlocked
+                           ? JSONResponse(Request,
+                                          HTTPStatusCode.OK,
+                                          new JObject(
+                                              new JProperty("evse",      evse.Value),
+                                              new JProperty("unlocked",  true)
+                                          ))
+                           : ErrorJSON   (Request,
+                                          result == UnlockResult.Charging
+                                              ? HTTPStatusCode.Conflict
+                                              : HTTPStatusCode.BadRequest,
+                                          ChargingStation.Said(result, evse.Value))
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostReportStatus(Request) / PostSendAgain(Request)
+
+        /// <summary>
+        /// POST /api/v1/status/report with {}: have this station tell every
+        /// back end that accepted it how each EVSE stands, again.
+        /// </summary>
+        /// <remarks>
+        /// "state:run", which the operator's telephone support holds - and so
+        /// a route of its own beside the other messages sent again.
+        /// </remarks>
+        private Task<HTTPResponse> PostReportStatus(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.State), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out _, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            return Task.FromResult(
+                       Station.TrySendAgain(ChargingStation.SendsStatusNotification, $"'{user.Id}' on the web page", out var result, out var error)
+                           ? JSONResponse(Request, HTTPStatusCode.OK,       result)
+                           : ErrorJSON   (Request, HTTPStatusCode.Conflict, error)
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/ocpp/send with {"message": "BootNotification"} or
+        /// "Heartbeat": have this station send again what it sends by itself.
+        /// </summary>
+        /// <remarks>
+        /// "node:run". How the EVSEs stand is told again at
+        /// /api/v1/status/report, which asks for another right.
+        /// </remarks>
+        private Task<HTTPResponse> PostSendAgain(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.Node), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var message = ChargingStation.NameOfSent(json["message"]?.Value<String>());
+
+            if (message is not (ChargingStation.SendsBootNotification or ChargingStation.SendsHeartbeat))
+                return Task.FromResult(ErrorJSON(Request,
+                                                 HTTPStatusCode.BadRequest,
+                                                 $"Which message? Send \"message\": \"{ChargingStation.SendsBootNotification}\" or \"{ChargingStation.SendsHeartbeat}\"."));
+
+            return Task.FromResult(
+                       Station.TrySendAgain(message, $"'{user.Id}' on the web page", out var result, out var error)
+                           ? JSONResponse(Request, HTTPStatusCode.OK,       result)
+                           : ErrorJSON   (Request, HTTPStatusCode.Conflict, error)
                    );
 
         }

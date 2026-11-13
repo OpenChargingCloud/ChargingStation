@@ -108,6 +108,20 @@ namespace cloud.charging.open.ChargingStation.CommandLine
         #endregion
 
 
+        #region (static) Asked(Caller)
+
+        /// <summary>
+        /// Who asked, as the log's sentences go on: "somebody at the command
+        /// line", or "'root' at the command line over SSH".
+        /// </summary>
+        public static String Asked(CLICaller Caller)
+
+            => Caller.AtTheConsole
+                   ? "somebody at the command line"
+                   : Caller.Asker;
+
+        #endregion
+
         #region (protected override) GetPrompt()
 
         /// <summary>

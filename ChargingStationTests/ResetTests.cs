@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using cloud.charging.open.ChargingStation.CommandLine;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -34,7 +36,8 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// and a Soft one of OCPP 1.6. The station builds its OCPP side anew and
     /// dials again - its CSMS sees the connection come back, and a new
     /// BootNotification - and while something charges it waits, and starts
-    /// nothing new.
+    /// nothing new. And a restart at once, Immediate and Hard, which ends
+    /// what charges; both as the web page and the command line ask for them.
     /// </summary>
     /// <remarks>
     /// Asked over a connection to a CSMS, as a CSMS asks. The sessions are the
@@ -270,15 +273,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ARestartAtOnceIsLeftAsItWas(Version, Type)
+        #region ARestartAtOnceEndsWhatChargesAndRestarts(Version, Type)
 
         /// <summary>
-        /// A Hard reset of OCPP 1.6 and one of OCPP 2.1 Immediate are answered
-        /// as before, and nothing more: they are not a restart once idle.
+        /// A Hard reset of OCPP 1.6 and one of OCPP 2.1 Immediate do not wait:
+        /// the station says yes, ends what charges, and restarts. Then
+        /// sessions start again.
         /// </summary>
         [TestCase("1.6", "Hard")]
         [TestCase("2.1", "Immediate")]
-        public async Task ARestartAtOnceIsLeftAsItWas(String Version, String Type)
+        public async Task ARestartAtOnceEndsWhatChargesAndRestarts(String Version, String Type)
         {
 
             await Connected(Version);
@@ -289,11 +293,61 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Reset(Type), Is.EqualTo("Accepted"));
 
-            Assert.That(Start(2, out var second), Is.True, second);
+            Assert.That(await Within(() => Boots > boots), Is.True, "the station did not restart at once");
+            Assert.That(await Within(() => StatusOf(1) == "available"), Is.True, $"the session was not ended for the restart: EVSE 1 is {StatusOf(1)}");
+
+            String? afterwards = null;
+
+            Assert.That(await Within(() => Start(1, out afterwards)), Is.True, $"no session starts after the restart: {afterwards}");
+
+        }
+
+        #endregion
+
+        #region ThePageAndTheCommandLineRestartAsOCPPDoes(Version)
+
+        /// <summary>
+        /// Asked on the web page or at the command line, a restart once idle
+        /// waits for what charges and says so, and one at once ends it - and
+        /// takes the place of the one that waited.
+        /// </summary>
+        [TestCase("1.6")]
+        [TestCase("2.1")]
+        public async Task ThePageAndTheCommandLineRestartAsOCPPDoes(String Version)
+        {
+
+            await Connected(Version);
+
+            Assert.That(Start(1, out var error), Is.True, error);
+
+            var boots    = Boots;
+
+            var waiting  = station!.Restart(false, "'alice' on the web page");
+
+            Assert.Multiple(() => {
+                Assert.That(waiting.Value<String>("restart"),   Is.EqualTo("onceIdle"));
+                Assert.That(waiting.Value<Int32> ("sessions"),  Is.EqualTo(1));
+                Assert.That(waiting.Value<Int32> ("ended"),     Is.EqualTo(0));
+                Assert.That(Start(2, out _),                    Is.False, "a session started while a restart waits");
+            });
 
             await Task.Delay(TimeSpan.FromMilliseconds(500));
 
-            Assert.That(Boots, Is.EqualTo(boots));
+            Assert.That(Boots, Is.EqualTo(boots), "the station restarted while something charged");
+
+            var atOnce   = station.Restart(true, "somebody at the command line");
+
+            Assert.Multiple(() => {
+                Assert.That(atOnce.Value<String>("restart"),   Is.EqualTo("now"));
+                Assert.That(atOnce.Value<Int32> ("ended"),     Is.EqualTo(1));
+            });
+
+            Assert.That(await Within(() => Boots > boots), Is.True, "the station did not restart at once");
+
+            var idle     = RestartCommand.Said(station.Restart(false, "somebody at the command line"));
+
+            Assert.That(idle, Does.Contain("Nothing is charging"));
+            Assert.That(await Within(() => Boots > boots + 1), Is.True, "an idle station did not restart when asked to");
 
         }
 

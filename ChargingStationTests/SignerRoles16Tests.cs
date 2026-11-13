@@ -375,13 +375,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(station!.IsMetrologicallyRelevant, Is.False);
 
-            var hard      = await Reset         (ResetType.Hard,  keys["cpo"]);
-            var firmware  = await UpdateFirmware(                 keys["cpo"]);
+            var firmware  = await UpdateFirmware(keys["cpo"]);
 
-            Assert.Multiple(() => {
-                Assert.That(Refused(hard),      Is.False, "the operator resets hard");
-                Assert.That(Refused(firmware),  Is.False, "the operator updates the firmware");
-            });
+            Assert.That(Refused(firmware), Is.False, "the operator updates the firmware");
 
             using var key          = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var request            = new CertificateRequest("CN=A Calibration Of This Station", key, HashAlgorithmName.SHA256);
@@ -408,6 +404,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Refused(byTheOperator),   Is.True,  "the operator updates the firmware of a relevant station");
                 Assert.That(Refused(byTheInstaller),  Is.False, "the installer updates the firmware of a relevant station");
             });
+
+            // Asked last: the station restarts at once, and hangs up.
+            Assert.That(Refused(await Reset(ResetType.Hard, keys["cpo"])), Is.False, "the operator resets hard");
 
         }
 

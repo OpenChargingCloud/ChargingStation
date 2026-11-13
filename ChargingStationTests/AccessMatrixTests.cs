@@ -20,6 +20,8 @@
 using System.Net;
 using System.Text;
 
+using Newtonsoft.Json.Linq;
+
 using NUnit.Framework;
 
 
@@ -66,6 +68,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// </summary>
         private static readonly String[] WhatIsGoingOn   = [ "viewer", "support", "cpo", "installer", "systemadmin" ];
         private static readonly String[] TheOperator     = [         "cpo", "installer", "systemadmin" ];
+
+        /// <summary>
+        /// Who may do what the operator's telephone support may: restart the
+        /// station once it is idle, let go of a stuck cable, and have what is
+        /// going on reported again.
+        /// </summary>
+        private static readonly String[] TheSupport      = [ "support", "cpo", "installer", "systemadmin" ];
         private static readonly String[] TheInstaller    = [                "installer", "systemadmin" ];
         private static readonly String[] TheAdministrator = [                             "systemadmin" ];
 
@@ -152,6 +161,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("POST",   "api/v1/sessions/webpayment",                     TheOperator),
             ("POST",   "api/v1/sessions/stop",                           TheOperator),
 
+            ("POST",   "api/v1/restart",                                 TheSupport),
+            ("POST",   "api/v1/restart/now",                             TheOperator),
+            ("POST",   "api/v1/evses/unlock",                            TheSupport),
+            ("POST",   "api/v1/status/report",                           TheSupport),
+            ("POST",   "api/v1/ocpp/send",                               TheOperator),
+
             ("GET",    "api/v1/messages",                                Everybody),
             ("POST",   "api/v1/messages",                                TheOperator),
             ("POST",   "api/v1/messages/clear",                          TheOperator),
@@ -210,6 +225,71 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
 
             Assert.That(wrong, Is.Empty, String.Join(Environment.NewLine, wrong));
+
+        }
+
+        #endregion
+
+        #region WhatTheStationIsToldToDoIsDoneAndSaid()
+
+        /// <summary>
+        /// Past the door: a restart of a station nothing charges at is one
+        /// now, a cable is let go of at an EVSE it has and not at one it has
+        /// not, and a station that dials nobody says that nobody is told.
+        /// </summary>
+        [Test]
+        public async Task WhatTheStationIsToldToDoIsDoneAndSaid()
+        {
+
+            using var http = await SignedIn();
+
+            async Task<(HttpStatusCode Status, JObject JSON)> Post(String Path, JObject Body)
+            {
+
+                using var response = await http.PostAsync(Path, new StringContent(Body.ToString(), Encoding.UTF8, "application/json"));
+
+                return (response.StatusCode, JObject.Parse(await response.Content.ReadAsStringAsync()));
+
+            }
+
+            var restart    = await Post("api/v1/restart",       new JObject());
+            var atOnce     = await Post("api/v1/restart/now",   new JObject());
+            var noEVSE     = await Post("api/v1/evses/unlock",  new JObject());
+            var unknown    = await Post("api/v1/evses/unlock",  new JObject(new JProperty("evse", 250)));
+            var report     = await Post("api/v1/status/report", new JObject());
+            var heartbeat  = await Post("api/v1/ocpp/send",     new JObject(new JProperty("message", "Heartbeat")));
+            var other      = await Post("api/v1/ocpp/send",     new JObject(new JProperty("message", "StatusNotification")));
+
+            Assert.Multiple(() => {
+
+                Assert.That(restart.  Status,                          Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(restart.  JSON.Value<String>("restart"),   Is.EqualTo("now"));
+                Assert.That(atOnce.   Status,                          Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(atOnce.   JSON.Value<Int32>("ended"),      Is.EqualTo(0));
+
+                Assert.That(noEVSE.   Status,                          Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(unknown.  Status,                          Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(unknown.  JSON.ToString(),                 Does.Contain("no EVSE 250"));
+
+                Assert.That(report.   Status,                          Is.EqualTo(HttpStatusCode.Conflict));
+                Assert.That(report.   JSON.ToString(),                 Does.Contain("No back end"));
+                Assert.That(heartbeat.Status,                          Is.EqualTo(HttpStatusCode.Conflict));
+
+                // How the EVSEs stand is told again at its own route, which
+                // asks for another right.
+                Assert.That(other.    Status,                          Is.EqualTo(HttpStatusCode.BadRequest));
+
+            });
+
+            foreach (var evse in Station.EVSEs.Take(1))
+            {
+
+                var unlocked = await Post("api/v1/evses/unlock", new JObject(new JProperty("evse", evse.Id)));
+
+                Assert.That(unlocked.Status,                           Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(unlocked.JSON.Value<Boolean>("unlocked"),  Is.True);
+
+            }
 
         }
 

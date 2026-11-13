@@ -68,9 +68,10 @@ for signing in with it.
 The command line itself - at the console and over SSH - is this library's:
 `StationCLI` and the commands beside it in `CommandLine/`, among them
 `evses`, how each EVSE stands right now and at what power a car is charging,
-and `testconnection <connection> [heartbeat|none]`, which makes a connection
+`testconnection <connection> [heartbeat|none]`, which makes a connection
 that is written down once and says what happened and when (see "Trying a
-connection" below).
+connection" below), and `restart`, `unlock` and `send`, what a running station
+is told to do (see "Who may do what" below).
 The station makes it for every session over SSH, so every program that runs a
 station offers the same commands; a new one is a new file there, tested in
 `ChargingStationTests`.
@@ -538,6 +539,35 @@ there, where the station dials and what its meters are set to stay with
 `evses`, `connections` and `meters`. The support is shown the EVSEs as they
 stand and nothing under Configuration, and is not sent to a page that is not
 theirs.
+
+What a running station is told to do is on the same page, at the command line,
+and what a CSMS asks over OCPP - each at the same right, whichever way it is
+asked:
+
+| What | Page and API | Command line | OCPP | Needs |
+|------|--------------|--------------|------|-------|
+| restart once nothing is charging | **Restart once idle**, `POST /api/v1/restart` | `restart idle` | Reset `OnIdle` (2.1), `Soft` (1.6) | `reset:run` |
+| restart at once, ending what is charging | **Restart now**, `POST /api/v1/restart/now` | `restart now` | Reset `Immediate` (2.1), `Hard` (1.6) | `reset-immediate:run` |
+| let go of a cable that is stuck | **Unlock the cable**, `POST /api/v1/evses/unlock` | `unlock <EVSE> [<connector>]` | UnlockConnector | `unlock:run` |
+| tell the back ends again how the EVSEs stand | **Report the EVSEs again**, `POST /api/v1/status/report` | `send StatusNotification` | TriggerMessage `StatusNotification` | `state:run` |
+| register again, or send a heartbeat | **Register again**, **Send a heartbeat**, `POST /api/v1/ocpp/send` | `send BootNotification`, `send Heartbeat` | TriggerMessage `BootNotification`, `Heartbeat` | `node:run` |
+
+A restart is the OCPP side of the station built anew: both nodes made again,
+what they were connected to hung up and dialled again, and a BootNotification
+over each. Once idle, it waits for what is charging, and no new session starts
+until then - a free EVSE is out of service meanwhile; at once, it ends every
+session first. A cable is let go of only where nobody is charging: OCPP 2.1
+says `OngoingAuthorizedTransaction` otherwise, OCPP 1.6 `UnlockFailed`, and the
+session goes on - who may let go of a cable may stop no session, so letting go
+of one is not a way of stopping one. The connectors have no lock this station
+could drive, so what it lets go of is written into the log.
+
+How each EVSE stands is told every back end that accepted the station, without
+being asked: all of them when it is accepted and when its connection comes
+back, and each one that changed, within a second - `Available`, `Reserved`,
+`Unavailable`, and `Occupied` over OCPP 2.1 or `Charging` over OCPP 1.6 where
+somebody charges. A BootNotification asked for is the station registering
+again, with the reason `Triggered`.
 
 The three about the same EVSE are kept apart, because they are different kinds
 of statement for different people, and that is the whole reason there are two

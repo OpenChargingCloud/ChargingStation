@@ -361,3 +361,134 @@ describe('the EVSEs page', () => {
     });
 
 });
+
+describe('what the EVSEs page has the station do', () => {
+
+    /** The stand-in station, with answers to what it is told to do. */
+    function doing(Answers: Record<string, unknown | (() => Response)>): (asked: Asked) => unknown {
+        return request => {
+
+            const told = Answers[`${request.method} ${request.path}`];
+
+            return told === undefined
+                       ? station(request)
+                       : typeof told === 'function'
+                             ? (told as () => Response)()
+                             : told;
+
+        };
+    }
+
+    const button = (root: HTMLElement, selector: string) => root.querySelector<HTMLButtonElement>(selector);
+    const said   = (root: HTMLElement) => root.querySelector<HTMLElement>('#station-said');
+
+    it('offers somebody who may only look nothing to do', async () => {
+
+        evses = [ anEVSE(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'state:read' ], station, root => panel(root, 1) !== null);
+
+        assert.equal(root.querySelector('#station-actions'), null);
+        assert.equal(root.querySelectorAll('button[data-unlock]').length, 0);
+
+    });
+
+    it('offers the support what the support may: report again, restart once idle, unlock - and not the rest', async () => {
+
+        evses = [ anEVSE(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses',
+                                [ 'state:read', 'state:run', 'reset:run', 'unlock:run' ],
+                                doing({
+                                    'POST /status/report': { message: 'StatusNotification', backEnds: 2 },
+                                    'POST /restart':       { restart: 'onceIdle', sessions: 1, ended: 0 },
+                                    'POST /evses/unlock':  { evse: 1, unlocked: true }
+                                }),
+                                root => panel(root, 1) !== null);
+
+        assert.notEqual(button(root, '#report-status'), null);
+        assert.notEqual(button(root, '#restart-idle'),  null);
+        assert.notEqual(button(root, '[data-unlock="1"]'), null);
+        assert.equal(button(root, '#restart-now'),     null);
+        assert.equal(button(root, '#send-heartbeat'),  null);
+        assert.equal(button(root, '#send-boot'),       null);
+
+        button(root, '#report-status')!.click();
+        await until(() => said(root) !== null, 'nothing was said of the report');
+        assert.match(said(root)!.textContent!, /goes to 2 back end\(s\)/);
+
+        button(root, '#restart-idle')!.click();
+        await until(() => /once the 1 session/.test(said(root)?.textContent ?? ''), 'nothing was said of the restart');
+
+        button(root, '[data-unlock="1"]')!.click();
+        await until(() => /The cable at EVSE A was let go of/.test(said(root)?.textContent ?? ''), 'nothing was said of the cable');
+
+        const told = asked.filter(request => request.method === 'POST');
+
+        assert.deepEqual(told.map(request => request.path), [ '/status/report', '/restart', '/evses/unlock' ]);
+        assert.deepEqual(told[2]!.body, { evse: 1 });
+
+    });
+
+    it('restarts at once only after asking, registers again and sends a heartbeat, for the operator', async () => {
+
+        evses = [ anEVSE(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses',
+                                [ 'state:read', 'state:run', 'reset:run', 'reset-immediate:run', 'node:run', 'unlock:run' ],
+                                doing({
+                                    'POST /restart/now': { restart: 'now', sessions: 2, ended: 2 },
+                                    'POST /ocpp/send':   { message: 'Heartbeat', backEnds: 1 }
+                                }),
+                                root => panel(root, 1) !== null);
+
+        button(root, '#restart-now')!.click();
+        await until(() => /2 session\(s\) were ended/.test(said(root)?.textContent ?? ''), 'nothing was said of the restart at once');
+
+        button(root, '#send-heartbeat')!.click();
+        await until(() => /A Heartbeat goes to 1 back end\(s\)/.test(said(root)?.textContent ?? ''), 'nothing was said of the heartbeat');
+
+        button(root, '#send-boot')!.click();
+        await until(() => /A BootNotification goes to/.test(said(root)?.textContent ?? ''), 'nothing was said of the BootNotification');
+
+        const told = asked.filter(request => request.method === 'POST');
+
+        assert.deepEqual(told.map(request => request.path), [ '/restart/now', '/ocpp/send', '/ocpp/send' ]);
+        assert.deepEqual(told.map(request => request.body), [ {}, { message: 'Heartbeat' }, { message: 'BootNotification' } ]);
+
+    });
+
+    it('says what the station refused, in the station\'s words', async () => {
+
+        evses = [ anEVSE(1, 'A') ];
+
+        const root = await open(evseStatusPage, '/evses',
+                                [ 'state:read', 'state:run' ],
+                                doing({
+                                    'POST /status/report': () => refused(409, 'No back end has accepted this station, so nobody is told.')
+                                }),
+                                root => panel(root, 1) !== null);
+
+        button(root, '#report-status')!.click();
+        await until(() => said(root) !== null, 'nothing was said of the refusal');
+
+        assert.match(said(root)!.textContent!, /No back end has accepted this station/);
+        assert.equal(said(root)!.classList.contains('form-error'), true);
+
+    });
+
+    it('does not offer to unlock a cable somebody is charging through', async () => {
+
+        evses = [
+            anEVSE(1, 'A', { status: 'occupied', session: { method: 'RFID', startedAt: '2026-10-19T09:58:00.000Z', provider: null } as EVSEStatus['session'] }),
+            anEVSE(2, 'B')
+        ];
+
+        const root = await open(evseStatusPage, '/evses', [ 'state:read', 'unlock:run' ], station, root => panel(root, 2) !== null);
+
+        assert.equal(button(root, '[data-unlock="1"]')!.disabled, true);
+        assert.equal(button(root, '[data-unlock="2"]')!.disabled, false);
+
+    });
+
+});

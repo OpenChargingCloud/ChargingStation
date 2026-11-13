@@ -346,9 +346,14 @@ namespace cloud.charging.open.ChargingStation
             lock (evseWatchLock)
                 lastEVSEs = EVSEsJSON(TimeProvider.GetUtcNow()).ToString(Formatting.None);
 
+            // How the EVSEs stand now is what a back end is told when it
+            // accepts this station; what is told by the clock is what
+            // changed since.
+            RememberHowTheEVSEsStand();
+
             // The meters on the same beat: a second is what their page can be
             // behind at worst, as it is for the EVSEs.
-            evseWatch = TimeProvider.CreateTimer(_ => { ReportEVSEChanges(); ReportMeterChanges(); },
+            evseWatch = TimeProvider.CreateTimer(_ => { ReportEVSEChanges(); ReportMeterChanges(); ReportStatusChanges(); },
                                                  null,
                                                  EVSEWatchInterval,
                                                  EVSEWatchInterval);

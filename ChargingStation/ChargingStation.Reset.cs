@@ -20,6 +20,8 @@
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using Newtonsoft.Json.Linq;
+
 using cloud.charging.open.ChargingStation.EVSEs;
 
 #endregion
@@ -28,8 +30,10 @@ namespace cloud.charging.open.ChargingStation
 {
 
     /// <summary>
-    /// A restart once nothing is charging any more: a Reset of OCPP 2.1 OnIdle
-    /// for the whole station, and a Soft one of OCPP 1.6.
+    /// A restart of this station: once nothing is charging any more - a Reset
+    /// of OCPP 2.1 OnIdle for the whole station, and a Soft one of OCPP 1.6 -
+    /// or at once, which ends what is charging - Immediate, and Hard. Asked
+    /// over OCPP, on the web page and at the command line.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -48,8 +52,14 @@ namespace cloud.charging.open.ChargingStation
     /// 5.3: a soft reset needs "reset:run", the right of the support).
     /// </para>
     /// <para>
-    /// A Reset of OCPP 2.1 Immediate, one for a single EVSE, and a Hard one of
-    /// OCPP 1.6 are left to the nodes, as before: they accept and do nothing.
+    /// A restart at once ends every session first, as a change of the EVSEs
+    /// does, and is the same restart afterwards: a Reset of OCPP 2.1 Immediate
+    /// for the whole station, and a Hard one of OCPP 1.6. It is the one of the
+    /// two that can do damage, and a right of its own: "reset-immediate:run".
+    /// </para>
+    /// <para>
+    /// A Reset of OCPP 2.1 for a single EVSE is left to the node, as before:
+    /// it accepts and does nothing.
     /// </para>
     /// </remarks>
     public partial class ChargingStation
@@ -67,6 +77,12 @@ namespace cloud.charging.open.ChargingStation
         /// 1 while the OCPP side is built anew for a restart.
         /// </summary>
         private Int32    restarting;
+
+        /// <summary>
+        /// 1 while a restart at once still has the sessions to end: after the
+        /// answer to its Reset went out.
+        /// </summary>
+        private Int32    endSessionsForRestart;
 
         #endregion
 
@@ -98,12 +114,12 @@ namespace cloud.charging.open.ChargingStation
             // After the answer, which goes over the connection the restart
             // hangs up: answered first, so that the CSMS hears it.
             ChargePoint.    OCPP.OUT.OnResetResponseSent += (timestamp, sender, connection, request, response, runtime, result, cancellationToken) => {
-                RestartIfIdle();
+                RestartAsAskedFor();
                 return Task.CompletedTask;
             };
 
             ChargingStation.OCPP.OUT.OnResetResponseSent += (timestamp, sender, connection, request, response, runtime, result, cancellationToken) => {
-                RestartIfIdle();
+                RestartAsAskedFor();
                 return Task.CompletedTask;
             };
 
@@ -114,17 +130,21 @@ namespace cloud.charging.open.ChargingStation
         #region (private) Reset16(Request, CancellationToken) / Reset21(Request, CancellationToken)
 
         /// <summary>
-        /// A Soft reset of OCPP 1.6 is a restart once idle. A Hard one is the
-        /// node's, as before.
+        /// A Soft reset of OCPP 1.6 is a restart once idle, a Hard one a
+        /// restart at once. Both are "Accepted".
         /// </summary>
         private Task<OCPPv1_6.CP.ResetResponse?> Reset16(OCPPv1_6.CS.ResetRequest  Request,
                                                          CancellationToken          CancellationToken)
         {
 
-            if (Request.ResetType != OCPPv1_6.ResetType.Soft)
-                return Task.FromResult<OCPPv1_6.CP.ResetResponse?>(null);
+            if (Request.ResetType == OCPPv1_6.ResetType.Soft)
+                RestartWhenIdle("a Soft reset over OCPP 1.6");
 
-            RestartWhenIdle("a Soft reset over OCPP 1.6");
+            else if (Request.ResetType == OCPPv1_6.ResetType.Hard)
+                RestartWhenIdle("a Hard reset over OCPP 1.6", AtOnce: true);
+
+            else
+                return Task.FromResult<OCPPv1_6.CP.ResetResponse?>(null);
 
             return Task.FromResult<OCPPv1_6.CP.ResetResponse?>(
                        new OCPPv1_6.CP.ResetResponse(
@@ -138,13 +158,31 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// A Reset of OCPP 2.1 OnIdle for the whole station is a restart once
         /// idle: "Accepted" where nothing charges, "Scheduled" where something
-        /// does. Every other one is the node's, as before.
+        /// does. Immediate, it is a restart at once, and "Accepted". One for a
+        /// single EVSE is the node's, as before.
         /// </summary>
         private Task<OCPPv2_1.CS.ResetResponse?> Reset21(OCPPv2_1.CSMS.ResetRequest  Request,
                                                          CancellationToken            CancellationToken)
         {
 
-            if (Request.ResetType != OCPPv2_1.ResetType.OnIdle || Request.EVSEId.HasValue)
+            if (Request.EVSEId.HasValue)
+                return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(null);
+
+            if (Request.ResetType == OCPPv2_1.ResetType.Immediate)
+            {
+
+                RestartWhenIdle("a Reset Immediate over OCPP 2.1", AtOnce: true);
+
+                return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(
+                           new OCPPv2_1.CS.ResetResponse(
+                               Request,
+                               OCPPv2_1.ResetStatus.Accepted
+                           )
+                       );
+
+            }
+
+            if (Request.ResetType != OCPPv2_1.ResetType.OnIdle)
                 return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(null);
 
             RestartWhenIdle("a Reset OnIdle over OCPP 2.1");
@@ -162,19 +200,54 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) RestartWhenIdle(Why)
+        #region Restart(AtOnce, By)
+
+        /// <summary>
+        /// Restart this station, as its web page and its command line ask for
+        /// it: once nothing charges any more, or at once, which ends what is
+        /// charging.
+        /// </summary>
+        /// <param name="AtOnce">Whether what is charging is ended for it.</param>
+        /// <param name="By">Who asked for it, for the log: "'alice' on the web page".</param>
+        /// <returns>Whether it restarts "now" or "onceIdle", how many sessions were charging, and how many of them it ended.</returns>
+        public JObject Restart(Boolean  AtOnce,
+                               String   By)
+        {
+
+            var charging = sessions.Count;
+
+            RestartWhenIdle(By, AtOnce);
+            RestartAsAskedFor();
+
+            return new JObject(
+                       new JProperty("restart",   AtOnce || charging == 0 ? "now" : "onceIdle"),
+                       new JProperty("sessions",  charging),
+                       new JProperty("ended",     AtOnce ? charging : 0)
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) RestartWhenIdle(Why, AtOnce = false)
 
         /// <summary>
         /// Restart once nothing charges any more, and start no new session until
-        /// then. A restart that waits already is the one asked for again.
+        /// then. A restart that waits already is the one asked for again - and
+        /// asked for at once, it no longer waits.
         /// </summary>
         /// <param name="Why">What asked for it, for the log: "a Soft reset over OCPP 1.6".</param>
-        private void RestartWhenIdle(String Why)
+        /// <param name="AtOnce">Whether what is charging is ended for it, by <see cref="RestartAsAskedFor"/>.</param>
+        private void RestartWhenIdle(String   Why,
+                                     Boolean  AtOnce = false)
         {
+
+            if (AtOnce)
+                Volatile.Write(ref endSessionsForRestart, 1);
 
             if (Interlocked.CompareExchange(ref restartOnceIdle, Why, null) is String waiting)
             {
-                Log.Notice($"{Capitalized(Why)} asked for the restart that waits already ({waiting}).", "ocpp", "reset");
+                Log.Notice($"{Capitalized(Why)} asked for the restart that waits already ({waiting}){(AtOnce ? ", and for it at once" : "")}.", "ocpp", "reset");
                 return;
             }
 
@@ -183,8 +256,10 @@ namespace cloud.charging.open.ChargingStation
             Log.Notice(
                 charging == 0
                     ? $"{Capitalized(Why)}: nothing is charging, so this station restarts its OCPP side now."
-                    : $"{Capitalized(Why)}: this station restarts its OCPP side once the {charging} session(s) charging now have ended, " +
-                       "and starts no new session until then.",
+                    : AtOnce
+                          ? $"{Capitalized(Why)}: this station ends the {charging} session(s) charging now, and restarts its OCPP side."
+                          : $"{Capitalized(Why)}: this station restarts its OCPP side once the {charging} session(s) charging now have ended, " +
+                             "and starts no new session until then.",
                 "ocpp", "reset"
             );
 
@@ -209,6 +284,26 @@ namespace cloud.charging.open.ChargingStation
             => RestartOnceIdle is null
                    ? null
                    : "This station restarts once nothing is charging any more; until then no session starts.";
+
+        #endregion
+
+        #region (private) RestartAsAskedFor()
+
+        /// <summary>
+        /// What was asked for: where it was a restart at once, end what is
+        /// charging; then restart where nothing charges. After the answer to a
+        /// Reset went out, and at once where the page or the command line
+        /// asked.
+        /// </summary>
+        private void RestartAsAskedFor()
+        {
+
+            if (Interlocked.Exchange(ref endSessionsForRestart, 0) == 1)
+                StopAllSessions("this station restarts at once");
+
+            RestartIfIdle();
+
+        }
 
         #endregion
 

@@ -22,9 +22,15 @@ import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
  * again and again.
  *
  * The configuration of the same EVSEs - what is fitted, what they may deliver
- * - is a page of its own, under Configuration. This one changes nothing, and
- * reads what is going on rather than how the station is set up: the support
- * sees it, and is not sent to a page that is not theirs.
+ * - is a page of its own, under Configuration. This one changes nothing of
+ * how the station is set up, and reads what is going on: the support sees it,
+ * and is not sent to a page that is not theirs.
+ *
+ * What it does is what is done to a station that runs, each for those who
+ * may: restart it once nothing is charging or at once, have it tell its back
+ * ends again how the EVSEs stand, have it register again or send a heartbeat,
+ * and let go of a cable that is stuck - what a CSMS asks over OCPP with
+ * Reset, TriggerMessage and UnlockConnector, at the same rights.
  */
 export const evseStatusPage: Page = {
 
@@ -51,6 +57,111 @@ export const evseStatusPage: Page = {
 
         /** Whether the page about how the EVSEs are set up is theirs to be sent to. */
         const mayConfigure = auth.can('evses', 'read');
+
+        /** What somebody may have the station do, each a right of its own. */
+        const mayRestartIdle  = auth.can('reset',           'run');
+        const mayRestartNow   = auth.can('reset-immediate', 'run');
+        const mayReport       = auth.can('state',           'run');
+        const maySend         = auth.can('node',            'run');
+        const mayUnlock       = auth.can('unlock',          'run');
+
+        /** What came of the last thing the station was told to do, and whether one is on its way. */
+        let said: { ok: boolean; text: string } | null = null;
+        let busy = false;
+
+        /** Have the station do something, and say what came of it. */
+        async function act(What: () => Promise<string>): Promise<void> {
+
+            if (busy)
+                return;
+
+            busy = true;
+            said = null;
+            draw();
+
+            try
+            {
+                said = { ok: true, text: await What() };
+            }
+            catch (problem)
+            {
+                said = { ok: false, text: errorMessage(problem) };
+            }
+
+            busy = false;
+            draw();
+
+        }
+
+        const restart = (AtOnce: boolean) => {
+
+            if (AtOnce && !confirm('Whatever is charging is ended, and the station restarts. Go on?'))
+                return;
+
+            void act(async () => {
+
+                const answer = await api.station.restart(AtOnce);
+
+                return answer.restart === 'onceIdle'
+                           ? `The station restarts its OCPP side once the ${answer.sessions} session(s) charging now have ended, and starts no new session until then.`
+                           : answer.ended > 0
+                                 ? `${answer.ended} session(s) were ended, and the station restarts its OCPP side now.`
+                                 : 'Nothing is charging: the station restarts its OCPP side now.';
+
+            });
+
+        };
+
+        const report = () => void act(async () =>
+            `How the EVSEs stand goes to ${(await api.station.reportStatus()).backEnds} back end(s).`);
+
+        const send = (Message: 'BootNotification' | 'Heartbeat') => void act(async () =>
+            `A ${Message} goes to ${(await api.station.send(Message)).backEnds} back end(s).`);
+
+        const unlock = (EVSE: EVSEStatus) => void act(async () => {
+            await api.station.unlock(EVSE.id);
+            return `The cable at EVSE ${EVSE.label} was let go of.`;
+        });
+
+        /** The station as a whole, told to do something: only what this person may. */
+        function stationCard(): TemplateResult | typeof nothing {
+
+            if (!mayRestartIdle && !mayRestartNow && !mayReport && !maySend)
+                return said === null ? nothing : saidView();
+
+            return html`
+                <div class="cards">
+                    <section class="card" id="station-actions">
+
+                        <h2><i class="fa-solid fa-charging-station"></i> This station</h2>
+
+                        <div class="button-row">
+                            ${mayReport      ? html`<button type="button" class="btn small" id="report-status"  ?disabled=${busy} @click=${report}>Report the EVSEs again</button>` : nothing}
+                            ${maySend        ? html`<button type="button" class="btn small" id="send-heartbeat" ?disabled=${busy} @click=${() => send('Heartbeat')}>Send a heartbeat</button>` : nothing}
+                            ${maySend        ? html`<button type="button" class="btn small" id="send-boot"      ?disabled=${busy} @click=${() => send('BootNotification')}>Register again</button>` : nothing}
+                            ${mayRestartIdle ? html`<button type="button" class="btn small" id="restart-idle"   ?disabled=${busy} @click=${() => restart(false)}>Restart once idle</button>` : nothing}
+                            ${mayRestartNow  ? html`<button type="button" class="btn small danger" id="restart-now" ?disabled=${busy} @click=${() => restart(true)}>Restart now</button>` : nothing}
+                        </div>
+
+                        ${saidView()}
+
+                        <p class="muted small">
+                            What a CSMS asks over OCPP with TriggerMessage and Reset. A restart builds the OCPP side
+                            of the station anew and dials again; once idle, it waits for what is charging and no new
+                            session starts until then.
+                        </p>
+
+                    </section>
+                </div>
+            `;
+
+        }
+
+        function saidView(): TemplateResult | typeof nothing {
+            return said === null
+                       ? nothing
+                       : html`<p class="${said.ok ? 'notice small' : 'form-error'}" id="station-said">${said.text}</p>`;
+        }
 
 
         function tabsOf(List: readonly EVSEStatus[]): Tab[] {
@@ -92,11 +203,13 @@ export const evseStatusPage: Page = {
 
             render(content, html`
 
+                ${stationCard()}
+
                 ${tabsView(tabs, shown, show, 'The EVSEs of this station')}
 
                 ${repeat(evses, evse => evse.id, evse => html`
                     <div id="panel-${tabIdOf(evse)}" role="tabpanel" aria-labelledby="tab-${tabIdOf(evse)}" ?hidden=${shown !== tabIdOf(evse)}>
-                        ${evseView(evse, meters.get(evse.id) ?? null, mayMeters, mayConfigure)}
+                        ${evseView(evse, meters.get(evse.id) ?? null, mayMeters, mayConfigure, mayUnlock ? { busy, unlock } : null)}
                     </div>
                 `)}
 
@@ -308,8 +421,18 @@ function certificateView(Heading: string, Certificate: CertificateSummary): Temp
 }
 
 
+/** Letting go of a cable, for those who may: whether something is on its way, and what to call. */
+interface Unlocking {
+    busy:    boolean;
+    unlock:  (EVSE: EVSEStatus) => void;
+}
+
 /** One EVSE, drawn in the panel of its tab. */
-function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: boolean, MayConfigure: boolean): TemplateResult {
+function evseView(EVSE:           EVSEStatus,
+                  Meter:          MeterStatus | null,
+                  MayReadMeters:  boolean,
+                  MayConfigure:   boolean,
+                  Unlocking:      Unlocking | null = null): TemplateResult {
 
     return html`
         <div class="cards">
@@ -345,6 +468,15 @@ function evseView(EVSE: EVSEStatus, Meter: MeterStatus | null, MayReadMeters: bo
                         </tbody>
                     </table>
                 </div>
+
+                ${Unlocking === null ? nothing : html`
+                    <div class="button-row">
+                        <button type="button" class="btn small" data-unlock="${EVSE.id}"
+                                ?disabled=${Unlocking.busy || EVSE.session !== null}
+                                title="${EVSE.session !== null ? 'Somebody is charging here: the session is stopped first.' : 'Let go of a cable that is stuck.'}"
+                                @click=${() => Unlocking.unlock(EVSE)}>Unlock the cable</button>
+                    </div>
+                `}
 
                 ${MayConfigure ? html`
                     <p class="muted small">
