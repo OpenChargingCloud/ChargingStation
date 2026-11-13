@@ -373,6 +373,46 @@ namespace cloud.charging.open.ChargingStation
             if (!trigger.StartsWith("SignSSHKey", StringComparison.Ordinal))
                 return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(null);
 
+            // The keys this station signs in with at its file servers, one per file
+            // server and login: "SignSSHKey:SFTP:<peer>:<login>" asks for one of them,
+            // and "SignSSHKey:SFTP" for all of them while there is a file server.
+            if (trigger == "SignSSHKey:SFTP" || trigger.StartsWith("SignSSHKey:SFTP:", StringComparison.Ordinal))
+            {
+
+                var asked = trigger.Split(':');
+
+                var keys  = asked.Length == 4
+                                ? FileTransferLogins(asked[2]).Contains(asked[3], StringComparer.Ordinal)
+                                      ? [ (Peer: asked[2], Login: asked[3]) ]
+                                      : []
+                                : asked.Length == 2
+                                      ? [.. FileServers.SelectMany(fileServer => FileTransferLogins(fileServer.Id).Select(login => (Peer: fileServer.Id, Login: login)))]
+                                      : Array.Empty<(String Peer, String Login)>();
+
+                if (asked.Length != 2 || keys.Length > 0)
+                {
+
+                    if (keys.Length == 0)
+                        return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(
+                                   new OCPPv2_1.CS.TriggerMessageResponse(Request, OCPPv2_1.TriggerMessageStatus.Rejected,
+                                                                          new OCPPv2_1.StatusInfo("NotFound", $"'{trigger}' names no login this station has at a file server: SignSSHKey:SFTP:<peer>:<login>."))
+                               );
+
+                    _ = Task.Run(async () => {
+                            foreach (var (peer, login) in keys)
+                                await ShowFileTransferKey(peer, login, "its CSMS asked for it");
+                        });
+
+                    return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(
+                               new OCPPv2_1.CS.TriggerMessageResponse(Request, OCPPv2_1.TriggerMessageStatus.Accepted)
+                           );
+
+                }
+
+                // No file server: "SignSSHKey:SFTP" is the one key of that purpose, as before.
+
+            }
+
             var purposeText = trigger.Length > "SignSSHKey".Length && trigger["SignSSHKey".Length] == ':'
                                   ? trigger["SignSSHKey:".Length..]
                                   : trigger == "SignSSHKey" ? "Station" : "";
@@ -388,6 +428,49 @@ namespace cloud.charging.open.ChargingStation
             return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(
                        new OCPPv2_1.CS.TriggerMessageResponse(Request, OCPPv2_1.TriggerMessageStatus.Accepted)
                    );
+
+        }
+
+        #endregion
+
+        #region (internal) ShowFileTransferKey(Peer, Login, Why)
+
+        /// <summary>
+        /// Show the CSMS the key this station signs in with under the given
+        /// login at the given file server, in a SignSSHKey that names both:
+        /// what the CSMS enters at that server, and confirms with SSHKeySigned
+        /// (white paper "SFTP for Logfile Uploads and Firmware Downloads",
+        /// section 9.2). The key is made now where there is none yet.
+        /// </summary>
+        internal async Task<OCPPv2_1.CSMS.SignSSHKeyResponse?> ShowFileTransferKey(String  Peer,
+                                                                                   String  Login,
+                                                                                   String  Why)
+        {
+
+            if (FileTransferPublicKey(Peer, Login) is not String line)
+                return null;
+
+            try
+            {
+
+                var response = await cs02.OCPP.OUT.SignSSHKey(new OCPPv2_1.CS.SignSSHKeyRequest(SourceRouting.To(NetworkingNode_Id.CSMS),
+                                                                                                   OCPPv2_1.SSHKeyPurpose.SFTP,
+                                                                                                   line,
+                                                                                                   Peer,
+                                                                                                   Login));
+
+                Log.Notice($"The key this station signs in with as '{Login}' at the file server '{Peer}' was shown to the CSMS in SignSSHKey, as {Why}: " +
+                           $"it answered {OCPPv2_1.GenericStatusExtensions.AsText(response.Status)}{(response.StatusInfo is not null ? $" ({response.StatusInfo.ReasonCode})" : "")}.",
+                           "ocpp", "ssh", "sftp", "security");
+
+                return response;
+
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"The key of '{Login}' at the file server '{Peer}' could not be shown to the CSMS: {e.Message}", "ocpp", "ssh", "sftp", "security");
+                return null;
+            }
 
         }
 
@@ -469,6 +552,25 @@ namespace cloud.charging.open.ChargingStation
                                                                           OCPPv2_1.CSMS.SSHKeySignedRequest     Request,
                                                                           CancellationToken                     CancellationToken)
         {
+
+            // A key of a login at a file server: the CSMS says that the server holds it,
+            // and from then on the station signs in with it.
+            if (Request.Purpose == OCPPv2_1.SSHKeyPurpose.SFTP && (Request.Peer is not null || Request.Login is not null))
+            {
+
+                if (Request.Peer is not String peer || Request.Login is not String login)
+                    return new OCPPv2_1.CS.SSHKeySignedResponse(Request, OCPPv2_1.GenericStatus.Rejected,
+                                                                new OCPPv2_1.StatusInfo("InvalidValue", "A key of a file server is named by its peer and its login, both."));
+
+                if (ConfirmFileTransferKey(peer, login, Request.PublicKey) is String notConfirmed)
+                    return new OCPPv2_1.CS.SSHKeySignedResponse(Request, OCPPv2_1.GenericStatus.Rejected,
+                                                                new OCPPv2_1.StatusInfo("UnknownKey", notConfirmed.Length > 1024 ? notConfirmed[..1024] : notConfirmed));
+
+                SshSecurityEvent(null, "ReconfigurationOfSecurityParameters", $"The key of '{login}' at the file server '{peer}' is confirmed as enrolled there, and used from now on.");
+
+                return new OCPPv2_1.CS.SSHKeySignedResponse(Request, OCPPv2_1.GenericStatus.Accepted);
+
+            }
 
             if (KeyOf(Request.Purpose) is not SshClientKey key)
                 return new OCPPv2_1.CS.SSHKeySignedResponse(Request, OCPPv2_1.GenericStatus.Rejected,

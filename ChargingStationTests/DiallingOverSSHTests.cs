@@ -690,6 +690,112 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AKeyOfAFileServerIsShownAndConfirmedOverOCPP()
+
+        /// <summary>
+        /// The key of a login at a file server is read by the CSMS in a
+        /// SignSSHKey that names the file server and the login, and is used once
+        /// an SSHKeySigned naming both confirms it - and not before, and not by
+        /// another key or another login.
+        /// </summary>
+        [Test]
+        public async Task AKeyOfAFileServerIsShownAndConfirmedOverOCPP()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error, SshHostKey: csms!.Fingerprint),
+                        Is.True, error);
+
+            await Start();
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting over SSH", () => SaidOf(id!));
+
+            // A file server of the station, with two logins - set on the station itself.
+            var held = await station.TryUpdateSSHPeers(peers => JArray.Parse($$"""
+                           [ {
+                               "id":             "files",
+                               "address":        "logs.example.org",
+                               "hostKeyPins":    [ "SHA256:{{new String('A', 43)}}" ],
+                               "fileTransfers":  { "directions": [ "upload" ], "users": [ "cs001", "cs001-fw" ], "uploadPaths": [ "/upload/" ] }
+                           } ]
+                           """));
+
+            Assert.That(held.Error, Is.Null);
+
+            const String url = "sftp://cs001@logs.example.org/upload/";
+
+            Assert.That(station.JudgeFileTransfer(url, cloud.charging.open.protocols.WWCP.Node.SecureShell.FileTransferDirections.Upload).Why, Does.Contain("not confirmed"));
+
+            // Asked for one of them ...
+            var one = await csms.Ask("TriggerMessage", new JObject(new JProperty("requestedMessage", "CustomTrigger"),
+                                                                   new JProperty("customTrigger",    "SignSSHKey:SFTP:files:cs001")));
+
+            Assert.That(one[2]!.Value<String>("status"), Is.EqualTo("Accepted"), one.ToString());
+            await Until(() => csms.Requests("SignSSHKey").Length == 1, "A SignSSHKey");
+
+            var shown = csms.Requests("SignSSHKey")[0][3]!;
+            var line  = shown.Value<String>("publicKey")!;
+
+            Assert.Multiple(() => {
+                Assert.That(shown.Value<String>("purpose"),  Is.EqualTo("SFTP"));
+                Assert.That(shown.Value<String>("peer"),     Is.EqualTo("files"));
+                Assert.That(shown.Value<String>("login"),    Is.EqualTo("cs001"));
+                Assert.That(line,                            Is.EqualTo(station.FileTransferPublicKey("files", "cs001")));
+                Assert.That(line,                            Does.EndWith(" cs001@files"));
+            });
+
+            // ... for a login that is none ...
+            var none = await csms.Ask("TriggerMessage", new JObject(new JProperty("requestedMessage", "CustomTrigger"),
+                                                                    new JProperty("customTrigger",    "SignSSHKey:SFTP:files:somebody")));
+
+            Assert.That(none[2]!.Value<String>("status"), Is.EqualTo("Rejected"), none.ToString());
+
+            // ... and for all of them.
+            var all = await csms.Ask("TriggerMessage", new JObject(new JProperty("requestedMessage", "CustomTrigger"),
+                                                                   new JProperty("customTrigger",    "SignSSHKey:SFTP")));
+
+            Assert.That(all[2]!.Value<String>("status"), Is.EqualTo("Accepted"), all.ToString());
+            await Until(() => csms.Requests("SignSSHKey").Length == 3, "A SignSSHKey for each login");
+
+            Assert.That(csms.Requests("SignSSHKey").Skip(1).Select(request => request[3]!.Value<String>("login")),
+                        Is.EquivalentTo(new[] { "cs001", "cs001-fw" }));
+
+            // Confirmed: by the key of that login at that file server, and by nothing else.
+            JObject Signed(String PublicKey, String? Peer, String? Login)
+            {
+                var json = new JObject(new JProperty("purpose", "SFTP"), new JProperty("publicKey", PublicKey));
+                if (Peer  is not null) json.Add("peer",  Peer);
+                if (Login is not null) json.Add("login", Login);
+                return json;
+            }
+
+            var stranger     = await csms.Ask("SSHKeySigned", Signed("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStranger", "files",   "cs001"));
+            var otherLogin   = await csms.Ask("SSHKeySigned", Signed(line,                                            "files",   "cs001-fw"));
+            var otherServer  = await csms.Ask("SSHKeySigned", Signed(line,                                            "nowhere", "cs001"));
+            var halfNamed    = await csms.Ask("SSHKeySigned", Signed(line,                                            "files",   null));
+
+            Assert.Multiple(() => {
+                Assert.That(stranger   [2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
+                Assert.That(otherLogin [2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
+                Assert.That(otherServer[2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
+                Assert.That(halfNamed  [2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
+                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001"),     Is.False);
+                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001-fw"),  Is.False);
+            });
+
+            var signed = await csms.Ask("SSHKeySigned", Signed(line, "files", "cs001"));
+
+            Assert.Multiple(() => {
+                Assert.That(signed[2]!.Value<String>("status"),                       Is.EqualTo("Accepted"), signed.ToString());
+                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001"),     Is.True);
+                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001-fw"),  Is.False, "the other login's key is not confirmed by it");
+                Assert.That(station.JudgeFileTransfer(url, cloud.charging.open.protocols.WWCP.Node.SecureShell.FileTransferDirections.Upload).IsAllowed, Is.True, "a request for that login is carried out now");
+            });
+
+        }
+
+        #endregion
+
         #region ANoPinAndNoTrustOnFirstUseIsNotDialled()
 
         /// <summary>
