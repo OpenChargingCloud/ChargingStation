@@ -314,10 +314,10 @@ namespace cloud.charging.open.ChargingStation
         /// Nothing more is asked for these nodes: they were let go of, or this
         /// station is stopping.
         /// </summary>
-        private void EndRegistrations(params AWWCPNetworkingNode[] Nodes)
+        protected override void EndRegistrations(params AWWCPNetworkingNode?[] Nodes)
         {
             foreach (var node in Nodes)
-                if (registrations.TryGetValue(node, out var nodeRegistrations))
+                if (node is not null && registrations.TryGetValue(node, out var nodeRegistrations))
                     nodeRegistrations.Ended.Cancel();
         }
 
@@ -331,7 +331,7 @@ namespace cloud.charging.open.ChargingStation
         /// that one accepted this station's node, and register where its back end
         /// did not accept it yet.
         /// </summary>
-        private void ConnectionIsUp(ConnectionEntry Connection)
+        protected override void ConnectionIsUp(ConnectionEntry Connection)
         {
 
             // A key older than its maximum age is rotated once a back end can be told.

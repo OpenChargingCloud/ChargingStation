@@ -37,8 +37,8 @@ namespace cloud.charging.open.ChargingStation
     /// SetVariables request a signer it believes signed (section 5.7).
     /// </summary>
     /// <remarks>
-    /// WWCP_OCPP_Node's TLSClientControllerSource, given the station's key pins (ChargingStation.KeyPins.cs),
-    /// the key pins of its client certificates, and the signature check of ChargingStation.SSHClient.cs:
+    /// WWCP_OCPP_Node's TLSClientControllerSource, given the station's key pins (OCPPDiallingNode.KeyPins.cs),
+    /// the key pins of its client certificates, and the signature check of OCPPDiallingNode.SSHClient.cs:
     /// the same signers, without a time window for a pin set, whose version keeps an older one from
     /// coming back.
     /// </remarks>

@@ -74,7 +74,7 @@ namespace cloud.charging.open.ChargingStation
     /// file, its own JSON API below "/api", a display on a port of its own,
     /// and the OCPP nodes it dials its back ends with.
     /// </remarks>
-    public partial class ChargingStation : WWCPNode
+    public partial class ChargingStation : OCPPDiallingNode
     {
 
         #region Data
@@ -240,41 +240,6 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
         #region Properties
-
-        /// <summary>
-        /// The keys and certificates this station holds up when it dials a
-        /// back end.
-        /// </summary>
-        /// <remarks>
-        /// Beside the configuration file rather than beside the process,
-        /// because that is where everything else this station was given lives -
-        /// and because a station that is moved by copying its directory should
-        /// take its identity with it or not at all, never half of it.
-        /// </remarks>
-        public ClientCertificateStore ClientCertificates     { get; }
-
-        /// <summary>
-        /// The places this station dials, and the credentials it proves itself
-        /// with when it gets there.
-        /// </summary>
-        /// <remarks>
-        /// Beside the certificates and for the same reason, and with the same
-        /// care over what is secret: the passwords and shared secrets are
-        /// written where only their owner may read them, and nothing hands
-        /// them back out.
-        /// </remarks>
-        public ConnectionStore        Connections           { get; }
-
-        /// <summary>
-        /// The key this station signs in with when it dials an ssh://
-        /// connection - made the first time one needs it.
-        /// </summary>
-        /// <remarks>
-        /// Beside the connections that use it, in a directory of its own that
-        /// only its owner may read: whoever has it can sign in as this station
-        /// wherever it is let in.
-        /// </remarks>
-        public SshClientKey           SshKey                { get; }
 
         /// <summary>
         /// The EVSEs this station has, right now.
@@ -506,7 +471,7 @@ namespace cloud.charging.open.ChargingStation
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
                    //
                    // And "ocpp": a TLS root may vouch for the servers of the OCPP
-                   // connections and for nothing else - see ChargingStation.ServerPins.cs.
+                   // connections and for nothing else - see OCPPDiallingNode.ServerPins.cs.
                    CertificateUsages: [ MeterCertificateUsage, OCPPCertificateUsage ],
                    Log:               Log,
                    LogToConsole:      LogToConsole,
@@ -553,7 +518,7 @@ namespace cloud.charging.open.ChargingStation
 
             // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
             // and what TLSClientController reads and writes of them - see
-            // ChargingStation.KeyPins.cs and ChargingStation.TLSClient.cs.
+            // OCPPDiallingNode.KeyPins.cs and ChargingStation.TLSClient.cs.
             this.keyPinning       = NewKeyPinning();
             this.tlsClientSource  = NewTLSClientSource();
 
@@ -587,7 +552,7 @@ namespace cloud.charging.open.ChargingStation
             this.Connections.OnConnectionsChanged += () => FollowTLSClientComponents(cs02);
 
             // What is written down is what is dialled, from the moment it is
-            // written - see ChargingStation.Peers.cs.
+            // written - see OCPPDiallingNode.Peers.cs.
             this.Connections.OnConnectionsChanged += () => _ = ApplyConnectionChanges();
 
             this.SshKey = new SshClientKey(

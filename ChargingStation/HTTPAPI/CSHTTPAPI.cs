@@ -1730,13 +1730,7 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         internal static String? KeyPinsOf(JObject JSON, String Name)
 
-            => JSON[Name] switch {
-                   JArray list                                  => String.Join(",", list.Select(pin => pin.Type == JTokenType.String
-                                                                                                           ? pin.Value<String>()
-                                                                                                           : pin.ToString(Newtonsoft.Json.Formatting.None))),
-                   JValue { Type: JTokenType.Null } or null     => null,
-                   var other                                    => other.ToString()
-               };
+            => OCPP.ConnectionFields.KeyPinsOf(JSON, Name);
 
         /// <summary>
         /// What the server of a wss:// connection checked by its CA is held to,
@@ -1803,25 +1797,8 @@ namespace cloud.charging.open.ChargingStation
         /// where none of it was, to keep what it says.
         /// </summary>
         internal static ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
-        {
 
-            var probation = JSON["serverKeyPinProbationTime"];
-
-            if (JSON["rawPublicKeys"] is null && JSON["trustOnFirstUse"] is null && probation is null)
-                return null;
-
-            Int64? seconds = probation?.Type switch {
-                                 JTokenType.Integer                                                  => probation.Value<Int64>(),
-                                 JTokenType.String when Int64.TryParse(probation.Value<String>(), out var parsed) => parsed,
-                                 JTokenType.Null or null                                             => null,
-                                 _                                                                   => -1
-                             };
-
-            return new ServerKeyPinSettings(JSON.Value<String>("rawPublicKeys"),
-                                                 JSON.Value<String>("trustOnFirstUse"),
-                                                 seconds);
-
-        }
+            => OCPP.ConnectionFields.KeyPinTrustOf(JSON);
 
         /// <summary>
         /// How an ssh:// connection believes its server beyond its pins, as it
@@ -1830,25 +1807,8 @@ namespace cloud.charging.open.ChargingStation
         /// takes, so that it is refused in words rather than with a 500.
         /// </summary>
         internal static OCPP.SshTrustSettings? SshTrustOf(JObject JSON)
-        {
 
-            var probation = JSON["sshProbationTime"];
-
-            if (JSON["sshTrustOnFirstUse"] is null && JSON["sshOnPinMismatch"] is null && probation is null)
-                return null;
-
-            Int64? seconds = probation?.Type switch {
-                                 JTokenType.Integer                                                  => probation.Value<Int64>(),
-                                 JTokenType.String when Int64.TryParse(probation.Value<String>(), out var parsed) => parsed,
-                                 JTokenType.Null or null                                             => null,
-                                 _                                                                   => -1
-                             };
-
-            return new OCPP.SshTrustSettings(JSON.Value<String>("sshTrustOnFirstUse"),
-                                        JSON.Value<String>("sshOnPinMismatch"),
-                                        seconds);
-
-        }
+            => OCPP.ConnectionFields.SshTrustOf(JSON);
 
         #endregion
 

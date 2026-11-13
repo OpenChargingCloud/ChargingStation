@@ -2012,7 +2012,7 @@ namespace cloud.charging.open.ChargingStation
             NewRegistrations(chargePoint, chargingStation);
 
             // A connection whose server is believed by a host key on probation
-            // executes nothing but a signed pin set - see ChargingStation.Connections.cs.
+            // executes nothing but a signed pin set - see OCPPDiallingNode.Connections.cs.
             chargePoint.    OCPP.IN.RequestGate = GateOnProbation;
             chargingStation.OCPP.IN.RequestGate = GateOnProbation;
 
