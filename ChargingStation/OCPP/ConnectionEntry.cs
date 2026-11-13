@@ -1233,6 +1233,35 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
         #endregion
 
+        #region (static) WrittenAt(Token)
+
+        /// <summary>
+        /// The time written in a file, or null where there is none to read.
+        /// </summary>
+        /// <remarks>
+        /// Read in no culture: a file parsed by Newtonsoft has its timestamps
+        /// as dates already, and one of those asked for as text comes back
+        /// month first, which the culture of the machine reads day first -
+        /// the 13th of a month as no date at all, and the 3rd as the month.
+        /// </remarks>
+        internal static DateTimeOffset? WrittenAt(JToken? Token)
+
+            => Token is JValue { Value: not null } value
+                   ? value.Type == JTokenType.Date
+                         ? value.Value is DateTimeOffset withOffset
+                               ? withOffset.ToUniversalTime()
+                               : new DateTimeOffset(value.Value<DateTime>().ToUniversalTime())
+                         : DateTimeOffset.TryParse(value.Value<String>(),
+                                                   System.Globalization.CultureInfo.InvariantCulture,
+                                                   System.Globalization.DateTimeStyles.AssumeUniversal |
+                                                   System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                                   out var written)
+                               ? written
+                               : null
+                   : null;
+
+        #endregion
+
         #region (static) TryParse(JSON, out Entry, out Error)
 
         /// <summary>
@@ -1278,10 +1307,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                   out Error))
                 return false;
 
-            var learnedAt = JSON.Value<String>("sshLearnedAt") is String learnedAtText &&
-                            DateTimeOffset.TryParse(learnedAtText, out var learnedAtValue)
-                                ? learnedAtValue
-                                : (DateTimeOffset?) null;
+            var learnedAt = WrittenAt(JSON["sshLearnedAt"]);
 
             // The key pins of a wss:// connection: a list, as they are written,
             // or one text of them, as somebody may write them by hand.
@@ -1330,11 +1356,9 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                          ? learnedPin
                                          : null;
 
-            var keyPinLearnedAt    = keyPinLearned is not null &&
-                                     JSON.Value<String>("serverKeyPinLearnedAt") is String keyPinLearnedAtText &&
-                                     DateTimeOffset.TryParse(keyPinLearnedAtText, out var keyPinLearnedAtValue)
-                                         ? keyPinLearnedAtValue
-                                         : (DateTimeOffset?) null;
+            var keyPinLearnedAt    = keyPinLearned is not null
+                                         ? WrittenAt(JSON["serverKeyPinLearnedAt"])
+                                         : null;
 
             Entry = new ConnectionEntry(
                         id,
