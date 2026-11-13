@@ -35,6 +35,9 @@ using cloud.charging.open.ChargingStation.Web;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 
+using SignedDataObject   = cloud.charging.open.protocols.WWCP.SignedDataObject;
+using SignerRoleReasons  = cloud.charging.open.protocols.WWCP.SignerRoleReasons;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -160,6 +163,16 @@ namespace cloud.charging.open.ChargingStation
             AddHandler(HTTPPath.Root + "v1/configuration/connections/test",       PostTestConnection,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners",         PostPinSetSigner,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/configuration/connections/pinSetSigners/remove",  PostRemovePinSetSigner,  HTTPMethod.POST);
+
+            // Which keys sign as which role, and the signature policy (white paper
+            // "Signed OCPP Messages and Signer Roles", section 6.6).
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures",                   GetSignatures,          HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/settings",          PutSignatureSettings,   HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/roles",             PostSignerRole,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/roles/firstOwner",  PostFirstOwner,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/roles/remove",      PostRemoveSignerRole,   HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/policy",            PostSignaturePolicy,    HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/configuration/signatures/reset",             PostResetSignerRoles,   HTTPMethod.POST);
 
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        GetClientCertificates,   HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/certificates",        PostClientKey,           HTTPMethod.POST);
@@ -1392,6 +1405,207 @@ namespace cloud.charging.open.ChargingStation
             }
 
         }
+
+        #region Signer roles and the signature policy
+
+        /// <summary>
+        /// A signed data object as it was sent: read without making dates of
+        /// its texts, which would break its signatures.
+        /// </summary>
+        private static Boolean TryParseSignedObject(HTTPRequest                             Request,
+                                                    [NotNullWhen(true)]  out JObject?       JSON,
+                                                    [NotNullWhen(false)] out HTTPResponse?  ErrorResponse)
+        {
+
+            JSON           = null;
+            ErrorResponse  = null;
+
+            try
+            {
+                JSON = SignedDataObject.ParseAsReceived(Request.HTTPBodyAsUTF8String ?? "");
+                return true;
+            }
+            catch (Exception)
+            {
+                ErrorResponse = ErrorJSON(Request, HTTPStatusCode.BadRequest, "This is no JSON object.");
+                return false;
+            }
+
+        }
+
+        /// <summary>
+        /// Why a role assignment or a policy was not taken: 409 where it came
+        /// too late or does not fit what is there, 403 where it is not the
+        /// owners', 400 where it is none.
+        /// </summary>
+        private static HTTPResponse NotTaken(HTTPRequest Request, SignerRoleReasons Reason, String Error)
+
+            => ErrorJSON(Request,
+                         Reason switch {
+                             SignerRoleReasons.NotAuthorized    => HTTPStatusCode.Forbidden,
+                             SignerRoleReasons.VersionNotNewer  => HTTPStatusCode.Conflict,
+                             SignerRoleReasons.RoleExists       => HTTPStatusCode.Conflict,
+                             SignerRoleReasons.WouldLockOut     => HTTPStatusCode.Conflict,
+                             SignerRoleReasons.UnknownRole      => HTTPStatusCode.NotFound,
+                             _                                  => HTTPStatusCode.BadRequest
+                         },
+                         $"{Reason}: {Error}");
+
+        /// <summary>
+        /// GET /api/v1/configuration/signatures: the settings of the signature
+        /// policy, the policy table the station was given, and its roles with
+        /// the keys that sign as them.
+        /// </summary>
+        private Task<HTTPResponse> GetSignatures(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Signatures), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/signatures/settings with what changes of
+        /// {"mode", "acceptFormat0", "maxClockSkew", "maxSignatureAge",
+        /// "allowFirstOwnerByCSMS", "allowPermissionsByCSMS", "quorum"}.
+        /// </summary>
+        private Task<HTTPResponse> PutSignatureSettings(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateSignatureSettings(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/signatures/roles with a signed role
+        /// assignment: checked as one received over OCPP is.
+        /// </summary>
+        private Task<HTTPResponse> PostSignerRole(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseSignedObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryImportSignerRole(json, out var reason, out var error))
+                return Task.FromResult(NotTaken(Request, reason, error));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.Created, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/signatures/roles/firstOwner with a role
+        /// assignment for "systemadmin", or with {"jwk", "label"}: the first
+        /// owner of the station, while it has none.
+        /// </summary>
+        private Task<HTTPResponse> PostFirstOwner(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseSignedObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            SignerRoleReasons  reason;
+            String?            error;
+
+            var installed = json["jwk"] is JObject jwk && json["role"] is null
+                                ? Station.TryInstallFirstOwnerKey(jwk, json["label"]?.Type == JTokenType.String ? json["label"]!.Value<String>() : null, out reason, out error)
+                                : Station.TryInstallFirstOwner   (json, out reason, out error);
+
+            if (!installed)
+                return Task.FromResult(NotTaken(Request, reason, error!));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.Created, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/signatures/roles/remove with {"role",
+        /// "version"}: the keys of a role are taken away.
+        /// </summary>
+        private Task<HTTPResponse> PostRemoveSignerRole(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (json["role"]?.   Type != JTokenType.String  ||
+                json["version"]?.Type != JTokenType.Integer ||
+                !UInt64.TryParse(json["version"]!.ToString(), out var version))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "A role and the version of its assignment are needed."));
+            }
+
+            if (!Station.TryDeleteSignerRole(json["role"]!.Value<String>()!, version, out var reason, out var error))
+                return Task.FromResult(NotTaken(Request, reason, error));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/signatures/policy with a signed policy
+        /// table: checked as one received over OCPP is.
+        /// </summary>
+        private Task<HTTPResponse> PostSignaturePolicy(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseSignedObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryImportSignaturePolicy(json, out var reason, out var error))
+                return Task.FromResult(NotTaken(Request, reason, error));
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.Created, Station.SignaturesJSON()));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/signatures/reset with {"confirm":
+        /// "reset"}: every key of every role and the policy table are
+        /// forgotten. The CSMS is told.
+        /// </summary>
+        private Task<HTTPResponse> PostResetSignerRoles(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Signatures), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (json["confirm"]?.Type != JTokenType.String || json["confirm"]!.Value<String>() != "reset")
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "Forgetting every key of every role is confirmed with {\"confirm\": \"reset\"}."));
+
+            Station.ResetSignerRoles();
+
+            return Task.FromResult(JSONResponse(Request, HTTPStatusCode.OK, Station.SignaturesJSON()));
+
+        }
+
+        #endregion
 
         /// <summary>
         /// POST /api/v1/configuration/connections/pinSetSigners with

@@ -1336,6 +1336,10 @@ namespace cloud.charging.open.ChargingStation
 
             (cs01, cs02) = BuildOCPPNodes(EVSEs);
 
+            // The old nodes tell nobody of a change of the signer roles any more.
+            TakeTheSignerRolesFrom(old16);
+            TakeTheSignerRolesFrom(old21);
+
             // Who may do what is not the EVSEs' to change, nor a restart's: a
             // policy that was enforced stays enforced, and a key keeps its role.
             KeepWhoMayDoWhat(old16.OCPP.SignaturePolicy, cs01.OCPP.SignaturePolicy, old16.UserRoles, cs01.UserRoles);
@@ -1963,6 +1967,12 @@ namespace cloud.charging.open.ChargingStation
             // over OCPP 1.6 as over OCPP 2.1.
             HoldSignersToTheRoles(chargingStation);
             HoldSignersToTheRoles(chargePoint);
+
+            // Which key signs as which role is the station's to know, for both
+            // nodes: its table of signer roles, the policy table it was given
+            // and the mode of the policy - see ChargingStation.Signatures.cs.
+            ShareTheSignerRolesWith(chargingStation);
+            ShareTheSignerRolesWith(chargePoint);
 
             // A Reset is the station's to answer: what a restart is, and
             // whether it waits for a session - see ChargingStation.Reset.cs.

@@ -23,6 +23,7 @@ import { commissioningPage }   from './pages/commissioning';
 import { authenticationPage }  from './pages/authentication';
 import { connectionsPage }     from './pages/connections';
 import { clientKeysPage }      from './pages/clientKeys';
+import { signerRolesPage }     from './pages/signerRoles';
 import { calibrationPage }     from './pages/calibration';
 import { evseStatusPage }      from './pages/evseStatus';
 
@@ -82,6 +83,7 @@ startNode({
         '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
         '/configuration/client-keys':     clientKeysPage,
+        '/configuration/signer-roles':    signerRolesPage,
         '/configuration/calibration':     calibrationPage,
         '/evses':                         evseStatusPage
     }

@@ -30,6 +30,7 @@ export const stationMenu: MenuEntry[] = [
         { path: '/configuration/authentication',  label: 'Authentication',   icon: 'fa-user-lock',       permission: [ 'connections:read' ]  },
         { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
         { path: '/configuration/client-keys',     label: 'Client keys',      icon: 'fa-key',             permission: [ 'connections:read' ]  },
+        { path: '/configuration/signer-roles',    label: 'Signer roles',     icon: 'fa-user-shield',     permission: [ 'signatures:read' ]   },
         nodeMenu.certificates,
         nodeMenu.identities,
         // What the web interface shows over HTTPS, where the "web"

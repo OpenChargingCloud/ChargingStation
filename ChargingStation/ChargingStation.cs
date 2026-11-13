@@ -846,6 +846,11 @@ namespace cloud.charging.open.ChargingStation
             ocppQueue16         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-1.6.jsonl"), Clock: this.TimeProvider);
             ocppQueue21         = new protocols.OCPP.OfflineQueue(System.IO.Path.Combine(queues, "queue-2.1.jsonl"), Clock: this.TimeProvider);
 
+            // Which keys sign as which role, the policy table and its mode: kept
+            // beside the configuration, and given to both nodes - see
+            // ChargingStation.Signatures.cs.
+            LoadSignerRoles();
+
             // Built from the EVSEs above, and rebuilt whenever those change -
             // see BuildOCPPNodes, which is the one place that knows how an EVSE
             // of this station is spelled in each of the two protocols.

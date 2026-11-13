@@ -665,6 +665,67 @@ export interface CommissioningUpdate {
 }
 
 
+/** A key that signs as a role. */
+export interface SignerKey {
+    /** The RFC 7638 thumbprint of the key. */
+    kid:         string;
+    label?:      string;
+    notBefore?:  string;
+    notAfter?:   string;
+}
+
+/** A role of the station, and the keys that sign as it. */
+export interface SignerRole {
+    role:          string;
+    description?:  string;
+    /** What the role may do, "resource:operation". */
+    permissions:   string[];
+    /** The version of the role assignment that is stored; 0 for a role that never had keys. */
+    version:       number;
+    keys:          SignerKey[];
+    lastUsed?:     string;
+    /** The role assignment as it was received, with its signatures. */
+    assignment?:   Record<string, unknown>;
+}
+
+/** How the station holds what it receives to its signature policy. */
+export interface SignatureSettings {
+    /** "Off", "Observe" or "Enforce". */
+    mode:                    string;
+    acceptFormat0:           boolean;
+    /** Seconds. */
+    maxClockSkew:            number;
+    /** Seconds. */
+    maxSignatureAge:         number;
+    allowFirstOwnerByCSMS:   boolean;
+    allowPermissionsByCSMS:  boolean;
+    /** How many owners have to sign a role assignment or a policy table. */
+    quorum:                  number;
+}
+
+/** What a PUT to the signature settings carries: what changes. */
+export type SignatureSettingsUpdate = Partial<SignatureSettings>;
+
+/**
+ * Signed messages: the settings of the signature policy, the policy table the
+ * station was given, and its roles with the keys that sign as them.
+ */
+export interface Signatures {
+    settings:       SignatureSettings;
+    /** The signatures the station verifies, "ES256". */
+    algorithms:     string[];
+    hasOwner:       boolean;
+    /** "systemadmin". */
+    ownerRole:      string;
+    policyVersion:  number;
+    /** The policy table as it was received, with its signatures. */
+    policy?:        Record<string, unknown>;
+    roles:          SignerRole[];
+    /** Why the last change could not be written down. */
+    notSaved?:      string;
+}
+
+
 /**
  * One calibration certificate this station runs under.
  *
@@ -1124,6 +1185,20 @@ export const api = {
          * hangs up and dials again, so that a CSMS is told.
          */
         save:  (update: NameplateUpdate)   => request<NameplateConfiguration>('PUT', '/configuration/nameplate', update)
+    },
+
+    signatures: {
+        get:                ()                                              => request<Signatures>('GET',  '/configuration/signatures'),
+        saveSettings:       (update: SignatureSettingsUpdate)               => request<Signatures>('PUT',  '/configuration/signatures/settings', update),
+        /** A signed role assignment, checked as one received over OCPP is. */
+        importRole:         (assignment: Record<string, unknown>)           => request<Signatures>('POST', '/configuration/signatures/roles', assignment),
+        /** A role assignment for the owner, or { jwk, label }: once, while there is no owner. */
+        installFirstOwner:  (owner: Record<string, unknown>)                => request<Signatures>('POST', '/configuration/signatures/roles/firstOwner', owner),
+        removeRole:         (role: { role: string, version: number })       => request<Signatures>('POST', '/configuration/signatures/roles/remove', role),
+        /** A signed policy table, checked as one received over OCPP is. */
+        setPolicy:          (policy: Record<string, unknown>)               => request<Signatures>('POST', '/configuration/signatures/policy', policy),
+        /** Every key of every role and the policy table are forgotten. */
+        reset:              ()                                              => request<Signatures>('POST', '/configuration/signatures/reset', { confirm: 'reset' })
     },
 
     commissioning: {

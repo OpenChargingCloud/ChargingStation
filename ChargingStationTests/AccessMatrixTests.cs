@@ -107,6 +107,16 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("GET",    "api/v1/configuration/nameplate",                 Everybody),
             ("PUT",    "api/v1/configuration/nameplate",                 TheAdministrator),
 
+            // Which keys sign as what is read by whoever reads the configuration, and
+            // written by the owner alone.
+            ("GET",    "api/v1/configuration/signatures",                 Everybody),
+            ("PUT",    "api/v1/configuration/signatures/settings",        TheAdministrator),
+            ("POST",   "api/v1/configuration/signatures/roles",           TheAdministrator),
+            ("POST",   "api/v1/configuration/signatures/roles/firstOwner", TheAdministrator),
+            ("POST",   "api/v1/configuration/signatures/roles/remove",    TheAdministrator),
+            ("POST",   "api/v1/configuration/signatures/policy",          TheAdministrator),
+            ("POST",   "api/v1/configuration/signatures/reset",           TheAdministrator),
+
             ("GET",    "api/v1/configuration/commissioning",             Everybody),
             ("PUT",    "api/v1/configuration/commissioning",             TheInstaller),
 

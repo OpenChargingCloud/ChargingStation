@@ -38,8 +38,9 @@ namespace cloud.charging.open.ChargingStation
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A key belongs to a role of the OCPP node - who it is said to be is the
-    /// node's to know, and AddUserRole's to change. What that role may do is
+    /// A key belongs to a role of the station - who it is said to be is the
+    /// station's table of signer roles to know, and AddSignerRole's to change
+    /// (ChargingStation.Signatures.cs). What that role may do is
     /// this station's role model, the one its accounts are held to: a support
     /// key restarts an idle station, as a support account does, and nothing
     /// more. The table of what each action needs is the one WWCP_OCPP ships
@@ -116,8 +117,10 @@ namespace cloud.charging.open.ChargingStation
         /// A new node starts with the policy off and knows no key. Left at
         /// that, a change of the EVSEs or a restart - which the support may ask
         /// for - turned a station that asked who signed into one that takes
-        /// everything from everybody. Nothing of it is written down yet: it
-        /// lasts as long as the process does.
+        /// everything from everybody. What a role assignment or the mode of
+        /// the policy said is written down, and is the new node's anyway
+        /// (ChargingStation.Signatures.cs); this keeps what a program set at
+        /// the node itself, which lasts as long as the process does.
         /// </remarks>
         private void KeepWhoMayDoWhat(SignaturePolicy  Old,
                                       SignaturePolicy  New,
@@ -186,7 +189,8 @@ namespace cloud.charging.open.ChargingStation
             policy.ResourceOfComponent  = ResourceOfComponent;
 
             policy.ClearActionPermissions();
-            policy.AddActionPermissions(OCPPv2_1.CS.ChargingStationActionPermissions.Default(() => IsMetrologicallyRelevant));
+            policy.AddActionPermissions(OCPPv2_1.CS.ChargingStationActionPermissions.Default(() => IsMetrologicallyRelevant,
+                                                                                             () => TakesItsFirstOwner));
 
             policy.ActionsDecidedPerEntry.Add("SetVariables");
             policy.ActionsDecidedPerEntry.Add("GetVariables");
@@ -226,7 +230,8 @@ namespace cloud.charging.open.ChargingStation
             policy.ResourceOfComponent  = ResourceOfComponent;
 
             policy.ClearActionPermissions();
-            policy.AddActionPermissions(OCPPv1_6.CP.ChargePointActionPermissions.Default(() => IsMetrologicallyRelevant));
+            policy.AddActionPermissions(OCPPv1_6.CP.ChargePointActionPermissions.Default(() => IsMetrologicallyRelevant,
+                                                                                         () => TakesItsFirstOwner));
 
             foreach (var action in OCPPv1_6.CP.ChargePointActionPermissions.ActionsDecidedPerKey)
                 policy.ActionsDecidedPerEntry.Add(action);
