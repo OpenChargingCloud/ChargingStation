@@ -1336,6 +1336,11 @@ namespace cloud.charging.open.ChargingStation
 
             (cs01, cs02) = BuildOCPPNodes(EVSEs);
 
+            // Who may do what is not the EVSEs' to change, nor a restart's: a
+            // policy that was enforced stays enforced, and a key keeps its role.
+            KeepWhoMayDoWhat(old16.OCPP.SignaturePolicy, cs01.OCPP.SignaturePolicy, old16.UserRoles, cs01.UserRoles);
+            KeepWhoMayDoWhat(old21.OCPP.SignaturePolicy, cs02.OCPP.SignaturePolicy, old21.UserRoles, cs02.UserRoles);
+
             // A tool commissioning this station speaks to the new node from
             // now on; the old one's sessions end with it.
             ServeCommissioningByTheNewNode();

@@ -105,6 +105,50 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) KeepWhoMayDoWhat(Old, New, OldRoles, NewRoles)
+
+        /// <summary>
+        /// Hold a new OCPP node to what the node it replaces was held to: the
+        /// mode of its policy, the roles its keys have, and the entries of its
+        /// policy table that the station does not add by itself.
+        /// </summary>
+        /// <remarks>
+        /// A new node starts with the policy off and knows no key. Left at
+        /// that, a change of the EVSEs or a restart - which the support may ask
+        /// for - turned a station that asked who signed into one that takes
+        /// everything from everybody. Nothing of it is written down yet: it
+        /// lasts as long as the process does.
+        /// </remarks>
+        private void KeepWhoMayDoWhat(SignaturePolicy  Old,
+                                      SignaturePolicy  New,
+                                      List<protocols.WWCP.UserRole>   OldRoles,
+                                      List<protocols.WWCP.UserRole>   NewRoles)
+        {
+
+            New.Mode = Old.Mode;
+
+            foreach (var role in OldRoles)
+                if (!NewRoles.Any(known => known.Id == role.Id))
+                    NewRoles.Add(role);
+
+            var held = New.PolicyEntries.Select(entry => entry.Id).ToHashSet();
+
+            foreach (var entry in Old.PolicyEntries.Where(entry => !held.Contains(entry.Id)))
+            {
+                try
+                {
+                    New.AddPolicyEntry(entry);
+                }
+                catch (ArgumentException e)
+                {
+                    Log.Warning($"The policy entry '{entry.Id}' was not kept across the rebuild of the OCPP nodes: {e.Message}", "ocpp", "signatures");
+                }
+            }
+
+        }
+
+        #endregion
+
         #region (private) PermissionsOfRole(Name)
 
         /// <summary>

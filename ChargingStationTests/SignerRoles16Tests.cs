@@ -454,6 +454,42 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region ARestartKeepsWhoMayDoWhat()
+
+        /// <summary>
+        /// A restart builds the OCPP nodes anew, and the new ones are held to
+        /// what the old ones were: the policy is still enforced, and a key
+        /// still has the role it had. Otherwise the support's restart would
+        /// leave a station that takes everything from everybody.
+        /// </summary>
+        [Test]
+        public async Task ARestartKeepsWhoMayDoWhat()
+        {
+
+            await Connected();
+
+            var support  = Enforced("support")["support"];
+            var boots    = csms!.Requests("BootNotification").Length;
+
+            Assert.That(Refused(await Reset(ResetType.Soft, support)), Is.False, "a restart once idle");
+
+            Assert.That(await Within(() => csms.Requests("BootNotification").Length > boots &&
+                                           csms.Connections == 1 &&
+                                           station!.RegistrationJSON()["1.6"]?["state"]?.Value<String>() == "Accepted"),
+                        Is.True, "the station did not restart");
+
+            var atOnce    = await Reset (ResetType.Hard, support);
+            var unlocked  = await Unlock(support);
+
+            Assert.Multiple(() => {
+                Assert.That(atOnce  [0].Value<Int32>(), Is.EqualTo(4), $"a restart at once by the support, after a restart: {atOnce.ToString(Formatting.None)}");
+                Assert.That(unlocked[0].Value<Int32>(), Is.EqualTo(3), $"a cable let go of by the support, after a restart: {unlocked.ToString(Formatting.None)}");
+            });
+
+        }
+
+        #endregion
+
         #region WhileThePolicyIsOffNothingIsAsked()
 
         /// <summary>
