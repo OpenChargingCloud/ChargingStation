@@ -706,20 +706,28 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region RawPublicKeysRequired_IsNotDialled()
+        #region RawPublicKeysRequired_TurnsAwayAServerThatShowsACertificate()
 
+        /// <summary>
+        /// A connection that requires raw public keys is dialled, and offers
+        /// them alone: a server that shows a certificate is turned away,
+        /// though the key in it is the one pinned - and the station says
+        /// that this is why, and goes on trying.
+        /// </summary>
         [Test]
-        public async Task RawPublicKeysRequired_IsNotDialled()
+        public async Task RawPublicKeysRequired_TurnsAwayAServerThatShowsACertificate()
         {
 
             var id = Added(KeyPin.FromKey(lcKey).ToHex(), new ServerKeyPinSettings("Require", null, null));
 
             await Start();
 
+            await Until(() => SaidOf(id).Contains("requires a raw public key"), "Turning away the server that shows a certificate", () => SaidOf(id));
+
             Assert.Multiple(() => {
-                Assert.That(station!.ConnectionStates[id].Status,  Is.EqualTo(ConnectionStatus.NotDialled), SaidOf(id));
-                Assert.That(SaidOf(id),                            Does.Contain("requires raw public keys"));
-                Assert.That(Reported("InvalidCsmsCertificate"),    Is.Empty, "the server's certificate was reported for what this station cannot do");
+                Assert.That(station!.ConnectionStates[id].Status,  Is.Not.EqualTo(ConnectionStatus.NotDialled), SaidOf(id));
+                Assert.That(IsConnected(id),                       Is.False, "a server that showed a certificate was believed");
+                Assert.That(SaidOf(id),                            Does.Contain("was not believed").And.Contain("presented a certificate"));
             });
 
         }

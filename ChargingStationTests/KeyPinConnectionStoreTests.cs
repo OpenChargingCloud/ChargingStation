@@ -437,7 +437,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var warnings  = store.Connections.ToDictionary(entry => entry.Id, entry => String.Join("\n", entry.Warnings));
 
             Assert.Multiple(() => {
-                Assert.That(warnings[requires], Does.Contain("requires raw public keys").And.Contain("not dialled"));
+                Assert.That(warnings[requires], Does.Contain("requires raw public keys").And.Contain("a server that shows a certificate is turned away"));
                 Assert.That(warnings[learning], Does.Contain("No key is pinned, so the first server that answers is believed"));
             });
 

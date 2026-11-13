@@ -518,8 +518,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// RawPublicKeys, TrustOnFirstUse and ProbationTime are written by a signed SetVariables, and
         /// reported as ReconfigurationOfSecurityParameters. They carry no version, so their signature is
         /// held to its time window, by the station's clock: one signed a month before is refused as
-        /// "OutOfTime"; so is an unsigned one, as "Unsigned". Require is refused: the station cannot offer
-        /// raw public keys yet, and would cut itself off.
+        /// "OutOfTime"; so is an unsigned one, as "Unsigned". Require is written as Prefer is: the station
+        /// offers raw public keys, and what it says is read at the next handshake.
         /// </summary>
         [Test]
         public async Task HowItBelievesItsServer_IsWrittenSigned_WithinTheTimeWindow()
@@ -540,15 +540,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
 
                 Assert.That(Statuses(written),                Is.All.EqualTo("Accepted"), written.ToString());
-                Assert.That(Entry.RawPublicKeys,              Is.EqualTo(RawPublicKeyMode.Prefer));
                 Assert.That(Entry.TrustOnFirstUse,            Is.EqualTo(KeyTrustOnFirstUse.Key));
                 Assert.That(Entry.ServerKeyPinProbationTime,  Is.EqualTo(TimeSpan.FromSeconds(120)));
 
-                Assert.That(Reasons(require),                 Is.All.EqualTo("NotSupported"), require.ToString());
+                Assert.That(Statuses(require),                Is.All.EqualTo("Accepted"),     require.ToString());
                 Assert.That(Reasons(unsigned),                Is.All.EqualTo("Unsigned"),     unsigned.ToString());
                 Assert.That(Reasons(longAgo),                 Is.All.EqualTo("OutOfTime"),    longAgo.ToString());
 
-                Assert.That(Entry.RawPublicKeys,              Is.EqualTo(RawPublicKeyMode.Prefer), "Require was taken");
+                Assert.That(Entry.RawPublicKeys,              Is.EqualTo(RawPublicKeyMode.Require), "Require, written after Prefer, was not taken");
                 Assert.That(Entry.ServerKeyPinProbationTime,  Is.EqualTo(TimeSpan.FromSeconds(120)), "an unsigned or an old change was taken");
 
                 Assert.That(IsConnected(id),                  Is.True, "a change read at the next handshake dropped the connection");
