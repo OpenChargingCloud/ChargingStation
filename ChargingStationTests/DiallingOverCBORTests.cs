@@ -334,16 +334,17 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region WhatIsNoEncoding_IsRefused_AndOCPP16HasNoCBOR(Named, OCPPVersion, Taken)
+        #region WhatIsNoEncoding_IsRefused_ForEveryVersion(Named, OCPPVersion, Taken)
 
         [TestCase("json",  "2.1",  true)]
         [TestCase("CBOR",  "2.1",  true)]
         [TestCase(" auto", "2.1",  true)]
         [TestCase("xml",   "2.1",  false)]
         [TestCase("json",  "1.6",  true)]
-        [TestCase("cbor",  "1.6",  false)]
-        [TestCase("auto",  "1.6",  false)]
-        public void WhatIsNoEncoding_IsRefused_AndOCPP16HasNoCBOR(String Named, String OCPPVersion, Boolean Taken)
+        [TestCase("cbor",  "1.6",  true)]
+        [TestCase("auto",  "1.6",  true)]
+        [TestCase("xml",   "1.6",  false)]
+        public void WhatIsNoEncoding_IsRefused_ForEveryVersion(String Named, String OCPPVersion, Boolean Taken)
         {
 
             csms = new CSMS("ocpp2.1");
@@ -358,7 +359,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(added,  Is.EqualTo(Taken), error);
 
                 if (!Taken)
-                    Assert.That(error,  Does.Contain(OCPPVersion == "1.6" && Named != "xml" ? "OCPP 1.6 has no CBOR" : "is no way the messages"));
+                    Assert.That(error,  Does.Contain("is no way the messages"));
 
             });
 
@@ -393,12 +394,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(ConnectionEntry.TryParse(Entry.ToJSON(), out var readAgain, out var e3),  Is.True, e3);
             Assert.That(readAgain?.Encoding,  Is.EqualTo(MessageEncodings.CBOR));
 
-            // OCPP 1.6 has no CBOR: a connection that becomes one says JSON again.
+            // OCPP 1.6 has its CBOR as well: a connection that becomes one keeps what it said.
             Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", true, null, null, out var e4,
                                                                 OCPPVersion: "1.6"),
                         Is.True, e4);
 
-            Assert.That(Entry.Encoding,  Is.EqualTo(MessageEncodings.JSON));
+            Assert.That(Entry.Encoding,  Is.EqualTo(MessageEncodings.CBOR));
 
         }
 

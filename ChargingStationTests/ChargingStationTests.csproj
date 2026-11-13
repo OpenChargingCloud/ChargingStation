@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\WWCP_Node\WWCP_Node_TestKit\WWCP_Node_TestKit.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPP_Node_TestKit\WWCP_OCPP_Node_TestKit.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv2.1_CSMS\WWCP_OCPPv2.1_CSMS.csproj" />
+    <ProjectReference Include="..\..\WWCP_OCPP\WWCP_OCPPv1.6_CentralSystem\WWCP_OCPPv1.6_CentralSystem.csproj" />
   </ItemGroup>
 
 </Project>

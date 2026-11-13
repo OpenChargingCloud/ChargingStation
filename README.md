@@ -153,16 +153,17 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
 | `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
-| `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, and "cbor" for OCPP 1.6; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
+| `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, for OCPP 2.1 and OCPP 1.6 alike; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
 | `AgainstACSMSNodeOverCBORTests` | the station program against a CSMS node of WWCP_OCPP, over `ocpp2.1` and over `ocpp2.1cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the CSMS for a Heartbeat and sending it; nothing told of as a message of the binary format |
-| `SignatureFormatsOfAConnectionTests` | a connection saying which signatures the messages the station signs for it get: "jws", "cose", "both" told the OCPP node when the connection is made, nothing and "policy" left to the signature policy; a change told the node as well; what names no signatures refused, and "cose" and "both" for OCPP 1.6; a change keeping what it does not say, and "policy" taking it back |
+| `AgainstACentralSystemNodeOverCBORTests` | the station program against a central system node of WWCP_OCPP in OCPP 1.6, over `ocpp1.6` and over `ocpp1.6cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the central system for its configuration and answering; nothing told of as a message of the binary format |
+| `SignatureFormatsOfAConnectionTests` | a connection saying which signatures the messages the station signs for it get: "jws", "cose", "both" told the OCPP node when the connection is made, nothing and "policy" left to the signature policy; a change told the node as well; what names no signatures refused, for OCPP 2.1 and OCPP 1.6 alike; a change keeping what it does not say, and "policy" taking it back |
 | `DiallingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks; what the connection agreed on said by the station as of a WebSocket; which signatures it writes told the OCPP node, and taken back by "policy" |
 | `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
 | `ConnectionTestRequestTests` | what a connection test asks in OCPP: a Heartbeat as it was sent, its answer and how long it took, and how far the back end's clock is off; an error as an answer; no answer, or one to something else, failing the test; `none` asking nothing; and `testconnection` at the command line, by description and by identification, line by line with its milliseconds |
 | `NameplateTests`        | what the station tells a CSMS it is - vendor, model, serial number, firmware - read and changed from the web interface, held to what OCPP 1.6 takes, the OCPP nodes built anew with it; and, in `NameplateFromTheFileTests`, said from the start where the file says it |
-| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; a tool that offers `ocpp2.1cbor` answered in CBOR; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
+| `CommissioningOverSSHTests` | a tool speaking OCPP 2.1 to the station over its SSH server: answered under its account's name; a tool that offers `ocpp2.1cbor` answered in CBOR, and one that offers `ocpp1.6cbor` by the OCPP 1.6 node; the CSMS on the uplink still sent what the station has to say, and answered, while a tool is connected; only an account that may run `commissioning` let in; off where the file says nothing, switched on and off at once and written down, a tool let go of when it is switched off; no HELLO naming another node, no account named like the CSMS or the station; a node built anew served as well; and the section's one switch |
 
 Two of them are about the station having more than one door. The display is a
 second single-page application on a second server, with no sign-in at all - so
@@ -871,14 +872,14 @@ an error, or not answered.
 
 **JSON or CBOR.** The OCPP messages of a connection are JSON in text frames,
 as OCPP defines it, unless the connection says otherwise under `encoding`:
-`"cbor"` is OCPP 2.1 with every message as CBOR in a binary frame, agreed on
-as the subprotocol `ocpp2.1cbor` and nothing else - a back end that does not
-speak it is not connected to some other way - and `"auto"` offers
-`ocpp2.1cbor` first and `ocpp2.1` and `ocpp2.0.1` after it, and takes what the
-back end chooses. `"json"` is what a connection that says nothing is. It is
-the same over a WebSocket and over `ssh://`, which agree on the same
-subprotocols; OCPP 1.6 has no CBOR, and a 1.6 connection that names `"cbor"`
-or `"auto"` is refused. What a connection came to - over a WebSocket and over
+`"cbor"` is every message as CBOR in a binary frame, agreed on as the
+subprotocol `ocpp2.1cbor` - `ocpp1.6cbor` for an OCPP 1.6 connection - and
+nothing else: a back end that does not speak it is not connected to some
+other way. `"auto"` offers the CBOR subprotocol first and the JSON ones after
+it (`ocpp2.1cbor`, `ocpp2.1`, `ocpp2.0.1`; `ocpp1.6cbor`, `ocpp1.6`), and takes
+what the back end chooses. `"json"` is what a connection that says nothing
+is. It is the same over a WebSocket and over `ssh://`, which agree on the
+same subprotocols. What a connection came to - over a WebSocket and over
 `ssh://` - stands in the log, on the connections page (a chip "CBOR") and
 under `subprotocolInUse` in what `GET /api/v1/configuration/connections`
 answers. A connection test offers
@@ -893,9 +894,8 @@ the CBOR of the message, or `"both"`, next to each other. `"policy"` is saying
 nothing, and takes back what a connection said. A COSE signature signs the
 CBOR of a message whatever the connection carries, so it does not need
 `"encoding": "cbor"`; it is read by a back end that knows the message. What
-the station verifies is no matter of this: every signature it can read. OCPP
-1.6 has no CBOR and so no COSE signature, and a 1.6 connection that names
-`"cose"` or `"both"` is refused.
+the station verifies is no matter of this: every signature it can read. An
+OCPP 1.6 connection says it as an OCPP 2.1 connection does.
 
 **Which HTTP.** The WebSocket of a `ws://` or `wss://` connection is opened
 over HTTP/1.1 (the Upgrade of RFC 6455), over HTTP/2 (the extended CONNECT of

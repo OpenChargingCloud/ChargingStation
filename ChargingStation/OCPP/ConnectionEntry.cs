@@ -501,7 +501,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// connected to some other way. "auto" offers the CBOR subprotocol
         /// first and the JSON ones after it, and takes what the back end
         /// chooses. The same over a WebSocket and over ssh://, which agree on
-        /// the same subprotocols. OCPP 1.6 has no CBOR, and says "json" or nothing.
+        /// the same subprotocols, and for OCPP 1.6 ("ocpp1.6cbor") as for OCPP 2.1.
         /// </remarks>
         public MessageEncodings       Encoding                 { get; internal set; } = MessageEncodings.JSON;
 
@@ -516,7 +516,6 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// another one beside it the JWS. It says nothing of what the station
         /// verifies - every signature it can read. A COSE signature signs the
         /// CBOR of a message whatever the connection carries, JSON or CBOR.
-        /// OCPP 1.6 has no CBOR and so no COSE signature.
         /// </remarks>
         public WWCPSignatureFormats?  SignatureFormats         { get; internal set; }
 
@@ -1643,7 +1642,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// "auto" - or the one sentence that says what is wrong. Nothing for
         /// nothing: a connection that does not say is not told what it said.
         /// </summary>
-        /// <param name="OCPPVersion">Which OCPP the connection speaks: OCPP 1.6 has no CBOR.</param>
+        /// <param name="OCPPVersion">Which OCPP the connection speaks: every version the station speaks has a CBOR form.</param>
         /// <param name="Text">What stands under <see cref="EncodingKey"/>.</param>
         /// <param name="Encoding">The encoding, or null where none is named.</param>
         /// <param name="Error">What is wrong.</param>
@@ -1674,13 +1673,6 @@ namespace cloud.charging.open.ChargingStation.OCPP
 
             }
 
-            if (OCPPVersion == OCPPVersion.OCPP1_6 && Encoding != MessageEncodings.JSON)
-            {
-                Encoding  = null;
-                Error     = $"It names \"{text}\", and OCPP 1.6 has no CBOR: its messages are JSON.";
-                return false;
-            }
-
             return true;
 
         }
@@ -1705,7 +1697,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// "both", or "policy" for what the signature policy of the station
         /// says - or the one sentence that says what is wrong.
         /// </summary>
-        /// <param name="OCPPVersion">Which OCPP the connection speaks: OCPP 1.6 has no COSE signature.</param>
+        /// <param name="OCPPVersion">Which OCPP the connection speaks: every version the station speaks has COSE signatures.</param>
         /// <param name="Text">What stands under <see cref="SignatureFormatsKey"/>.</param>
         /// <param name="Said">Whether anything was said: a change that says nothing keeps what there is.</param>
         /// <param name="Formats">The signatures, or null for what the policy says.</param>
@@ -1738,13 +1730,6 @@ namespace cloud.charging.open.ChargingStation.OCPP
                     Error = $"'{Text}' names no signatures a connection writes: it is \"jws\", \"cose\", \"both\" or \"policy\".";
                     return false;
 
-            }
-
-            if (OCPPVersion == OCPPVersion.OCPP1_6 && Formats is WWCPSignatureFormats.COSE or WWCPSignatureFormats.Both)
-            {
-                Formats  = null;
-                Error    = $"It names \"{text}\", and OCPP 1.6 has no CBOR for a COSE signature to sign: its signatures are the JWS.";
-                return false;
             }
 
             Said = true;

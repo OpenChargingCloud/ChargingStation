@@ -239,7 +239,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region WhatNamesNoSignatures_IsRefused_AndOCPP16HasNoCOSE(Named, OCPPVersion, Taken)
+        #region WhatNamesNoSignatures_IsRefused_ForEveryVersion(Named, OCPPVersion, Taken)
 
         [TestCase("jws",    "2.1",  true)]
         [TestCase("COSE",   "2.1",  true)]
@@ -248,9 +248,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         [TestCase("pgp",    "2.1",  false)]
         [TestCase("jws",    "1.6",  true)]
         [TestCase("policy", "1.6",  true)]
-        [TestCase("cose",   "1.6",  false)]
-        [TestCase("both",   "1.6",  false)]
-        public void WhatNamesNoSignatures_IsRefused_AndOCPP16HasNoCOSE(String Named, String OCPPVersion, Boolean Taken)
+        [TestCase("cose",   "1.6",  true)]
+        [TestCase("both",   "1.6",  true)]
+        [TestCase("pgp",    "1.6",  false)]
+        public void WhatNamesNoSignatures_IsRefused_ForEveryVersion(String Named, String OCPPVersion, Boolean Taken)
         {
 
             var added = station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null,
@@ -263,7 +264,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(added,  Is.EqualTo(Taken), error);
 
                 if (!Taken)
-                    Assert.That(error,  Does.Contain(Named == "pgp" ? "names no signatures" : "OCPP 1.6 has no CBOR"));
+                    Assert.That(error,  Does.Contain("names no signatures"));
 
             });
 
@@ -292,12 +293,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(ConnectionEntry.TryParse(Entry.ToJSON(), out var readAgain, out var e2),  Is.True, e2);
             Assert.That(readAgain?.SignatureFormats,  Is.EqualTo(SignatureFormats.Both));
 
-            // OCPP 1.6 has no COSE signature: a connection that becomes one says nothing again.
+            // OCPP 1.6 has its COSE signature as well: a connection that becomes one keeps what it said.
             Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e3,
                                                                 OCPPVersion: "1.6"),
                         Is.True, e3);
 
-            Assert.That(Entry.SignatureFormats,  Is.Null);
+            Assert.That(Entry.SignatureFormats,  Is.EqualTo(SignatureFormats.Both));
 
             // "policy" takes back what a connection said.
             Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e4,

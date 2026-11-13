@@ -563,7 +563,40 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(answer![0].Value<Int32>(),    Is.EqualTo(3), $"The station answered with an error: {answer}");
                 Assert.That(answer[2]["configurationKey"], Is.Not.Null, answer.ToString());
                 Assert.That(station!.CommissioningTools.Select(id => id.ToString()), Is.EqualTo(new[] { Root }));
-                Assert.That(station.CommissioningJSON()["subprotocols"]!.Values<String>(), Is.EquivalentTo(new[] { "ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor", "ocpp1.6" }));
+                Assert.That(station.CommissioningJSON()["subprotocols"]!.Values<String>(), Is.EquivalentTo(new[] { "ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor", "ocpp1.6", "ocpp1.6cbor" }));
+            });
+
+            await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");
+
+        }
+
+        #endregion
+
+        #region AToolOfOCPP16ThatSpeaksCBOR_IsAnsweredInCBOR()
+
+        /// <summary>
+        /// A tool that offers "ocpp1.6cbor" is handed to the station's OCPP 1.6
+        /// node, and speaks to it in CBOR.
+        /// </summary>
+        [Test]
+        public async Task AToolOfOCPP16ThatSpeaksCBOR_IsAnsweredInCBOR()
+        {
+
+            await AStation(Commissioning: true);
+
+            var (tool, why) = await Connect(Subprotocol: "ocpp1.6cbor");
+
+            Assert.That(tool, Is.Not.Null, why);
+            Assert.That(tool!.Connection.Subprotocol, Is.EqualTo("ocpp1.6cbor"));
+
+            var answer = await tool.Ask("GetConfiguration", []);
+
+            Assert.That(answer, Is.Not.Null, "The station did not answer the tool.");
+
+            Assert.Multiple(() => {
+                Assert.That(answer![0].Value<Int32>(), Is.EqualTo(3), $"The station answered with an error: {answer}");
+                Assert.That(answer[2]["configurationKey"], Is.Not.Null, answer.ToString());
+                Assert.That(tool.InCBOR, Is.GreaterThan(0), "The answer did not come as CBOR.");
             });
 
             await tool.Connection.Close(MessageCloseCode.NormalClosure, "done");

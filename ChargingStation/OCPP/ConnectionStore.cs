@@ -1394,20 +1394,14 @@ namespace cloud.charging.open.ChargingStation.OCPP
                                                 ? WebSocketHTTPVersion.Auto
                                                 : httpVersion ?? entry.HTTPVersion;
 
-                // Kept where the change does not say, and nothing of a
-                // connection that speaks OCPP 1.6 now, which has no CBOR.
-                entry.Encoding            = version == global::cloud.charging.open.ChargingStation.OCPP.OCPPVersion.OCPP1_6
-                                                ? cloud.charging.open.protocols.OCPP.WebSockets.MessageEncodings.JSON
-                                                : encoding ?? entry.Encoding;
+                // Kept where the change does not say.
+                entry.Encoding            = encoding ?? entry.Encoding;
 
                 // Kept where the change does not say; "policy" says that the
-                // connection says nothing any more. OCPP 1.6 has no COSE signature.
+                // connection says nothing any more.
                 entry.SignatureFormats    = saysSignatureFormats
                                                 ? signatureFormats
-                                                : version == global::cloud.charging.open.ChargingStation.OCPP.OCPPVersion.OCPP1_6 &&
-                                                  entry.SignatureFormats is not null and not cloud.charging.open.protocols.WWCP.SignatureFormats.JWS
-                                                      ? null
-                                                      : entry.SignatureFormats;
+                                                : entry.SignatureFormats;
 
                 // A key learned on probation goes with the pins somebody wrote,
                 // and with a server elsewhere; so does the version of the

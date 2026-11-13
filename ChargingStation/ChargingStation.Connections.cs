@@ -388,12 +388,15 @@ namespace cloud.charging.open.ChargingStation
         /// most back ends of that generation actually answer with. A
         /// connection that says "cbor" offers "ocpp2.1cbor" and nothing else;
         /// one that says "auto" offers it first, and the others after it.
-        /// OCPP 1.6 has no CBOR.
+        /// OCPP 1.6 the same, with "ocpp1.6cbor".
         /// </remarks>
         private static String[] SubProtocolsOf(ConnectionEntry Connection)
 
             => Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
-                   ? [ OCPPv1_6.Version.WebSocketSubProtocolId ]
+                   ? [.. OCPPCommon.WebSockets.OCPPSubprotocols.Offer(
+                             [ OCPPv1_6.Version.WebSocketSubProtocolId ],
+                             Connection.Encoding
+                         )]
                    : [.. OCPPCommon.WebSockets.OCPPSubprotocols.Offer(
                              [ OCPPv2_1.Version.WebSocketSubProtocolId, "ocpp2.0.1" ],
                              Connection.Encoding
@@ -484,6 +487,7 @@ namespace cloud.charging.open.ChargingStation
                                              RemoteURL:                   Connection.URL,
                                              NextHopNetworkingNodeId:     NextHopOf(Connection),
                                              RoutingNetworkingNodeIds:    CSMSNamesOf(Connection),
+                                             SecWebSocketProtocols:       SubProtocolsOf(Connection),
                                              HTTPAuthentication:          basic,
                                              RemoteCertificateValidator:  validator,
                                              ClientCertificates:          certificates,
@@ -598,9 +602,14 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 // Which signatures the messages for this connection get, said before
-                // the first of them is signed. Of an OCPP 2.1 connection: 1.6 has no COSE.
-                if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is IWWCPClient itsClient)
-                    cs02.OCPP.SetSignatureFormats(itsClient, Connection.SignatureFormats);
+                // the first of them is signed.
+                if (client is IWWCPClient itsClient)
+                {
+                    if (Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6)
+                        cs01.OCPP.SetSignatureFormats(itsClient, Connection.SignatureFormats);
+                    else
+                        cs02.OCPP.SetSignatureFormats(itsClient, Connection.SignatureFormats);
+                }
 
                 if (client is not null)
                     Follow(Connection, client, Connected: true);
@@ -741,12 +750,14 @@ namespace cloud.charging.open.ChargingStation
         #region (internal) SignatureFormatsOf(Connection)
 
         /// <summary>
-        /// Which signatures the OCPP 2.1 node of this station writes for the
-        /// given connection now - or null, where its signature policy decides.
+        /// Which signatures the OCPP node of this station writes for the given
+        /// connection now - or null, where its signature policy decides.
         /// </summary>
         internal cloud.charging.open.protocols.WWCP.SignatureFormats? SignatureFormatsOf(ConnectionEntry Connection)
 
-            => cs02.OCPP.SignatureFormatsFor(NextHopOf(Connection));
+            => Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6
+                   ? cs01.OCPP.SignatureFormatsFor(NextHopOf(Connection))
+                   : cs02.OCPP.SignatureFormatsFor(NextHopOf(Connection));
 
         #endregion
 
@@ -1064,8 +1075,13 @@ namespace cloud.charging.open.ChargingStation
             }
 
             // As over a WebSocket: which signatures the messages for this connection get.
-            if (Connection.OCPPVersion != OCPP.OCPPVersion.OCPP1_6 && client is not null)
-                cs02.OCPP.SetSignatureFormats(client, Connection.SignatureFormats);
+            if (client is not null)
+            {
+                if (Connection.OCPPVersion == OCPP.OCPPVersion.OCPP1_6)
+                    cs01.OCPP.SetSignatureFormats(client, Connection.SignatureFormats);
+                else
+                    cs02.OCPP.SetSignatureFormats(client, Connection.SignatureFormats);
+            }
 
             if (client is not null)
             {

@@ -395,10 +395,11 @@ export const connectionsPage: Page = {
                             `)}
                         </select>
                         <span class="hint">
-                            How the OCPP messages of this connection are written. CBOR is OCPP 2.1 in
-                            binary frames, agreed on as the subprotocol "ocpp2.1cbor": a back end that
-                            does not speak it is not connected to with "CBOR and nothing else", and is
-                            spoken to in JSON with "CBOR where the back end speaks it". OCPP 1.6 has no CBOR.
+                            How the OCPP messages of this connection are written. CBOR is the same
+                            messages in binary frames, agreed on as the subprotocol "ocpp2.1cbor" or
+                            "ocpp1.6cbor": a back end that does not speak it is not connected to with
+                            "CBOR and nothing else", and is spoken to in JSON with "CBOR where the back
+                            end speaks it".
                         </span>
                     </label>
 
@@ -415,7 +416,6 @@ export const connectionsPage: Page = {
                             A COSE signature signs the CBOR of a message whatever the connection
                             carries, and is read by a back end that knows the message. What the
                             station verifies is not a matter of this: every signature it can read.
-                            OCPP 1.6 has no COSE signature.
                         </span>
                     </label>
 
