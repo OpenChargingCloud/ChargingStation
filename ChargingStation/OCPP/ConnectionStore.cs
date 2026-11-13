@@ -31,6 +31,8 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.OCPP
@@ -73,8 +75,26 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// a typo in a description without being shown - or having to retype - the
     /// password.
     /// </remarks>
-    public sealed class ConnectionStore
+    public sealed class ConnectionStore : IPinnedTLSEndpoints
     {
+
+        #region IPinnedTLSEndpoints
+
+        // What the key-pin core of WWCP_OCPP_Node asks of the connections: the
+        // wss:// ones, a copy of one, and dialling one again - beside the
+        // writes, which are this store's own methods of the same names.
+
+        IEnumerable<IPinnedTLSEndpoint> IPinnedTLSEndpoints.Secure
+            => Connections.Where(entry => entry.IsSecure);
+
+        IPinnedTLSEndpoint? IPinnedTLSEndpoints.CopyOf(String Id)
+            => CopyOf(Id);
+
+        void IPinnedTLSEndpoints.DialAgain(String Id)
+            => DialAgain(Id);
+
+        #endregion
+
 
         #region Data
 

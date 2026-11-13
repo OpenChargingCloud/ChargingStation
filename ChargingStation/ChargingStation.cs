@@ -48,6 +48,8 @@ using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -548,6 +550,12 @@ namespace cloud.charging.open.ChargingStation
                                    ),
                                    this.TimeProvider
                                );
+
+            // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
+            // and what TLSClientController reads and writes of them - see
+            // ChargingStation.KeyPins.cs and ChargingStation.TLSClient.cs.
+            this.keyPinning       = NewKeyPinning();
+            this.tlsClientSource  = NewTLSClientSource();
 
             this.SignedSessions = new SignedSessionStore(
                                       System.IO.Path.Combine(

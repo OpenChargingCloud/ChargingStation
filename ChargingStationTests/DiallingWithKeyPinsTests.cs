@@ -33,6 +33,8 @@ using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests

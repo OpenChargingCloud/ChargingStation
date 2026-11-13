@@ -41,6 +41,8 @@ using cloud.charging.open.ChargingStation.OCPP;
 using cloud.charging.open.protocols.OCPP.Node;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Tests
@@ -498,6 +500,94 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AConnectionThatLearnedItsHostKey_IsGatedBeforeAnythingIsSaid()
+
+        /// <summary>
+        /// The connection over SSH that learned its server's host key on first use is on probation
+        /// before the host key learned is said in the log: a request of its server while it is being
+        /// said meets the gate of the probation.
+        /// </summary>
+        [Test]
+        public async Task AConnectionThatLearnedItsHostKey_IsGatedBeforeAnythingIsSaid()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error,
+                                                              SshTrust: new SshTrustSettings("HostKey", null, null)),
+                        Is.True, error);
+
+            // What the gate would say of a request of that server while the
+            // station says that it learned the host key.
+            var onProbationWhileSaid = new List<Int32>();
+
+            station.Log.OnLogged += entry => {
+                if (entry.Message.Contains("learned the host key"))
+                    lock (onProbationWhileSaid)
+                        onProbationWhileSaid.Add(station.Probations.OfEndpoint(id!).Count);
+            };
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null, "Learning the host key", () => SaidOf(id!));
+
+            await Until(() => { lock (onProbationWhileSaid) return onProbationWhileSaid.Count > 0; }, "Saying that the host key was learned");
+
+            lock (onProbationWhileSaid)
+                Assert.That(onProbationWhileSaid, Is.All.GreaterThan(0),
+                            "While the station said it learned the host key, the connection was not on probation yet: a request of its server got through.");
+
+        }
+
+        #endregion
+
+        #region APinSetWithoutTheLearnedHostKey_LeavesNoGapAtTheGate()
+
+        /// <summary>
+        /// A signed pin set without the host key learned: the connection to the server refused is not
+        /// believed any more before anything is said of it - while the station says so, a request of
+        /// that server is refused - and it is closed.
+        /// </summary>
+        [Test]
+        public async Task APinSetWithoutTheLearnedHostKey_LeavesNoGapAtTheGate()
+        {
+
+            var signer       = ECCKeyPair.GenerateKeys()!;
+            var someoneElse  = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
+
+            Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                             out var id, out error,
+                                                             SshTrust: new SshTrustSettings("HostKey", null, null)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null && station.Probations.OfEndpoint(id!).Count > 0,
+                        "Learning the host key", () => SaidOf(id!));
+
+            var onProbation       = station.Probations.OfEndpoint(id!);
+            var refusedWhileSaid  = new List<Boolean>();
+
+            station.Log.OnLogged += entry => {
+                if (entry.Message.Contains("does not have the host key"))
+                    lock (refusedWhileSaid)
+                        refusedWhileSaid.Add(onProbation.All(connection => station.Probations.TryGetNotBelieved(connection, out _)));
+            };
+
+            _ = csms!.Ask("SetVariables", PinSet(id!, someoneElse, 1, signer));
+
+            await Until(() => { lock (refusedWhileSaid) return refusedWhileSaid.Count > 0; }, "Saying that the pin set refuses the server", () => SaidOf(id!));
+
+            lock (refusedWhileSaid)
+                Assert.That(refusedWhileSaid, Is.All.True,
+                            "While the station said the pin set refuses the server, that server's connection was neither on probation nor not believed: its requests got through.");
+
+        }
+
+        #endregion
+
         #region APinSetIsTakenWithoutAClock_ForTheStationByItsLogin_AndTheTrustWithinTheTimeWindow()
 
         /// <summary>
@@ -654,6 +744,45 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => csms!.Hellos >= 2, "The connection made anew");
 
             Assert.That(station.Connections.Connections.Single().SshLearnedHostKey, Is.EqualTo(csms!.Fingerprint));
+
+        }
+
+        #endregion
+
+        #region AProbationThatRunsOut_LeavesNoGapAtTheGate()
+
+        /// <summary>
+        /// Where a probation runs out, the server nobody confirmed is not believed before anything is
+        /// said of it: while the log says the host key is forgotten, a request of that server is refused.
+        /// </summary>
+        [Test]
+        public async Task AProbationThatRunsOut_LeavesNoGapAtTheGate()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                              out var id, out var error,
+                                                              SshTrust: new SshTrustSettings("HostKey", null, 2)),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.Connections.Connections.Single().SshLearnedHostKey is not null && station.Probations.OfEndpoint(id!).Count > 0,
+                        "Learning the host key", () => SaidOf(id!));
+
+            var onProbation       = station.Probations.OfEndpoint(id!);
+            var refusedWhileSaid  = new List<Boolean>();
+
+            station.Log.OnLogged += entry => {
+                if (entry.Message.Contains("no signed pin set confirmed the host key"))
+                    lock (refusedWhileSaid)
+                        refusedWhileSaid.Add(onProbation.All(connection => station.Probations.TryGetNotBelieved(connection, out _)));
+            };
+
+            await Until(() => { lock (refusedWhileSaid) return refusedWhileSaid.Count > 0; }, "Saying that the probation ran out", () => SaidOf(id!));
+
+            lock (refusedWhileSaid)
+                Assert.That(refusedWhileSaid, Is.All.True,
+                            "While the station said the probation ran out, the connection to the server nobody confirmed was neither on probation nor not believed: its requests got through.");
 
         }
 

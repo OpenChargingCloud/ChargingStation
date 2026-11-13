@@ -32,6 +32,8 @@ using WWCPSignatureFormats = cloud.charging.open.protocols.WWCP.SignatureFormats
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.OCPP
@@ -110,7 +112,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
     /// was actually used. None at all is allowed and is what a test back end
     /// on the bench wants; the page says plainly what that means.
     /// </remarks>
-    public sealed class ConnectionEntry
+    public sealed class ConnectionEntry : IPinnedTLSEndpoint
     {
 
         #region Data
@@ -1059,7 +1061,7 @@ namespace cloud.charging.open.ChargingStation.OCPP
         /// </summary>
         public static String AsText(IEnumerable<KeyPin> Pins)
 
-            => String.Join(", ", Pins.Select(pin => pin.ToHex()));
+            => KeyPinText.Of(Pins);
 
         #endregion
 

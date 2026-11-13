@@ -45,6 +45,8 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using cloud.charging.open.ChargingStation.OCPP;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -144,31 +146,18 @@ namespace cloud.charging.open.ChargingStation
 
         // The connections whose server is believed by a key that was learned on
         // first use and no signed pin set confirmed yet - a host key over SSH, a
-        // key pin over a wss:// WebSocket - with what they were dialled for,
-        // asked by the gate of the OCPP nodes, and the probation that runs for
-        // each of them.
-        private readonly ConcurrentDictionary<IMessageConnection, Probation>  onProbation      = new ();
-        private readonly ConcurrentDictionary<String, CancellationTokenSource>  probationClocks  = new ();
+        // key pin over a wss:// WebSocket - with what they were dialled for, those
+        // whose server is not believed any more, and the clock of each probation:
+        // what the gate of the OCPP nodes asks, one registry for both kinds
+        // (WWCP_OCPP_Node's Probations).
+        private readonly Probations  probations  = new ();
 
         /// <summary>
-        /// One connection on probation: what it was dialled for, the trust that
-        /// learned the key - the host key of one over SSH, or the key pin of one
-        /// over a wss:// WebSocket - and the client that made it.
+        /// The connections on probation and those not believed any more, for a
+        /// test that asks what the gate would say at a given moment.
         /// </summary>
-        private sealed record Probation(ConnectionEntry     Connection,
-                                        SshHostKeyTrust?    SshTrust,
-                                        ServerKeyPinTrust?  KeyPinTrust,
-                                        Object              Client)
-        {
-
-            /// <summary>
-            /// Whether its server is still believed by a key no signed pin set
-            /// confirmed yet.
-            /// </summary>
-            public Boolean  OnIt
-                => SshTrust?.OnProbation ?? KeyPinTrust?.OnProbation ?? false;
-
-        }
+        internal Probations Probations
+            => probations;
 
         #endregion
 
@@ -1226,7 +1215,7 @@ namespace cloud.charging.open.ChargingStation
 
             Client.OnConnectionClosed += (timestamp, transport, connection, networkingNodeId, close, cancellationToken) => {
 
-                onProbation.TryRemove(connection, out _);
+                probations.Remove(connection);
 
                 if (!IsLetGo(Client))
                     Fail(Connection, ConnectionStatus.Lost,
@@ -1299,6 +1288,10 @@ namespace cloud.charging.open.ChargingStation
         /// learned, and keep the connection on probation while no signed pin
         /// set confirmed it (white paper "OCPP over SSH", section 10.4).
         /// </summary>
+        /// <remarks>
+        /// The connection made now is on probation before the host key is
+        /// said in the log or in a security event.
+        /// </remarks>
         /// <param name="Current">The connection over SSH made now.</param>
         private void LearnIfFirst(ConnectionEntry       Connection,
                                   URL                   DialledURL,
@@ -1309,6 +1302,11 @@ namespace cloud.charging.open.ChargingStation
 
             if (!Trust.OnProbation || Trust.Learned is not String learned)
                 return;
+
+            // On probation before anything is said of it: until then the gate
+            // would let everything through that its server asks.
+            if (Current is not null)
+                probations.Enter(Current, new Probation(Connection.Id, Client, Trust, () => Trust.OnProbation));
 
             if (Connections.TryLearnHostKey(Connection.Id, DialledURL, learned, out var notWritten) &&
                 ReportedLearned(Connection, learned))
@@ -1321,9 +1319,6 @@ namespace cloud.charging.open.ChargingStation
                 Log.Warning($"'{Connection.Description}' learned the host key {learned} on its first connection, and it could not be " +
                             $"written down: {notWritten}. It is on probation all the same.",
                             "ocpp", "connections", "ssh", "security");
-
-            if (Current is not null)
-                onProbation[Current] = new Probation(Connection, Trust, null, Client);
 
             StartProbationClock(Connection, Trust, Client, learned);
 
@@ -1380,7 +1375,7 @@ namespace cloud.charging.open.ChargingStation
             var remaining  = learnedAt + Connection.SshProbationTime - TimeProvider.GetUtcNow();
             var clock      = new CancellationTokenSource();
 
-            if (!probationClocks.TryAdd(Connection.Id, clock))
+            if (!probations.TryStartClock(Connection.Id, clock))
             {
                 clock.Dispose();
                 return;
@@ -1399,12 +1394,21 @@ namespace cloud.charging.open.ChargingStation
                 }
                 finally
                 {
-                    probationClocks.TryRemove(new KeyValuePair<String, CancellationTokenSource>(Connection.Id, clock));
+                    probations.ClockDone(Connection.Id, clock);
                 }
 
                 // Confirmed meanwhile: a signed pin set ended the probation.
                 if (!Trust.OnProbation || Trust.Learned != Learned)
                     return;
+
+                // Not believed before its trust forgets the key, which ends the
+                // probation, and before anything is said of it: a server nobody
+                // confirmed would be free in between - while the log says so, and
+                // until the connection is closed.
+                var onIt = probations.OfTrust(Trust);
+
+                probations.NoLongerBelieved(onIt, $"This station no longer believes its server by the host key {Learned} it learned on its first " +
+                                                  $"connection: no signed pin set confirmed it within {Connection.SshProbationTime.TotalSeconds:0} s, and the connection is closed.");
 
                 Connections.TryForgetLearnedHostKey(Connection.Id, Learned);
                 Trust.Forget();
@@ -1413,10 +1417,9 @@ namespace cloud.charging.open.ChargingStation
                             $"{Connection.SshProbationTime.TotalMinutes:0.#} minute(s), so it is forgotten, and the connection is made anew.",
                             "ocpp", "connections", "ssh", "security");
 
-                foreach (var probation in onProbation.Where(probation => ReferenceEquals(probation.Value.SshTrust, Trust)).ToArray())
+                foreach (var probation in onIt)
                 {
-                    onProbation.TryRemove(probation.Key, out _);
-                    if (probation.Key is SshMessageConnection current)
+                    if (probation is SshMessageConnection current)
                         await current.Close(MessageCloseCode.PolicyViolation, "The host key of this server was not confirmed in time.");
                 }
 
@@ -1466,55 +1469,37 @@ namespace cloud.charging.open.ChargingStation
                                         JObject?            Payload)
         {
 
-            // Off probation, and about to be closed: its server is not believed.
-            if (notBelieved.TryGetValue(Connection, out var notBelievedAnyMore))
-                return notBelievedAnyMore;
+            // Off probation, and about to be closed: its server is not believed -
+            // asked first by the registry. Then the rules of the probation's kind.
+            return probations.Gate(Connection, Action, Payload, (probation, action, payload) =>
+                       probation.Trust is SshHostKeyTrust sshTrust
+                           ? GateOnSshProbation(sshTrust, action, payload)
+                           : KeyPinGate.Rules(probation, action, payload, "station"));
 
-            if (!onProbation.TryGetValue(Connection, out var probation) || !probation.OnIt)
-                return null;
+        }
 
-            if (probation.SshTrust is SshHostKeyTrust sshTrust)
-            {
+        /// <summary>
+        /// What a connection over SSH on probation lets through: a pin set for
+        /// the SSH client, SetVariables of SSHClientController, or
+        /// ChangeConfiguration of an SSHClient key in OCPP 1.6.
+        /// </summary>
+        private static String? GateOnSshProbation(SshHostKeyTrust  sshTrust,
+                                                  String           Action,
+                                                  JObject?         Payload)
+        {
 
-                if (Action == "SetVariables" &&
-                    Payload?["setVariableData"] is JArray entries && entries.Count > 0 &&
-                    entries.All(entry => entry?["component"]?["name"]?.Value<String>() == "SSHClientController"))
-                    return null;
-
-                if (Action == "ChangeConfiguration" &&
-                    Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
-                    return null;
-
-                return $"This station believes its server by the host key {sshTrust.Learned}, which it learned on its first connection " +
-                        "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
-
-            }
-
-            // A write of the instance of this connection, and of no other: a server
-            // on probation does not confirm another one's key pins, nor its own
-            // through another instance's.
             if (Action == "SetVariables" &&
-                Payload?["setVariableData"] is JArray pinSet && pinSet.Count > 0 &&
-                pinSet.All(entry => entry?["component"]?["name"]?.    Value<String>() == "TLSClientController" &&
-                                    entry?["component"]?["instance"]?.Value<String>() == probation.Connection.Id))
-                return null;
-
-            if (Action == "GetVariables" &&
-                Payload?["getVariableData"] is JArray reads && reads.Count > 0 &&
-                reads.All(entry => entry?["component"]?["name"]?.Value<String>() == "TLSClientController"))
-                return null;
-
-            if (Action == "GetReport" &&
-                Payload?["componentVariable"] is JArray asked && asked.Count > 0 &&
-                asked.All(entry => entry?["component"]?["name"]?.Value<String>() == "TLSClientController"))
+                Payload?["setVariableData"] is JArray entries && entries.Count > 0 &&
+                entries.All(entry => entry?["component"]?["name"]?.Value<String>() == "SSHClientController"))
                 return null;
 
             if (Action == "ChangeConfiguration" &&
-                Payload?["key"]?.Value<String>() is "evqi.serverKeyPins" or "evqi.serverKeyPinsVersion")
+                Payload?["key"]?.Value<String>() is String key && key.StartsWith("SSHClient.", StringComparison.Ordinal))
                 return null;
 
-            return $"This station believes its server by the key pin {probation.KeyPinTrust?.Learned}, which it learned on its first connection " +
+            return $"This station believes its server by the host key {sshTrust.Learned}, which it learned on its first connection " +
                     "and which is on probation: until a signed pin set confirms it, nothing but such a pin set is executed.";
+
 
         }
 
@@ -1529,7 +1514,7 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private Boolean IsOnProbation(Object Client)
 
-            => onProbation.Values.Any(probation => ReferenceEquals(probation.Client, Client) && probation.OnIt);
+            => probations.IsOnProbation(Client);
 
         #endregion
 

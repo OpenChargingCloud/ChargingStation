@@ -33,6 +33,8 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
 using cloud.charging.open.ChargingStation.OCPP;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -172,68 +174,27 @@ namespace cloud.charging.open.ChargingStation
                                              [NotNullWhen(false)] out String?     Why)
         {
 
-            Signer  = null;
-            Why     = null;
+            // As this station's OCPP 2.1 node serializes it: what its signer signed.
+            var json = Request?.ToJSON(true,
+                                       cs02.OCPP.CustomSetVariablesRequestSerializer,
+                                       cs02.OCPP.CustomSetVariableDataSerializer,
+                                       cs02.OCPP.CustomComponentSerializer,
+                                       cs02.OCPP.CustomEVSESerializer,
+                                       cs02.OCPP.CustomVariableSerializer,
+                                       cs02.OCPP.CustomSignatureSerializer,
+                                       cs02.OCPP.CustomCustomDataSerializer);
 
-            var signers = Connections.PinSetSigners;
-
-            if (Request is null)
-            {
-                Why = "The request is not known, so who signed it is not either.";
-                return false;
-            }
-
-            if (signers.Count == 0)
-            {
-                Why = "This station believes no signer of pin sets yet: one is written down on its Connections page, from commissioning.";
-                return false;
-            }
-
-            if (!Request.Signatures.Any())
-            {
-                Why = $"A pin set for a connection over {(Connection.IsSSH ? "SSH" : "TLS")} is taken only from a SetVariables request signed by a signer this " +
-                       "station believes, and this one is not signed.";
-                return false;
-            }
-
-            var json      = Request.ToJSON(true,
-                                           cs02.OCPP.CustomSetVariablesRequestSerializer,
-                                           cs02.OCPP.CustomSetVariableDataSerializer,
-                                           cs02.OCPP.CustomComponentSerializer,
-                                           cs02.OCPP.CustomEVSESerializer,
-                                           cs02.OCPP.CustomVariableSerializer,
-                                           cs02.OCPP.CustomSignatureSerializer,
-                                           cs02.OCPP.CustomCustomDataSerializer);
-
-            var identity  = NodeIdentityOf(Connection) ?? cs02.Id;
-            String? why   = null;
-
-            foreach (var signer in signers)
-            {
-
-                var policy = new SignaturePolicy(VerificationRules: [ new VerificationRule(Request.Context,
-                                                                                           0,
-                                                                                           VerificationRuleActions.VerifyAny,
-                                                                                           new KeyPair(signer.Bytes),
-                                                                                           WithoutTimeWindow: WithoutTimeWindow) ]) {
-                                 Now = () => TimeProvider.GetUtcNow()
-                             }.BindTo(identity, OCPPv2_1.Version.WebSocketSubProtocolId);
-
-                if (policy.VerifyRequestMessage(Request, json, out var error))
-                {
-                    Signer = signer.Description;
-                    return true;
-                }
-
-                // Why the signer's own signature was not taken: another key is
-                // no reason worth saying.
-                if (Request.Signatures.Any(signature => signature.Status != VerificationStatus.UnknownSigner))
-                    why ??= error;
-
-            }
-
-            Why = "None of the request's signatures is a valid one of a signer this station believes" + (why is not null ? $": {why}" : ".");
-            return false;
+            return PinSetSignatures.SignedBy(Request,
+                                             json,
+                                             Connections.PinSetSigners,
+                                             NodeIdentityOf(Connection) ?? cs02.Id,
+                                             OCPPv2_1.Version.WebSocketSubProtocolId,
+                                             Connection.IsSSH ? "SSH" : "TLS",
+                                             WithoutTimeWindow,
+                                             () => TimeProvider.GetUtcNow(),
+                                             out Signer,
+                                             out Why,
+                                             "station");
 
         }
 
@@ -319,16 +280,23 @@ namespace cloud.charging.open.ChargingStation
             if (entry is null)
                 return;
 
+            var onIt = probations.OfEndpoint(Connection);
+
+            // A connection to a server refused is written down as not believed
+            // before anything else: before its trust takes the pins, which ends
+            // the probation, and before anything is said of it. In between a
+            // request of that server would get through the gate.
+            if (Learned is not null && !Confirmed)
+                probations.NoLongerBelieved(onIt, $"This station no longer believes its server by the host key {Learned} it learned on its first " +
+                                                  $"connection: the signed pin set of version {Version} does not have it, and the connection is closed.");
+
             if (sshTrusts.TryGetValue(Connection, out var trust))
                 trust.TakePins(entry.SshHostKeys);
 
-            if (probationClocks.TryRemove(Connection, out var clock))
-                clock.Cancel();
-
-            var onIt = onProbation.Where(probation => probation.Value.Connection.Id == Connection).ToArray();
+            probations.TryStopClock(Connection);
 
             foreach (var probation in onIt)
-                onProbation.TryRemove(probation.Key, out _);
+                probations.Remove(probation);
 
             if (Learned is not null && Confirmed)
             {
@@ -347,7 +315,7 @@ namespace cloud.charging.open.ChargingStation
                 SshSecurityEvent(entry, "InvalidCsmsHostKey", $"Learned host key {Learned} of '{entry.Id}' is not among the signed pins of version {Version}");
 
                 foreach (var probation in onIt)
-                    if (probation.Key is SshMessageConnection current)
+                    if (probation is SshMessageConnection current)
                         _ = current.Close(MessageCloseCode.PolicyViolation, "The host key of this server is not among the signed pins.");
 
             }

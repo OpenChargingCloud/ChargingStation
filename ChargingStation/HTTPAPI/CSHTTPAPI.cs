@@ -33,6 +33,8 @@ using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
+using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -1586,7 +1588,7 @@ namespace cloud.charging.open.ChargingStation
         /// pin on first use, and how long that waits, as it was sent - or null,
         /// where none of it was, to keep what it says.
         /// </summary>
-        internal static OCPP.ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
+        internal static ServerKeyPinSettings? KeyPinTrustOf(JObject JSON)
         {
 
             var probation = JSON["serverKeyPinProbationTime"];
@@ -1601,7 +1603,7 @@ namespace cloud.charging.open.ChargingStation
                                  _                                                                   => -1
                              };
 
-            return new OCPP.ServerKeyPinSettings(JSON.Value<String>("rawPublicKeys"),
+            return new ServerKeyPinSettings(JSON.Value<String>("rawPublicKeys"),
                                                  JSON.Value<String>("trustOnFirstUse"),
                                                  seconds);
 
