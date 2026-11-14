@@ -24,6 +24,9 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using org.GraphDefined.Vanaheimr.Hermod.PKI;
+
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion
@@ -40,8 +43,10 @@ namespace cloud.charging.open.ChargingStation
     /// <remarks>
     /// <para>
     /// The key never leaves the station. A new one is made for every request,
-    /// with the subject and the kind of the key it replaces, and waits beside
-    /// that until its certificate comes. The connection keeps showing the
+    /// with the subject and the kind of key of the identity it replaces, and
+    /// waits in the station's certificate store - among its signing requests -
+    /// until its certificate comes: together they are a TLS identity of the
+    /// store then, as one brought to the station with its key is. The connection keeps showing the
     /// certificate it has: nothing is switched before there is something to
     /// switch to.
     /// </para>
@@ -52,8 +57,8 @@ namespace cloud.charging.open.ChargingStation
     /// the new one. Where that does not get through within
     /// <see cref="ANewCertificateGetsThroughWithin"/>, the connection goes
     /// back to the certificate it had: a certificate its CSMS does not let in
-    /// must not be the end of a station that had one that worked. The old key
-    /// is kept either way, and is removed on the Client keys tab of the identities.
+    /// must not be the end of a station that had one that worked. The identity
+    /// before is kept either way, and is taken out on the Identities page.
     /// </para>
     /// <para>
     /// Asked for when the CSMS says so - TriggerMessage of
@@ -75,8 +80,8 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// A key whose certificate was asked for, and what it is to replace.
         /// </summary>
-        /// <param name="KeyId">The new key.</param>
-        /// <param name="Replaces">The key whose certificate the connections show now, or null where they show none.</param>
+        /// <param name="KeyId">The new key, which waits in the certificate store for its certificate.</param>
+        /// <param name="Replaces">The identity the connections show now, or null where they show none.</param>
         /// <param name="Connections">The connections that are switched to it.</param>
         /// <param name="RequestId">The id of the SignCertificate request.</param>
         /// <param name="AskedAt">When it was asked for.</param>
@@ -237,9 +242,7 @@ namespace cloud.charging.open.ChargingStation
 
             var first       = candidates[0];
             var replaces    = first.CertificateId;
-            var before      = replaces is not null
-                                  ? ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == replaces)
-                                  : null;
+            var before      = Certificates.Get(replaces, CertificateKind.TLSIdentity);
 
             // Every connection that shows the same certificate gets the new
             // one: it is the station's, not the connection's.
@@ -250,23 +253,29 @@ namespace cloud.charging.open.ChargingStation
 
             var subject     = before?.Subject ?? IdentityOf(first) ?? cs02.Id.ToString();
 
-            String? keyId, csr, error;
+            // With the kind of key of the one it replaces, where that is a
+            // kind this station makes, for what that one is for.
+            SigningRequest? request;
+            String?         error;
 
-            if (!ClientCertificates.TryCreateKey(subject, before?.Algorithm, out keyId, out csr, out error) &&
-                !(before is not null && ClientCertificates.TryCreateKey(subject, null, out keyId, out csr, out error)))
+            if (!Certificates.TryCreateRequest(CertificateKind.TLSIdentity, subject, KeyAlgorithmOf(before), null, UsagesOf(before), null, out request, out error, out _) &&
+                !(before is not null && Certificates.TryCreateRequest(CertificateKind.TLSIdentity, subject, null, null, UsagesOf(before), null, out request, out error, out _)))
             {
                 Log.Warning($"No certificate could be asked for, as {Why}: no key could be made for '{subject}': {error}", "ocpp", "certificates", "security");
                 return (false, $"No key could be made for '{subject}': {error}");
             }
+
+            var keyId  = request!.Id;
+            var csr    = request. CSR;
 
             // One at a time for what it replaces: a key that waited for a
             // certificate that never came is of no use to anybody.
             // The key somebody made by hand is theirs to remove.
             foreach (var waiting in pendingStationCertificates.Values.Where(waiting => waiting.Replaces == replaces).ToArray())
                 if (pendingStationCertificates.TryRemove(waiting.KeyId, out _) && !waiting.ByHand)
-                    ClientCertificates.TryRemove(waiting.KeyId, out _);
+                    Certificates.TryRemoveRequest(waiting.KeyId, out _, out _);
 
-            var pending = new PendingStationCertificate(keyId!,
+            var pending = new PendingStationCertificate(keyId,
                                                         replaces,
                                                         connections,
                                                         Interlocked.Increment(ref signCertificateRequestIds),
@@ -281,7 +290,7 @@ namespace cloud.charging.open.ChargingStation
                                          new OCPPv2_1.CS.SignCertificateRequest(
                                              SourceRouting.To(NetworkingNode_Id.CSMS),
                                              pending.RequestId,
-                                             csr!,
+                                             csr,
                                              OCPPv2_1.CertificateSigningUse.ChargingStationCertificate
                                          )
                                      );
@@ -333,8 +342,24 @@ namespace cloud.charging.open.ChargingStation
         private void GiveUpOn(PendingStationCertificate Pending)
         {
             if (pendingStationCertificates.TryRemove(Pending.KeyId, out _) && !Pending.ByHand)
-                ClientCertificates.TryRemove(Pending.KeyId, out _);
+                Certificates.TryRemoveRequest(Pending.KeyId, out _, out _);
         }
+
+        /// <summary>
+        /// The kind of key of an identity, as a key is asked for: the kind
+        /// this station makes that the certificate says its key is of, or
+        /// null - the usual one - where it is none of them.
+        /// </summary>
+        private static String? KeyAlgorithmOf(CertificateEntry? Identity)
+            => Identity is null
+                   ? null
+                   : KeyAlgorithm.All.FirstOrDefault(algorithm => algorithm.Name.StartsWith(Identity.KeyAlgorithm, StringComparison.OrdinalIgnoreCase))?.Id;
+
+        /// <summary>
+        /// What an identity is for, as a key is asked for: null for every use.
+        /// </summary>
+        private static IEnumerable<String>? UsagesOf(CertificateEntry? Identity)
+            => Identity?.Usages?.Select(usage => usage.ToString());
 
         #endregion
 
@@ -376,16 +401,17 @@ namespace cloud.charging.open.ChargingStation
                                                                                     String  Why)
         {
 
-            var entry = ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == KeyId);
+            var entry = Certificates.Request(KeyId);
 
             if (entry is null)
-                return (false, $"'{KeyId}' is no key of this station.");
+                return (false, Certificates.Get(KeyId) is not null
+                                   ? $"'{KeyId}' has its certificate already. Make a new key for a new one."
+                                   : $"'{KeyId}' is no key of this station that waits for its certificate.");
 
-            if (entry.Certificate is not null)
-                return (false, $"The key {KeyId} has its certificate already. Make a new key for a new one.");
+            if (entry.Kind != CertificateKind.TLSIdentity)
+                return (false, $"The key {KeyId} is for {entry.Kind.WithArticle()}, which is not what this station shows its CSMS.");
 
-            if (!ClientCertificates.TryReadCSR(KeyId, out var csr, out var error))
-                return (false, $"The signing request of the key {KeyId} could not be read: {error}");
+            var csr = entry.CSR;
 
             // Asked of nobody, the node answers for the CSMS that is not
             // there - and "the CSMS rejected it" is not what happened.
@@ -492,9 +518,8 @@ namespace cloud.charging.open.ChargingStation
 
                     if (keyId is null                                                                              ||
                         pendingStationCertificates.Values.Any(pending => pending.Replaces == keyId)                 ||
-                        ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == keyId) is not { } showing    ||
-                        showing.NotAfter is not DateTimeOffset notAfter                                             ||
-                        notAfter - now > TimeSpan.FromDays(RenewsDaysBefore)                                        ||
+                        Certificates.Get(keyId, CertificateKind.TLSIdentity) is not { } showing                     ||
+                        showing.NotAfter - now > TimeSpan.FromDays(RenewsDaysBefore)                                 ||
                         (renewalAskedAt.TryGetValue(keyId, out var askedAt) && now - askedAt < RenewsAtMostEvery))
                     {
                         continue;
@@ -503,6 +528,8 @@ namespace cloud.charging.open.ChargingStation
                     renewalAskedAt[keyId] = now;
 
                     var connection = ConnectionsShowingACertificate().First(connection => connection.CertificateId == keyId);
+
+                    var notAfter   = showing.NotAfter;
 
                     await AskForAStationCertificate(notAfter <= now
                                                         ? $"the certificate it shows ran out on {notAfter:yyyy-MM-dd}"
@@ -600,27 +627,40 @@ namespace cloud.charging.open.ChargingStation
 
             }
 
-            if (!ClientCertificates.TryAddCertificate(String.Join("\n", pems), out var keyId, out var warnings, out var error, out var notSaved))
+            // Into the certificate store, where the key waits for it: put
+            // together they are an identity of this station.
+            if (!Certificates.TryAnswerRequest(String.Join("\n", pems), out var identity, out var keyId, out var warnings, out var error, out var notSaved))
                 return Task.FromResult<OCPPv2_1.CS.CertificateSignedResponse?>(
                            Rejected(notSaved ? "InternalError" : "InvalidCertificate", error)
                        );
 
-            if (pendingStationCertificates.TryRemove(keyId, out var pending))
+            var pending = keyId is not null && pendingStationCertificates.TryRemove(keyId, out var waited)
+                              ? waited
+                              : null;
+
+            // Kept beside its key: this runtime cannot show it to anybody.
+            if (identity is null)
+                Log.Warning($"CertificateSigned brought the certificate of the key {keyId}, which this station cannot show: {String.Join(" ", warnings)}",
+                            "ocpp", "certificates", "security");
+
+            else if (pending is not null && pending.Connections.Count > 0)
             {
 
-                Log.Notice($"CertificateSigned brought the certificate of the new key {keyId}" +
+                Log.Notice($"CertificateSigned brought the certificate of the new key {keyId}: the identity '{identity.Id}'" +
                            (warnings.Count > 0 ? $" ({String.Join(" ", warnings)})" : "") +
                            $". {(pending.Connections.Count == 1 ? "Its connection is" : $"Its {pending.Connections.Count} connections are")} dialled again with it in {SwitchesToANewCertificateAfter.TotalSeconds:0.#} second(s).",
                            "ocpp", "certificates", "security");
 
-                _ = Task.Run(() => SwitchTo(pending), CancellationToken.None);
+                var shows = identity.Id;
+
+                _ = Task.Run(() => SwitchTo(pending, shows), CancellationToken.None);
 
             }
 
             else
-                Log.Notice($"CertificateSigned brought a certificate for the key {keyId}, which did not wait for one" +
+                Log.Notice($"CertificateSigned brought the certificate of the key {keyId ?? "of an identity that is here already"}: the identity '{identity.Id}'" +
                            (warnings.Count > 0 ? $" ({String.Join(" ", warnings)})" : "") +
-                            ": it is shown wherever a connection names that key, from its next handshake on.",
+                            ", which no connection waited for. It is chosen on the Connections page.",
                            "ocpp", "certificates", "security");
 
             return Task.FromResult<OCPPv2_1.CS.CertificateSignedResponse?>(
@@ -631,13 +671,16 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) SwitchTo(Pending)
+        #region (private) SwitchTo(Pending, Shows)
 
         /// <summary>
         /// Dial the connections again with the new certificate - and go back to
         /// the one they had where that does not get through.
         /// </summary>
-        private async Task SwitchTo(PendingStationCertificate Pending)
+        /// <param name="Pending">The key that waited, and what it replaces.</param>
+        /// <param name="Shows">The identity it became, which the connections show from now on.</param>
+        private async Task SwitchTo(PendingStationCertificate  Pending,
+                                    String                     Shows)
         {
 
             try
@@ -655,11 +698,11 @@ namespace cloud.charging.open.ChargingStation
                     if (Connections.CopyOf(id) is not ConnectionEntry now || now.CertificateId != Pending.Replaces)
                         continue;
 
-                    if (Connections.TrySetCertificate(id, Pending.KeyId, out var error))
+                    if (Connections.TrySetCertificate(id, Shows, out var error))
                         switched.Add(id);
 
                     else
-                        Log.Warning($"'{now.Description}' could not be switched to the new certificate of the key {Pending.KeyId}: {error}", "ocpp", "certificates", "security");
+                        Log.Warning($"'{now.Description}' could not be switched to the new certificate '{Shows}': {error}", "ocpp", "certificates", "security");
 
                 }
 
@@ -667,7 +710,7 @@ namespace cloud.charging.open.ChargingStation
                     return;
 
                 StationCertificateSecurityEvent("ReconfigurationOfSecurityParameters",
-                                                $"ChargingStationCertificate of the key {Pending.KeyId} is shown" +
+                                                $"ChargingStationCertificate '{Shows}' is shown" +
                                                 (Pending.Replaces is not null ? $" instead of {Pending.Replaces}" : ""));
 
                 Boolean GotThrough(String Id)
@@ -682,14 +725,14 @@ namespace cloud.charging.open.ChargingStation
 
                 var stuck = switched.Where(id => !GotThrough(id) &&
                                                  Connections.CopyOf(id) is ConnectionEntry now &&
-                                                 now.CertificateId == Pending.KeyId).
+                                                 now.CertificateId == Shows).
                                      ToArray();
 
                 if (stuck.Length == 0)
                 {
 
-                    Log.Notice($"The new certificate of the key {Pending.KeyId} got through" +
-                               (Pending.Replaces is not null ? $". The key {Pending.Replaces} it replaces is kept, and is removed on the Client keys tab of the identities." : "."),
+                    Log.Notice($"The new certificate '{Shows}' got through" +
+                               (Pending.Replaces is not null ? $". The identity {Pending.Replaces} it replaces is kept, and is taken out on the Identities page." : "."),
                                "ocpp", "certificates", "security");
 
                     return;
@@ -699,27 +742,27 @@ namespace cloud.charging.open.ChargingStation
                 // Without one to go back to, the new one is all there is.
                 if (Pending.Replaces is null)
                 {
-                    Log.Warning($"The new certificate of the key {Pending.KeyId} did not get through within {ANewCertificateGetsThroughWithin.TotalSeconds:0.#} second(s). " +
+                    Log.Warning($"The new certificate '{Shows}' did not get through within {ANewCertificateGetsThroughWithin.TotalSeconds:0.#} second(s). " +
                                  "There is none to go back to, so it stays.", "ocpp", "certificates", "security");
                     return;
                 }
 
                 foreach (var id in stuck)
                     if (!Connections.TrySetCertificate(id, Pending.Replaces, out var error))
-                        Log.Warning($"Connection '{id}' could not be switched back to the certificate of the key {Pending.Replaces}: {error}", "ocpp", "certificates", "security");
+                        Log.Warning($"Connection '{id}' could not be switched back to the identity {Pending.Replaces}: {error}", "ocpp", "certificates", "security");
 
-                Log.Warning($"The new certificate of the key {Pending.KeyId} did not get through within {ANewCertificateGetsThroughWithin.TotalSeconds:0.#} second(s): " +
-                            $"{(stuck.Length == 1 ? "the connection is" : $"{stuck.Length} connections are")} dialled with the certificate of the key {Pending.Replaces} again. " +
+                Log.Warning($"The new certificate '{Shows}' did not get through within {ANewCertificateGetsThroughWithin.TotalSeconds:0.#} second(s): " +
+                            $"{(stuck.Length == 1 ? "the connection is" : $"{stuck.Length} connections are")} dialled with the identity {Pending.Replaces} again. " +
                              "The new one is kept, and is chosen on the Connections page once its CSMS lets it in.",
                             "ocpp", "certificates", "security");
 
                 StationCertificateSecurityEvent("InvalidChargingStationCertificate",
-                                                $"ChargingStationCertificate of the key {Pending.KeyId} did not get through; back to {Pending.Replaces}");
+                                                $"ChargingStationCertificate '{Shows}' did not get through; back to {Pending.Replaces}");
 
             }
             catch (Exception e)
             {
-                Log.Warning($"Switching to the new certificate of the key {Pending.KeyId} failed: {e.Message}", "ocpp", "certificates", "security");
+                Log.Warning($"Switching to the new certificate '{Shows}' failed: {e.Message}", "ocpp", "certificates", "security");
             }
 
         }

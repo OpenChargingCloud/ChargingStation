@@ -123,7 +123,7 @@ namespace cloud.charging.open.ChargingStation
         private void RegisterURLTemplates()
         {
 
-            AddHandler(HTTPPath.Root + "v1/configuration/certificates/sign", PostSendSigningRequest, HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/certificates/requests/{id}/sign", PostSendSigningRequest, HTTPMethod.POST);
 
             AddHandler(HTTPPath.Root + "v1/status/evses",       GetEVSEStates,       HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/status/meters",      GetMeterStates,      HTTPMethod.GET);
@@ -246,52 +246,26 @@ namespace cloud.charging.open.ChargingStation
         }
 
         /// <summary>
-        /// The keys and certificates as the pages read them: the store's -
-        /// and that a signing request can be sent to the CSMS from here, and
-        /// when each one that still waits was.
-        /// </summary>
-        protected override JObject ClientCertificatesJSON()
-        {
-
-            var json  = base.ClientCertificatesJSON();
-            var sent  = Station.SigningRequestsSentToCSMS;
-
-            json["canBeSentToCSMS"] = true;
-
-            foreach (var entry in json["entries"]?.OfType<JObject>() ?? [])
-                if (entry.Value<String>("id") is String id && sent.TryGetValue(id, out var at))
-                    entry["sentToCSMSAt"] = at.ToString("o");
-
-            return json;
-
-        }
-
-        /// <summary>
-        /// POST /api/v1/configuration/certificates/sign with {"id"}: send the
-        /// signing request of a key that waits for its certificate to the
-        /// CSMS, in SignCertificate.
+        /// POST /api/v1/certificates/requests/{id}/sign: send the signing
+        /// request of a key that waits for its certificate to the CSMS, in
+        /// SignCertificate.
         /// </summary>
         /// <remarks>
         /// Answered once the CSMS has: 200 with what it said where it accepted
         /// the request, 502 where it did not or could not be asked - the
-        /// request was fine, and the far end is what said no.
+        /// request was fine, and the far end is what said no. At the
+        /// permission to change the certificate store, as making the key is.
         /// </remarks>
         private async Task<HTTPResponse> PostSendSigningRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(ConnectionsResource), true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
                 return refused;
 
-            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return errorResponse;
+            var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";
 
-            var id = json.Value<String>("id") ?? "";
-
-            if (Station.ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == id) is not { } key)
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, $"'{id}' is no key of this station.");
-
-            if (key.Certificate is not null)
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, $"The key {id} has its certificate already. Make a new key for a new one.");
+            if (Station.Certificates.Request(id) is null)
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, $"'{id}' is no key of this station that waits for its certificate.");
 
             var (accepted, said) = await Station.SendSigningRequestToCSMS(id, $"'{user.Id}' sent it from the web interface");
 
@@ -300,8 +274,8 @@ namespace cloud.charging.open.ChargingStation
 
             return JSONResponse(Request, HTTPStatusCode.OK,
                                 new JObject(
-                                    new JProperty("said",          said),
-                                    new JProperty("certificates",  ClientCertificatesJSON())
+                                    new JProperty("said",   said),
+                                    new JProperty("store",  Station.CertificatesJSON())
                                 ));
 
         }

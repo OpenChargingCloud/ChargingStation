@@ -50,6 +50,8 @@ using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -462,10 +464,14 @@ namespace cloud.charging.open.ChargingStation
                    // time server and a name server may be vouched for by, and
                    // their server certificates what one may be held to; the
                    // V2G, Mobility Operator and OEM roots are what Plug & Charge
-                   // checks a vehicle against. The keys this station dials its
-                   // back ends with stay in a store of their own, where they are
-                   // made and never imported - see ClientCertificateStore.
+                   // checks a vehicle against. The TLS identity is who the
+                   // station is - to a meter, and to a back end it dials.
                    CertificateKinds:  StoredCertificateKinds,
+
+                   // Who the station is to a back end it dials is made here:
+                   // a key, a signing request, and the certificate that comes
+                   // back for it - see ChargingStation.Certificates.cs.
+                   CertificateRequestKinds: [ CertificateKind.TLSIdentity ],
 
                    // Beside "dns" and "nts": a TLS root may vouch for the meters
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
@@ -498,16 +504,6 @@ namespace cloud.charging.open.ChargingStation
 
             #region The stores beside the configuration file
 
-            this.ClientCertificates = new ClientCertificateStore(
-                                          System.IO.Path.Combine(
-                                              System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
-                                              ClientCertificateStore.DefaultDirectoryName
-                                          ),
-                                          this.TimeProvider
-                                      );
-
-            this.ClientCertificates.OnNotice += (level, message) => this.Log.Log(level, message, "ocpp", "certificates");
-
             this.Connections = new ConnectionStore(
                                    System.IO.Path.Combine(
                                        System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
@@ -539,11 +535,21 @@ namespace cloud.charging.open.ChargingStation
                     Error  = $"The station stopped while this session was {open.State.ToString().ToLowerInvariant()} at its meter."
                 });
 
-            // Which certificates exist is the certificate store's business and
+            // Which identities exist is the certificate store's business and
             // changes while this one is alive, so it is asked rather than told
             // once.
-            this.Connections.KnownCertificateIds  = () => this.ClientCertificates.Entries.Select(entry => entry.Id);
+            this.Connections.KnownCertificateIds  = () => this.Certificates.ByKind(CertificateKind.TLSIdentity).Select(entry => entry.Id);
             this.Connections.OnNotice            += (level, message) => this.Log.Log(level, message, "ocpp", "connections");
+
+            // What a station of before kept in a directory of its own: its
+            // keys and their certificates, into the certificate store - and
+            // its connections with them. Once, and before anything dials.
+            MoveClientKeysIntoTheStore(
+                System.IO.Path.Combine(
+                    System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
+                    FormerClientKeysDirectoryName
+                )
+            );
             this.Connections.OnConnectionsChanged += () => FollowSSHClientComponents(cs02);
 
             // Before the dialling below, which is told after it: a connection

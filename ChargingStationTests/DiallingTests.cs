@@ -537,36 +537,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ACertificateThisRuntimeCannotShowStopsTheCall()
+        #region AnIdentityThisStationDoesNotHaveStopsTheCall()
 
         /// <summary>
-        /// A certificate that cannot be presented is said so here, not at the
-        /// TLS handshake.
+        /// An identity that cannot be shown is said so here, not at the TLS
+        /// handshake.
         /// </summary>
         /// <remarks>
-        /// .NET has no key object for an Ed448 or an SLH-DSA key, so a
-        /// certificate of one is kept by this station and cannot be held up.
-        /// The handshake's version of this is an error naming neither the
-        /// certificate nor the reason.
+        /// A connection names the identity it shows by the handle its
+        /// certificate store gives it. One that was taken out of the store
+        /// behind the connection's back - its files removed, say - is not
+        /// there to show. The handshake's version of this is an error naming
+        /// neither the identity nor the reason.
         /// </remarks>
         [Test]
-        public async Task ACertificateThisRuntimeCannotShowStopsTheCall()
+        public async Task AnIdentityThisStationDoesNotHaveStopsTheCall()
         {
 
-            Assert.That(station!.ClientCertificates.TryCreateKey("cs001.example.org", "ed448",
-                                                                 out var key, out _, out var error),
-                        Is.True, error);
+            const String gone = "0123456789abcdef";
 
-            station.Connections.KnownCertificateIds = () => station.ClientCertificates.Entries.Select(entry => entry.Id);
+            // As it was when the connection was written down.
+            station!.Connections.KnownCertificateIds = () => [ gone ];
 
             Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
-                                                            true, null, key, out var id, out error),
+                                                            true, null, gone, out var id, out var error),
                         Is.True, error);
 
             await Start();
 
             Assert.That(station.DialledConnections[id!], Does.Contain("Not dialled"),
-                        "A connection was dialled although it has no certificate it could show.");
+                        "A connection was dialled although it has no identity it could show.");
 
         }
 

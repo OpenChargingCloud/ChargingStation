@@ -22,8 +22,8 @@ import { connectionsAPI }  from '@ocpp/api/connections';
 // node's, the kinds its store keeps, and its own routes.
 export * from '@node/api/client';
 
-// What a node that dials its back ends keeps - its connections, what it
-// proves itself with and its client keys - and how it is asked are the same
+// What a node that dials its back ends keeps - its connections and what it
+// proves itself with - and how it is asked are the same
 // on a local controller, and are WWCP_OCPP_Node's: named here as well, so
 // that every page of the station reads them from this module.
 export * from '@ocpp/api/connections';
@@ -929,8 +929,8 @@ export const api = {
         sessions: ()                     => request<SignedSessions>('GET', '/meters/sessions')
     },
 
-    // The credentials, the connections and the client keys - api.authentications,
-    // api.connections and api.clientKeys - as every node that dials has them.
+    // The credentials and the connections - api.authentications and
+    // api.connections - as every node that dials has them.
     ...connectionsAPI,
 
     calibration: {

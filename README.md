@@ -351,8 +351,9 @@ The node below reads the sections every one of these programs has - `dns`,
 `nts`, `certificates`, `roles`, `ssh` and `web` - and the station reads its own
 from the same document; each passes over what is the other's. The node's
 certificate store is `certificates/` beside this file (see
-[Certificates](#certificates)); the keys the station dials its back ends with
-are not in it but in `ocpp-client-keys/`, the connections in
+[Certificates](#certificates)) - the keys the station dials its back ends with
+are in it, as TLS identities, and the ones still waiting for their certificate
+below `certificates/requests/` -, the connections in
 `ocpp-connections/` - and the key it signs in with over SSH in
 `ocpp-connections/ssh/` - and what it offers a vehicle comes with its V2G
 options.
@@ -413,7 +414,7 @@ interface will not delete the part it did not understand.
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
 | `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
-| `/configuration/identities?tab=client-keys` | the keys it dials its back ends with: made here, a signing request - to a template, with the key usages asked for - and the certificate that came back. A key still waiting for its certificate stands among the identities, with its request to copy or to send to the CSMS |
+| `/configuration/identities` | who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
@@ -434,6 +435,10 @@ interface will not delete the part it did not understand.
     GET  /api/v1/certificates               POST {"kind", "content", "password", "label", "usages"}
     GET  /api/v1/certificates/{id}          PATCH {"active", "label", "usages"}, DELETE
     POST /api/v1/certificates/reload        read the store's directory again
+    POST /api/v1/certificates/requests      {"subject", "algorithm", "template", "role", "keyUsages", "extendedKeyUsages", "usages", "label"}: a new key and its signing request
+    POST /api/v1/certificates/requests/answer        {"pem"}: the certificate that came back, matched to the key it answers
+    POST /api/v1/certificates/requests/{id}/sign     send the request of a key that waits to the CSMS, in SignCertificate
+    DELETE /api/v1/certificates/requests/{id}        take a key that waits away
 
 Every change takes effect at once - no restart, and no page that says a restart
 is owed. The one exception is the connections: they are written at once and
@@ -1123,26 +1128,40 @@ differently:
 
 What only a vehicle holds - its own certificate, its contracts, its OEM
 provisioning certificate, the key it checks a tariff with - is not kept here:
-the store refuses those kinds, and the page does not offer them. Nor are the
-keys this station dials its back ends with: they are made on this station and
-never imported, which a store that takes files cannot promise. They are who
-the station is all the same, so they are shown with its identities - on the
-**Client keys** tab of `/configuration/identities`, where one is made and all
-of them are listed, and, while one still waits for its certificate, among
-what the station presents, with two things to do with it: **Copy CSR**, for
+the store refuses those kinds, and the page does not offer them.
+
+A **TLS identity** is who the station is: to a meter, where its certificate
+carries a SunSpec role, and to a back end it dials - the Connections page
+says which one each connection shows. There are two ways to one. It is
+brought, with its key, on the Upload tab of `/configuration/identities`. Or
+its key is **made on the station** and never leaves it, on the **New key**
+tab of that page, and only its certificate ever travels: the key waits among
+what the station presents, with two things to do with it - **Copy CSR**, for
 whoever issues certificates, and **Send to CSMS**, which sends the request in
-SignCertificate and has the certificate come back in CertificateSigned.
+SignCertificate and has the certificate come back in CertificateSigned. The
+certificate that comes back goes in on the Upload tab, without a key: it is
+matched to the key whose request it answers, and the two are an identity like
+every other from then on - switched, named, told what it is for, and chosen
+for a connection. A certificate this runtime cannot load together with its
+key - .NET has no key object for an Ed448 or an ML-DSA key today - is kept
+beside the key and shown to nobody, and the page says so.
 
 A signing request is made for a subject and a kind of key, and may ask for
-more. A **template** is the profile it is made to: *OCPP client* asks for a
+more. A **template** is the profile it is made to: *TLS client* asks for a
 client certificate and nothing else; *Modbus/TLS client (SunSpec)* asks for
 the role its holder may play as well, in the role extension
 `1.3.6.1.4.1.50316.802.1` a Modbus/TLS server reads. Beside `clientAuth` and
 a signature, which every request asks for, further **extended key usages** -
 by name, or as object identifiers - and **key usages** may be ticked;
-what a kind of key cannot do is not on offer. The certificate that comes back
-goes in on the Upload tab of the identities, without a key: it is matched to
-the key whose request it answers.
+what a kind of key cannot do is not on offer. What it is for and what it is
+called once its certificate has come may be said with it.
+
+A station of before kept the keys it dials with in `ocpp-client-keys/` beside
+the configuration file. They are moved into the certificate store at the
+first start that finds them - a key with its certificate as a TLS identity,
+one whose request is still out among the keys that wait - and a connection
+that showed one shows the identity it became. What was moved is removed
+where it was.
 
 The page has three tabs of its own: by usage, kind by kind in those three groups; every
 certificate once, with every kind it is kept as; and the upload - a box that
@@ -1180,7 +1199,7 @@ the station asks its CSMS for the next one, and the CSMS brings it:
 | `TriggerMessage` of `SignChargingStationCertificate` | the station makes a new key - with the subject and the kind of the one it replaces - and sends its signing request in `SignCertificate`. The key never leaves the station. |
 | by itself | where the certificate a `wss://` connection shows runs out within 30 days, the station asks when it connects - once a day at most |
 | `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is dialled again with the new one. |
-| a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both keys are kept; the old one is removed on the Client keys tab of `/configuration/identities`. |
+| a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both identities are kept; the old one is taken out on `/configuration/identities`. |
 | `InstallCertificate` of `CSMSRootCertificate` | a TLS root of the certificate store kept for `ocpp` - on the certificates page, and vouching for the server of a `wss://` connection from the next handshake on. `GetInstalledCertificateIds` lists it, `DeleteCertificate` takes it out again; a root kept for every use is deleted on the page and not for the back ends alone. OCPP 1.6 installs the same as `CentralSystemRootCertificate`. |
 
 A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps

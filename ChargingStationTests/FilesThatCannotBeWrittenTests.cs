@@ -31,6 +31,7 @@ using Org.BouncyCastle.Pkcs;
 
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion
@@ -388,18 +389,31 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region (private) AKeyMadeHere(HTTP, Subject) / ACertificateFor(CSR)
 
         /// <summary>
-        /// A new client key, made through the web interface: its identification
+        /// Where the keys the station makes for itself wait for their
+        /// certificate: below its certificate store.
+        /// </summary>
+        private String RequestsDirectory
+            => Path.Combine(Station.Certificates.Directory, CertificateStore.RequestsDirectoryName);
+
+        /// <summary>
+        /// The keys that wait, as the web interface is told.
+        /// </summary>
+        private static async Task<String?[]> KeysWaiting(HttpClient HTTP)
+            => [.. ((JArray) (await GetJSON(HTTP, "api/v1/certificates"))["requests"]!["entries"]!).Select(key => key.Value<String>("id"))];
+
+        /// <summary>
+        /// A new key, made through the web interface: its identification
         /// and its signing request.
         /// </summary>
         private static async Task<(String Id, String CSR)> AKeyMadeHere(HttpClient  HTTP,
                                                                       String      Subject)
         {
 
-            var (status, said) = await Said(await HTTP.PostAsync("api/v1/configuration/certificates", JSONBody(new JProperty("subject", Subject))));
+            var (status, said) = await Said(await HTTP.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("subject", Subject))));
 
             Assert.That(status, Is.EqualTo(HttpStatusCode.Created), said.ToString());
 
-            return (said.Value<String>("id")!, said.Value<String>("csr")!);
+            return (said["request"]!.Value<String>("id")!, said["request"]!.Value<String>("csr")!);
 
         }
 
@@ -426,17 +440,16 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AKeyItsDirectoryCannotTakeIsAServerError()
 
         /// <summary>
-        /// A new client key whose files cannot be written is answered 500 with
-        /// why, and nothing of it is kept. It was a 400, as if something had
-        /// been wrong with the request.
+        /// A new key whose files cannot be written is answered 500 with why,
+        /// and nothing of it is kept. It was a 400, as if something had been
+        /// wrong with the request.
         /// </summary>
         [Test]
         public async Task AKeyItsDirectoryCannotTakeIsAServerError()
         {
 
             using var http  = await SignedIn();
-
-            var directory   = Station.ClientCertificates.Path;
+            var directory   = RequestsDirectory;
 
             // Where its directory goes is a file.
             if (System.IO.Directory.Exists(directory))
@@ -444,8 +457,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             File.WriteAllText(directory, "no directory of keys");
 
-            var (status, said)  = await Said(await http.PostAsync("api/v1/configuration/certificates", JSONBody(new JProperty("subject", "CN=A Station Without Room"))));
-            var keys            = (JArray) (await GetJSON(http, "api/v1/configuration/certificates"))["entries"]!;
+            var (status, said)  = await Said(await http.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("subject", "CN=A Station Without Room"))));
+            var keys            = await KeysWaiting(http);
 
             File.Delete(directory);
 
@@ -463,31 +476,36 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A certificate for a key of this station whose file cannot be written
-        /// is answered 500 with why, and the key stays without it - now, and
-        /// in its files. It was a 400; and its file was written in place, where
-        /// one that did not fit took the certificate before it with it.
+        /// is answered 500 with why, and the key goes on waiting for it - now,
+        /// and in its files. It was a 400.
         /// </summary>
         [Test]
         public async Task ACertificateItsFileCannotTakeIsAServerError()
         {
 
             using var http      = await SignedIn();
-
             var (id, csr)       = await AKeyMadeHere(http, "CN=A Station Whose Certificate Does Not Fit");
-            var file            = Path.Combine(Station.ClientCertificates.Path, $"{id}.cert.pem");
 
-            System.IO.Directory.CreateDirectory(file + ".tmp");
+            // Where the identities are kept is a file.
+            var identities      = Path.Combine(Station.Certificates.Directory,
+                                               CertificateKind.TLSIdentity.Directory().Replace('/', Path.DirectorySeparatorChar));
 
-            var (status, said)  = await Said(await http.PostAsync("api/v1/configuration/certificates/import", JSONBody(new JProperty("pem", ACertificateFor(csr)))));
-            var key             = ((JArray) (await GetJSON(http, "api/v1/configuration/connections"))["certificates"]!).Single(one => one.Value<String>("id") == id);
+            System.IO.Directory.Delete(identities);
+            File.WriteAllText(identities, "no directory of identities");
 
-            System.IO.Directory.Delete(file + ".tmp");
+            var (status, said)  = await Said(await http.PostAsync("api/v1/certificates/requests/answer", JSONBody(new JProperty("pem", ACertificateFor(csr)))));
+            var keys            = await KeysWaiting(http);
+            var shown           = (JArray) (await GetJSON(http, "api/v1/configuration/connections"))["certificates"]!;
+
+            File.Delete(identities);
+            System.IO.Directory.CreateDirectory(identities);
 
             Assert.Multiple(() => {
                 Assert.That(status,                             Is.EqualTo(HttpStatusCode.InternalServerError), said.ToString());
-                Assert.That(said.Value<String>("error"),        Does.StartWith($"The certificate could not be written to '{Station.ClientCertificates.Path}': "));
-                Assert.That(key.Value<Boolean>("hasCertificate"),  Is.False, "the key has a certificate");
-                Assert.That(File.Exists(file),                  Is.False, "its file is there");
+                Assert.That(said.Value<String>("error"),        Is.Not.Null.And.Not.Empty);
+                Assert.That(keys,                               Is.EqualTo(new[] { id }), "the key no longer waits, although its certificate did not go in");
+                Assert.That(shown,                              Is.Empty, "the station has an identity");
+                Assert.That(File.Exists(Path.Combine(RequestsDirectory, $"{id}.key.pem")),  Is.True, "its key is gone");
             });
 
         }
@@ -508,22 +526,21 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             using var http      = await SignedIn();
-
             var (id, _)         = await AKeyMadeHere(http, "CN=A Station Somebody Holds On To");
-            var files           = new[] { "key.pem", "csr.pem", "json" }.Select(extension => Path.Combine(Station.ClientCertificates.Path, $"{id}.{extension}")).ToArray();
+            var files           = new[] { "key.pem", "csr.pem", "json" }.Select(extension => Path.Combine(RequestsDirectory, $"{id}.{extension}")).ToArray();
 
             HttpStatusCode  status;
             JObject         said;
 
-            // Its description, the last of its files, held open.
+            // Its description, the first of its files to go, held open.
             using (new FileStream(files[^1], FileMode.Open, FileAccess.Read, FileShare.Read))
-                (status, said)  = await Said(await http.PostAsync("api/v1/configuration/certificates/remove", JSONBody(new JProperty("id", id))));
+                (status, said)  = await Said(await http.DeleteAsync($"api/v1/certificates/requests/{id}"));
 
-            var keys            = ((JArray) (await GetJSON(http, "api/v1/configuration/certificates"))["entries"]!).Select(key => key.Value<String>("id"));
+            var keys            = await KeysWaiting(http);
 
             Assert.Multiple(() => {
                 Assert.That(status,                          Is.EqualTo(HttpStatusCode.InternalServerError), said.ToString());
-                Assert.That(said.Value<String>("error"),     Does.Contain("could not be removed: "));
+                Assert.That(said.Value<String>("error"),     Does.Contain("could not be removed"));
                 Assert.That(keys,                            Does.Contain(id), "the key is still held");
                 Assert.That(files.Where(file => !File.Exists(file)).Select(Path.GetFileName), Is.Empty, "the files of the key that are gone");
             });
@@ -535,8 +552,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region ARefusalOfTheKeysIsWhatItWasWhileTheirFilesCannotBeWritten()
 
         /// <summary>
-        /// What was wrong with a request about the client keys is answered as
-        /// it was while their files cannot be written.
+        /// What was wrong with a request about the keys the station makes is
+        /// answered as it was while its identities cannot be written.
         /// </summary>
         [Test]
         public async Task ARefusalOfTheKeysIsWhatItWasWhileTheirFilesCannotBeWritten()
@@ -546,16 +563,24 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var (id, _)     = await AKeyMadeHere(http, "CN=A Station With A Key");
 
-            System.IO.Directory.CreateDirectory(Path.Combine(Station.ClientCertificates.Path, $"{id}.cert.pem.tmp"));
+// Where the identities are kept is a file: nothing can be written there.
+            var identities   = Path.Combine(Station.Certificates.Directory,
+                                            CertificateKind.TLSIdentity.Directory().Replace('/', Path.DirectorySeparatorChar));
 
-            var noAlgorithm  = await http.PostAsync("api/v1/configuration/certificates",         JSONBody(new JProperty("subject", "CN=Another"), new JProperty("algorithm", "pigeon")));
-            var notOne       = await http.PostAsync("api/v1/configuration/certificates/import",  JSONBody(new JProperty("pem", "not a certificate")));
-            var notThere     = await http.PostAsync("api/v1/configuration/certificates/remove",  JSONBody(new JProperty("id", "nothing-by-this-id")));
+            System.IO.Directory.Delete(identities);
+            File.WriteAllText(identities, "no directory of identities");
+
+            var noAlgorithm  = await http.PostAsync  ("api/v1/certificates/requests",         JSONBody(new JProperty("subject", "CN=Another"), new JProperty("algorithm", "pigeon")));
+            var notOne       = await http.PostAsync  ("api/v1/certificates/requests/answer",  JSONBody(new JProperty("pem", "not a certificate")));
+            var notThere     = await http.DeleteAsync("api/v1/certificates/requests/nothing-by-this-id");
+
+            File.Delete(identities);
+            System.IO.Directory.CreateDirectory(identities);
 
             Assert.Multiple(() => {
                 Assert.That(noAlgorithm.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a key of no kind the station makes");
                 Assert.That(notOne.     StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a file that holds no certificate");
-                Assert.That(notThere.   StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a key that is not there");
+                Assert.That(notThere.   StatusCode,  Is.EqualTo(HttpStatusCode.NotFound),   "a key that is not there");
             });
 
         }

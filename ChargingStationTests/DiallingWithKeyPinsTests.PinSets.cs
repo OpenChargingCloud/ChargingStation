@@ -33,6 +33,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.OCPPv2_1;
 using cloud.charging.open.protocols.OCPPv2_1.CSMS;
 
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using cloud.charging.open.protocols.OCPP.Node.KeyPins;
@@ -647,13 +648,16 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => !Instances.Any(instance => instance.Connection == other), "The instance of the connection removed going with it");
 
             // A client certificate the connection names: its key is the station's key.
-            Assert.That(station.ClientCertificates.TryCreateKey("cs001.example.org", "ecdsa-p256", out var certificateId, out var csr, out error), Is.True, error);
-            Assert.That(station.ClientCertificates.TryAddCertificate(ACertificateFor(csr!), out _, out _, out error), Is.True, error);
+            Assert.That(station.Certificates.TryCreateRequest(CertificateKind.TLSIdentity, "cs001.example.org", "ecdsa-p256", null, null, null, out var made, out error, out _), Is.True, error);
+            Assert.That(station.Certificates.TryAnswerRequest(ACertificateFor(made!.CSR), out var identity, out _, out _, out error, out _), Is.True, error);
+
+            var certificateId = identity!.Id;
+
             Assert.That(station.Connections.TryAddConnection("With a certificate", "wss://127.0.0.1:1/cs001", "CSMS", false, null, certificateId,
                                                              out _, out error),
                         Is.True, error);
 
-            var certificate = station.ClientCertificates.Entries.Single(entry => entry.Id == certificateId).Certificate!;
+            Assert.That(station.Certificates.TryLoad(identity, out var certificate, out error), Is.True, error);
 
             var key         = await lc!.Ask("GetVariables", new JObject(new JProperty("getVariableData", new JArray(Read("TLSClientController", null, "ClientKeyPin")))));
 

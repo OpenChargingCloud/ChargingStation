@@ -146,12 +146,6 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("POST",   "api/v1/configuration/connections/remove",        TheOperator),
             ("POST",   "api/v1/configuration/connections/test",          TheOperator),
 
-            ("GET",    "api/v1/configuration/certificates",              Everybody),
-            ("POST",   "api/v1/configuration/certificates",              TheOperator),
-            ("POST",   "api/v1/configuration/certificates/import",       TheOperator),
-            ("POST",   "api/v1/configuration/certificates/remove",       TheOperator),
-            ("POST",   "api/v1/configuration/certificates/sign",         TheOperator),
-
             ("GET",    "api/v1/configuration/rfid",                      Everybody),
             ("PUT",    "api/v1/configuration/rfid",                      Everybody),
 
@@ -177,7 +171,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("POST",   "api/v1/certificates/reload",                     TheAdministrator),
             ("GET",    "api/v1/certificates/0000000000000000",           Everybody),
             ("PATCH",  "api/v1/certificates/0000000000000000",           TheAdministrator),
-            ("DELETE", "api/v1/certificates/0000000000000000",           TheAdministrator)
+            ("DELETE", "api/v1/certificates/0000000000000000",           TheAdministrator),
+
+            // The keys the station makes for itself, in its certificate store.
+            ("POST",   "api/v1/certificates/requests",                        TheAdministrator),
+            ("POST",   "api/v1/certificates/requests/answer",                 TheAdministrator),
+            ("DELETE", "api/v1/certificates/requests/0000000000000000",       TheAdministrator),
+            ("POST",   "api/v1/certificates/requests/0000000000000000/sign",  TheAdministrator)
 
         ];
 

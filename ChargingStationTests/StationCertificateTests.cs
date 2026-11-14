@@ -371,25 +371,56 @@ namespace cloud.charging.open.ChargingStation.Tests
                            Is.True, error);
 
         /// <summary>
-        /// A key of the station with a certificate of the CA for the stations,
-        /// as somebody commissioning it brings one.
+        /// A key made on the station, which waits for its certificate in the
+        /// station's certificate store.
+        /// </summary>
+        private SigningRequest AKey(String Subject, String? Algorithm = null)
+        {
+
+            Assert.That(station!.Certificates.TryCreateRequest(CertificateKind.TLSIdentity, Subject, Algorithm, null, null, null, out var request, out var error, out _),
+                        Is.True, error);
+
+            return request!;
+
+        }
+
+        /// <summary>
+        /// An identity of the station - a key made on it, with a certificate
+        /// of the CA for the stations - as somebody commissioning it brings
+        /// one: what a connection names, by the handle the store gives it.
         /// </summary>
         private (String KeyId, X509Certificate2 Certificate) AKeyWithACertificate(Int32 Days = 365)
         {
 
-            Assert.That(station!.ClientCertificates.TryCreateKey("cs001", null, out var keyId, out var csr, out var error),
+            var request      = AKey("cs001");
+            var certificate  = Issued(request.CSR, Days);
+
+            Assert.That(station!.Certificates.TryAnswerRequest(certificate.ExportCertificatePem(), out var identity, out var answered, out _, out var error, out _),
                         Is.True, error);
 
-            var certificate = Issued(csr!, Days);
+            Assert.Multiple(() => {
+                Assert.That(answered,      Is.EqualTo(request.Id));
+                Assert.That(identity?.Id,  Is.EqualTo(IdOf(certificate)));
+            });
 
-            Assert.That(station.ClientCertificates.TryAddCertificate(certificate.ExportCertificatePem(), out var certified, out _, out error),
-                        Is.True, error);
-
-            Assert.That(certified, Is.EqualTo(keyId));
-
-            return (keyId!, certificate);
+            return (identity!.Id, certificate);
 
         }
+
+        /// <summary>
+        /// What the certificate store calls the identity a certificate is.
+        /// </summary>
+        private static String IdOf(X509Certificate2 Certificate)
+            => CertificateEntry.ThumbprintOf(Certificate)[..CertificateEntry.IdLength];
+
+        /// <summary>
+        /// The identities of the station, and the keys that wait for theirs.
+        /// </summary>
+        private IEnumerable<String> Identities
+            => station!.Certificates.ByKind(CertificateKind.TLSIdentity).Select(entry => entry.Id);
+
+        private IEnumerable<String> WaitingKeys
+            => station!.Certificates.Requests.Select(request => request.Id);
 
         /// <summary>
         /// A connection to the CSMS, written down before the station starts,
@@ -505,12 +536,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"), signed.ToString(Formatting.None));
 
-            await Until(() => Entry.CertificateId == waiting && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
+            await Until(() => Entry.CertificateId == IdOf(next) && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
                         "Being dialled again with the new certificate", () => WhatHappened);
 
             Assert.Multiple(() => {
                 Assert.That(station.KeysWaitingForTheirCertificate,                              Is.Empty);
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),        Does.Contain(keyId),   "the key it replaced is gone, and with it the way back");
+                Assert.That(WaitingKeys,                                                         Is.Empty,              "the key whose certificate came still waits for one");
+                Assert.That(Identities,                                                          Does.Contain(keyId),   "the identity it replaced is gone, and with it the way back");
                 Assert.That(csms.Requests("SignCertificate"),                                    Has.Length.EqualTo(1), "a certificate good for a year was asked to be renewed");
             });
 
@@ -543,7 +575,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"));
 
-            await Until(() => Entry.CertificateId == waiting, "Being switched to the new certificate", () => WhatHappened);
+            await Until(() => Entry.CertificateId == IdOf(next), "Being switched to the new certificate", () => WhatHappened);
 
             var shownBefore = csms.Shown.Length;
 
@@ -552,7 +584,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(csms.Shown.Last(),                                              Is.EqualTo(certificate.SerialNumber));
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Does.Contain(waiting), "the new certificate is gone, although its CSMS may let it in tomorrow");
+                Assert.That(Identities,                                                     Does.Contain(IdOf(next)), "the new certificate is gone, although its CSMS may let it in tomorrow");
             });
 
         }
@@ -621,7 +653,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(said,                                                           Does.Contain("Rejected"));
                 Assert.That(csms.Requests("SignCertificate"),                               Has.Length.EqualTo(1));
                 Assert.That(station.KeysWaitingForTheirCertificate,                         Is.Empty);
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Is.EqualTo(new[] { keyId }));
+                Assert.That(WaitingKeys,                                                    Is.Empty);
+                Assert.That(Identities,                                                     Is.EqualTo(new[] { keyId }));
             });
 
         }
@@ -642,10 +675,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var (connection, keyId, _) = await Connected();
 
-            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", "ecdsa-p384", out var byHand, out var csr, out var error),
-                        Is.True, error);
+            var made    = AKey("cs-by-hand.example.org", "ecdsa-p384");
+            var byHand  = made.Id;
+            var csr     = made.CSR;
 
-            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+            var (accepted, said) = await station!.SendSigningRequestToCSMS(byHand, "a test sent it");
 
             Assert.Multiple(() => {
                 Assert.That(accepted,                                                           Is.True, said);
@@ -661,10 +695,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"));
 
-            await Until(() => Entry.CertificateId == byHand && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
+            await Until(() => Entry.CertificateId == IdOf(next) && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
                         "Being dialled again with the certificate of the key made by hand", () => WhatHappened);
 
-            Assert.That(station.KeysWaitingForTheirCertificate, Is.Empty);
+            Assert.Multiple(() => {
+                Assert.That(station.KeysWaitingForTheirCertificate,  Is.Empty);
+                Assert.That(WaitingKeys,                             Is.Empty, "the key is an identity now, and waits all the same");
+                Assert.That(Identities,                              Is.EquivalentTo(new[] { keyId, IdOf(next) }));
+            });
 
         }
 
@@ -683,28 +721,28 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var (_, keyId, _) = await Connected();
 
-            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", null, out var byHand, out _, out var error),
-                        Is.True, error);
+            var byHand = AKey("cs-by-hand.example.org").Id;
 
             csms!.SignCertificateStatus = "Rejected";
 
-            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+            var (accepted, said) = await station!.SendSigningRequestToCSMS(byHand, "a test sent it");
 
             Assert.Multiple(() => {
                 Assert.That(accepted,                                                       Is.False);
                 Assert.That(said,                                                           Does.Contain("Rejected"));
                 Assert.That(station.KeysWaitingForTheirCertificate,                         Is.Empty);
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Is.EquivalentTo(new[] { keyId, byHand }));
+                Assert.That(WaitingKeys,                                                    Is.EqualTo(new[] { byHand }));
+                Assert.That(Identities,                                                     Is.EqualTo(new[] { keyId }));
             });
 
             // Nor does the station's own asking take it away.
             csms.SignCertificateStatus = "Accepted";
 
-            Assert.That((await station.SendSigningRequestToCSMS(byHand!, "a test sent it again")).Accepted,   Is.True);
+            Assert.That((await station.SendSigningRequestToCSMS(byHand, "a test sent it again")).Accepted,    Is.True);
             Assert.That((await station.AskForAStationCertificate("a test asked for it")).Accepted,            Is.True);
 
             Assert.Multiple(() => {
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Does.Contain(byHand));
+                Assert.That(WaitingKeys,                                                    Does.Contain(byHand));
                 Assert.That(station.KeysWaitingForTheirCertificate,                         Does.Not.Contain(byHand), "two keys wait to replace the same certificate");
             });
 
@@ -729,16 +767,112 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ARequestIsSentToNobody_WhereNoConnectionStands()
         {
 
-            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", null, out var byHand, out _, out var error),
-                        Is.True, error);
+            var byHand = AKey("cs-by-hand.example.org").Id;
 
-            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+            var (accepted, said) = await station!.SendSigningRequestToCSMS(byHand, "a test sent it");
 
             Assert.Multiple(() => {
                 Assert.That(accepted,                                                       Is.False);
                 Assert.That(said,                                                           Does.Contain("not connected"));
                 Assert.That(station.KeysWaitingForTheirCertificate,                         Is.Empty);
-                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Does.Contain(byHand));
+                Assert.That(WaitingKeys,                                                    Does.Contain(byHand));
+            });
+
+        }
+
+        #endregion
+
+        #region TheKeysAStationOfBeforeKept_AreMovedIntoItsCertificateStore()
+
+        /// <summary>
+        /// A station of before kept the keys it dials with in a directory of
+        /// their own. They are moved into the certificate store at the first
+        /// start that finds them: a key with its certificate is an identity
+        /// there, a key whose request is still out waits there - and the
+        /// connection that showed the one shows the identity it became.
+        /// </summary>
+        [Test]
+        public async Task TheKeysAStationOfBeforeKept_AreMovedIntoItsCertificateStore()
+        {
+
+            var former   = Path.Combine(directory, ChargingStation.FormerClientKeysDirectoryName);
+            var madeAt   = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+
+            // Where keys of the kind are made, to have some as they were kept.
+            var scratch  = new CertificateStore(Path.Combine(directory, "scratch"),
+                                                new cloud.charging.open.protocols.WWCP.Node.Logging.EventLog(),
+                                                [ CertificateKind.TLSIdentity ],
+                                                RequestKinds: [ CertificateKind.TLSIdentity ]);
+
+            String AKeyOfBefore(String Subject, Func<String, X509Certificate2?> With)
+            {
+
+                Assert.That(scratch.TryCreateRequest(CertificateKind.TLSIdentity, Subject, null, null, null, null, out var request, out var error, out _),
+                            Is.True, error);
+
+                Directory.CreateDirectory(former);
+
+                foreach (var extension in new[] { "key.pem", "csr.pem" })
+                    File.Copy(Path.Combine(scratch.Directory, CertificateStore.RequestsDirectoryName, $"{request!.Id}.{extension}"),
+                              Path.Combine(former, $"{request.Id}.{extension}"));
+
+                File.WriteAllText(Path.Combine(former, $"{request!.Id}.json"),
+                                  new JObject(
+                                      new JProperty("id",         request.Id),
+                                      new JProperty("algorithm",  "ecdsa-p256"),
+                                      new JProperty("createdAt",  madeAt.ToString("o")),
+                                      new JProperty("subject",    request.Subject)
+                                  ).ToString());
+
+                if (With(request.CSR) is X509Certificate2 certificate)
+                    File.WriteAllText(Path.Combine(former, $"{request.Id}.cert.pem"), certificate.ExportCertificatePem());
+
+                return request.Id;
+
+            }
+
+            X509Certificate2? certificate = null;
+
+            var shown    = AKeyOfBefore("cs001", csr => certificate = Issued(csr));
+            var waiting  = AKeyOfBefore("cs002", _   => null);
+
+            // And a connection that showed the certificate of the first, as
+            // it was written down then: by the name of its key.
+            station!.Connections.KnownCertificateIds = () => [ shown ];
+
+            Assert.That(station.Connections.TryAddConnection("CSMS", "wss://127.0.0.1:1/cs001", "CSMS", false, null, shown, out var connection, out var problem),
+                        Is.True, problem);
+
+            await station.DisposeAsync();
+
+            // The station of today starts on what it left.
+            station = TestStations.New(directory, TestStations.Offline);
+
+            var identity = station.Certificates.ByKind(CertificateKind.TLSIdentity).SingleOrDefault();
+
+            Assert.Multiple(() => {
+
+                Assert.That(identity?.Id,                                                Is.EqualTo(IdOf(certificate!)), "the key with its certificate is no identity of the store");
+                Assert.That(identity?.HasPrivateKey,                                     Is.True);
+
+                Assert.That(WaitingKeys,                                                 Is.EqualTo(new[] { waiting }), "the key whose request was out does not wait in the store");
+                Assert.That(station.Certificates.Request(waiting)?.CreatedAt,            Is.EqualTo(madeAt), "when it was made was forgotten");
+
+                Assert.That(station.Connections.CopyOf(connection!)?.CertificateId,      Is.EqualTo(IdOf(certificate!)), "the connection does not show the identity its key became");
+
+                Assert.That(Directory.Exists(former),                                    Is.False, "private keys were left where they had been");
+
+            });
+
+            // And nothing is moved, or lost, the next time.
+            await station.DisposeAsync();
+
+            station = TestStations.New(directory, TestStations.Offline);
+
+            Assert.Multiple(() => {
+                Assert.That(Identities,                                                  Is.EqualTo(new[] { IdOf(certificate!) }));
+                Assert.That(WaitingKeys,                                                 Is.EqualTo(new[] { waiting }));
+                Assert.That(station.Connections.CopyOf(connection!)?.CertificateId,      Is.EqualTo(IdOf(certificate!)));
             });
 
         }
