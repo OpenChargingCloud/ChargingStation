@@ -150,6 +150,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("POST",   "api/v1/configuration/certificates",              TheOperator),
             ("POST",   "api/v1/configuration/certificates/import",       TheOperator),
             ("POST",   "api/v1/configuration/certificates/remove",       TheOperator),
+            ("POST",   "api/v1/configuration/certificates/sign",         TheOperator),
 
             ("GET",    "api/v1/configuration/rfid",                      Everybody),
             ("PUT",    "api/v1/configuration/rfid",                      Everybody),

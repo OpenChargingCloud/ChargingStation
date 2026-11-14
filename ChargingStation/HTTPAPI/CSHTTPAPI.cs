@@ -123,6 +123,8 @@ namespace cloud.charging.open.ChargingStation
         private void RegisterURLTemplates()
         {
 
+            AddHandler(HTTPPath.Root + "v1/configuration/certificates/sign", PostSendSigningRequest, HTTPMethod.POST);
+
             AddHandler(HTTPPath.Root + "v1/status/evses",       GetEVSEStates,       HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/status/meters",      GetMeterStates,      HTTPMethod.GET);
 
@@ -240,6 +242,67 @@ namespace cloud.charging.open.ChargingStation
                 return NotChanged(Request, HTTPStatusCode.BadRequest, error ?? "The display configuration could not be changed.", notSaved);
 
             return JSONResponse(Request, HTTPStatusCode.OK, Station.DisplayConfigurationJSON());
+
+        }
+
+        /// <summary>
+        /// The keys and certificates as the pages read them: the store's -
+        /// and that a signing request can be sent to the CSMS from here, and
+        /// when each one that still waits was.
+        /// </summary>
+        protected override JObject ClientCertificatesJSON()
+        {
+
+            var json  = base.ClientCertificatesJSON();
+            var sent  = Station.SigningRequestsSentToCSMS;
+
+            json["canBeSentToCSMS"] = true;
+
+            foreach (var entry in json["entries"]?.OfType<JObject>() ?? [])
+                if (entry.Value<String>("id") is String id && sent.TryGetValue(id, out var at))
+                    entry["sentToCSMSAt"] = at.ToString("o");
+
+            return json;
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/configuration/certificates/sign with {"id"}: send the
+        /// signing request of a key that waits for its certificate to the
+        /// CSMS, in SignCertificate.
+        /// </summary>
+        /// <remarks>
+        /// Answered once the CSMS has: 200 with what it said where it accepted
+        /// the request, 502 where it did not or could not be asked - the
+        /// request was fine, and the far end is what said no.
+        /// </remarks>
+        private async Task<HTTPResponse> PostSendSigningRequest(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(ConnectionsResource), true, out var user, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            var id = json.Value<String>("id") ?? "";
+
+            if (Station.ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == id) is not { } key)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, $"'{id}' is no key of this station.");
+
+            if (key.Certificate is not null)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, $"The key {id} has its certificate already. Make a new key for a new one.");
+
+            var (accepted, said) = await Station.SendSigningRequestToCSMS(id, $"'{user.Id}' sent it from the web interface");
+
+            if (!accepted)
+                return ErrorJSON(Request, HTTPStatusCode.BadGateway, said);
+
+            return JSONResponse(Request, HTTPStatusCode.OK,
+                                new JObject(
+                                    new JProperty("said",          said),
+                                    new JProperty("certificates",  ClientCertificatesJSON())
+                                ));
 
         }
 

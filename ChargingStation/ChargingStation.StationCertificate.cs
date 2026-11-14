@@ -53,7 +53,7 @@ namespace cloud.charging.open.ChargingStation
     /// <see cref="ANewCertificateGetsThroughWithin"/>, the connection goes
     /// back to the certificate it had: a certificate its CSMS does not let in
     /// must not be the end of a station that had one that worked. The old key
-    /// is kept either way, and is removed on the client keys page.
+    /// is kept either way, and is removed on the Client keys tab of the identities.
     /// </para>
     /// <para>
     /// Asked for when the CSMS says so - TriggerMessage of
@@ -80,11 +80,13 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Connections">The connections that are switched to it.</param>
         /// <param name="RequestId">The id of the SignCertificate request.</param>
         /// <param name="AskedAt">When it was asked for.</param>
+        /// <param name="ByHand">Whether somebody made the key and sent its request, rather than the station by itself: such a key is kept whatever its CSMS says.</param>
         private sealed record PendingStationCertificate(String                 KeyId,
                                                         String?                Replaces,
                                                         IReadOnlyList<String>  Connections,
                                                         Int32                  RequestId,
-                                                        DateTimeOffset         AskedAt);
+                                                        DateTimeOffset         AskedAt,
+                                                        Boolean                ByHand = false);
 
         #endregion
 
@@ -259,8 +261,9 @@ namespace cloud.charging.open.ChargingStation
 
             // One at a time for what it replaces: a key that waited for a
             // certificate that never came is of no use to anybody.
+            // The key somebody made by hand is theirs to remove.
             foreach (var waiting in pendingStationCertificates.Values.Where(waiting => waiting.Replaces == replaces).ToArray())
-                if (pendingStationCertificates.TryRemove(waiting.KeyId, out _))
+                if (pendingStationCertificates.TryRemove(waiting.KeyId, out _) && !waiting.ByHand)
                     ClientCertificates.TryRemove(waiting.KeyId, out _);
 
             var pending = new PendingStationCertificate(keyId!,
@@ -329,8 +332,139 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private void GiveUpOn(PendingStationCertificate Pending)
         {
-            if (pendingStationCertificates.TryRemove(Pending.KeyId, out _))
+            if (pendingStationCertificates.TryRemove(Pending.KeyId, out _) && !Pending.ByHand)
                 ClientCertificates.TryRemove(Pending.KeyId, out _);
+        }
+
+        #endregion
+
+        #region SendSigningRequestToCSMS(KeyId, Why)
+
+        /// <summary>
+        /// When the signing request of each key was sent to the CSMS, for the
+        /// keys whose certificate has not come yet.
+        /// </summary>
+        public IReadOnlyDictionary<String, DateTimeOffset> SigningRequestsSentToCSMS
+            => pendingStationCertificates.Values.ToDictionary(pending => pending.KeyId,
+                                                              pending => pending.AskedAt,
+                                                              StringComparer.Ordinal);
+
+        /// <summary>
+        /// Send the signing request of a key that is here already, and waits
+        /// for its certificate, to the CSMS in SignCertificate.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// What <see cref="AskForAStationCertificate"/> does with a key it
+        /// makes itself, for a key somebody made: with the subject, the kind
+        /// of key and the template they chose. The request goes out as it was
+        /// made - a role or a key usage in it is the CSMS's to grant.
+        /// </para>
+        /// <para>
+        /// Where CertificateSigned brings its certificate, the wss://
+        /// connections as OCPP 2.1 that show the station's certificate are
+        /// switched to it, as for a key the station asked with by itself -
+        /// and go back where it does not get through. A key made by hand is
+        /// kept whatever the CSMS answers: it may still be taken to a
+        /// certificate authority on foot.
+        /// </para>
+        /// </remarks>
+        /// <param name="KeyId">The key whose request is sent.</param>
+        /// <param name="Why">Why it is sent, for the log.</param>
+        /// <returns>Whether the CSMS accepted the request, and what there is to say about it.</returns>
+        public async Task<(Boolean Accepted, String Said)> SendSigningRequestToCSMS(String  KeyId,
+                                                                                    String  Why)
+        {
+
+            var entry = ClientCertificates.Entries.FirstOrDefault(entry => entry.Id == KeyId);
+
+            if (entry is null)
+                return (false, $"'{KeyId}' is no key of this station.");
+
+            if (entry.Certificate is not null)
+                return (false, $"The key {KeyId} has its certificate already. Make a new key for a new one.");
+
+            if (!ClientCertificates.TryReadCSR(KeyId, out var csr, out var error))
+                return (false, $"The signing request of the key {KeyId} could not be read: {error}");
+
+            // Asked of nobody, the node answers for the CSMS that is not
+            // there - and "the CSMS rejected it" is not what happened.
+            if (!Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1                     &&
+                                                           ConnectionStates.TryGetValue(connection.Id, out var state)        &&
+                                                           state.Status == ConnectionStatus.Connected))
+            {
+                return (false, "This station is not connected to a CSMS as OCPP 2.1 right now, so there is nobody to send the request to. " +
+                               "Copy it for whoever issues certificates, or send it once a connection stands.");
+            }
+
+            // What it is to replace, where there is a connection it could be
+            // shown on: without one it is brought, kept, and chosen by hand.
+            var candidates   = ConnectionsShowingACertificate();
+            var replaces     = candidates.Length > 0 ? candidates[0].CertificateId : null;
+
+            var connections  = candidates.Where (connection => connection.CertificateId == replaces &&
+                                                               (replaces is not null || connection.Id == candidates[0].Id)).
+                                          Select(connection => connection.Id).
+                                          ToArray();
+
+            var pending      = new PendingStationCertificate(KeyId,
+                                                             replaces,
+                                                             connections,
+                                                             Interlocked.Increment(ref signCertificateRequestIds),
+                                                             TimeProvider.GetUtcNow(),
+                                                             ByHand: true);
+
+            pendingStationCertificates[KeyId] = pending;
+
+            try
+            {
+
+                var response = await cs02.OCPP.OUT.SignCertificate(
+                                         new OCPPv2_1.CS.SignCertificateRequest(
+                                             SourceRouting.To(NetworkingNode_Id.CSMS),
+                                             pending.RequestId,
+                                             csr,
+                                             OCPPv2_1.CertificateSigningUse.ChargingStationCertificate
+                                         )
+                                     );
+
+                if (response.Status != OCPPv2_1.GenericStatus.Accepted)
+                {
+
+                    var said = $"The CSMS answered {OCPPv2_1.GenericStatusExtensions.AsText(response.Status)}" +
+                               (response.StatusInfo is not null ? $" ({response.StatusInfo.ReasonCode}{(response.StatusInfo.AdditionalInfo is not null ? ": " + response.StatusInfo.AdditionalInfo : "")})" : "") +
+                               " to SignCertificate.";
+
+                    GiveUpOn(pending);
+
+                    Log.Warning($"The signing request of the key {KeyId} for '{entry.Subject}' was sent to the CSMS, as {Why}, and not accepted: {said} The key is kept.",
+                                "ocpp", "certificates", "security");
+
+                    return (false, said);
+
+                }
+
+                Log.Notice($"The signing request of the key {KeyId} for '{entry.Subject}' was sent to the CSMS in SignCertificate, as {Why}, and accepted" +
+                           (connections.Length == 0
+                                ? ". There is no wss:// connection as OCPP 2.1 to show its certificate on: it is kept once CertificateSigned brings it."
+                                : (replaces is not null ? $": it replaces {replaces}" : "") +
+                                  $". {(connections.Length == 1 ? "The connection goes" : $"{connections.Length} connections go")} on as before until CertificateSigned brings it."),
+                           "ocpp", "certificates", "security");
+
+                return (true, "The CSMS accepted the request. Its certificate comes in CertificateSigned.");
+
+            }
+            catch (Exception e)
+            {
+
+                GiveUpOn(pending);
+
+                Log.Warning($"The signing request of the key {KeyId} for '{entry.Subject}' could not be sent to the CSMS, as {Why}: {e.Message}", "ocpp", "certificates", "security");
+
+                return (false, e.Message);
+
+            }
+
         }
 
         #endregion
@@ -555,7 +689,7 @@ namespace cloud.charging.open.ChargingStation
                 {
 
                     Log.Notice($"The new certificate of the key {Pending.KeyId} got through" +
-                               (Pending.Replaces is not null ? $". The key {Pending.Replaces} it replaces is kept, and is removed on the client keys page." : "."),
+                               (Pending.Replaces is not null ? $". The key {Pending.Replaces} it replaces is kept, and is removed on the Client keys tab of the identities." : "."),
                                "ocpp", "certificates", "security");
 
                     return;

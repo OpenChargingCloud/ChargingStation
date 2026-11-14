@@ -7,7 +7,7 @@ import '@fortawesome/fontawesome-free/css/solid.css';
 
 import { toURL } from '@node/basePath';
 import { html } from '@node/view';
-import { startNode } from '@node/start';
+import { movedTo, startNode } from '@node/start';
 
 import { stationMenu } from './menu';
 
@@ -22,7 +22,7 @@ import { nameplatePage }       from './pages/nameplate';
 import { commissioningPage }   from './pages/commissioning';
 import { authenticationPage }  from '@ocpp/pages/authentication';
 import { connectionsPage }     from '@ocpp/pages/connections';
-import { clientKeysPage }      from '@ocpp/pages/clientKeys';
+import { clientKeyAnswers, clientKeysTab, clientKeysTabId, waitingKeysSection } from '@ocpp/pages/clientKeys';
 import { signerRolesPage }     from './pages/signerRoles';
 import { calibrationPage }     from './pages/calibration';
 import { evseStatusPage }      from './pages/evseStatus';
@@ -33,7 +33,10 @@ import { evseStatusPage }      from './pages/evseStatus';
 // a tool commissioning it over SSH, the back ends it dials and what it proves
 // itself with, and what it is
 // calibrated under - and, outside the
-// configuration, how each of its EVSEs stands right now. Who is shown which
+// configuration, how each of its EVSEs stands right now. The keys it makes
+// for itself have no page: they are who the station is, and stand with its
+// identities - as a tab of that page, and among what it presents while they
+// wait for their certificate. Who is shown which
 // of them is in menu.ts. The sign-in, the log, the name
 // servers, the time servers, the certificate store, the frame, "/" - the
 // first page of the menu somebody may open - and following the log while
@@ -48,9 +51,15 @@ startNode({
     // The certificate store in the station's words where every node's do not
     // say enough: that three of the roots are Plug & Charge's, what a vehicle,
     // a contract and an OEM's provisioning chain to, and that the keys the
-    // station dials its back ends with are on a page of their own, made here
-    // and never imported.
+    // station dials its back ends with are on a tab of their own, made here
+    // and never imported - which is also where a certificate uploaded without
+    // its key goes: to the key that waits for it.
     certificates: {
+
+        tabs:      clientKeysTab,
+        sections:  waitingKeysSection,
+        answers:   clientKeyAnswers(),
+
         hints: {
             believes:     html`
                 Trust anchors. Every switched-on root of a kind is believed at once. A TLS root vouches for
@@ -62,9 +71,10 @@ startNode({
                 A TLS identity, with its private key: what this station would show a server that asks for
                 one - and a meter, where its certificate carries a SunSpec role: the
                 <a href="${toURL('/configuration/meters')}">Meters</a> page says which one reads and which
-                one writes. The keys it dials its back ends with are not here but on the
-                <a href="${toURL('/configuration/client-keys')}">Client keys</a> page, because they are made
-                on this station and never imported.
+                one writes. The keys it dials its back ends with are on the
+                <a href="${toURL(`/configuration/identities?tab=${clientKeysTabId}`)}">Client keys</a> tab,
+                because they are made on this station and never imported; the ones still waiting for
+                their certificate are below.
             `,
             unencrypted:  html`can take the identity this station presents in TLS.`
         }
@@ -82,7 +92,8 @@ startNode({
         '/configuration/commissioning':   commissioningPage,
         '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
-        '/configuration/client-keys':     clientKeysPage,
+        // Where the keys were while they had a page of their own.
+        '/configuration/client-keys':     movedTo(`/configuration/identities?tab=${clientKeysTabId}`, 'Identities'),
         '/configuration/signer-roles':    signerRolesPage,
         '/configuration/calibration':     calibrationPage,
         '/evses':                         evseStatusPage

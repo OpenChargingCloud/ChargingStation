@@ -628,6 +628,123 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AKeyMadeByHand_IsSentToTheCSMS_AndShownOnceItsCertificateComes()
+
+        /// <summary>
+        /// A key somebody made - with the subject and the template they chose
+        /// - goes to the CSMS as it is: its request in SignCertificate, and
+        /// the connection switched to it once CertificateSigned brings its
+        /// certificate.
+        /// </summary>
+        [Test]
+        public async Task AKeyMadeByHand_IsSentToTheCSMS_AndShownOnceItsCertificateComes()
+        {
+
+            var (connection, keyId, _) = await Connected();
+
+            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", "ecdsa-p384", out var byHand, out var csr, out var error),
+                        Is.True, error);
+
+            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+
+            Assert.Multiple(() => {
+                Assert.That(accepted,                                                           Is.True, said);
+                Assert.That(csms!.Requests("SignCertificate"),                                  Has.Length.EqualTo(1));
+                Assert.That(csms.Requests("SignCertificate")[0][3]["csr"]?.Value<String>(),     Is.EqualTo(csr), "the request was not sent as it was made");
+                Assert.That(station.KeysWaitingForTheirCertificate,                             Is.EqualTo(new[] { byHand }));
+                Assert.That(station.SigningRequestsSentToCSMS.Keys,                             Is.EqualTo(new[] { byHand }));
+                Assert.That(Entry.CertificateId,                                                Is.EqualTo(keyId), "the connection was switched before there was something to switch to");
+            });
+
+            var next    = Issued(csr!);
+            var signed  = await csms!.Ask("CertificateSigned", Signed(next));
+
+            Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"));
+
+            await Until(() => Entry.CertificateId == byHand && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
+                        "Being dialled again with the certificate of the key made by hand", () => WhatHappened);
+
+            Assert.That(station.KeysWaitingForTheirCertificate, Is.Empty);
+
+        }
+
+        #endregion
+
+        #region AKeyMadeByHand_IsKept_WhateverTheCSMSSays()
+
+        /// <summary>
+        /// A key the station made by itself goes where no certificate is
+        /// promised for it. One somebody made is theirs: it may still be
+        /// taken to a certificate authority on foot.
+        /// </summary>
+        [Test]
+        public async Task AKeyMadeByHand_IsKept_WhateverTheCSMSSays()
+        {
+
+            var (_, keyId, _) = await Connected();
+
+            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", null, out var byHand, out _, out var error),
+                        Is.True, error);
+
+            csms!.SignCertificateStatus = "Rejected";
+
+            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+
+            Assert.Multiple(() => {
+                Assert.That(accepted,                                                       Is.False);
+                Assert.That(said,                                                           Does.Contain("Rejected"));
+                Assert.That(station.KeysWaitingForTheirCertificate,                         Is.Empty);
+                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Is.EquivalentTo(new[] { keyId, byHand }));
+            });
+
+            // Nor does the station's own asking take it away.
+            csms.SignCertificateStatus = "Accepted";
+
+            Assert.That((await station.SendSigningRequestToCSMS(byHand!, "a test sent it again")).Accepted,   Is.True);
+            Assert.That((await station.AskForAStationCertificate("a test asked for it")).Accepted,            Is.True);
+
+            Assert.Multiple(() => {
+                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Does.Contain(byHand));
+                Assert.That(station.KeysWaitingForTheirCertificate,                         Does.Not.Contain(byHand), "two keys wait to replace the same certificate");
+            });
+
+            // What has its certificate is not sent again, and what is not here is not sent at all.
+            // (Sent to nobody, where no connection stands: see ARequestIsSentToNobody_WhereNoConnectionStands.)
+            Assert.Multiple(async () => {
+                Assert.That((await station.SendSigningRequestToCSMS(keyId,     "a test")).Said,  Does.Contain("already"));
+                Assert.That((await station.SendSigningRequestToCSMS("nothing", "a test")).Said,  Does.Contain("no key"));
+            });
+
+        }
+
+        #endregion
+
+        #region ARequestIsSentToNobody_WhereNoConnectionStands()
+
+        /// <summary>
+        /// Without a CSMS to ask, the request is not sent - and the station
+        /// says so, rather than that a CSMS refused it.
+        /// </summary>
+        [Test]
+        public async Task ARequestIsSentToNobody_WhereNoConnectionStands()
+        {
+
+            Assert.That(station!.ClientCertificates.TryCreateKey("cs-by-hand.example.org", null, out var byHand, out _, out var error),
+                        Is.True, error);
+
+            var (accepted, said) = await station.SendSigningRequestToCSMS(byHand!, "a test sent it");
+
+            Assert.Multiple(() => {
+                Assert.That(accepted,                                                       Is.False);
+                Assert.That(said,                                                           Does.Contain("not connected"));
+                Assert.That(station.KeysWaitingForTheirCertificate,                         Is.Empty);
+                Assert.That(station.ClientCertificates.Entries.Select(entry => entry.Id),   Does.Contain(byHand));
+            });
+
+        }
+
+        #endregion
+
         #region ACertificateThatRunsOutSoon_IsAskedToBeRenewedByTheStationItself()
 
         /// <summary>
