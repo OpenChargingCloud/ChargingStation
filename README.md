@@ -1189,8 +1189,10 @@ station believes, and somebody who can add one can make it believe a server
 nobody else would. One thing in the store is no such decision, and is
 `certificates:run`, which the operator (`cpo`) and the installer hold as well:
 making a key the station dials with, sending its signing request to the CSMS,
-and taking a key back that still waits for its certificate. A certificate
-brought back by hand is an upload, and the administrators'.
+bringing the certificate that came back for it - pasted beside the key, which
+is matched to it by the node - and taking a key back that still waits for one.
+The upload, where a certificate comes with its key and a root comes at all,
+is the administrators'.
 `CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 

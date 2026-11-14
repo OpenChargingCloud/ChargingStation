@@ -245,8 +245,9 @@ namespace cloud.charging.open.ChargingStation.Web
         /// "calibration:edit" too. It says how much of the station is
         /// monitored, and reads what is; and it sends the local authorization
         /// list and clears the authorization cache. It makes the keys the
-        /// station dials with and sends their signing requests to the CSMS -
-        /// and is not let at the certificate store beyond that: which roots
+        /// station dials with, sends their signing requests to the CSMS and
+        /// brings the certificates that come back for them by hand - and
+        /// is not let at the certificate store beyond that: which roots
         /// the station believes is the system administrator's to say.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
