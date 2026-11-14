@@ -253,13 +253,14 @@ namespace cloud.charging.open.ChargingStation
         /// <remarks>
         /// Answered once the CSMS has: 200 with what it said where it accepted
         /// the request, 502 where it did not or could not be asked - the
-        /// request was fine, and the far end is what said no. At the
-        /// permission to change the certificate store, as making the key is.
+        /// request was fine, and the far end is what said no. At
+        /// "certificates:run", as making the key is - which the operator of
+        /// the station holds.
         /// </remarks>
         private async Task<HTTPResponse> PostSendSigningRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Edit(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
                 return refused;
 
             var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";

@@ -244,7 +244,10 @@ namespace cloud.charging.open.ChargingStation.Web
         /// metrologically relevant, a firmware update needs the installer's
         /// "calibration:edit" too. It says how much of the station is
         /// monitored, and reads what is; and it sends the local authorization
-        /// list and clears the authorization cache.
+        /// list and clears the authorization cache. It makes the keys the
+        /// station dials with and sends their signing requests to the CSMS -
+        /// and is not let at the certificate store beyond that: which roots
+        /// the station believes is the system administrator's to say.
         /// </summary>
         public static readonly Role  CPO        = new ("cpo",
                                                        [ Permission.Read(Permission.AnyResource),
@@ -254,6 +257,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (NodeResources.NTS),
                                                          Permission.Edit(Connections),
                                                          Permission.Run (Connections),
+                                                         Permission.Run (NodeResources.Certificates),
                                                          Permission.Edit(V2G),
                                                          Permission.Edit(Availability),
                                                          Permission.Edit(Display),
@@ -268,7 +272,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (Unlock),
                                                          Permission.Edit(Monitoring),
                                                          Permission.Edit(Authorization) ],
-                                                       "runs the station: its network, its connections, what is in service, the display, the providers' logos, the sessions, restarts, the firmware, the monitoring and the local authorization list");
+                                                       "runs the station: its network, its connections and the keys it dials with, what is in service, the display, the providers' logos, the sessions, restarts, the firmware, the monitoring and the local authorization list");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator

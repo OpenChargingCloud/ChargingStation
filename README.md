@@ -1186,7 +1186,12 @@ Reading the store is `certificates:read`. Changing it - importing, switching
 on and off, saying what a certificate is for, deleting - is `certificates:edit`,
 the administrators' alone, as on the vehicle: a root is a decision about whom this
 station believes, and somebody who can add one can make it believe a server
-nobody else would. `CertificateStoreTests` holds the station to that, and to the
+nobody else would. One thing in the store is no such decision, and is
+`certificates:run`, which the operator (`cpo`) and the installer hold as well:
+making a key the station dials with, sending its signing request to the CSMS,
+and taking a key back that still waits for its certificate. A certificate
+brought back by hand is an upload, and the administrators'.
+`CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 
 ### The certificate it shows its CSMS, brought over OCPP

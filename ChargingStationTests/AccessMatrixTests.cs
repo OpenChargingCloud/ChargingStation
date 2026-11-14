@@ -174,10 +174,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("DELETE", "api/v1/certificates/0000000000000000",           TheAdministrator),
 
             // The keys the station makes for itself, in its certificate store.
-            ("POST",   "api/v1/certificates/requests",                        TheAdministrator),
+            ("POST",   "api/v1/certificates/requests",                        TheOperator),
             ("POST",   "api/v1/certificates/requests/answer",                 TheAdministrator),
-            ("DELETE", "api/v1/certificates/requests/0000000000000000",       TheAdministrator),
-            ("POST",   "api/v1/certificates/requests/0000000000000000/sign",  TheAdministrator)
+            ("DELETE", "api/v1/certificates/requests/0000000000000000",       TheOperator),
+            ("POST",   "api/v1/certificates/requests/0000000000000000/sign",  TheOperator)
 
         ];
 
