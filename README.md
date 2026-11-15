@@ -895,7 +895,20 @@ with, and a password where wanted: a login and password of the tab
 first and the password is sent where the server then asks for one - so a
 server that takes passwords alone is signed in to as well - and never to a
 server whose host key is not believed. Its login is the one the URL names,
-where it names one. A TOTP is not answered over SSH.
+where it names one. A connection may also say that it offers **no key** at all
+(`"identities": [ {"id": "none"} ]`) and signs in with its password alone.
+
+The password may be the **one-time password** of a TOTP secret, worked out as
+it is asked for. Unbound, it is the answer to the server's prompt
+(`keyboard-interactive`) or a password, whichever the server asks for - and
+the card says that whoever the session ends at can read it. Where the
+credentials **bind the password to its session** it is sent as the SSH
+authentication method `totp@open.charging.cloud`, worked out with the session
+identifier and so good in no other session, to a server that takes that method
+and to no other; unbound credentials use that method too wherever the server
+offers it. The white paper *SSH Authentication Extensions for OCPP* says how
+it is made and checked. The token is the one of HTTP TOTP, not the six digits
+of an authenticator app.
 
 Certificates and keys are ticked, and several may be: each from a time on
 (`"identities": [ {"id": ...}, {"id": ..., "from": "2027-01-31T00:00:00Z"} ]`),

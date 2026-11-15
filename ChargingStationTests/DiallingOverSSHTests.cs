@@ -105,13 +105,83 @@ namespace cloud.charging.open.ChargingStation.Tests
             private readonly ConcurrentQueue<(String User, String Password)>  passwords  = new ();
 
             /// <summary>
+            /// The login whose one-time password it lets in, with the secret
+            /// it is made of - or none.
+            /// </summary>
+            public (String User, TOTPConfig Config)?  TakesTOTP  { get; set; }
+
+            /// <summary>
+            /// How it takes that one-time password: as a "password", as the
+            /// answer to a "keyboard-interactive" prompt, or bound to the
+            /// session as "totp@open.charging.cloud".
+            /// </summary>
+            public String  TakesTOTPAs  { get; set; } = UserAuthentication.PasswordMethod;
+
+            /// <summary>
+            /// The methods it was signed in with, or tried with, beside keys.
+            /// </summary>
+            public String[] Methods
+                => [.. methods];
+
+            private readonly ConcurrentQueue<String>  methods  = new ();
+
+            private Boolean IsTheOneTimePassword(String User, String Sent, ReadOnlyMemory<Byte> SessionId)
+            {
+
+                if (TakesTOTP is not (String user, TOTPConfig config) || user != User)
+                    return false;
+
+                if (!SessionId.IsEmpty)
+                    return SshSessionBoundTotp.Verify(config, Sent, SessionId.Span);
+
+                var (previous, current, next, _, _) = TOTPGenerator.GenerateTOTPs(config.SharedSecret, config.ValidityTime, config.Length ?? 12,
+                                                                                 config.Alphabet, null, null, config.HashAlgorithm);
+
+                return Sent == previous || Sent == current || Sent == next;
+
+            }
+
+            /// <summary>
+            /// One prompt, for the one-time password.
+            /// </summary>
+            private sealed class Prompt(SshCSMS CSMS, String User) : ISshKeyboardInteractiveFactor
+            {
+
+                public String                    Name         => "";
+                public String                    Instruction  => "";
+                public IReadOnlyList<SshPrompt>  Prompts      => [ new SshPrompt("One-time password: ", false) ];
+
+                public ValueTask<Boolean> ValidateAsync(IReadOnlyList<String> Responses, CancellationToken CancellationToken = default)
+                {
+                    CSMS.methods.Enqueue(UserAuthentication.KeyboardInteractiveMethod);
+                    return ValueTask.FromResult(Responses.Count == 1 && CSMS.IsTheOneTimePassword(User, Responses[0], default));
+                }
+
+            }
+
+            /// <summary>
             /// Its door: a key as before, and a password where it takes one.
             /// </summary>
             private sealed class Door(SshCSMS CSMS) : ISshUserAuthenticator
             {
 
                 public IReadOnlyList<String> OfferedMethods
-                    => CSMS.TakesPassword is null ? [ "publickey" ] : [ "publickey", "password" ];
+                {
+                    get
+                    {
+
+                        var offered = new List<String> { UserAuthentication.PublicKeyMethod };
+
+                        if (CSMS.TakesTOTP is not null && CSMS.TakesTOTPAs != UserAuthentication.PasswordMethod)
+                            offered.Add(CSMS.TakesTOTPAs);
+
+                        if (CSMS.TakesPassword is not null || (CSMS.TakesTOTP is not null && CSMS.TakesTOTPAs == UserAuthentication.PasswordMethod))
+                            offered.Add(UserAuthentication.PasswordMethod);
+
+                        return offered;
+
+                    }
+                }
 
                 public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
                 {
@@ -122,7 +192,20 @@ namespace cloud.charging.open.ChargingStation.Tests
                 public ValueTask<Boolean> AuthorizePasswordAsync(String Username, String Password, CancellationToken CancellationToken = default)
                 {
                     CSMS.passwords.Enqueue((Username, Password));
-                    return ValueTask.FromResult(CSMS.TakesPassword is (String, String) taken && taken == (Username, Password));
+                    CSMS.methods.  Enqueue(UserAuthentication.PasswordMethod);
+                    return ValueTask.FromResult((CSMS.TakesPassword is (String, String) taken && taken == (Username, Password)) ||
+                                                (CSMS.TakesTOTPAs == UserAuthentication.PasswordMethod && CSMS.IsTheOneTimePassword(Username, Password, default)));
+                }
+
+                public ISshKeyboardInteractiveFactor? GetKeyboardInteractive(String Username)
+                    => CSMS.TakesTOTP is not null && CSMS.TakesTOTPAs == UserAuthentication.KeyboardInteractiveMethod
+                           ? new Prompt(CSMS, Username)
+                           : null;
+
+                public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
+                {
+                    CSMS.methods.Enqueue(UserAuthentication.SessionBoundTotpMethod);
+                    return ValueTask.FromResult(CSMS.TakesTOTPAs == UserAuthentication.SessionBoundTotpMethod && CSMS.IsTheOneTimePassword(Username, Totp, SessionId));
                 }
 
             }
@@ -1144,6 +1227,103 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(station.Log.Recent(500).Any(entry => entry.Message.Contains("and the password of 'CSMS over SSH' where the server asks for one")), Is.True,
                             "What it signed in with is not in the log.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AConnectionThatOffersNoKey_SignsInWithItsPasswordAlone()
+
+        /// <summary>
+        /// A connection that says it offers no key shows its server none -
+        /// not even this station's own - and signs in with its password.
+        /// </summary>
+        [Test]
+        public async Task AConnectionThatOffersNoKey_SignsInWithItsPasswordAlone()
+        {
+
+            csms!.TakesPassword = ("cs001", "the-password-of-cs001");
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS over SSH", "basic", "cs001", "the-password-of-cs001", out var login, out var error),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+                                                             out var id, out error, SshHostKey: csms.Fingerprint,
+                                                             Identities: [ new ConnectionIdentity(SshClientKeys.NoneId) ]),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting over SSH with a password and no key", () => SaidOf(id!));
+
+            Assert.Multiple(() => {
+
+                Assert.That(csms.Logins,    Is.Empty, "A key was offered by a connection that says it offers none.");
+                Assert.That(csms.Passwords, Is.Not.Empty);
+
+                Assert.That(station.Log.Recent(500).Any(entry => entry.Message.Contains("no SSH key as 'cs001', and the password of 'CSMS over SSH'")), Is.True,
+                            "What it signed in with is not in the log.");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AOneTimePasswordIsSentTheWayItsCredentialsSay(TakenAs, Bound, GetsIn)
+
+        /// <summary>
+        /// The one-time password of a TOTP secret signs in over SSH. Unbound
+        /// it is the answer to a keyboard-interactive prompt, or a password,
+        /// whichever the server asks for - and bound to the session where the
+        /// server takes "totp@open.charging.cloud". Bound, it goes that way
+        /// or not at all: a server that asks for a password is not given one
+        /// that could be used elsewhere.
+        /// </summary>
+        [TestCase("password",                  false, true )]
+        [TestCase("keyboard-interactive",      false, true )]
+        [TestCase("totp@open.charging.cloud",  false, true )]
+        [TestCase("totp@open.charging.cloud",  true,  true )]
+        [TestCase("password",                  true,  false)]
+        [TestCase("keyboard-interactive",      true,  false)]
+        public async Task AOneTimePasswordIsSentTheWayItsCredentialsSay(String TakenAs, Boolean Bound, Boolean GetsIn)
+        {
+
+            const String secret = "a-shared-secret-for-cs001-over-ssh";
+
+            csms!.LetsIn       = false;
+            csms. TakesTOTP    = ("cs001", new TOTPConfig(secret, TimeSpan.FromSeconds(30), 12));
+            csms. TakesTOTPAs  = TakenAs;
+
+            Assert.That(station!.Connections.TryAddAuthentication("One-time, over SSH", "totp", "cs001", secret, out var login, out var error,
+                                                                  ValiditySeconds: 30, Length: 12, TLSChannelBinding: Bound),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+                                                             out var id, out error, SshHostKey: csms.Fingerprint),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) &&
+                              state.Status == (GetsIn ? ConnectionStatus.Connected : ConnectionStatus.Refused),
+                        GetsIn ? "Connecting over SSH with a one-time password" : "Being turned away without an unbound one-time password sent",
+                        () => SaidOf(id!));
+
+            Assert.Multiple(() => {
+
+                if (GetsIn)
+                    Assert.That(csms.Methods.Distinct(), Is.EqualTo(new[] { TakenAs }),
+                                "The one-time password did not go the way the server takes it, and that way alone.");
+                else
+                    Assert.That(csms.Methods, Is.Empty,
+                                "A one-time password bound to its session was sent unbound.");
+
+                // What a password field carried is never the secret.
+                Assert.That(csms.Passwords.Select(sent => sent.Password), Has.None.EqualTo(secret));
 
             });
 
