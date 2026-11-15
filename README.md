@@ -414,7 +414,7 @@ interface will not delete the part it did not understand.
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
 | `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands - and, on its tab **Credentials**, the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
-| `/configuration/identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
+| `/configuration/identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
