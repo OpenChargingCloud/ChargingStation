@@ -413,8 +413,8 @@ interface will not delete the part it did not understand.
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
-| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands - and, on its tab **Credentials**, the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
-| `/configuration/identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
+| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
+| `/configuration/client-identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
@@ -872,7 +872,9 @@ its two OCPP nodes dials it, what it proves itself with, and whether it
 connects by itself. Beside each one it says where the connection stands, and
 asks again every five seconds while the page is in view - it is where somebody
 looks to find out whether the station is on its back end, and a page that was
-right when it was opened is not the answer to that.
+right when it was opened is not the answer to that. The page opens on the
+connections there are; one is written down on its tab **New connection**, and
+shown among the others once it is.
 
 | | |
 |---|---|
@@ -888,7 +890,12 @@ Over `ws://` and `wss://` it is one choice: nothing, a login - one written
 down already, or a new one typed into the form and written down with the
 connection, on the tab **Credentials** - or, where there is a TLS handshake,
 the client certificates it shows. Over `ssh://` it is the SSH keys it signs in
-with, and nothing else.
+with, and a password where wanted: a login and password of the tab
+**Credentials**, or a new one typed with the connection. The keys are offered
+first and the password is sent where the server then asks for one - so a
+server that takes passwords alone is signed in to as well - and never to a
+server whose host key is not believed. Its login is the one the URL names,
+where it names one. A TOTP is not answered over SSH.
 
 Certificates and keys are ticked, and several may be: each from a time on
 (`"identities": [ {"id": ...}, {"id": ..., "from": "2027-01-31T00:00:00Z"} ]`),
@@ -1162,7 +1169,7 @@ the store refuses those kinds, and the page does not offer them.
 A **TLS identity** is who the station is: to a meter, where its certificate
 carries a SunSpec role, and to a back end it dials - the Connections page
 says which one each connection shows. There are two ways to one. It is
-brought, with its key, on the Upload tab of `/configuration/identities`. Or
+brought, with its key, on the Upload tab of `/configuration/client-identities`. Or
 its key is **made on the station** and never leaves it, on the **New key**
 tab of that page, and only its certificate ever travels: the key waits among
 what the station presents, with two things to do with it - **Copy CSR**, for
@@ -1240,7 +1247,7 @@ the station asks its CSMS for the next one, and the CSMS brings it:
 | `TriggerMessage` of `SignChargingStationCertificate` | the station makes a new key - with the subject and the kind of the one it replaces - and sends its signing request in `SignCertificate`. The key never leaves the station. |
 | by itself | where the certificate a `wss://` connection shows runs out within 30 days, the station asks when it connects - once a day at most |
 | `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is dialled again with the new one. |
-| a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both identities are kept; the old one is taken out on `/configuration/identities`. |
+| a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both identities are kept; the old one is taken out on `/configuration/client-identities`. |
 | `InstallCertificate` of `CSMSRootCertificate` | a TLS root of the certificate store kept for `ocpp` - on the certificates page, and vouching for the server of a `wss://` connection from the next handshake on. `GetInstalledCertificateIds` lists it, `DeleteCertificate` takes it out again; a root kept for every use is deleted on the page and not for the back ends alone. OCPP 1.6 installs the same as `CentralSystemRootCertificate`. |
 
 A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps

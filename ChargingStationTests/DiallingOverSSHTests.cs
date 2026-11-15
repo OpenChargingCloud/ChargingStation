@@ -91,6 +91,43 @@ namespace cloud.charging.open.ChargingStation.Tests
             public Byte[]?           LetsInOnly     { get; set; }
 
             /// <summary>
+            /// The login and password it lets in beside the keys - or none,
+            /// as a server that takes no passwords.
+            /// </summary>
+            public (String User, String Password)?  TakesPassword  { get; set; }
+
+            /// <summary>
+            /// Who tried to sign in with a password, and with which.
+            /// </summary>
+            public (String User, String Password)[] Passwords
+                => [.. passwords];
+
+            private readonly ConcurrentQueue<(String User, String Password)>  passwords  = new ();
+
+            /// <summary>
+            /// Its door: a key as before, and a password where it takes one.
+            /// </summary>
+            private sealed class Door(SshCSMS CSMS) : ISshUserAuthenticator
+            {
+
+                public IReadOnlyList<String> OfferedMethods
+                    => CSMS.TakesPassword is null ? [ "publickey" ] : [ "publickey", "password" ];
+
+                public ValueTask<Boolean> AuthorizePublicKeyAsync(SshPublicKeyAuthRequest Request, CancellationToken CancellationToken = default)
+                {
+                    CSMS.logins.Enqueue((Request.Username, Request.PublicKeyBlob));
+                    return ValueTask.FromResult(CSMS.LetsIn && (CSMS.LetsInOnly is null || CSMS.LetsInOnly.AsSpan().SequenceEqual(Request.PublicKeyBlob)));
+                }
+
+                public ValueTask<Boolean> AuthorizePasswordAsync(String Username, String Password, CancellationToken CancellationToken = default)
+                {
+                    CSMS.passwords.Enqueue((Username, Password));
+                    return ValueTask.FromResult(CSMS.TakesPassword is (String, String) taken && taken == (Username, Password));
+                }
+
+            }
+
+            /// <summary>
             /// Whether it serves OCPP to whoever it let in - or refuses the
             /// subsystem, as a server does whose access rules deny it.
             /// </summary>
@@ -174,10 +211,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Server    = new SshServer(new SshServerOptions {
                                 HostKeys       = [ HostKey ],
-                                Authenticator  = new SshUserAuthenticator((request, cancellationToken) => {
-                                                     logins.Enqueue((request.Username, request.PublicKeyBlob));
-                                                     return ValueTask.FromResult(LetsIn && (LetsInOnly is null || LetsInOnly.AsSpan().SequenceEqual(request.PublicKeyBlob)));
-                                                 }),
+                                Authenticator  = new Door(this),
                                 Subsystems     = (session, name, cancellationToken) =>
                                                      ValueTask.FromResult(name == Messages.Subsystem
                                                                               ? ServesOCPP ? Messages.Handler : null
@@ -1069,6 +1103,49 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             // And a key a connection signs in with is not taken from under it.
             Assert.That(station.Connections.Connections.Single(connection => connection.Id == id).Warnings, Is.Empty);
+
+        }
+
+        #endregion
+
+        #region AServerThatTakesPasswordsAloneIsSignedInToWithThePasswordOfTheConnection()
+
+        /// <summary>
+        /// A connection that names a login and password signs in with them
+        /// at a server that turns its keys away: the keys are offered first,
+        /// the password after - and only that one, as the login the URL
+        /// names.
+        /// </summary>
+        [Test]
+        public async Task AServerThatTakesPasswordsAloneIsSignedInToWithThePasswordOfTheConnection()
+        {
+
+            csms!.LetsIn         = false;
+            csms. TakesPassword  = ("cs001", "the-password-of-cs001");
+
+            Assert.That(station!.Connections.TryAddAuthentication("CSMS over SSH", "basic", "cs001", "the-password-of-cs001", out var login, out var error),
+                        Is.True, error);
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+                                                             out var id, out error, SshHostKey: csms.Fingerprint),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting over SSH with a password", () => SaidOf(id!));
+
+            Assert.Multiple(() => {
+
+                Assert.That(csms.Logins,     Is.Not.Empty, "The key was not offered before the password.");
+
+                Assert.That(csms.Passwords.Distinct(), Is.EqualTo(new[] { ("cs001", "the-password-of-cs001") }),
+                            "The password of the connection was not what the server was given.");
+
+                Assert.That(station.Log.Recent(500).Any(entry => entry.Message.Contains("and the password of 'CSMS over SSH' where the server asks for one")), Is.True,
+                            "What it signed in with is not in the log.");
+
+            });
 
         }
 

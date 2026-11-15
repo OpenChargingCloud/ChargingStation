@@ -69,7 +69,7 @@ startNode({
                 one writes - and a back end it dials: the
                 <a href="${toURL('/configuration/connections')}">Connections</a> page says which one each
                 connection shows. An identity is brought here with its key, or its key is
-                <a href="${toURL(`/configuration/identities?tab=${requestTabId}`)}">made on this station</a>
+                <a href="${toURL(`/configuration/client-identities?tab=${requestTabId}`)}">made on this station</a>
                 and only its certificate ever travels; a key still waiting for its certificate is below.
             `,
             unencrypted:  html`can take the identity this station presents in TLS.`
@@ -97,7 +97,7 @@ startNode({
         // they are a tab of the connections, which is where they are used.
         '/configuration/authentication':  movedTo('/configuration/connections?tab=credentials', 'Connections'),
         // Where the keys were while they had a page of their own.
-        '/configuration/client-keys':     movedTo('/configuration/identities', 'Client identities'),
+        '/configuration/client-keys':     movedTo('/configuration/client-identities', 'Client identities'),
         '/configuration/signer-roles':    signerRolesPage,
         '/configuration/calibration':     calibrationPage,
         '/evses':                         evseStatusPage
