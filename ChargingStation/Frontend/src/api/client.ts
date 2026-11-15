@@ -687,6 +687,57 @@ export interface CommissioningUpdate {
 }
 
 
+/**
+ * The OCPP server of this station: a WebSocket server a CSMS or a local
+ * controller dials. One server for each of its two nodes, on a port of its
+ * own; who may come in is a connection the other end makes, on the Connections
+ * page.
+ */
+export interface OCPPServerConfiguration {
+    /** What the file says: switched on or not. */
+    enabled:  boolean;
+    /** Whether the servers speak TLS: where the web interface does, with its certificate. */
+    tls:      boolean;
+    /** OCPP 2.1 first, then OCPP 1.6. */
+    servers:  OCPPServerOfAVersion[];
+    /** The connections the other end makes, as they are written down. */
+    inbound:  InboundConnection[];
+    file:     string;
+}
+
+export interface OCPPServerOfAVersion {
+    /** "OCPP2.1" or "OCPP1.6". */
+    ocppVersion:  string;
+    /** Its port, or null where the file names none: then it is not served. */
+    port:         number | null;
+    /** Whether it is listening now. */
+    served:       boolean;
+    /** Where the other end dials, without its name: "wss://127.0.0.1:9443/"; null without a port. */
+    url:          string | null;
+    /** The names connected now. */
+    connected:    string[];
+    /** Why it is not served although it has a port: the port was taken, say. */
+    problem?:     string;
+}
+
+export interface InboundConnection {
+    id:           string;
+    description:  string;
+    /** The name it comes under: the last part of its URL. */
+    name:         string;
+    ocppVersion:  string;
+    /** Whether it is let in at all - "connect by itself" of a connection that is dialled. */
+    letIn:        boolean;
+}
+
+/** What a PUT to the OCPP server carries: null takes a port away. */
+export interface OCPPServerUpdate {
+    enabled:  boolean;
+    port:     number | null;
+    port16:   number | null;
+}
+
+
 /** A key that signs as a role. */
 export interface SignerKey {
     /** The RFC 7638 thumbprint of the key. */
@@ -869,6 +920,12 @@ export const api = {
         get:   ()                              => request<CommissioningConfiguration>('GET', '/configuration/commissioning'),
         /** Switched on or off at once; off lets go of every tool connected. */
         save:  (update: CommissioningUpdate)   => request<CommissioningConfiguration>('PUT', '/configuration/commissioning', update)
+    },
+
+    ocppServer: {
+        get:   ()                              => request<OCPPServerConfiguration>('GET', '/configuration/ocpp-server'),
+        /** Taken at once; whoever dialled in is let go of where its server goes. */
+        save:  (update: OCPPServerUpdate)      => request<OCPPServerConfiguration>('PUT', '/configuration/ocpp-server', update)
     },
 
     power: {

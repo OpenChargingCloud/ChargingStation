@@ -147,6 +147,8 @@ namespace cloud.charging.open.ChargingStation
 
             AddHandler(HTTPPath.Root + "v1/configuration/commissioning", GetCommissioningConfiguration, HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/commissioning", PutCommissioningConfiguration, HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/configuration/ocpp-server",   GetOCPPServerConfiguration,    HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/configuration/ocpp-server",   PutOCPPServerConfiguration,    HTTPMethod.PUT);
 
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
@@ -364,6 +366,49 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.CommissioningJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// GET /api/v1/configuration/ocpp-server: whether a CSMS or a local
+        /// controller may dial this station, on which ports, and who is in.
+        /// </summary>
+        private Task<HTTPResponse> GetOCPPServerConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Read(StationAccess.Connections), false, out _, out var refused))
+                return Task.FromResult(refused);
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.OCPPServerJSON())
+                   );
+
+        }
+
+        /// <summary>
+        /// PUT /api/v1/configuration/ocpp-server with {"enabled", "port",
+        /// "port16"}: switch the OCPP server on or off or give it other ports,
+        /// at once. Whoever dialled in is let go of where its server goes.
+        /// </summary>
+        /// <remarks>
+        /// Whoever may change where this station dials may change who dials
+        /// it - see StationAccess.Connections.
+        /// </remarks>
+        private Task<HTTPResponse> PutOCPPServerConfiguration(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (!Station.TryUpdateOCPPServerConfiguration(json, out var error, out var notSaved))
+                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
+
+            return Task.FromResult(
+                       JSONResponse(Request, HTTPStatusCode.OK, Station.OCPPServerJSON())
                    );
 
         }

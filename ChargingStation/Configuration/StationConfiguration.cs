@@ -63,6 +63,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Meters">How the meter of each EVSE that has one read is read.</param>
     /// <param name="Nameplate">What this station tells a CSMS it is.</param>
     /// <param name="Commissioning">Whether a tool may speak OCPP to this station over its SSH server.</param>
+    /// <param name="OCPPServer">Whether a CSMS or a local controller may dial this station, and on which ports.</param>
     public sealed record StationConfiguration(PowerConfiguration?                      Power          = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs          = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration    = null,
@@ -73,7 +74,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               V2GLinksConfiguration?                   V2G            = null,
                                               MetersConfiguration?                     Meters         = null,
                                               NameplateConfiguration?                  Nameplate      = null,
-                                              CommissioningConfiguration?              Commissioning  = null)
+                                              CommissioningConfiguration?              Commissioning  = null,
+                                              OCPPServerConfiguration?                 OCPPServer     = null)
     {
 
         #region Data
@@ -103,7 +105,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         public Boolean IsEmpty
             => Power is null && EVSEs is null && Calibration is null && RFID is null &&
                Operator is null && WebPayments is null && Display is null && V2G is null && Meters is null &&
-               Nameplate is null && Commissioning is null;
+               Nameplate is null && Commissioning is null && OCPPServer is null;
 
         #endregion
 
@@ -342,7 +344,27 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #endregion
 
-            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters, nameplate, commissioning);
+            #region OCPP server
+
+            OCPPServerConfiguration? ocppServer = null;
+
+            if (JSON[OCPPServerConfiguration.SectionName] is JToken ocppServerToken && ocppServerToken.Type != JTokenType.Null)
+            {
+
+                if (ocppServerToken is not JObject ocppServerJSON)
+                {
+                    Error = $"'{OCPPServerConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!OCPPServerConfiguration.TryParse(ocppServerJSON, out ocppServer, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new StationConfiguration(power, evses, calibration, rfid, stationOperator, webPayments, display, v2g, meters, nameplate, commissioning, ocppServer);
             return true;
 
         }
@@ -393,6 +415,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (Commissioning is not null)
                 json.Add(CommissioningConfiguration.SectionName, Commissioning.ToJSON());
 
+            if (OCPPServer is not null)
+                json.Add(OCPPServerConfiguration.SectionName,    OCPPServer.ToJSON());
+
             return json;
 
         }
@@ -416,7 +441,8 @@ namespace cloud.charging.open.ChargingStation.Configuration
                              V2G         is not null ? V2G.ToString()                           : null,
                              Meters      is not null ? Meters.ToString()                        : null,
                              Nameplate    is not null ? Nameplate.ToString()                      : null,
-                             Commissioning is not null ? Commissioning.ToString()                 : null
+                             Commissioning is not null ? Commissioning.ToString()                 : null,
+                             OCPPServer    is not null ? OCPPServer.ToString()                    : null
                          }.Where(section => section is not null));
 
         #endregion

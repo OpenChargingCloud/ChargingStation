@@ -1349,6 +1349,9 @@ namespace cloud.charging.open.ChargingStation
             // now on; the old one's sessions end with it.
             ServeCommissioningByTheNewNode();
 
+            // And whoever dialled this station dials the new nodes.
+            ServeOCPPByTheNewNodes();
+
             // Stopped by DialAgain, and kept so that a station let go of
             // before that is done stops them all the same.
             lock (replacedNodes)

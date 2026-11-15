@@ -413,7 +413,8 @@ interface will not delete the part it did not understand.
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
-| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
+| `/configuration/ocpp-server` | the OCPP server a CSMS or a local controller dials, where the station cannot dial them: on or off, its ports, where the other end dials and who is in |
+| `/configuration/connections` | where the station dials - and who dials it, where **The other end dials** is ticked -, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
 | `/configuration/client-identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
@@ -1158,6 +1159,72 @@ station.
 OCPP 1.6 is not served this way: a subsystem has one handler, and the HELLO
 that says which version a tool speaks is read by the message server itself, so
 one name could not lead to either node.
+
+### The OCPP server: a back end that dials the station
+
+Where the station cannot dial its CSMS or its local controller - behind a
+firewall that lets nothing out, on a network only the back end reaches - the
+back end dials the station. OCPP stays as it is: the station is the charging
+station, says that it started and is asked; only who opens the WebSocket is
+the other way round. The `ocppServer` section switches it on:
+
+```json
+"ocppServer": { "enabled": true, "port": 9443, "port16": 9444 }
+```
+
+Off where the file says nothing. `port` serves OCPP 2.1 and 2.0.1 (JSON, and
+CBOR for whoever offers `ocpp2.1cbor`), `port16` OCPP 1.6: the station is two
+OCPP nodes, and a port is one's. A version without a port is not served.
+`/configuration/ocpp-server` switches it on and off and changes the ports at
+once, without a restart, and says where the other end dials and who is in:
+
+    GET  /api/v1/configuration/ocpp-server
+    {"enabled": true, "tls": true,
+     "servers": [{"ocppVersion": "OCPP2.1", "port": 9443, "served": true,
+                  "url": "wss://0.0.0.0:9443/", "connected": ["csms-01"]},
+                 {"ocppVersion": "OCPP1.6", "port": null, "served": false, "url": null, "connected": []}],
+     "inbound": [{"id": "...", "description": "The CSMS", "name": "csms-01",
+                  "ocppVersion": "OCPP2.1", "letIn": true}], ...}
+    PUT  /api/v1/configuration/ocpp-server    {"enabled": true, "port": 9443, "port16": null}
+
+Whoever may change the connections may change this (`connections:edit`).
+
+**Who gets in.** Nothing that is not written down. On the Connections page a
+connection is written down with **The other end dials** ticked: its URL is the
+one the back end dials - `wss://station.example.org:9443/csms-01` - and the
+last part of it the name the back end comes under; the credentials it names
+are what the back end signs in with, a login of that name with a password
+(HTTP Basic) or a TOTP secret. "Connect by itself" is what lets it in: off,
+nothing comes in under its name, and one that is in is let go of. A name that
+is not written down, a wrong password, a name other than the login's - all
+are answered 401; an address that signs in wrong ten times within a minute is
+answered 429 until the minute is over, the right password included. The names
+`CSMS` and `CentralSystem` are the station's own to say what it says by, and
+nothing comes in under them.
+
+**What it is, once in.** One of the station's connections, like one it
+dialled. The page shows it as *waiting* until the back end dials and as
+*connected* from then on; the station sends it a BootNotification, the status
+of its EVSEs and its heartbeats, and answers what it asks. Which back end is
+in charge is decided as it always is - the oldest connection that is switched
+on, whoever opened it: a back end that dials in beside a CSMS the station
+dialled earlier is registered with and answered, and is told nothing of what
+the station says to its CSMS. When it goes, its routes go with it, and it is
+waited for again.
+
+**TLS.** The server shows the certificate of the web interface, where that
+speaks HTTPS (`"web": { "tls": ... }`, or `--https`), and speaks no TLS where
+it does not - which the log and the page say, since a password then crosses
+the network in the clear.
+
+**Nothing is forwarded.** A request that comes in is for the station. One
+addressed to anything else is dropped, or refused where it wants an answer:
+what a local controller does with the requests of the stations below it is
+not a charging station's to do.
+
+Not there yet: a client certificate as what a back end signs in with, and a
+TOTP bound to its TLS session - credentials that say so are refused for a
+connection the other end makes.
 
 ### Certificates
 

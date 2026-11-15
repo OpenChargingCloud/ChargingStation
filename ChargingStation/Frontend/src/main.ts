@@ -20,6 +20,7 @@ import { metersPage }          from './pages/meters';
 import { rfidPage }            from './pages/rfid';
 import { nameplatePage }       from './pages/nameplate';
 import { commissioningPage }   from './pages/commissioning';
+import { ocppServerPage }      from './pages/ocppServer';
 import { sshKeysSection }      from '@ocpp/sshKeys';
 import { connectionsPage }     from '@ocpp/pages/connections';
 import { requestTabId }        from '@node/certificateRequests';
@@ -93,6 +94,7 @@ startNode({
         '/configuration/nameplate':       nameplatePage,
         '/configuration/commissioning':   commissioningPage,
         '/configuration/connections':     connectionsPage,
+        '/configuration/ocpp-server':     ocppServerPage,
         // Where the credentials were while they had a page of their own:
         // they are a tab of the connections, which is where they are used.
         '/configuration/authentication':  movedTo('/configuration/connections?tab=credentials', 'Connections'),

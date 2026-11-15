@@ -660,6 +660,9 @@ namespace cloud.charging.open.ChargingStation
             // Served from Start() on - see ChargingStation.Commissioning.cs.
             this.Commissioning  = configuration.Commissioning ?? new CommissioningConfiguration();
 
+            // Served from Start() on - see ChargingStation.OCPPServer.cs.
+            this.OCPPServer     = configuration.OCPPServer    ?? new OCPPServerConfiguration();
+
             // The logos the display shows, as files put up over SFTP.
             AddLogoAreas();
 
@@ -937,6 +940,12 @@ namespace cloud.charging.open.ChargingStation
             if (Commissioning.IsEnabled)
                 ServeCommissioning();
 
+            // A CSMS or a local controller dialling this station, where the
+            // file says so - see ChargingStation.OCPPServer.cs. Before the
+            // connections are dialled, so that what is said of a connection
+            // the other end makes is that it is waited for.
+            ServeOCPP();
+
             // After the web interface for the same reason as the V2G link
             // above: somebody watching the Logs page sees each back end come up
             // or fail while it happens, rather than reloading afterwards to
@@ -988,6 +997,8 @@ namespace cloud.charging.open.ChargingStation
                 StopServingCommissioning("the station is stopping");
                 return Task.CompletedTask;
             });
+
+            await Take("stopping the OCPP server", () => StopServingOCPP("the station is stopping"));
 
             await Take("ending the V2G links", EndTheV2GLinks);
 
