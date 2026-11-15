@@ -85,6 +85,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             public Boolean           LetsIn         { get; set; } = true;
 
             /// <summary>
+            /// The one key it lets in, where it is not whoever shows one: a
+            /// server whose authorized_keys has one line.
+            /// </summary>
+            public Byte[]?           LetsInOnly     { get; set; }
+
+            /// <summary>
             /// Whether it serves OCPP to whoever it let in - or refuses the
             /// subsystem, as a server does whose access rules deny it.
             /// </summary>
@@ -170,7 +176,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 HostKeys       = [ HostKey ],
                                 Authenticator  = new SshUserAuthenticator((request, cancellationToken) => {
                                                      logins.Enqueue((request.Username, request.PublicKeyBlob));
-                                                     return ValueTask.FromResult(LetsIn);
+                                                     return ValueTask.FromResult(LetsIn && (LetsInOnly is null || LetsInOnly.AsSpan().SequenceEqual(request.PublicKeyBlob)));
                                                  }),
                                 Subsystems     = (session, name, cancellationToken) =>
                                                      ValueTask.FromResult(name == Messages.Subsystem
@@ -1000,6 +1006,69 @@ namespace cloud.charging.open.ChargingStation.Tests
                             "The pin was changed by a server that showed another key.");
 
             });
+
+        }
+
+        #endregion
+
+        #region AConnectionOffersTheKeysItNames_TheOneWhoseTimeCameLastFirst()
+
+        /// <summary>
+        /// A connection that names several keys offers its server those whose
+        /// time has come, the one that came last first - and gets in with the
+        /// one before it while the server does not know the new one yet. The
+        /// key written down for a time to come is shown to nobody.
+        /// </summary>
+        [Test]
+        public async Task AConnectionOffersTheKeysItNames_TheOneWhoseTimeCameLastFirst()
+        {
+
+            var own             = await station!.SshKey.MakeIfNeeded();
+            var (next,  error1) = await station.SshKeys.MakeAsync("The key that follows");
+            var (later, error2) = await station.SshKeys.MakeAsync("The key after that");
+
+            Assert.That(next,  Is.Not.Null, error1);
+            Assert.That(later, Is.Not.Null, error2);
+
+            var now = station.TimeProvider.GetUtcNow();
+
+            // Its authorized_keys still has the old line alone.
+            csms!.LetsInOnly = own.PublicKeyBlob;
+
+            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+                                                             out var id, out var error, SshHostKey: csms.Fingerprint,
+                                                             Identities: [ new ConnectionIdentity(SshClientKeys.OwnId),
+                                                                           new ConnectionIdentity(next!.Id,  now.AddHours(-1)),
+                                                                           new ConnectionIdentity(later!.Id, now.AddDays(1)) ]),
+                        Is.True, error);
+
+            await Start();
+
+            await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Connected,
+                        "Connecting over SSH with the key before the new one", () => SaidOf(id!));
+
+            // In the order shown, each once.
+            var shown = new List<String>();
+
+            foreach (var login in csms.Logins)
+            {
+                var key = Convert.ToBase64String(login.Key);
+                if (!shown.Contains(key))
+                    shown.Add(key);
+            }
+
+            Assert.Multiple(() => {
+
+                Assert.That(shown, Is.EqualTo(new[] { Convert.ToBase64String(next.Key.Key!.PublicKeyBlob), Convert.ToBase64String(own.PublicKeyBlob) }),
+                            "The keys were not offered the one whose time came last first, or one was offered whose time has not come.");
+
+                Assert.That(station.Log.Recent(500).Any(entry => entry.Message.Contains("2 SSH keys, offered in this order")), Is.True,
+                            "What it signed in with is not in the log.");
+
+            });
+
+            // And a key a connection signs in with is not taken from under it.
+            Assert.That(station.Connections.Connections.Single(connection => connection.Id == id).Warnings, Is.Empty);
 
         }
 

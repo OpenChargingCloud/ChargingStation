@@ -146,6 +146,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             ("POST",   "api/v1/configuration/connections/remove",        TheOperator),
             ("POST",   "api/v1/configuration/connections/test",          TheOperator),
 
+            // The keys it signs in with over SSH, beside its own: at what
+            // making a key of the certificate store asks.
+            ("POST",   "api/v1/configuration/sshKeys",                   TheOperator),
+            ("POST",   "api/v1/configuration/sshKeys/remove",            TheOperator),
+
             ("GET",    "api/v1/configuration/rfid",                      Everybody),
             ("PUT",    "api/v1/configuration/rfid",                      Everybody),
 

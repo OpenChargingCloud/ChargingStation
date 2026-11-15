@@ -20,7 +20,7 @@ import { metersPage }          from './pages/meters';
 import { rfidPage }            from './pages/rfid';
 import { nameplatePage }       from './pages/nameplate';
 import { commissioningPage }   from './pages/commissioning';
-import { authenticationPage }  from '@ocpp/pages/authentication';
+import { sshKeysSection }      from '@ocpp/sshKeys';
 import { connectionsPage }     from '@ocpp/pages/connections';
 import { requestTabId }        from '@node/certificateRequests';
 import { signerRolesPage }     from './pages/signerRoles';
@@ -35,7 +35,7 @@ import { evseStatusPage }      from './pages/evseStatus';
 // calibrated under - and, outside the
 // configuration, how each of its EVSEs stands right now. The keys it makes
 // for itself have no page: they are who the station is, and are made, wait
-// for their certificate and are identities on the Identities page - the
+// for their certificate and are identities on the Client identities page - the
 // node's, as its certificate store is. Who is shown which
 // of them is in menu.ts. The sign-in, the log, the name
 // servers, the time servers, the certificate store, the frame, "/" - the
@@ -73,7 +73,13 @@ startNode({
                 and only its certificate ever travels; a key still waiting for its certificate is below.
             `,
             unencrypted:  html`can take the identity this station presents in TLS.`
-        }
+        },
+
+        // And who it is where it dials over ssh://: the keys it signs in
+        // with, which are no certificates and stand among what it presents
+        // all the same.
+        sections: context => [ sshKeysSection(context) ]
+
     },
 
     pages: {
@@ -86,10 +92,12 @@ startNode({
         '/configuration/rfid':            rfidPage,
         '/configuration/nameplate':       nameplatePage,
         '/configuration/commissioning':   commissioningPage,
-        '/configuration/authentication':  authenticationPage,
         '/configuration/connections':     connectionsPage,
+        // Where the credentials were while they had a page of their own:
+        // they are a tab of the connections, which is where they are used.
+        '/configuration/authentication':  movedTo('/configuration/connections?tab=credentials', 'Connections'),
         // Where the keys were while they had a page of their own.
-        '/configuration/client-keys':     movedTo('/configuration/identities', 'Identities'),
+        '/configuration/client-keys':     movedTo('/configuration/identities', 'Client identities'),
         '/configuration/signer-roles':    signerRolesPage,
         '/configuration/calibration':     calibrationPage,
         '/evses':                         evseStatusPage

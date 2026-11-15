@@ -28,7 +28,6 @@ export const stationMenu: MenuEntry[] = [
         { path: '/configuration/rfid',            label: 'RFID',             icon: 'fa-id-card',         permission: [ 'rfid:read' ]         },
         { path: '/configuration/nameplate',       label: 'Nameplate',        icon: 'fa-tag',             permission: [ 'nameplate:read' ]    },
         { path: '/configuration/commissioning',   label: 'Commissioning',    icon: 'fa-screwdriver-wrench', permission: [ 'commissioning:read' ] },
-        { path: '/configuration/authentication',  label: 'Authentication',   icon: 'fa-user-lock',       permission: [ 'connections:read' ]  },
         { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
         { path: '/configuration/signer-roles',    label: 'Signer roles',     icon: 'fa-user-shield',     permission: [ 'signatures:read' ]   },
         nodeMenu.certificates,

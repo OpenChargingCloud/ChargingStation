@@ -409,7 +409,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                       String      Subject)
         {
 
-            var (status, said) = await Said(await HTTP.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("subject", Subject))));
+            var (status, said) = await Said(await HTTP.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("kind", "tlsIdentity"), new JProperty("subject", Subject))));
 
             Assert.That(status, Is.EqualTo(HttpStatusCode.Created), said.ToString());
 
@@ -457,7 +457,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             File.WriteAllText(directory, "no directory of keys");
 
-            var (status, said)  = await Said(await http.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("subject", "CN=A Station Without Room"))));
+            var (status, said)  = await Said(await http.PostAsync("api/v1/certificates/requests", JSONBody(new JProperty("kind", "tlsIdentity"), new JProperty("subject", "CN=A Station Without Room"))));
             var keys            = await KeysWaiting(http);
 
             File.Delete(directory);
@@ -570,7 +570,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             System.IO.Directory.Delete(identities);
             File.WriteAllText(identities, "no directory of identities");
 
-            var noAlgorithm  = await http.PostAsync  ("api/v1/certificates/requests",         JSONBody(new JProperty("subject", "CN=Another"), new JProperty("algorithm", "pigeon")));
+            var noAlgorithm  = await http.PostAsync  ("api/v1/certificates/requests",         JSONBody(new JProperty("kind", "tlsIdentity"), new JProperty("subject", "CN=Another"), new JProperty("algorithm", "pigeon")));
             var notOne       = await http.PostAsync  ("api/v1/certificates/requests/answer",  JSONBody(new JProperty("pem", "not a certificate")));
             var notThere     = await http.DeleteAsync("api/v1/certificates/requests/nothing-by-this-id");
 

@@ -58,7 +58,7 @@ namespace cloud.charging.open.ChargingStation
     /// <see cref="ANewCertificateGetsThroughWithin"/>, the connection goes
     /// back to the certificate it had: a certificate its CSMS does not let in
     /// must not be the end of a station that had one that worked. The identity
-    /// before is kept either way, and is taken out on the Identities page.
+    /// before is kept either way, and is taken out on the Client identities page.
     /// </para>
     /// <para>
     /// Asked for when the CSMS says so - TriggerMessage of
@@ -732,7 +732,7 @@ namespace cloud.charging.open.ChargingStation
                 {
 
                     Log.Notice($"The new certificate '{Shows}' got through" +
-                               (Pending.Replaces is not null ? $". The identity {Pending.Replaces} it replaces is kept, and is taken out on the Identities page." : "."),
+                               (Pending.Replaces is not null ? $". The identity {Pending.Replaces} it replaces is kept, and is taken out on the Client identities page." : "."),
                                "ocpp", "certificates", "security");
 
                     return;

@@ -413,8 +413,8 @@ interface will not delete the part it did not understand.
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
-| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands |
-| `/configuration/identities` | who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
+| `/configuration/connections` | where the station dials, what it proves itself with, and where each connection stands - and, on its tab **Credentials**, the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
+| `/configuration/identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
@@ -883,6 +883,25 @@ right when it was opened is not the answer to that.
 | not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
 
+**What it proves itself with** follows where it goes, as the URL is typed.
+Over `ws://` and `wss://` it is one choice: nothing, a login - one written
+down already, or a new one typed into the form and written down with the
+connection, on the tab **Credentials** - or, where there is a TLS handshake,
+the client certificates it shows. Over `ssh://` it is the SSH keys it signs in
+with, and nothing else.
+
+Certificates and keys are ticked, and several may be: each from a time on
+(`"identities": [ {"id": ...}, {"id": ..., "from": "2027-01-31T00:00:00Z"} ]`),
+which is how a key is changed at the moment its server was told and not when
+somebody stands beside the station. An identity whose time has not come is not
+shown. Of those whose time has come the one that came last goes first, and of
+two that say no time the one ticked first: over TLS, where one certificate is
+shown in a handshake, the first that can be shown is - one switched off or run
+out is passed over for the one before it - and over SSH all of them are offered
+to the server in that order. The time is looked at when the connection is
+dialled; a connection that stands at that moment goes on with what it showed
+until it is dialled again.
+
 **Trying a connection.** A connection that is only written down is never
 tried, so the **Test** button beside it, `POST
 /api/v1/configuration/connections/test` with its fields, and
@@ -974,7 +993,17 @@ the OCPP node that dials - with a key of its own, an Ed25519 key made the first
 time an ssh:// connection is written down, tested or dialled, and kept in
 `ocpp-connections/ssh/`, where only its owner may read it. The page shows its
 public half, the line for the server's `authorized_keys`; credentials add their
-password where the server asks for one. A TLS client certificate and a TOTP
+password where the server asks for one - written into the file, or kept from
+before: the page offers an ssh:// connection its keys and nothing else.
+
+That is the station's own key, which every ssh:// connection that names none
+signs in with and which its back end changes over OCPP. Further keys are made
+on **Client identities**, under "SSH keys" (`POST /api/v1/configuration/sshKeys`
+with `{"label"}`, `.../sshKeys/remove` with `{"id"}`, both at
+`certificates:run`): a key for one server and not the next, or the key that
+follows another. They are kept in `ocpp-connections/ssh/keys/`, and a
+connection ticks the ones it signs in with. A key a connection still names is
+not removed, and the station's own never is. A TLS client certificate and a TOTP
 password are refused over SSH: there is no TLS handshake to show the one in,
 and no HTTP to answer the other in.
 
@@ -1142,7 +1171,11 @@ SignCertificate and has the certificate come back in CertificateSigned. The
 certificate that comes back goes in on the Upload tab, without a key: it is
 matched to the key whose request it answers, and the two are an identity like
 every other from then on - switched, named, told what it is for, and chosen
-for a connection. A certificate this runtime cannot load together with its
+for a connection. The key of a server of the station's own - its web
+interface - is made the same way, on the **New key** tab of
+`/configuration/server-identities`, to the template that asks what the server
+is reachable as; its request is copied and not sent to the CSMS, which is
+asked for who the station is to it and for nothing else. A certificate this runtime cannot load together with its
 key - .NET has no key object for an Ed448 or an ML-DSA key today - is kept
 beside the key and shown to nobody, and the page says so.
 
@@ -1192,7 +1225,8 @@ making a key the station dials with, sending its signing request to the CSMS,
 bringing the certificate that came back for it - pasted beside the key, which
 is matched to it by the node - and taking a key back that still waits for one.
 The upload, where a certificate comes with its key and a root comes at all,
-is the administrators'.
+is the administrators'. A role of the configuration file that may change the
+store may do all of this as well, whether it says `certificates:run` or not.
 `CertificateStoreTests` holds the station to that, and to the
 kinds it keeps; the store's own behaviour is tested in WWCP_Node.
 

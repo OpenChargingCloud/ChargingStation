@@ -470,8 +470,10 @@ namespace cloud.charging.open.ChargingStation
 
                    // Who the station is to a back end it dials is made here:
                    // a key, a signing request, and the certificate that comes
-                   // back for it - see ChargingStation.Certificates.cs.
-                   CertificateRequestKinds: [ CertificateKind.TLSIdentity ],
+                   // back for it - see ChargingStation.Certificates.cs. And
+                   // who its own servers are, the web interface for one: a
+                   // key made here need not be carried to the station.
+                   CertificateRequestKinds: [ CertificateKind.TLSIdentity, CertificateKind.TLSServerIdentity ],
 
                    // Beside "dns" and "nts": a TLS root may vouch for the meters
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
@@ -567,6 +569,11 @@ namespace cloud.charging.open.ChargingStation
                           );
 
             this.SshKey.OnNotice                 += (level, message) => this.Log.Log(level, message, "ocpp", "connections", "ssh", "security");
+
+            // And the keys somebody made beside it, on the page of the client
+            // identities: read now, so that a connection that names one is
+            // checked against what is there from the first one written down.
+            _ = this.SshKeys;
 
             #endregion
 

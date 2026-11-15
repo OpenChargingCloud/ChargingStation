@@ -260,7 +260,7 @@ namespace cloud.charging.open.ChargingStation
         private async Task<HTTPResponse> PostSendSigningRequest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permission.Run(NodeResources.Certificates), true, out var user, out var refused))
+            if (!TryAuthorizeKeys(Request, out var user, out var refused))
                 return refused;
 
             var id = Request.ParsedURLParameters.Length > 0 ? Request.ParsedURLParameters[0] : "";

@@ -114,7 +114,10 @@ namespace cloud.charging.open.ChargingStation
 
             var sent = SigningRequestsSentToCSMS;
 
+            // Who the station is to its CSMS, and nothing else: a CSMS is
+            // not asked for the certificate of the station's web interface.
             requests["canBeSentToCSMS"] = true;
+            requests["csmsKinds"]       = new JArray(CertificateKind.TLSIdentity.AsText());
 
             foreach (var request in requests["entries"]?.OfType<JObject>() ?? [])
                 if (request.Value<String>("id") is String id && sent.TryGetValue(id, out var at))
