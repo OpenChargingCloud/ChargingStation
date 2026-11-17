@@ -648,6 +648,16 @@ namespace cloud.charging.open.ChargingStation
         #region NameplateConfigurationJSON() / TryUpdateNameplateConfiguration(JSON, out Error, out NotSaved)
 
         /// <summary>
+        /// What the OCPP 1.6 node of a station without an identification is named.
+        /// </summary>
+        public const String DefaultOCPP16NodeId  = "test01";
+
+        /// <summary>
+        /// What the OCPP 2.1 node of a station without an identification is named.
+        /// </summary>
+        public const String DefaultOCPP21NodeId  = "test02";
+
+        /// <summary>
         /// What this station tells a CSMS it is, as the web interface reads it:
         /// what the file says, what is said where it says nothing, and where
         /// each OCPP node stands with its CSMS.
@@ -656,6 +666,7 @@ namespace cloud.charging.open.ChargingStation
 
             => new (
 
+                   new JProperty("id",               Nameplate.Id?.ToString()),
                    new JProperty("vendor",           Nameplate.Vendor),
                    new JProperty("model",            Nameplate.Model),
                    new JProperty("serialNumber",     Nameplate.SerialNumber),
@@ -664,6 +675,11 @@ namespace cloud.charging.open.ChargingStation
                    // What a CSMS is told, the defaults filled in, so that a page
                    // can show it beside a field left empty.
                    new JProperty("said",             new JObject(
+                                                         new JProperty("id",               Id?.ToString()),
+                                                         new JProperty("nodes",            new JObject(
+                                                                                               new JProperty("1.6",  cs01.Id.ToString()),
+                                                                                               new JProperty("2.1",  cs02.Id.ToString())
+                                                                                           )),
                                                          new JProperty("vendor",           Nameplate.VendorToSay),
                                                          new JProperty("model",            Nameplate.ModelToSay),
                                                          new JProperty("serialNumber",     Nameplate.SerialNumber),
@@ -671,6 +687,7 @@ namespace cloud.charging.open.ChargingStation
                                                      )),
 
                    new JProperty("limits",           new JObject(
+                                                         new JProperty("id",               NameplateConfiguration.MaxIdLength),
                                                          new JProperty("vendor",           NameplateConfiguration.MaxVendorLength),
                                                          new JProperty("model",            NameplateConfiguration.MaxModelLength),
                                                          new JProperty("serialNumber",     NameplateConfiguration.MaxSerialNumberLength),
@@ -1873,10 +1890,13 @@ namespace cloud.charging.open.ChargingStation
         private (OCPPv1_6.TestChargePointNode, OCPPv2_1.CS.TestChargingStationNode) BuildOCPPNodes(IReadOnlyList<EVSEConfig> EVSEs)
         {
 
+            // Named by the identification of this station, where it has one -
+            // see Id.
+
             var firmware        = Nameplate.FirmwareVersionToSay(BuiltFirmwareVersion());
 
             var chargePoint     = new OCPPv1_6.TestChargePointNode(
-                                      ChargeBoxId:               NetworkingNode_Id.Parse("test01"),
+                                      ChargeBoxId:               NetworkingNode_Id.Parse(Id?.ToString() ?? DefaultOCPP16NodeId),
                                       Connectors:                [.. EVSEs.SelectMany(evse => evse.Connectors.Select(connector =>
                                                                     new OCPPv1_6.CP.ConnectorSpec(
                                                                         Availability:        evse.Operative
@@ -1908,7 +1928,7 @@ namespace cloud.charging.open.ChargingStation
                                   );
 
             var chargingStation = new OCPPv2_1.CS.TestChargingStationNode(
-                                      Id:                             NetworkingNode_Id.Parse("test02"),
+                                      Id:                             NetworkingNode_Id.Parse(Id?.ToString() ?? DefaultOCPP21NodeId),
                                       VendorName:                     Nameplate.VendorToSay,
                                       Model:                          Nameplate.ModelToSay,
                                       Description:                    I18NString.Empty,

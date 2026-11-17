@@ -633,18 +633,23 @@ export interface Registration {
  * take, and to printable ASCII.
  */
 export interface NameplateConfiguration {
+    /** The identification the file gives the station, which its OCPP nodes are named by. */
+    id:               string | null;
     vendor:           string | null;
     model:            string | null;
     serialNumber:     string | null;
     firmwareVersion:  string | null;
-    said:             { vendor: string; model: string; serialNumber: string | null; firmwareVersion: string };
-    limits:           { vendor: number; model: number; serialNumber: number; firmwareVersion: number };
+    /** As it is said: "id" is the file's or what the station was made with, "nodes" what each OCPP node is named. */
+    said:             { id: string | null; nodes: { '1.6': string; '2.1': string };
+                        vendor: string; model: string; serialNumber: string | null; firmwareVersion: string };
+    limits:           { id: number; vendor: number; model: number; serialNumber: number; firmwareVersion: number };
     registration:     { '1.6': Registration; '2.1': Registration };
     file:             string;
 }
 
 /** What a PUT to the nameplate carries: the whole section, a null being the default. */
 export interface NameplateUpdate {
+    id:               string | null;
     vendor:           string | null;
     model:            string | null;
     serialNumber:     string | null;

@@ -70,6 +70,19 @@ export const nameplatePage: Page = {
 
                         <form id="nameplate-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(); }}>
 
+                            <label>Identification
+                                <input type="text" name="id" maxlength="${nameplate.limits.id}"
+                                       value="${nameplate.id ?? ''}"
+                                       placeholder="${nameplate.id === null ? (nameplate.said.id ?? '') : ''}"
+                                       ?disabled=${!mayChange} />
+                                <span class="hint">
+                                    What the OCPP nodes of this station are named - now
+                                    '${nameplate.said.nodes['1.6']}' (OCPP 1.6) and '${nameplate.said.nodes['2.1']}' (OCPP 2.1).
+                                    Empty is what the station was started with, or none. At most ${nameplate.limits.id}
+                                    characters, no blank.
+                                </span>
+                            </label>
+
                             <label>Vendor
                                 <input type="text" name="vendor" maxlength="${nameplate.limits.vendor}"
                                        value="${nameplate.vendor ?? ''}" placeholder="GraphDefined"
@@ -189,6 +202,7 @@ export const nameplatePage: Page = {
             const or     = (name: string) => text(name) === '' ? null : text(name);
 
             const update: NameplateUpdate = {
+                id:               or('id'),
                 vendor:           or('vendor'),
                 model:            or('model'),
                 serialNumber:     or('serialNumber'),

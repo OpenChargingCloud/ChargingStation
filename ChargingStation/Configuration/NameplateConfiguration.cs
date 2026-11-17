@@ -23,6 +23,8 @@ using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
+using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Configuration
@@ -46,10 +48,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Model">Which model it is; ChargingStationCLI where not said.</param>
     /// <param name="SerialNumber">Its serial number; none where not said.</param>
     /// <param name="FirmwareVersion">Its firmware; the version and commit it was built from where not said.</param>
-    public sealed record NameplateConfiguration(String?  Vendor            = null,
-                                                String?  Model             = null,
-                                                String?  SerialNumber      = null,
-                                                String?  FirmwareVersion   = null)
+    /// <param name="Id">The identification of this station, which its OCPP nodes are named by; none where not said.</param>
+    public sealed record NameplateConfiguration(String?                       Vendor            = null,
+                                                String?                       Model             = null,
+                                                String?                       SerialNumber      = null,
+                                                String?                       FirmwareVersion   = null,
+                                                OCPPv2_1.ChargingStation_Id?  Id                = null)
     {
 
         #region Data
@@ -89,6 +93,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// </summary>
         public const Int32   MaxFirmwareVersionLength   = 50;
 
+        /// <summary>
+        /// The longest identification: 48 characters, which is what OCPP 2.1
+        /// takes of an identifier.
+        /// </summary>
+        public const Int32   MaxIdLength                = 48;
+
         #endregion
 
         #region Properties
@@ -97,7 +107,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// Whether this section says anything at all.
         /// </summary>
         public Boolean IsEmpty
-            => Vendor is null && Model is null && SerialNumber is null && FirmwareVersion is null;
+            => Vendor is null && Model is null && SerialNumber is null && FirmwareVersion is null && Id is null;
 
         /// <summary>
         /// Who made this station, as a CSMS is told.
@@ -146,12 +156,24 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (!TryRead(JSON, "vendor",           MaxVendorLength,           out var vendor,    out Error) ||
                 !TryRead(JSON, "model",            MaxModelLength,            out var model,     out Error) ||
                 !TryRead(JSON, "serialNumber",     MaxSerialNumberLength,     out var serial,    out Error) ||
-                !TryRead(JSON, "firmwareVersion",  MaxFirmwareVersionLength,  out var firmware,  out Error))
+                !TryRead(JSON, "firmwareVersion",  MaxFirmwareVersionLength,  out var firmware,  out Error) ||
+                !TryRead(JSON, "id",               MaxIdLength,               out var id,        out Error))
             {
                 return false;
             }
 
-            Configuration = new NameplateConfiguration(vendor, model, serial, firmware);
+            // A name, and what a CSMS may find in the address it is dialled
+            // under: nothing with a blank in it.
+            if (id is not null && id.Contains(' '))
+            {
+                Error = $"'{SectionName}.id' may hold no blank - it is the name the OCPP nodes of this station go by.";
+                return false;
+            }
+
+            Configuration = new NameplateConfiguration(vendor, model, serial, firmware,
+                                                       id is not null
+                                                           ? OCPPv2_1.ChargingStation_Id.Parse(id)
+                                                           : null);
             return true;
 
         }
@@ -197,6 +219,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             var json = new JObject();
 
+            if (Id.HasValue)                  json.Add("id",               Id.Value.ToString());
             if (Vendor          is not null)  json.Add("vendor",           Vendor);
             if (Model           is not null)  json.Add("model",            Model);
             if (SerialNumber    is not null)  json.Add("serialNumber",     SerialNumber);
@@ -213,6 +236,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         public override String ToString()
 
             => $"{VendorToSay} {ModelToSay}" +
+               (Id.HasValue                 ? $", known as '{Id.Value}'"        : "") +
                (SerialNumber    is not null ? $", serial number {SerialNumber}" : "") +
                (FirmwareVersion is not null ? $", firmware {FirmwareVersion}"   : "");
 

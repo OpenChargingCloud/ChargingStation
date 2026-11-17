@@ -300,6 +300,26 @@ namespace cloud.charging.open.ChargingStation
         public NameplateConfiguration         Nameplate              { get; private set; }
 
         /// <summary>
+        /// The identification whoever made this station gave it, which holds
+        /// where its configuration file names none.
+        /// </summary>
+        private readonly OCPPv2_1.ChargingStation_Id?  idWhenMade;
+
+        /// <summary>
+        /// The identification of this charging station, where it has one: what
+        /// its configuration file says ("nameplate.id"), or else what it was
+        /// made with.
+        /// </summary>
+        /// <remarks>
+        /// Both of its OCPP nodes are named by it. A station without one has
+        /// the nodes 'test01' (OCPP 1.6) and 'test02' (OCPP 2.1), as every
+        /// station had before there was one. Whom it says it is to a back end
+        /// is a matter of each connection: the last part of the address dialled.
+        /// </remarks>
+        public OCPPv2_1.ChargingStation_Id?   Id
+            => Nameplate.Id ?? idWhenMade;
+
+        /// <summary>
         /// Whether a QR code to pay by is shown on the display.
         /// </summary>
         /// <remarks>
@@ -435,7 +455,8 @@ namespace cloud.charging.open.ChargingStation
                                Boolean                               BridgeDebugLog            = true,
                                TimeProvider?                         TimeProvider              = null,
                                SSHSettings?                          SSH                       = null,
-                               WebConfiguration?                     Web                       = null)
+                               WebConfiguration?                     Web                       = null,
+                               OCPPv2_1.ChargingStation_Id?          Id                        = null)
 
             : base(Kind:              ChargingStationKind,
                    Version:           typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
@@ -662,6 +683,7 @@ namespace cloud.charging.open.ChargingStation
 
             this.Operator       = configuration.Operator      ?? new OperatorConfiguration();
             this.Nameplate      = configuration.Nameplate     ?? new NameplateConfiguration();
+            this.idWhenMade     = Id;
 
             // Served from Start() on - see ChargingStation.Commissioning.cs.
             this.Commissioning  = configuration.Commissioning ?? new CommissioningConfiguration();
@@ -1221,6 +1243,7 @@ namespace cloud.charging.open.ChargingStation
 
             // First, because it is the card the page leads with.
             json.AddFirst(new JProperty("station",    new JObject(
+                              new JProperty("id",             Id?.ToString()),
                               new JProperty("vendor",         Nameplate.VendorToSay),
                               new JProperty("model",          Nameplate.ModelToSay),
                               new JProperty("serialNumber",   Nameplate.SerialNumber),

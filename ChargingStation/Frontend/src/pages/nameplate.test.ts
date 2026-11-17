@@ -30,12 +30,14 @@ const notAsked: Registration = { state: 'NotAsked', since: null, interval: null,
 
 function aStation(): NameplateConfiguration {
     return {
+        id:               null,
         vendor:           null,
         model:            null,
         serialNumber:     null,
         firmwareVersion:  null,
-        said:             { vendor: 'GraphDefined', model: 'ChargingStationCLI', serialNumber: null, firmwareVersion: '0.1.0+62e7b65' },
-        limits:           { vendor: 20, model: 20, serialNumber: 25, firmwareVersion: 50 },
+        said:             { id: null, nodes: { '1.6': 'test01', '2.1': 'test02' },
+                            vendor: 'GraphDefined', model: 'ChargingStationCLI', serialNumber: null, firmwareVersion: '0.1.0+62e7b65' },
+        limits:           { id: 48, vendor: 20, model: 20, serialNumber: 25, firmwareVersion: 50 },
         registration:     { '1.6': notAsked, '2.1': notAsked },
         file:             'chargingstation.json'
     };
@@ -52,6 +54,8 @@ function station({ method, path, body }: Asked): unknown {
             ...held,
             ...update,
             said: {
+                id:               update.id,
+                nodes:            { '1.6': update.id ?? 'test01', '2.1': update.id ?? 'test02' },
                 vendor:           update.vendor          ?? 'GraphDefined',
                 model:            update.model           ?? 'ChargingStationCLI',
                 serialNumber:     update.serialNumber,
@@ -93,7 +97,7 @@ describe('the Nameplate page', () => {
         submit(root, '#nameplate-form');
         await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the nameplate was not saved');
 
-        assert.deepEqual(sent, { vendor: 'Test Vendor', model: null, serialNumber: 'SN-4711', firmwareVersion: null });
+        assert.deepEqual(sent, { id: null, vendor: 'Test Vendor', model: null, serialNumber: 'SN-4711', firmwareVersion: null });
         assert.match(root.textContent!.replace(/\s+/g, ' '), /Test Vendor ChargingStationCLI, firmware 0\.1\.0\+62e7b65, serial number SN-4711/);
         assert.equal(plate(root, 'vendor').value, 'Test Vendor', 'the field does not say what the station took');
 
@@ -111,6 +115,24 @@ describe('the Nameplate page', () => {
 
         assert.match(root.querySelector('#form-error')!.textContent!, /printable ASCII/);
         assert.equal(plate(root, 'vendor').value, 'Müller', 'what was typed went');
+
+    });
+
+    it('sends the identification, and says what the OCPP nodes are named', async () => {
+
+        const root = await opened();
+
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /now 'test01' \(OCPP 1\.6\) and 'test02' \(OCPP 2\.1\)/);
+        assert.equal(plate(root, 'id').maxLength, 48);
+
+        plate(root, 'id').value = ' DE*GEF*S0001 ';
+
+        submit(root, '#nameplate-form');
+        await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the nameplate was not saved');
+
+        assert.equal(sent?.id, 'DE*GEF*S0001');
+        assert.match(root.textContent!.replace(/\s+/g, ' '), /now 'DE\*GEF\*S0001' \(OCPP 1\.6\) and 'DE\*GEF\*S0001' \(OCPP 2\.1\)/);
+        assert.equal(plate(root, 'id').value, 'DE*GEF*S0001', 'the field does not say what the station took');
 
     });
 

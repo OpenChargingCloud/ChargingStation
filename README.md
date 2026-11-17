@@ -1107,6 +1107,19 @@ ChargingStationCLI, the firmware the version and commit the station was built
 from, and there is no serial number. Each is held to what both OCPP 1.6 and 2.1
 take - a vendor and a model of 20 characters, a serial number of 25, a firmware
 of 50 - and to printable ASCII, which is all OCPP 1.6 takes.
+
+The section may also give the station an identification:
+
+```json
+"nameplate": { "id": "DE*GEF*S0001" }
+```
+
+Both OCPP nodes of the station are then named by it - at most 48 characters of
+printable ASCII, no blank. A program that makes a `ChargingStation` itself
+may hand one to the constructor (`Id`), which holds where the file names
+none. A station without one names its nodes `test01` (OCPP 1.6) and `test02`
+(OCPP 2.1), as before. Whom the station says it is to a back end stays a matter
+of each connection: the last part of the address it dials.
 `/configuration/nameplate` changes it, and says where each node stands:
 
     GET  /api/v1/configuration/nameplate

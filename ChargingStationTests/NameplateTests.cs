@@ -92,6 +92,16 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Station.OCPPv1_6Node.ChargePointVendor,            Is.EqualTo("GraphDefined"));
                 Assert.That(Station.OCPPv2_1Node.Model,                        Is.EqualTo("ChargingStationCLI"));
 
+                // And has no identification: its nodes are named as they always were.
+                Assert.That(Station.Id,                                        Is.Null);
+                Assert.That(nameplate["id"]!.Type,                             Is.EqualTo(JTokenType.Null));
+                Assert.That(said["id"]!.Type,                                  Is.EqualTo(JTokenType.Null));
+                Assert.That(said["nodes"]!.Value<String>("1.6"),               Is.EqualTo("test01"));
+                Assert.That(said["nodes"]!.Value<String>("2.1"),               Is.EqualTo("test02"));
+                Assert.That(nameplate["limits"]!.Value<Int32>("id"),           Is.EqualTo(48));
+                Assert.That(Station.OCPPv1_6Node.Id.ToString(),                Is.EqualTo("test01"));
+                Assert.That(Station.OCPPv2_1Node.Id.ToString(),                Is.EqualTo("test02"));
+
             });
 
         }
@@ -222,6 +232,76 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AnIdentificationNamesBothOCPPNodes_AndTakenAwayTheyAreNamedAsBefore()
+
+        /// <summary>
+        /// An identification is written to the file and names both OCPP nodes,
+        /// built anew, and the card of the station; taken away again, the
+        /// nodes are named as those of a station without one.
+        /// </summary>
+        [Test]
+        public async Task AnIdentificationNamesBothOCPPNodes_AndTakenAwayTheyAreNamedAsBefore()
+        {
+
+            using var http  = await SignedIn();
+
+            var response    = await http.PutAsync(Resource, JSONBody(new JProperty("id", "DE*GEF*S0001")));
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), await response.Content.ReadAsStringAsync());
+
+            var answered    = JObject.Parse(await response.Content.ReadAsStringAsync());
+            var card        = (await GetJSON(http, "api/v1/configuration"))["station"]!;
+
+            Assert.Multiple(() => {
+                Assert.That(Station.Id?.ToString(),                            Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(FileSection()?.Value<String>("id"),                Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(answered.Value<String>("id"),                      Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(answered["said"]!.Value<String>("id"),             Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(answered["said"]!["nodes"]!.Value<String>("1.6"),  Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(answered["said"]!["nodes"]!.Value<String>("2.1"),  Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(Station.OCPPv1_6Node.Id.ToString(),                Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(Station.OCPPv2_1Node.Id.ToString(),                Is.EqualTo("DE*GEF*S0001"));
+                Assert.That(card.Value<String>("id"),                          Is.EqualTo("DE*GEF*S0001"));
+            });
+
+            response        = await http.PutAsync(Resource, JSONBody());
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), await response.Content.ReadAsStringAsync());
+
+            Assert.Multiple(() => {
+                Assert.That(Station.Id,                                        Is.Null);
+                Assert.That(Station.OCPPv1_6Node.Id.ToString(),                Is.EqualTo("test01"));
+                Assert.That(Station.OCPPv2_1Node.Id.ToString(),                Is.EqualTo("test02"));
+            });
+
+        }
+
+        #endregion
+
+        #region AnIdentificationThatIsNoNameIsRefused(Value, Why)
+
+        [TestCase("1234567890123456789012345678901234567890123456789",  "at most 48")]
+        [TestCase("DE GEF S0001",                                         "no blank")]
+        [TestCase("Säule",                                                "printable ASCII")]
+        public async Task AnIdentificationThatIsNoNameIsRefused(String Value, String Why)
+        {
+
+            using var http  = await SignedIn();
+
+            var nodes       = Station.OCPPv2_1Node;
+            var response    = await http.PutAsync(Resource, JSONBody(new JProperty("id", Value)));
+
+            Assert.Multiple(async () => {
+                Assert.That(response.StatusCode,                        Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(await response.Content.ReadAsStringAsync(), Does.Contain(Why));
+                Assert.That(Station.Id,                                 Is.Null);
+                Assert.That(Station.OCPPv2_1Node,                       Is.SameAs(nodes));
+            });
+
+        }
+
+        #endregion
+
         #region TheSameIdentityAgainBuildsNothingAnew()
 
         /// <summary>
@@ -264,6 +344,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => new (
                    new JProperty("nts", TestStations.Offline["nts"]!.DeepClone()),
                    new JProperty("nameplate", new JObject(
+                       new JProperty("id",               "DE*GEF*SFILE"),
                        new JProperty("vendor",           "File Vendor"),
                        new JProperty("model",            "File Model"),
                        new JProperty("serialNumber",     "SN-FILE"),
@@ -280,7 +361,84 @@ namespace cloud.charging.open.ChargingStation.Tests
                    Assert.That(Station.OCPPv1_6Node.ChargePointSerialNumber,     Is.EqualTo("SN-FILE"));
                    Assert.That(Station.OCPPv2_1Node.VendorName,                  Is.EqualTo("File Vendor"));
                    Assert.That(Station.OCPPv2_1Node.FirmwareVersion,             Is.EqualTo("fw-file"));
+                   Assert.That(Station.Id?.ToString(),                           Is.EqualTo("DE*GEF*SFILE"));
+                   Assert.That(Station.OCPPv1_6Node.Id.ToString(),               Is.EqualTo("DE*GEF*SFILE"));
+                   Assert.That(Station.OCPPv2_1Node.Id.ToString(),               Is.EqualTo("DE*GEF*SFILE"));
                });
+
+    }
+
+
+    /// <summary>
+    /// A station made with an identification goes by it, as long as its file
+    /// names no other.
+    /// </summary>
+    [TestFixture]
+    public class AStationMadeWithAnIdentificationTests
+    {
+
+        private String directory = "";
+
+        [SetUp]
+        public void ADirectory()
+            => directory = TestStations.TemporaryDirectory("station-id");
+
+        [TearDown]
+        public void TakeItAwayAgain()
+            => TestStations.Remove(directory);
+
+        [Test]
+        public async Task WhatItWasMadeWithNamesItsNodes_UnlessTheFileNamesAnother()
+        {
+
+            var made = cloud.charging.open.protocols.OCPPv2_1.ChargingStation_Id.Parse("DE*GEF*SMADE");
+
+            var station = TestStations.New(Path.Combine(directory, "made"),
+                                           TestStations.Offline,
+                                           WithDisplay:  false,
+                                           Id:           made);
+
+            try
+            {
+
+                Assert.Multiple(() => {
+                    Assert.That(station.Id,                               Is.EqualTo(made));
+                    Assert.That(station.Nameplate.Id,                     Is.Null, "what a station was made with is not what its file says");
+                    Assert.That(station.OCPPv1_6Node.Id.ToString(),       Is.EqualTo("DE*GEF*SMADE"));
+                    Assert.That(station.OCPPv2_1Node.Id.ToString(),       Is.EqualTo("DE*GEF*SMADE"));
+                    Assert.That(station.NameplateConfigurationJSON()["id"]!.Type,                    Is.EqualTo(JTokenType.Null));
+                    Assert.That(station.NameplateConfigurationJSON()["said"]!.Value<String>("id"),   Is.EqualTo("DE*GEF*SMADE"));
+                });
+
+            }
+            finally
+            {
+                await station.DisposeAsync();
+            }
+
+            var configuration = (JObject) TestStations.Offline.DeepClone();
+            configuration["nameplate"] = new JObject(new JProperty("id", "DE*GEF*SFILE"));
+
+            var other = TestStations.New(Path.Combine(directory, "file"),
+                                         configuration,
+                                         WithDisplay:  false,
+                                         Id:           made);
+
+            try
+            {
+
+                Assert.Multiple(() => {
+                    Assert.That(other.Id?.ToString(),                     Is.EqualTo("DE*GEF*SFILE"));
+                    Assert.That(other.OCPPv2_1Node.Id.ToString(),         Is.EqualTo("DE*GEF*SFILE"));
+                });
+
+            }
+            finally
+            {
+                await other.DisposeAsync();
+            }
+
+        }
 
     }
 
