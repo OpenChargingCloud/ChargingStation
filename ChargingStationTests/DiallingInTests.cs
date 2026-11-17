@@ -639,7 +639,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(why, Does.Contain("Over SSH"));
 
                 Assert.That(Add(Address,                                null,    out why),     Is.False);
-                Assert.That(why, Does.Contain("needs credentials"));
+                Assert.That(why, Does.Contain("or credentials. Nothing gets in without"));
 
                 Assert.That(Add(Address,                                another, out why),     Is.False);
                 Assert.That(why, Does.Contain("the two have to agree"));

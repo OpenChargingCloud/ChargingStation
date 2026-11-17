@@ -17,12 +17,18 @@
 
 #region Usings
 
+using System.Net.Security;
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.TCP;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
 using cloud.charging.open.protocols.OCPP.WebSockets;
 using cloud.charging.open.protocols.OCPP.Node.Connections;
@@ -89,6 +95,12 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         private readonly Dictionary<OCPPVersion, String>  ocppServerProblems  = [];
 
+        /// <summary>
+        /// When each address signed in wrong at the OCPP server within the
+        /// last minute.
+        /// </summary>
+        private readonly ConcurrentDictionary<String, Queue<DateTimeOffset>>  failedOCPPSignIns  = new ();
+
         #endregion
 
         #region Properties
@@ -104,6 +116,12 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public Boolean                  OCPPServerTLS
             => WebCertificate is not null;
+
+        /// <summary>
+        /// Why the OCPP server takes no WebSockets over HTTP/3 although the
+        /// file says it shall, where that is known before it is tried.
+        /// </summary>
+        public const String             NoHTTP3WithoutTLS  = "HTTP/3 is QUIC, which is TLS always: without HTTPS this station has no certificate to serve it with.";
 
         #endregion
 
@@ -157,39 +175,60 @@ namespace cloud.charging.open.ChargingStation
 
                 var certificate = WebCertificate;
 
+                // Who comes in is decided at the door of this station, see
+                // LetInOrNot: a client certificate and a password are two ways
+                // in, and the check built into the server knows a certificate
+                // let in by its key pin as nobody's. Over TLS a client
+                // certificate is asked for, and need not be shown: who signs
+                // in with a password shows none.
+                RemoteTLSClientCertificateValidationHandler<ITCPServer>? clientCertificates
+                    = certificate is not null
+                          ? (sender, shown, chain, tcpServer, policyErrors) => JudgeOCPPClientCertificate(Version, shown, chain, policyErrors)
+                          : null;
+
                 server = Version == OCPPVersion.OCPP1_6
 
                              ? cs01.AttachWebSocketServer(
-                                   HTTPServiceName:            $"{Kind.Product} OCPP 1.6",
-                                   IPAddress:                  ListenAddress,
-                                   TCPPort:                    Port,
-                                   RequireAuthentication:      true,
-                                   ServerCertificateSelector:  certificate is not null
-                                                                   ? (tcpServer, tcpClient) => certificate.ChainFor(tcpServer, tcpClient).Certificate
-                                                                   : null,
-                                   AutoStart:                  false
+                                   HTTPServiceName:             $"{Kind.Product} OCPP 1.6",
+                                   IPAddress:                   ListenAddress,
+                                   TCPPort:                     Port,
+                                   RequireAuthentication:       false,
+                                   ServerCertificateSelector:   certificate is not null
+                                                                    ? (tcpServer, tcpClient) => certificate.ChainFor(tcpServer, tcpClient).Certificate
+                                                                    : null,
+                                   ClientCertificateValidator:  clientCertificates,
+                                   ClientCertificateRequired:   false,
+                                   AutoStart:                   false
                                )
 
                              : cs02.AttachWebSocketServer(
-                                   HTTPServiceName:            $"{Kind.Product} OCPP 2.1",
-                                   IPAddress:                  ListenAddress,
-                                   TCPPort:                    Port,
-                                   RequireAuthentication:      true,
-                                   ServerCertificateSelector:  certificate is not null
-                                                                   ? (tcpServer, tcpClient) => certificate.ChainFor(tcpServer, tcpClient).Certificate
-                                                                   : null,
-                                   AutoStart:                  false
+                                   HTTPServiceName:             $"{Kind.Product} OCPP 2.1",
+                                   IPAddress:                   ListenAddress,
+                                   TCPPort:                     Port,
+                                   RequireAuthentication:       false,
+                                   ServerCertificateSelector:   certificate is not null
+                                                                    ? (tcpServer, tcpClient) => certificate.ChainFor(tcpServer, tcpClient).Certificate
+                                                                    : null,
+                                   ClientCertificateValidator:  clientCertificates,
+                                   ClientCertificateRequired:   false,
+                                   AutoStart:                   false
                                );
 
-                // A TCP port and nothing else: HTTP/3 would open a UDP port of
-                // the same number that nobody asked for.
-                server.AcceptHTTP3 = false;
+                var served = server;
+
+                // A certificate let in by its key pin names nobody: whose key
+                // it is, is asked at the door, by the name it comes under.
+                served.AcceptedByKeyPin               = shown => IsInboundKeyPinned(Version, shown);
+
+                served.OnValidateWebSocketConnection += (timestamp, endpoint, connection, eventTrackingId, cancellationToken)
+                                                            => LetInOrNot(Version, served, connection);
+
+                // A TCP port and nothing else, unless the file asks for it:
+                // HTTP/3 opens a UDP port of the same number, which nobody is
+                // given who did not ask. And never without a certificate.
+                server.AcceptHTTP3 = OCPPServer.TakesHTTP3 && certificate is not null;
 
                 // A password is guessed at from wherever this port can be
-                // reached: an address that was wrong this often within a
-                // minute is told to wait.
-                server.MaxFailedSignInsPerMinute = MaxFailedOCPPSignInsPerMinute;
-
                 server.Start();
 
                 ServeInbound(Version, server);
@@ -197,9 +236,17 @@ namespace cloud.charging.open.ChargingStation
                 Log.Notice(
                     $"A CSMS or a local controller may dial this charging station: {ConnectionEntry.AsText(Version)} on " +
                     $"{(OCPPServerTLS ? "wss" : "ws")}://{ListenAddress}:{Port}/<its name>, as a connection the other end makes that is written down " +
-                    "under Connections.",
+                    "under Connections" +
+                    (server.AcceptHTTP3 ? $" - over HTTP/3 as well, on UDP port {Port}." : "."),
                     "ocpp", "server"
                 );
+
+                if (OCPPServer.TakesHTTP3 && !server.AcceptHTTP3)
+                    Log.Warning(
+                        $"The {OCPPServerLabel} for {ConnectionEntry.AsText(Version)} takes no WebSockets over HTTP/3, although the configuration " +
+                        $"says it shall: {NoHTTP3WithoutTLS}",
+                        "ocpp", "server"
+                    );
 
                 return server;
 
@@ -266,6 +313,177 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region (private) JudgeOCPPClientCertificate(Version, Certificate, Chain, PolicyErrors)
+
+        /// <summary>
+        /// The client certificate shown at the TLS handshake of the OCPP
+        /// server of the given version: passed where a connection the other
+        /// end makes signs in with it - by its key pin, or by its CA under the
+        /// name it is issued to - and refused otherwise. No certificate is
+        /// fine here: who comes without one signs in with what it sends, or
+        /// not at all, at the door.
+        /// </summary>
+        /// <remarks>
+        /// This station has nobody else to let in over its OCPP server: a
+        /// certificate no connection claims is nobody's, and refused rather
+        /// than passed on to a door that would read a name from it.
+        /// </remarks>
+        private TLSValidationResult JudgeOCPPClientCertificate(OCPPVersion        Version,
+                                                               X509Certificate2?  Certificate,
+                                                               X509Chain?         Chain,
+                                                               SslPolicyErrors    PolicyErrors)
+        {
+
+            if (Certificate is null)
+                return TLSValidationResult.Success();
+
+            if (InboundCertificateCheck(Version, Certificate, Chain, PolicyErrors) is TLSValidationResult judged)
+                return judged;
+
+            Log.Warning(
+                $"The client certificate of '{Certificate.Subject}' was refused at the {OCPPServerLabel} for {ConnectionEntry.AsText(Version)}: " +
+                "no connection the other end makes signs in with it, neither by its key pin nor by the name it is issued to.",
+                "ocpp", "server", "tls"
+            );
+
+            return TLSValidationResult.Failed("No connection of this charging station signs in with this client certificate.");
+
+        }
+
+        #endregion
+
+        #region (private) LetInOrNot(Version, Server, Connection)
+
+        /// <summary>
+        /// The door of the OCPP server: who asks for a WebSocket is let in as
+        /// the connection the other end makes whose name it comes under - by
+        /// its client certificate or by its credentials, as that connection
+        /// says - or not at all.
+        /// </summary>
+        /// <remarks>
+        /// One place for every way in, so that a certificate opens nothing a
+        /// connection named credentials for, and the other way round. An
+        /// address that signed in wrong too often is told to wait, whatever
+        /// it comes with now - but for a client certificate, which is no
+        /// guess. A refusal says nothing of why to the other end, and all of
+        /// it to the log.
+        /// </remarks>
+        private Task<HTTPResponse?> LetInOrNot(OCPPVersion                Version,
+                                               OCPPWebSocketServer        Server,
+                                               WebSocketServerConnection  Connection)
+        {
+
+            // Hermod sets the request before it asks: without one the answer
+            // is still no, and null would be yes.
+            if (Connection.HTTPRequest is not HTTPRequest request)
+                throw new InvalidOperationException($"A connection reached the door of the {OCPPServerLabel} without an HTTP request; refusing it.");
+
+            Task<HTTPResponse?> Answer(HTTPStatusCode Status)
+                => Task.FromResult<HTTPResponse?>(
+                       new HTTPResponse.Builder(request) {
+                           HTTPStatusCode  = Status,
+                           Server          = Server.HTTPServiceName,
+                           Date            = Timestamp.Now,
+                           Connection      = org.GraphDefined.Vanaheimr.Hermod.HTTP.ConnectionType.Close
+                       }.AsImmutable
+                   );
+
+            var from             = Connection.RemoteSocket.IPAddress.ToString();
+            var withCertificate  = Connection.ClientCertificate is not null;
+
+            if (!withCertificate && HasGuessedTooOftenAtOCPP(from))
+            {
+
+                Log.Warning($"{Connection.RemoteSocket} is told to wait at the {OCPPServerLabel}: it signed in wrong {MaxFailedOCPPSignInsPerMinute} times within a minute.",
+                            "ocpp", "server", "auth");
+
+                return Answer(HTTPStatusCode.TooManyRequests);
+
+            }
+
+            var signIn = SignInInbound(Version, Connection);
+
+            if (signIn is { LetIn: true })
+            {
+
+                Log.Debug($"'{signIn.Name}' signed in at the {OCPPServerLabel} from {Connection.RemoteSocket} with {signIn.Why}.",
+                          "ocpp", "server", "auth");
+
+                return Task.FromResult<HTTPResponse?>(null);
+
+            }
+
+            // A guess, where it came with something: counted against its address.
+            if (request is { Authorization: not null } or { TOTP: not null })
+                CountFailedOCPPSignIn(from);
+
+            Log.Warning(
+                $"{Connection.RemoteSocket} was turned away at the {OCPPServerLabel} for {ConnectionEntry.AsText(Version)}: " +
+                (signIn?.Why ?? $"'{request.Path}' ends with no name a connection the other end makes is written down under") + ".",
+                "ocpp", "server", "auth"
+            );
+
+            return Answer(HTTPStatusCode.Unauthorized);
+
+        }
+
+        private Boolean HasGuessedTooOftenAtOCPP(String Address)
+        {
+
+            if (!failedOCPPSignIns.TryGetValue(Address, out var guesses))
+                return false;
+
+            var since = Timestamp.Now - TimeSpan.FromMinutes(1);
+
+            lock (guesses)
+            {
+
+                while (guesses.Count > 0 && guesses.Peek() < since)
+                    guesses.Dequeue();
+
+                return guesses.Count >= MaxFailedOCPPSignInsPerMinute;
+
+            }
+
+        }
+
+        private void CountFailedOCPPSignIn(String Address)
+        {
+
+            var now    = Timestamp.Now;
+            var since  = now - TimeSpan.FromMinutes(1);
+
+            // Kept small: what is older than a minute says nothing any more.
+            if (failedOCPPSignIns.Count > 4096)
+            {
+                foreach (var (address, old) in failedOCPPSignIns.ToArray())
+                {
+                    lock (old)
+                    {
+                        if (old.Count == 0 || old.Last() < since)
+                            failedOCPPSignIns.TryRemove(KeyValuePair.Create(address, old));
+                    }
+                }
+            }
+
+            var guesses = failedOCPPSignIns.GetOrAdd(Address, _ => new Queue<DateTimeOffset>());
+
+            lock (guesses)
+            {
+
+                while (guesses.Count > 0 && guesses.Peek() < since)
+                    guesses.Dequeue();
+
+                // No more kept than are counted.
+                if (guesses.Count < MaxFailedOCPPSignInsPerMinute)
+                    guesses.Enqueue(now);
+
+            }
+
+        }
+
+        #endregion
+
         #region (private) ServeOCPPByTheNewNodes()
 
         /// <summary>
@@ -310,11 +528,20 @@ namespace cloud.charging.open.ChargingStation
                                new JProperty("port",         Port?.ToUInt16()),
                                new JProperty("served",       Server is not null),
                                new JProperty("url",          Port.HasValue ? $"{(OCPPServerTLS ? "wss" : "ws")}://{ListenAddress}:{Port}/" : null),
-                               new JProperty("connected",    new JArray((Server?.ConnectedNetworkingNodeIds ?? []).Select(name => name.ToString()).Order()))
+                               new JProperty("connected",    new JArray((Server?.ConnectedNetworkingNodeIds ?? []).Select(name => name.ToString()).Order())),
+                               new JProperty("http3Port",    Server?.HTTP3Port?.ToUInt16())
                            );
 
                 if (problem is not null)
                     json.Add(new JProperty("problem", problem));
+
+                // Asked for and not there: without a certificate, or the UDP
+                // port was not to be had.
+                if (Server is not null && OCPPServer.TakesHTTP3 && Server.HTTP3Port is null &&
+                    (OCPPServerTLS ? Server.WhyNoHTTP3 : NoHTTP3WithoutTLS) is String whyNoHTTP3)
+                {
+                    json.Add(new JProperty("http3Problem", whyNoHTTP3));
+                }
 
                 return json;
 
@@ -323,6 +550,7 @@ namespace cloud.charging.open.ChargingStation
             return new JObject(
                        new JProperty("enabled",   OCPPServer.IsEnabled),
                        new JProperty("tls",       OCPPServerTLS),
+                       new JProperty("http3",     OCPPServer.TakesHTTP3),
                        new JProperty("servers",   new JArray(
                                                       Of(OCPPVersion.OCPP2_1, OCPPServer.Port,   ocppServer21),
                                                       Of(OCPPVersion.OCPP1_6, OCPPServer.Port16, ocppServer16)

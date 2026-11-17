@@ -1175,17 +1175,35 @@ the other way round. The `ocppServer` section switches it on:
 Off where the file says nothing. `port` serves OCPP 2.1 and 2.0.1 (JSON, and
 CBOR for whoever offers `ocpp2.1cbor`), `port16` OCPP 1.6: the station is two
 OCPP nodes, and a port is one's. A version without a port is not served.
-`/configuration/ocpp-server` switches it on and off and changes the ports at
-once, without a restart, and says where the other end dials and who is in:
+
+```json
+"ocppServer": { "enabled": true, "port": 9443, "http3": true }
+```
+
+`http3` takes WebSockets over HTTP/3 as well, beside HTTP/1.1 and HTTP/2. Off
+where the file says nothing: HTTP/3 is QUIC, and opens a **UDP** port of the
+same number beside each TCP port - 9443/udp here -, which a firewall has to
+let through as well. It needs TLS, so HTTPS switched on; without, the server
+is served over TCP as before and the page says why not over HTTP/3. It is what
+a one-time password bound to its TLS session is checked over (see "Who gets
+in" below).
+
+`/configuration/ocpp-server` switches it on and off and changes the ports and
+HTTP/3 at once, without a restart, and says where the other end dials and who
+is in:
 
     GET  /api/v1/configuration/ocpp-server
-    {"enabled": true, "tls": true,
+    {"enabled": true, "tls": true, "http3": true,
      "servers": [{"ocppVersion": "OCPP2.1", "port": 9443, "served": true,
-                  "url": "wss://0.0.0.0:9443/", "connected": ["csms-01"]},
+                  "url": "wss://0.0.0.0:9443/", "connected": ["csms-01"], "http3Port": 9443},
                  {"ocppVersion": "OCPP1.6", "port": null, "served": false, "url": null, "connected": []}],
      "inbound": [{"id": "...", "description": "The CSMS", "name": "csms-01",
                   "ocppVersion": "OCPP2.1", "letIn": true}], ...}
-    PUT  /api/v1/configuration/ocpp-server    {"enabled": true, "port": 9443, "port16": null}
+    PUT  /api/v1/configuration/ocpp-server    {"enabled": true, "port": 9443, "port16": null, "http3": true}
+
+`http3Port` is the UDP port a server takes WebSockets over HTTP/3 on now, null
+where it takes none; `http3Problem` says why not where the file asks for it. A
+PUT that says nothing of `http3` switches it off.
 
 Whoever may change the connections may change this (`connections:edit`).
 
@@ -1201,6 +1219,35 @@ are answered 401; an address that signs in wrong ten times within a minute is
 answered 429 until the minute is over, the right password included. The names
 `CSMS` and `CentralSystem` are the station's own to say what it says by, and
 nothing comes in under them.
+
+A one-time password may be bound to the TLS session it is sent over, so that
+one read on the way opens nothing anywhere else. Only the TLS of HTTP/3 hands
+out what such a password is checked with: the back end is let in where the
+server takes HTTP/3 (`"http3": true`) and the back end opens its WebSocket over
+it, and nowhere else. Where the server takes none, the connection is not
+waited for: the page says that it can not sign in, and why.
+
+**With a client certificate instead.** A connection the other end makes may
+name, in place of credentials, what the client certificate of the back end is
+held to - one or the other, never both:
+
+- **the pin of its key** (`clientKeyPins`): the key is what is known, and what
+  is written around it - the common name, the dates, who issued it - is not
+  looked at. For a back end without a CA behind it. The key opens the
+  connection that pins it and nothing else.
+- **its CA** (`clientPins`): the roots, or the group of roots of the
+  certificate store, its chain has to end at. The certificate has to be issued
+  to the name the back end comes under - its common name is the last part of
+  the URL -, be valid, and is asked whether it is revoked as a server's is.
+
+The server asks for a client certificate at the TLS handshake and insists on
+none: who signs in with a password shows none. A certificate no connection
+signs in with is refused at the handshake, and one that is shown opens the
+connection it belongs to and no other - not another name, not a connection
+that names a password, and not the connection of the same name of the other
+version of OCPP. It needs TLS, so HTTPS switched on: without, nobody is asked
+for a certificate, and the page says of such a connection that it can not sign
+in.
 
 **What it is, once in.** One of the station's connections, like one it
 dialled. The page shows it as *waiting* until the back end dials and as

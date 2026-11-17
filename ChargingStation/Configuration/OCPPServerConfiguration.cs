@@ -49,13 +49,21 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// since the station is two nodes and a port is one's; a version without a
     /// port is not served.
     /// </para>
+    /// <para>
+    /// Over HTTP/1.1 and HTTP/2, on TCP, and over HTTP/3 as well where the
+    /// file says so: HTTP/3 is QUIC, and opens a UDP port of the same number
+    /// beside each TCP port - which nobody is given who did not ask. It is
+    /// what a one-time password bound to its TLS session is checked over.
+    /// </para>
     /// </remarks>
     /// <param name="Enabled">Whether the server is on; off where not said.</param>
     /// <param name="Port">The TCP port OCPP 2.1 and 2.0.1 are served on; not served where not said.</param>
     /// <param name="Port16">The TCP port OCPP 1.6 is served on; not served where not said.</param>
+    /// <param name="HTTP3">Whether WebSockets are taken over HTTP/3 as well, on the UDP port of the same number; not where not said.</param>
     public sealed record OCPPServerConfiguration(Boolean?  Enabled   = null,
                                                  IPPort?   Port      = null,
-                                                 IPPort?   Port16    = null)
+                                                 IPPort?   Port16    = null,
+                                                 Boolean?  HTTP3     = null)
     {
 
         #region Data
@@ -75,6 +83,12 @@ namespace cloud.charging.open.ChargingStation.Configuration
         public Boolean IsEnabled
             => Enabled == true;
 
+        /// <summary>
+        /// Whether WebSockets are taken over HTTP/3 as well.
+        /// </summary>
+        public Boolean TakesHTTP3
+            => HTTP3 == true;
+
         #endregion
 
         #region (static) TryParse(JSON, out Configuration, out Error)
@@ -93,9 +107,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             Configuration = null;
 
-            if (JSON.Properties().FirstOrDefault(property => property.Name is not ("enabled" or "port" or "port16")) is JProperty unknown)
+            if (JSON.Properties().FirstOrDefault(property => property.Name is not ("enabled" or "port" or "port16" or "http3")) is JProperty unknown)
             {
-                Error = $"'{SectionName}.{unknown.Name}' is not known: the section has 'enabled', 'port' and 'port16'.";
+                Error = $"'{SectionName}.{unknown.Name}' is not known: the section has 'enabled', 'port', 'port16' and 'http3'.";
                 return false;
             }
 
@@ -106,6 +120,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 return false;
 
             if (!ConfigurationReader.TryReadPort(JSON, "port16", SectionName, out var port16, out Error))
+                return false;
+
+            if (!ConfigurationReader.TryReadBoolean(JSON, "http3", SectionName, out var http3, out Error))
                 return false;
 
             if (port.HasValue && port16.HasValue && port.Value == port16.Value)
@@ -121,7 +138,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 return false;
             }
 
-            Configuration = new OCPPServerConfiguration(enabled, port, port16);
+            Configuration = new OCPPServerConfiguration(enabled, port, port16, http3);
             return true;
 
         }
@@ -147,6 +164,9 @@ namespace cloud.charging.open.ChargingStation.Configuration
             if (Port16.HasValue)
                 json.Add("port16",  Port16.Value.ToUInt16());
 
+            if (HTTP3.HasValue)
+                json.Add("http3",   HTTP3.Value);
+
             return json;
 
         }
@@ -157,7 +177,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
         public override String ToString()
             => IsEnabled
-                   ? $"an OCPP server on {String.Join(" and ", new[] { Port.HasValue ? $"port {Port} (2.1)" : null, Port16.HasValue ? $"port {Port16} (1.6)" : null }.Where(port => port is not null))}"
+                   ? $"an OCPP server on {String.Join(" and ", new[] { Port.HasValue ? $"port {Port} (2.1)" : null, Port16.HasValue ? $"port {Port16} (1.6)" : null }.Where(port => port is not null))}{(TakesHTTP3 ? ", over HTTP/3 as well" : "")}"
                    : "no OCPP server";
 
         #endregion

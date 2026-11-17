@@ -15,8 +15,9 @@ import { html, nothing, render } from '@node/view';
  * OCPP as it always is, and only who opens the WebSocket is the other way
  * round. Who may come in is written down on the Connections page, as a
  * connection the other end makes; this page is the server itself - on or off,
- * and on which ports. Changed at once; whoever dialled in is let go of where
- * its server goes.
+ * and on which ports, and whether over HTTP/3 as well, which opens a UDP port
+ * beside each. Changed at once; whoever dialled in is let go of where its
+ * server goes.
  */
 export const ocppServerPage: Page = {
 
@@ -81,6 +82,12 @@ export const ocppServerPage: Page = {
                             </div>
                         `)}
 
+                        ${server.servers.filter(one => one.http3Problem !== undefined).map(one => html`
+                            <div class="error-box" data-http3-problem="${one.ocppVersion}">
+                                ${one.ocppVersion} takes no WebSockets over HTTP/3: ${one.http3Problem}
+                            </div>
+                        `)}
+
                         <form id="ocpp-server-form" class="form-stack" @submit=${(event: SubmitEvent) => { event.preventDefault(); void save(); }}>
 
                             <label class="checkbox">
@@ -104,6 +111,16 @@ export const ocppServerPage: Page = {
 
                             </div>
 
+                            <label class="checkbox">
+                                <input type="checkbox" name="http3" ?checked=${server.http3} ?disabled=${!mayChange} />
+                                Take WebSockets over HTTP/3 as well
+                            </label>
+                            <span class="hint">
+                                HTTP/3 opens a UDP port of the same number beside each port above, and needs TLS. It is what
+                                a one-time password bound to its TLS session is checked over; without it, such a connection
+                                is not let in.
+                            </span>
+
                             <div class="form-actions">
                                 <button type="submit" class="btn primary" ?disabled=${!mayChange}>Save</button>
                                 <span id="form-note"  class="form-notice" role="status"></span>
@@ -126,7 +143,7 @@ export const ocppServerPage: Page = {
                         <p class="hint">
                             Nothing gets in that is not written down: a connection the other end makes, on the
                             <a href="${toURL('/configuration/connections')}">Connections</a> page, under the name its URL
-                            ends with and with the credentials it names. An address that signs in wrong ten times
+                            ends with, and with the credentials or the client certificate it names. An address that signs in wrong ten times
                             within a minute is told to wait. This station forwards nothing: what comes in is for
                             this station.
                         </p>
@@ -139,6 +156,13 @@ export const ocppServerPage: Page = {
                                         : html`<code>${one.url}&lt;its name&gt;</code>${one.served ? nothing : html` <span class="hint">not served</span>`}`}</dd>
                             `)}
                             <dt>TLS</dt> <dd>${server.tls ? 'with the certificate of the web interface' : 'none'}</dd>
+                            <dt>HTTP/3</dt>
+                            <dd id="ocpp-server-http3">${!server.http3
+                                    ? 'not taken'
+                                    : server.servers.some(one => typeof one.http3Port === 'number')
+                                          ? server.servers.filter(one => typeof one.http3Port === 'number').
+                                                           map(one => `${one.ocppVersion} on UDP port ${one.http3Port}`).join(', ')
+                                          : 'asked for, and not taken now'}</dd>
                         </dl>
 
                         <div class="table-scroll">
@@ -197,10 +221,11 @@ export const ocppServerPage: Page = {
 
             const port     = portOf('port');
             const port16   = portOf('port16');
+            const http3    = data.get('http3') !== null;
 
             try
             {
-                current = await whileSaving(content, note, () => api.ocppServer.save({ enabled, port, port16 }));
+                current = await whileSaving(content, note, () => api.ocppServer.save({ enabled, port, port16, http3 }));
 
                 if (cancelled)
                     return;

@@ -4,7 +4,8 @@
  * took; a refusal keeps the form as set and says why; somebody who may only
  * read it is told so and can change nothing; where the other end dials is
  * said, with a server without TLS and a port that was taken said to be in
- * the way; and who is written down is listed with how it stands.
+ * the way; HTTP/3 is off unless ticked, and said where it is taken and why
+ * not where it is not; and who is written down is listed with how it stands.
  *
  * Run with `npm test`.
  */
@@ -31,6 +32,7 @@ function aStation(): OCPPServerConfiguration {
     return {
         enabled:  false,
         tls:      true,
+        http3:    false,
         servers:  [
                       { ocppVersion: 'OCPP2.1', port: null, served: false, url: null, connected: [] },
                       { ocppVersion: 'OCPP1.6', port: null, served: false, url: null, connected: [] }
@@ -53,9 +55,11 @@ function station({ method, path, body }: Asked): unknown {
         held = {
             ...held,
             enabled:  update.enabled,
+            http3:    update.http3,
             servers:  [
                           { ocppVersion: 'OCPP2.1', port: update.port,   served: update.enabled && update.port   !== null,
-                            url: update.port   !== null ? `wss://127.0.0.1:${update.port}/`   : null, connected: [] },
+                            url: update.port   !== null ? `wss://127.0.0.1:${update.port}/`   : null, connected: [],
+                            http3Port: update.enabled && update.http3 ? update.port : null },
                           { ocppVersion: 'OCPP1.6', port: update.port16, served: update.enabled && update.port16 !== null,
                             url: update.port16 !== null ? `wss://127.0.0.1:${update.port16}/` : null, connected: [] }
                       ]
@@ -99,7 +103,8 @@ describe('the OCPP server page', () => {
         submit(root, '#ocpp-server-form');
         await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the form was not saved');
 
-        assert.deepEqual(sent, { enabled: true, port: 9443, port16: null });
+        assert.deepEqual(sent, { enabled: true, port: 9443, port16: null, http3: false });
+        assert.equal(said(root, '#ocpp-server-http3'), 'not taken');
         assert.match(said(root, '#ocpp-server-state'), /^Served: OCPP2\.1/);
         assert.match(said(root, '[data-url="OCPP2.1"]'), /wss:\/\/127\.0\.0\.1:9443\/<its name>/);
         assert.match(said(root, '[data-url="OCPP1.6"]'), /no port/);
@@ -132,6 +137,7 @@ describe('the OCPP server page', () => {
         assert.match(said(root, '.notice'), /change it/);
         assert.equal(field(root, 'enabled').disabled, true);
         assert.equal(field(root, 'port').disabled,    true);
+        assert.equal(field(root, 'http3').disabled,   true);
         assert.equal(root.querySelector<HTMLButtonElement>('#ocpp-server-form button[type="submit"]')!.disabled, true);
 
     });
@@ -151,6 +157,44 @@ describe('the OCPP server page', () => {
         assert.match(said(root, '#no-tls'), /crosses the network in the clear/);
         assert.match(said(root, '[data-problem="OCPP1.6"]'), /could not be served on port 9444: Only one usage/);
         assert.match(said(root, '[data-url="OCPP1.6"]'), /not served/);
+
+    });
+
+    it('takes WebSockets over HTTP/3 only where that is ticked, and says on which UDP port', async () => {
+
+        const root = await opened();
+
+        assert.equal(field(root, 'http3').checked, false, 'HTTP/3 is on although nobody asked for it');
+
+        field(root, 'enabled').checked = true;
+        field(root, 'port').value      = '9443';
+        field(root, 'http3').checked   = true;
+
+        submit(root, '#ocpp-server-form');
+        await until(() => /^Saved/.test(root.querySelector('#form-note')?.textContent ?? ''), 'the form was not saved');
+
+        assert.deepEqual(sent, { enabled: true, port: 9443, port16: null, http3: true });
+        assert.equal(field(root, 'http3').checked, true, 'the switch does not say what the station took');
+        assert.equal(said(root, '#ocpp-server-http3'), 'OCPP2.1 on UDP port 9443');
+
+    });
+
+    it('says why no HTTP/3 is taken although it was asked for', async () => {
+
+        const root = await opened({
+                               enabled:  true,
+                               tls:      false,
+                               http3:    true,
+                               servers:  [
+                                             { ocppVersion: 'OCPP2.1', port: 9443, served: true,  url: 'ws://127.0.0.1:9443/', connected: [],
+                                               http3Port: null, http3Problem: 'HTTP/3 is QUIC, which is TLS always.' },
+                                             { ocppVersion: 'OCPP1.6', port: null, served: false, url: null,                   connected: [] }
+                                         ]
+                           });
+
+        assert.match(said(root, '[data-http3-problem="OCPP2.1"]'), /OCPP2\.1 takes no WebSockets over HTTP\/3: HTTP\/3 is QUIC/);
+        assert.equal(said(root, '#ocpp-server-http3'), 'asked for, and not taken now');
+        assert.equal(field(root, 'http3').disabled, false);
 
     });
 

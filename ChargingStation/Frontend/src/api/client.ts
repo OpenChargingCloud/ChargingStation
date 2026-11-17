@@ -698,6 +698,8 @@ export interface OCPPServerConfiguration {
     enabled:  boolean;
     /** Whether the servers speak TLS: where the web interface does, with its certificate. */
     tls:      boolean;
+    /** What the file says: whether WebSockets are taken over HTTP/3 as well, on the UDP port of the same number. */
+    http3:    boolean;
     /** OCPP 2.1 first, then OCPP 1.6. */
     servers:  OCPPServerOfAVersion[];
     /** The connections the other end makes, as they are written down. */
@@ -718,6 +720,10 @@ export interface OCPPServerOfAVersion {
     connected:    string[];
     /** Why it is not served although it has a port: the port was taken, say. */
     problem?:     string;
+    /** The UDP port it takes WebSockets over HTTP/3 on now, or null: not asked for, or not there. */
+    http3Port?:   number | null;
+    /** Why it takes none over HTTP/3 although the file says it shall: no TLS, or the UDP port was not to be had. */
+    http3Problem?:  string;
 }
 
 export interface InboundConnection {
@@ -735,6 +741,8 @@ export interface OCPPServerUpdate {
     enabled:  boolean;
     port:     number | null;
     port16:   number | null;
+    /** Left out, it is off: a UDP port is given nobody who did not ask. */
+    http3:    boolean;
 }
 
 
