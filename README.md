@@ -1240,6 +1240,16 @@ held to - one or the other, never both:
   to the name the back end comes under - its common name is the last part of
   the URL -, be valid, and is asked whether it is revoked as a server's is.
 
+A certificate issued by a CA below such a root - one, or several, one below
+the other - is checked either way: the back end sends the certificates of
+those CAs beside its own, and the station builds the whole chain with them
+without ever having seen them; or the back end shows its certificate alone,
+and the station knows the CAs between already - kept in its certificate store
+as **issuing CAs** (`tlsIntermediate`, on the Certificates page or with
+`--import-certificate tlsIntermediate=<file>`). An issuing CA kept there helps
+to build a chain and is believed nothing: the chain still has to end at a root
+the connection is held to, so one below another root opens nothing.
+
 The server asks for a client certificate at the TLS handshake and insists on
 none: who signs in with a password shows none. A certificate no connection
 signs in with is refused at the handshake, and one that is shown opens the
@@ -1376,6 +1386,18 @@ the station asks its CSMS for the next one, and the CSMS brings it:
 | `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is dialled again with the new one. |
 | a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both identities are kept; the old one is taken out on `/configuration/client-identities`. |
 | `InstallCertificate` of `CSMSRootCertificate` | a TLS root of the certificate store kept for `ocpp` - on the certificates page, and vouching for the server of a `wss://` connection from the next handshake on. `GetInstalledCertificateIds` lists it, `DeleteCertificate` takes it out again; a root kept for every use is deleted on the page and not for the back ends alone. OCPP 1.6 installs the same as `CentralSystemRootCertificate`. |
+
+A certificate that came from a CA below the operator's root travels with the
+certificates of the CAs between: brought with them - as a CA hands a chain back,
+the certificate first -, the station sends them beside its own at every
+handshake, and a CSMS that has never seen them builds the chain; brought alone,
+it is shown alone, to a CSMS that knows them already.
+
+On Windows, the TLS of the operating system sends along only what it finds in
+a certificate store: the certificates of those CAs are written into the
+intermediate store of the user the station runs as (`CurrentUser\CA`) when the
+station dials, and stay there. Nothing is believed by being there - it is no
+store of roots -, and on Linux nothing is written anywhere.
 
 A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps
 no key of its own a vehicle is shown. Asking for a certificate over OCPP 1.6

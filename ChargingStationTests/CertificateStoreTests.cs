@@ -153,14 +153,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(status,                                           Is.EqualTo(HttpStatusCode.OK), store.ToString());
                 Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Name),
-                            Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity", "tlsServerIdentity" }));
+                            Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity", "tlsServerIdentity", "tlsIntermediate" }));
                 Assert.That(store["trustAnchors"]!.Values<String>(),          Is.EqualTo(new[] { "v2gRoot", "moRoot", "oemRoot", "tlsRoot", "clientRoot" }));
                 Assert.That(store["credentials"]!.Values<String>(),           Is.EqualTo(new[] { "tlsIdentity", "tlsServerIdentity" }));
                 Assert.That(store["kinds"]!["tlsServerIdentity"]!["page"]?.Value<String>(),
                                                                               Is.EqualTo("serverIdentities"),
                             "what the web interface shows is looked after on the page the station's menu has below the identities");
-                Assert.That(store["recognised"]!.Values<String>(),            Is.EqualTo(new[] { "tlsServer" }),
-                            "a server certificate is recognised, neither believed nor presented");
+                Assert.That(store["recognised"]!.Values<String>(),            Is.EqualTo(new[] { "tlsServer", "tlsIntermediate" }),
+                            "a server certificate and an issuing CA are recognised, neither believed nor presented");
 
                 // What the page's usage fields are drawn from, for a station.
                 // Any kind may be told a usage of one's own, so every kind has

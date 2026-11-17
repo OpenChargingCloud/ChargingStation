@@ -68,6 +68,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             private readonly ConcurrentQueue<JArray>          received  = new ();
             private readonly ConcurrentQueue<String>          shown     = new ();
+            private readonly ConcurrentQueue<String[]>        sentAlong = new ();
             private volatile WebSocketServerConnection?       latest;
 
             public WebSocketServer   Server                 { get; }
@@ -106,6 +107,17 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                                   return TLSValidationResult.Failed("This certificate is not let in.");
 
                                                                               shown.Enqueue(certificate.SerialNumber);
+
+                                                                              // What its chain was built with beside its own
+                                                                              // certificate: what it sent along, which is where
+                                                                              // the handshake keeps it on Linux, and what the
+                                                                              // chain goes through, which is where it shows on
+                                                                              // Windows.
+                                                                              sentAlong.Enqueue([.. (chain?.ChainPolicy.ExtraStore ?? []).
+                                                                                                        Concat(chain?.ChainElements.Skip(1).Select(element => element.Certificate) ?? []).
+                                                                                                        Select(sent => sent.Thumbprint).
+                                                                                                        Distinct().
+                                                                                                        Order()]);
 
                                                                               return TLSValidationResult.Success();
 
@@ -149,6 +161,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// The serial numbers of the client certificates it let in, in the
             /// order of their handshakes.
             /// </summary>
+            /// <summary>
+            /// The thumbprints of the certificates the chain of each client
+            /// was built with beside its own, handshake by handshake.
+            /// </summary>
+            public String[][] SentAlong
+                => [.. sentAlong];
+
             public String[] Shown
                 => [.. shown];
 
@@ -214,6 +233,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private readonly List<X509Certificate2> certificates = [];
 
+        /// <summary>
+        /// The thumbprints of the CAs below a root a test made, to be taken
+        /// out of the intermediate store of the user again.
+        /// </summary>
+        private readonly List<String>           issuingCAs   = [];
+
         #endregion
 
         #region SetUp / TearDown
@@ -258,6 +283,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station  = null;
             csms     = null;
+
+            TestStations.ForgetIssuingCAs(issuingCAs);
+            issuingCAs.Clear();
 
             TestStations.Remove(directory);
 
@@ -333,6 +361,52 @@ namespace cloud.charging.open.ChargingStation.Tests
                                              X509SignatureGenerator.CreateForECDsa(caKey),
                                              DateTimeOffset.UtcNow.AddDays(-1),
                                              DateTimeOffset.UtcNow.AddDays(Days),
+                                             Guid.NewGuid().ToByteArray());
+
+            certificates.Add(certificate);
+
+            return certificate;
+
+        }
+
+        /// <summary>
+        /// A CA below the given one, with its key, to issue with.
+        /// </summary>
+        private X509Certificate2 AnIssuingCA(String Name, X509Certificate2 Above)
+        {
+
+            var key     = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request = new CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+
+            using var issued = request.Create(Above, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), Guid.NewGuid().ToByteArray());
+
+            var certificate  = issued.CopyWithPrivateKey(key);
+
+            certificates.Add(certificate);
+
+            return certificate;
+
+        }
+
+        /// <summary>
+        /// What the given CA makes of a signing request: a client certificate.
+        /// </summary>
+        private X509Certificate2 IssuedBy(X509Certificate2 IssuingCA, String CSR)
+        {
+
+            var request = CertificateRequest.LoadSigningRequestPem(CSR,
+                                                                   HashAlgorithmName.SHA256,
+                                                                   CertificateRequestLoadOptions.UnsafeLoadCertificateExtensions);
+
+            using var caKey = IssuingCA.GetECDsaPrivateKey()!;
+
+            var certificate = request.Create(IssuingCA.SubjectName,
+                                             X509SignatureGenerator.CreateForECDsa(caKey),
+                                             DateTimeOffset.UtcNow.AddDays(-1),
+                                             DateTimeOffset.UtcNow.AddDays(200),
                                              Guid.NewGuid().ToByteArray());
 
             certificates.Add(certificate);
@@ -495,6 +569,78 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+
+        #region ACertificateIssuedThroughIntermediates_IsDialledWithWhatTravelsWithIt(Intermediates, Brought)
+
+        /// <summary>
+        /// A station whose certificate comes from a CA below the operator's
+        /// root - one, or two, one below the other. Brought with the
+        /// certificates of those CAs, as a CA hands a chain back, the station
+        /// sends them beside its own: a CSMS that has never seen them can
+        /// build the chain. Brought alone, it is shown alone, to a CSMS that
+        /// knows the CAs between already.
+        /// </summary>
+        /// <remarks>
+        /// On Windows, what a client sends along it first puts into the
+        /// intermediate store of its user, where a server run by the same
+        /// user finds it whether it was sent or not: there this says less
+        /// than on Linux, where nothing is shared. Taken out of that store
+        /// again when the test is over, see <see cref="TestStations.ForgetIssuingCAs"/>.
+        /// </remarks>
+        [TestCase(1, true)]
+        [TestCase(2, true)]
+        [TestCase(1, false)]
+        [TestCase(2, false)]
+        public async Task ACertificateIssuedThroughIntermediates_IsDialledWithWhatTravelsWithIt(Int32 Intermediates, Boolean BroughtWithThem)
+        {
+
+            Kept(ca);
+
+            var above   = new List<X509Certificate2>();
+            var issuer  = clientCA;
+
+            for (var level = 1; level <= Intermediates; level++)
+            {
+                issuer = AnIssuingCA($"Issuing CA {level} for the stations", issuer);
+                above.Insert(0, issuer);
+            }
+
+            issuingCAs.AddRange(above.Select(one => one.Thumbprint));
+
+            var request      = AKey("cs001");
+            var certificate  = IssuedBy(above[0], request.CSR);
+
+            // As a CA hands it back: the certificate first, then what is above it.
+            var brought      = BroughtWithThem
+                                   ? String.Join("\n", new[] { certificate }.Concat(above).Select(one => one.ExportCertificatePem()))
+                                   : certificate.ExportCertificatePem();
+
+            Assert.That(station!.Certificates.TryAnswerRequest(brought, out var identity, out _, out _, out var error, out _),
+                        Is.True, error);
+
+            var connection   = Added(identity!.Id);
+
+            await Start();
+
+            await Until(() => IsConnected(connection) && csms!.Shown.Length > 0 && csms.Requests("BootNotification").Length > 0,
+                        "Connecting with a certificate issued through intermediates", () => WhatHappened);
+
+            var theirs       = above.Select(one => one.Thumbprint).ToArray();
+
+            Assert.Multiple(() => {
+
+                Assert.That(csms!.Shown.Last(),      Is.EqualTo(certificate.SerialNumber));
+
+                if (BroughtWithThem)
+                    Assert.That(csms.SentAlong.Last(),  Is.SupersetOf(theirs),  "the station did not send the CAs between its certificate and the root along");
+                else
+                    Assert.That(csms.SentAlong.Last().Intersect(theirs),  Is.Empty,  "the station sent along what it was never given");
+
+            });
+
+        }
+
+        #endregion
 
         #region ATriggerMakesAKey_AndCertificateSignedDialsWithItsCertificate()
 

@@ -83,6 +83,12 @@ namespace cloud.charging.open.ChargingStation
         /// certificate ever travels: handed to whoever issues certificates as
         /// a signing request, or sent to the CSMS in SignCertificate.
         /// </para>
+        /// <para>
+        /// The issuing CAs because a back end that dials this station may sign
+        /// in with a certificate of a CA below a root and show it alone: the
+        /// CAs between are kept here to build its chain with, and are believed
+        /// nothing by themselves - see OCPPDiallingNode.Accepting.
+        /// </para>
         /// </remarks>
         public static readonly IReadOnlyList<CertificateKind> StoredCertificateKinds = [
             CertificateKind.V2GRoot,
@@ -92,7 +98,8 @@ namespace cloud.charging.open.ChargingStation
             CertificateKind.ClientRoot,
             CertificateKind.TLSServer,
             CertificateKind.TLSIdentity,
-            CertificateKind.TLSServerIdentity
+            CertificateKind.TLSServerIdentity,
+            CertificateKind.TLSIntermediate
         ];
 
         #endregion

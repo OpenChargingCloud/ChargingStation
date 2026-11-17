@@ -283,6 +283,56 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region Remove(Directory)
 
         /// <summary>
+        /// Take the given CAs out of the intermediate store of the user that
+        /// runs the tests, by their thumbprints.
+        /// </summary>
+        /// <remarks>
+        /// On Windows, a TLS client that sends the CAs above its certificate
+        /// along puts them into that store first - that is how the handshake
+        /// of the operating system finds them. A test's CAs are made for one
+        /// test and would stay there for good, some hundred a run. Nothing is
+        /// kept there on other systems, and nothing is done; and this never
+        /// throws, as taking a directory away does not.
+        /// </remarks>
+        /// <param name="Thumbprints">The thumbprints of the CAs a test made.</param>
+        public static void ForgetIssuingCAs(IEnumerable<String> Thumbprints)
+        {
+
+            if (!OperatingSystem.IsWindows())
+                return;
+
+            try
+            {
+
+                var theirs = Thumbprints.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                if (theirs.Count == 0)
+                    return;
+
+                using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                                      System.Security.Cryptography.X509Certificates.StoreName.CertificateAuthority,
+                                      System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser
+                                  );
+
+                store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadWrite);
+
+                foreach (var kept in store.Certificates)
+                {
+
+                    if (theirs.Contains(kept.Thumbprint))
+                        store.Remove(kept);
+
+                    kept.Dispose();
+
+                }
+
+            }
+            catch (Exception)
+            { }
+
+        }
+
+        /// <summary>
         /// Take a test's directory away again.
         /// </summary>
         /// <remarks>

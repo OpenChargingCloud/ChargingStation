@@ -61,6 +61,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         private readonly List<ChargingStation>   stations      = [];
         private readonly List<X509Certificate2>  certificates  = [];
         private readonly List<ECDsa>             keys          = [];
+
+        /// <summary>
+        /// The thumbprints of the CAs below a root a test made, to be taken
+        /// out of the intermediate store of the user again.
+        /// </summary>
+        private readonly List<String>            issuingCAs    = [];
         private readonly List<String>            said          = [];
 
         #endregion
@@ -108,6 +114,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             keys.Clear();
 
+            TestStations.ForgetIssuingCAs(issuingCAs);
+            issuingCAs.Clear();
+
             TestStations.Remove(directory);
 
         }
@@ -139,6 +148,45 @@ namespace cloud.charging.open.ChargingStation.Tests
             certificates.Add(certificate);
 
             return certificate;
+
+        }
+
+        /// <summary>
+        /// A CA below the given one, which signs what is below it: with its
+        /// key, to issue with.
+        /// </summary>
+        private X509Certificate2 AnIntermediate(String CommonName, X509Certificate2 Issuer)
+        {
+
+            var key     = AKey();
+            var request = new CertificateRequest($"CN={CommonName}", key, HashAlgorithmName.SHA256);
+
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+
+            using var issued = request.Create(Issuer, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), Guid.NewGuid().ToByteArray());
+
+            var certificate  = issued.CopyWithPrivateKey(key);
+
+            certificates.Add(certificate);
+            issuingCAs.  Add(certificate.Thumbprint);
+
+            return certificate;
+
+        }
+
+        /// <summary>
+        /// The given certificate without its key: what is sent beside a
+        /// certificate, and what is kept of somebody else's CA.
+        /// </summary>
+        private X509Certificate2 WithoutItsKey(X509Certificate2 Certificate)
+        {
+
+            var bare = X509CertificateLoader.LoadCertificate(Certificate.RawData);
+
+            certificates.Add(bare);
+
+            return bare;
 
         }
 
@@ -281,10 +329,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         }
 
-        private static void Kept(ChargingStation Station, X509Certificate2 Root)
+        private static void Kept(ChargingStation Station, X509Certificate2 Root, CertificateKind? As = null)
         {
             Assert.That(Station.Certificates.Import(System.Text.Encoding.ASCII.GetBytes(Root.ExportCertificatePem()),
-                                                    CertificateKind.TLSRoot, null, Root.GetNameInfo(X509NameType.SimpleName, false),
+                                                    As ?? CertificateKind.TLSRoot, null, Root.GetNameInfo(X509NameType.SimpleName, false),
                                                     null, out _, out var error),
                         Is.True, error);
         }
@@ -321,20 +369,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A CSMS that dials the station, believes whatever certificate it is
-        /// shown, and shows the given one of its own.
+        /// shown, and shows the given one of its own - alone, or with the
+        /// given certificates of the CAs above it sent along.
         /// </summary>
-        private static WebSocketClient ACSMS(IPPort                Port,
-                                             String                As,
-                                             X509Certificate2?     Certificate     = null,
-                                             IHTTPAuthentication?  Authentication  = null,
-                                             String                Subprotocol     = "ocpp2.1")
+        private static WebSocketClient ACSMS(IPPort                           Port,
+                                             String                           As,
+                                             X509Certificate2?                Certificate     = null,
+                                             IHTTPAuthentication?             Authentication  = null,
+                                             String                           Subprotocol     = "ocpp2.1",
+                                             IEnumerable<X509Certificate2>?   SentAlong       = null)
 
             => new (
                    URL.Parse($"wss://127.0.0.1:{Port}/{As}"),
                    HTTPAuthentication:          Authentication,
                    SecWebSocketProtocols:       [ Subprotocol ],
                    RemoteCertificateValidator:  (sender, certificate, chain, client, errors) => TLSValidationResult.Success(),
-                   ClientCertificates:          Certificate is not null ? [ Certificate ] : null
+                   ClientCertificates:          Certificate is not null && SentAlong is null ? [ Certificate ] : null,
+                   ClientCertificateChain:      Certificate is not null && SentAlong is not null ? [ Certificate, .. SentAlong ] : null
                );
 
         /// <summary>
@@ -508,6 +559,157 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), ca));
 
             Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in by the certificate of its CA.\n" + Said());
+
+            await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
+
+        }
+
+        #endregion
+
+        #region IssuedThroughIntermediates_TheBackEndSendsThemAlong()
+
+        /// <summary>
+        /// A certificate issued by a CA below the root the connection is held
+        /// to - one, or two of them, one below the other: the station has
+        /// never seen them, the back end sends them beside its own, and the
+        /// station checks the whole chain with them. Without them the chain
+        /// ends nowhere, and with the intermediates of another root it ends
+        /// at the wrong one.
+        /// </summary>
+        /// <remarks>
+        /// On Windows, what a client sends along it first puts into the
+        /// intermediate store of its user, where a server run by the same
+        /// user finds it whether it was sent or not: there this says less
+        /// than on Linux, where nothing is shared. Taken out of that store
+        /// again when the test is over, see <see cref="TestStations.ForgetIssuingCAs"/>.
+        /// </remarks>
+        [TestCase(1)]
+        [TestCase(2)]
+        public async Task IssuedThroughIntermediates_TheBackEndSendsThemAlong(Int32 Intermediates)
+        {
+
+            var root     = CA("The root of the CSMS's operator");
+            var other    = CA("Somebody else's root");
+            var id       = "";
+
+            var station  = await Started(made => {
+
+                Kept(made, root);
+                Kept(made, other);
+
+                id = WrittenDown(made, port, Name, Pins: new ServerPins([], [ ServerPins.KeyPinOf(root) ]));
+
+            });
+
+            await Until(() => StatusOf(station, id) == "waiting", "Waiting for the CSMS", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
+
+            X509Certificate2[] Below(X509Certificate2 Root)
+            {
+
+                var chain  = new List<X509Certificate2>();
+                var issuer = Root;
+
+                for (var level = 1; level <= Intermediates; level++)
+                {
+                    issuer = AnIntermediate($"Issuing CA {level} below {Root.GetNameInfo(X509NameType.SimpleName, false)}", issuer);
+                    chain.Insert(0, issuer);
+                }
+
+                return [.. chain];
+
+            }
+
+            var above       = Below(root);
+            var aboveOther  = Below(other);
+
+            await using (var alone = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0])))
+            {
+                Assert.That(await Dialled(alone), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "its certificate alone, of a CA the station has never seen");
+            }
+
+            await using (var ofAnother = ACSMS(port, Name, AClientCertificate(Name, AKey(), aboveOther[0]), SentAlong: aboveOther.Select(WithoutItsKey)))
+            {
+                Assert.That(await Dialled(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "a whole chain, which ends at a root the connection is not held to");
+            }
+
+            Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
+
+            await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0]), SentAlong: above.Select(WithoutItsKey));
+
+            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with the intermediates it sent along.\n" + Said());
+
+            await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
+
+        }
+
+        #endregion
+
+        #region IssuedThroughIntermediates_TheStationKnowsThemAlready()
+
+        /// <summary>
+        /// The other way: the back end shows its certificate and nothing
+        /// else, and the station knows the CAs between it and the root - kept
+        /// in its certificate store as issuing CAs. They help to
+        /// build the chain and vouch for nothing: one kept below a root the
+        /// connection is not held to opens nothing.
+        /// </summary>
+        [TestCase(1)]
+        [TestCase(2)]
+        public async Task IssuedThroughIntermediates_TheStationKnowsThemAlready(Int32 Intermediates)
+        {
+
+            var root     = CA("The root of the CSMS's operator");
+            var other    = CA("Somebody else's root");
+            var id       = "";
+
+            X509Certificate2[] Below(X509Certificate2 Root)
+            {
+
+                var chain  = new List<X509Certificate2>();
+                var issuer = Root;
+
+                for (var level = 1; level <= Intermediates; level++)
+                {
+                    issuer = AnIntermediate($"Issuing CA {level} below {Root.GetNameInfo(X509NameType.SimpleName, false)}", issuer);
+                    chain.Insert(0, issuer);
+                }
+
+                return [.. chain];
+
+            }
+
+            var above       = Below(root);
+            var aboveOther  = Below(other);
+
+            var station  = await Started(made => {
+
+                Kept(made, root);
+                Kept(made, other);
+
+                foreach (var intermediate in above.Concat(aboveOther))
+                    Kept(made, intermediate, CertificateKind.TLSIntermediate);
+
+                id = WrittenDown(made, port, Name, Pins: new ServerPins([], [ ServerPins.KeyPinOf(root) ]));
+
+            });
+
+            await Until(() => StatusOf(station, id) == "waiting", "Waiting for the CSMS", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
+
+            await using (var ofAnother = ACSMS(port, Name, AClientCertificate(Name, AKey(), aboveOther[0])))
+            {
+                Assert.That(await Dialled(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued below a root the connection is not held to, through CAs the station keeps");
+            }
+
+            await using (var asAnother = ACSMS(port, Name, AClientCertificate("csms-02", AKey(), above[0])))
+            {
+                Assert.That(await Dialled(asAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to another name");
+            }
+
+            Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
+
+            await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0]));
+
+            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with its certificate alone, though the station knows the CAs above it.\n" + Said());
 
             await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
