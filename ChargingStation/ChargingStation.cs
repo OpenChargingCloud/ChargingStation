@@ -78,7 +78,7 @@ namespace cloud.charging.open.ChargingStation
     /// file, its own JSON API below "/api", a display on a port of its own,
     /// and the OCPP nodes it dials its back ends with.
     /// </remarks>
-    public partial class ChargingStation : OCPPDiallingNode
+    public partial class ChargingStation : WWCPNode
     {
 
         #region Data
@@ -481,7 +481,7 @@ namespace cloud.charging.open.ChargingStation
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
                    //
                    // And "ocpp": a TLS root may vouch for the servers of the OCPP
-                   // connections and for nothing else - see OCPPDiallingNode.ServerPins.cs.
+                   // connections and for nothing else - see WWCPNode.ServerPins.cs.
                    CertificateUsages: [ MeterCertificateUsage, OCPPCertificateUsage ],
                    Log:               Log,
                    LogToConsole:      LogToConsole,
@@ -497,6 +497,10 @@ namespace cloud.charging.open.ChargingStation
                    Web:               Web)
 
         {
+
+            // OCPP is what its connections speak, before anything of them is
+            // asked: its OCPP nodes are asked for whenever they are needed.
+            this.Dialling = new StationDialling(this);
 
             // "this." throughout, and not for tidiness: the parameters of this
             // constructor shadow the properties of the same name, and a
@@ -518,9 +522,9 @@ namespace cloud.charging.open.ChargingStation
 
             // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
             // and what TLSClientController reads and writes of them - see
-            // OCPPDiallingNode.KeyPins.cs and OCPPDiallingNode.TLSClient.cs.
+            // WWCPNode.KeyPins.cs and OCPPDialling.TLSClient.cs.
             this.keyPinning       = NewKeyPinning();
-            this.tlsClientSource  = NewTLSClientSource();
+            OCPPDialling.MakeTLSClientSource();
 
             this.SignedSessions = new SignedSessionStore(
                                       System.IO.Path.Combine(
@@ -554,15 +558,15 @@ namespace cloud.charging.open.ChargingStation
                     FormerClientKeysDirectoryName
                 )
             );
-            this.Connections.OnConnectionsChanged += () => FollowSSHClientComponents(cs02);
+            this.Connections.OnConnectionsChanged += () => OCPPDialling.FollowSSHClientComponents(cs02);
 
             // Before the dialling below, which is told after it: a connection
             // dialled again has its TLSClientController instance by then - see
-            // OCPPDiallingNode.TLSClient.cs.
-            this.Connections.OnConnectionsChanged += () => FollowTLSClientComponents(cs02);
+            // OCPPDialling.TLSClient.cs.
+            this.Connections.OnConnectionsChanged += () => OCPPDialling.FollowTLSClientComponents(cs02);
 
             // What is written down is what is dialled, from the moment it is
-            // written - see OCPPDiallingNode.Peers.cs.
+            // written - see WWCPNode.Peers.cs.
             this.Connections.OnConnectionsChanged += () => _ = ApplyConnectionChanges();
 
             this.SshKey = new SshClientKey(

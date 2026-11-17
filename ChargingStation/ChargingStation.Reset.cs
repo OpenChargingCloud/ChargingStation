@@ -391,7 +391,7 @@ namespace cloud.charging.open.ChargingStation
 
                 Log.Notice($"This station restarted its OCPP side, as {why} asked for.", "ocpp", "reset");
 
-                await DialAgain(old16, old21, $"This charging station restarted, as {why} asked for");
+                await OCPPDialling.DialAgain(old16, old21, $"This charging station restarted, as {why} asked for");
 
             }
             catch (Exception e)

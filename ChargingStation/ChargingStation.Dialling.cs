@@ -17,6 +17,7 @@
 
 #region Usings
 
+using cloud.charging.open.protocols.OCPP.Node;
 using OCPPv1_6 = cloud.charging.open.protocols.OCPPv1_6;
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
@@ -50,18 +51,35 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
+        #region OCPPDialling / Nodes
+
+        /// <summary>
+        /// What OCPP says of the connections of this node.
+        /// </summary>
+        public OCPPDialling OCPPDialling
+            => (OCPPDialling) Dialling;
+
+        /// <summary>
+        /// The OCPP nodes this one has: the one for OCPP 2.1, and before it
+        /// the one for OCPP 1.6 where it speaks that.
+        /// </summary>
+        protected IEnumerable<cloud.charging.open.protocols.OCPP.NetworkingNode.AOCPPNetworkingNode> Nodes
+            => OCPPDialling.Nodes;
+
+        #endregion
+
         #region Node16 / Node21
 
         /// <summary>
         /// The node that speaks OCPP 1.6 for this station.
         /// </summary>
-        protected override OCPPv1_6.NetworkingNode.AOCPPNetworkingNode? Node16
+        protected OCPPv1_6.NetworkingNode.AOCPPNetworkingNode? Node16
             => cs01;
 
         /// <summary>
         /// The node that speaks OCPP 2.1 for this station.
         /// </summary>
-        protected override OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node21
+        protected OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node21
             => cs02;
 
         #endregion
@@ -119,34 +137,47 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (protected override) SSHClientControllersOf(Node) / AddComponentTo(Node, Component) / RemoveComponentFrom(Node, Name, Instance) / AnswerCustomTriggersOf(Node, Answer)
+        #region (private) StationDialling
 
-        protected override IEnumerable<OCPPv2_1.SSHClientController> SSHClientControllersOf(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node)
+        /// <summary>
+        /// OCPP as every node that dials over it speaks it, with the Device
+        /// Model of this station's OCPP 2.1 node.
+        /// </summary>
+        private sealed class StationDialling(ChargingStation Station)
 
-            => Node is OCPPv2_1.CS.TestChargingStationNode station
-                   ? station.GetComponentConfigs(nameof(OCPPv2_1.SSHClientController)).OfType<OCPPv2_1.SSHClientController>()
-                   : [];
+            : OCPPDialling(Station, () => Station.Node16, () => Station.Node21)
 
-        protected override void AddComponentTo(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode  Node,
-                                               OCPPv2_1.ComponentConfig                     Component)
         {
-            if (Node is OCPPv2_1.CS.TestChargingStationNode station)
-                station.AddComponent(Component);
-        }
 
-        protected override void RemoveComponentFrom(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode  Node,
-                                                    String                                       Name,
-                                                    String?                                      Instance)
-        {
-            if (Node is OCPPv2_1.CS.TestChargingStationNode station)
-                station.RemoveComponent(Name, Instance);
-        }
 
-        protected override void AnswerCustomTriggersOf(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode                                          Node,
-                                                       Func<OCPPv2_1.CSMS.TriggerMessageRequest, Task<OCPPv2_1.CS.TriggerMessageResponse?>>  Answer)
-        {
-            if (Node is OCPPv2_1.CS.TestChargingStationNode station)
-                station.OnCustomTrigger = Answer;
+            public override IEnumerable<OCPPv2_1.SSHClientController> SSHClientControllersOf(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node)
+
+                => Node is OCPPv2_1.CS.TestChargingStationNode station
+                       ? station.GetComponentConfigs(nameof(OCPPv2_1.SSHClientController)).OfType<OCPPv2_1.SSHClientController>()
+                       : [];
+
+            public override void AddComponentTo(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode  Node,
+                                                   OCPPv2_1.ComponentConfig                     Component)
+            {
+                if (Node is OCPPv2_1.CS.TestChargingStationNode station)
+                    station.AddComponent(Component);
+            }
+
+            public override void RemoveComponentFrom(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode  Node,
+                                                        String                                       Name,
+                                                        String?                                      Instance)
+            {
+                if (Node is OCPPv2_1.CS.TestChargingStationNode station)
+                    station.RemoveComponent(Name, Instance);
+            }
+
+            public override void AnswerCustomTriggersOf(OCPPv2_1.NetworkingNode.AOCPPNetworkingNode                                          Node,
+                                                           Func<OCPPv2_1.CSMS.TriggerMessageRequest, Task<OCPPv2_1.CS.TriggerMessageResponse?>>  Answer)
+            {
+                if (Node is OCPPv2_1.CS.TestChargingStationNode station)
+                    station.OnCustomTrigger = Answer;
+            }
+
         }
 
         #endregion

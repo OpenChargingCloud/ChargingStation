@@ -87,7 +87,7 @@ namespace cloud.charging.open.ChargingStation
         /// The issuing CAs because a back end that dials this station may sign
         /// in with a certificate of a CA below a root and show it alone: the
         /// CAs between are kept here to build its chain with, and are believed
-        /// nothing by themselves - see OCPPDiallingNode.Accepting.
+        /// nothing by themselves - see WWCPNode.Accepting.
         /// </para>
         /// </remarks>
         public static readonly IReadOnlyList<CertificateKind> StoredCertificateKinds = [

@@ -56,7 +56,7 @@ namespace cloud.charging.open.ChargingStation
     /// say. Nothing else gets in, and what is in is one of this station's
     /// connections from then on: the oldest of them that is switched on is
     /// the one in charge, whoever opened it. See
-    /// OCPPDiallingNode.Accepting.cs.
+    /// WWCPNode.Accepting.cs.
     /// </para>
     /// <para>
     /// One server for each of the two nodes, on a port of its own: OCPP 2.1

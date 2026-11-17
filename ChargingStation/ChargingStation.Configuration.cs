@@ -752,7 +752,7 @@ namespace cloud.charging.open.ChargingStation
                 Log.Notice($"This station now says it is {wanted}.", "ocpp", "config");
 
                 // Not waited for, as after a change of the EVSEs.
-                _ = DialAgain(old16, old21, "What this charging station says it is changed").
+                _ = OCPPDialling.DialAgain(old16, old21, "What this charging station says it is changed").
                         ContinueWith(task => Log.Warning($"Dialling again after what this station says it is changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
@@ -1299,7 +1299,7 @@ namespace cloud.charging.open.ChargingStation
                 // waited for: the old nodes would go on answering a CSMS with
                 // the EVSEs as they were, and nothing said from now on goes
                 // through them.
-                _ = DialAgain(old16, old21, "The EVSEs of this charging station changed").
+                _ = OCPPDialling.DialAgain(old16, old21, "The EVSEs of this charging station changed").
                         ContinueWith(task => Log.Warning($"Dialling again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
@@ -1990,9 +1990,9 @@ namespace cloud.charging.open.ChargingStation
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.
             deviceModelBridge.Configure(chargingStation);
-            AttachSSHClient(chargingStation);
+            OCPPDialling.AttachSSHClient(chargingStation);
             AttachStationCertificate(chargingStation);
-            AttachTLSClient(chargingStation);
+            OCPPDialling.AttachTLSClient(chargingStation);
             deviceModelBridge.Configure(chargePoint);
 
             // The roots of its CSMS are the station's, whichever version
@@ -2021,7 +2021,7 @@ namespace cloud.charging.open.ChargingStation
             NewRegistrations(chargePoint, chargingStation);
 
             // A connection whose server is believed by a host key on probation
-            // executes nothing but a signed pin set - see OCPPDiallingNode.Connections.cs.
+            // executes nothing but a signed pin set - see WWCPNode.Connections.cs.
             chargePoint.    OCPP.IN.RequestGate = GateOnProbation;
             chargingStation.OCPP.IN.RequestGate = GateOnProbation;
 
