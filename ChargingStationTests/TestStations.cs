@@ -104,7 +104,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             if (Configuration is not null)
                 File.WriteAllText(configFile, Configuration.ToString());
 
-            return new ChargingStation(
+            SlowTests.Mark("a station is being made");
+
+            var station = new ChargingStation(
                        DNSClient:        Resolver(),
                        HTTPPort:         HTTPPort  ?? IPPort.Parse(TestPorts.Free()),
                        KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(TestPorts.Free())) : null,
@@ -120,6 +122,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                        Web:              Web,
                        Id:               Id
                    );
+
+            // Where a test takes long or fails, what this station said is said
+            // with the time on the wall - see SlowTests.
+            SlowTests.Follow(station);
+
+            return station;
 
         }
 
@@ -345,6 +353,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// </remarks>
         public static void Remove(String? Directory)
         {
+
+            SlowTests.Mark("the directory of the test is taken away");
 
             try
             {
