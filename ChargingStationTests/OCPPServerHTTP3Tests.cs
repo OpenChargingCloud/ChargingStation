@@ -101,6 +101,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// A port nobody has, over TCP and over UDP: HTTP/3 takes the UDP port
         /// of the number its server has over TCP.
         /// </summary>
+        /// <remarks>
+        /// Asked for on one address after the other, each let go before the
+        /// next: Linux gives a UDP port held on a loopback address to nobody
+        /// who asks for it on every interface, where Windows does.
+        /// </remarks>
         private static IPPort APortFreeForBoth()
         {
 
@@ -112,9 +117,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                 try
                 {
 
-                    using var udp4 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback,     port));
-                    using var udp6 = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.IPv6Loopback, port));
-                    using var udp  = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Any,          port));
+                    foreach (var address in new[] { System.Net.IPAddress.Loopback, System.Net.IPAddress.IPv6Loopback, System.Net.IPAddress.Any })
+                    {
+                        using var udp = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(address, port));
+                    }
 
                     var tcp4 = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,     port);
                     tcp4.Start();
