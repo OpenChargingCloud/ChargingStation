@@ -34,7 +34,7 @@ using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.ChargingStation.Web;
 
 using cloud.charging.open.protocols.OCPP.Node;
-using cloud.charging.open.protocols.OCPP.Node.KeyPins;
+using cloud.charging.open.protocols.WWCP.Node.KeyPins;
 
 using SignedDataObject   = cloud.charging.open.protocols.WWCP.SignedDataObject;
 using SignerRoleReasons  = cloud.charging.open.protocols.WWCP.SignerRoleReasons;

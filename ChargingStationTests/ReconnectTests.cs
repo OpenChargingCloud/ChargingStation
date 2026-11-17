@@ -278,7 +278,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.Multiple(() => {
                     Assert.That(said, Does.StartWith("Connected, and will come back by itself"));
-                    Assert.That(station.OCPPWebSocketClientCount, Is.EqualTo(1),
+                    Assert.That(station.WebSocketClientCount, Is.EqualTo(1),
                                 "Trying the connection again made a client each time.");
                 });
 

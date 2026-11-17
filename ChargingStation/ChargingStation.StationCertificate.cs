@@ -27,6 +27,7 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
+using cloud.charging.open.protocols.WWCP.Node.Connections;
 using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 #endregion

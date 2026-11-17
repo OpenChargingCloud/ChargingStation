@@ -17,5 +17,5 @@
 
 // The connections of a charging station - their entries, their store, what
 // they prove themselves with and whom they trust - are those of every node
-// that dials a CSMS, and live with the OCPP node.
-global using OCPP = cloud.charging.open.protocols.OCPP.Node.Connections;
+// that dials, and live with the WWCP node. The alias keeps its old name.
+global using OCPP = cloud.charging.open.protocols.WWCP.Node.Connections;

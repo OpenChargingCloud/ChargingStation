@@ -24,7 +24,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
-using cloud.charging.open.protocols.OCPP.Node.Connections;
+using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
@@ -725,7 +725,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                             Is.True,
                             "A test against a port nothing is listening on did not say so plainly.");
 
-                Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                Assert.That(station.WebSocketClientCount, Is.Zero,
                             "The test left a WebSocket client behind in one of the OCPP nodes.");
 
             });
@@ -783,7 +783,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 Is.GreaterThanOrEqualTo((Int64) ChargingStation.TestHoldsFor.TotalMilliseconds),
                                 "The test did not stay connected at all.");
 
-                    Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                    Assert.That(station.WebSocketClientCount, Is.Zero,
                                 "The test left a WebSocket client behind in one of the OCPP nodes.");
 
                 });
@@ -913,7 +913,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.Connections.Connections, Is.Empty,
                             "Testing a connection wrote it down.");
 
-                Assert.That(station.OCPPWebSocketClientCount, Is.Zero,
+                Assert.That(station.WebSocketClientCount, Is.Zero,
                             "The test left a WebSocket client behind in one of the OCPP nodes.");
 
             });

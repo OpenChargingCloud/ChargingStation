@@ -553,7 +553,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(await Within(() => csms!.Accepted == 2 && csms.Connections == 1), Is.True,
                         $"the station did not hang up and connect again: {csms!.Accepted} connection(s) taken, {csms.Connections} open");
 
-            Assert.That(station!.OCPPWebSocketClientCount, Is.EqualTo(1), "the new nodes do not hold the connection");
+            Assert.That(station!.WebSocketClientCount, Is.EqualTo(1), "the new nodes do not hold the connection");
 
             await QueueSecurityEvent(Version, "AfterTheChange");
 
