@@ -52,6 +52,8 @@ using cloud.charging.open.protocols.OCPP.Node.KeyPins;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
+using OCPPServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.OCPPServerConfiguration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation

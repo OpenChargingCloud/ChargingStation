@@ -293,23 +293,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(OCPPServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443 }"""), out var silent, out var error), Is.True, error);
+                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443 }"""), out var silent, out var error), Is.True, error);
                 Assert.That(silent!.TakesHTTP3,                    Is.False, "HTTP/3 is on although the file says nothing of it");
                 Assert.That(silent.ToJSON().ContainsKey("http3"),  Is.False);
 
-                Assert.That(OCPPServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": true }"""), out var on, out error), Is.True, error);
+                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": true }"""), out var on, out error), Is.True, error);
                 Assert.That(on!.TakesHTTP3,                            Is.True);
                 Assert.That(on.ToJSON().Value<Boolean>("http3"),       Is.True);
                 Assert.That(on.ToString(),                             Does.Contain("HTTP/3"));
 
-                Assert.That(OCPPServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": false }"""), out var off, out error), Is.True, error);
+                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": false }"""), out var off, out error), Is.True, error);
                 Assert.That(off!.TakesHTTP3,                           Is.False);
                 Assert.That(off.ToJSON().Value<Boolean?>("http3"),     Is.False);
 
-                Assert.That(OCPPServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": "yes" }"""), out _, out error), Is.False);
+                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": "yes" }"""), out _, out error), Is.False);
                 Assert.That(error, Does.Contain("http3"));
 
-                Assert.That(OCPPServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http4": true }"""), out _, out error), Is.False);
+                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http4": true }"""), out _, out error), Is.False);
                 Assert.That(error, Does.Contain("'enabled', 'port', 'port16' and 'http3'"));
 
             });

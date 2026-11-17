@@ -1176,6 +1176,12 @@ Off where the file says nothing. `port` serves OCPP 2.1 and 2.0.1 (JSON, and
 CBOR for whoever offers `ocpp2.1cbor`), `port16` OCPP 1.6: the station is two
 OCPP nodes, and a port is one's. A version without a port is not served.
 
+The section is the one a local controller and a gateway have, WWCP_OCPP_Node's
+`OCPPServerConfiguration`: they read more of it - the interface, the security
+profiles, the versions on offer - and have one port for every version, so
+`port16` is a station's alone. A station reads `enabled`, `port`, `port16` and
+`http3`, and refuses any other field.
+
 ```json
 "ocppServer": { "enabled": true, "port": 9443, "http3": true }
 ```

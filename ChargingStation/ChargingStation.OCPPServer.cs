@@ -35,6 +35,8 @@ using cloud.charging.open.protocols.OCPP.Node.Connections;
 
 using cloud.charging.open.ChargingStation.Configuration;
 
+using OCPPServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.OCPPServerConfiguration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation
@@ -145,7 +147,7 @@ namespace cloud.charging.open.ChargingStation
             if (!OCPPServer.IsEnabled)
                 return;
 
-            if (OCPPServer.Port is IPPort port && ocppServer21 is null)
+            if (OCPPServer.TCPPort is IPPort port && ocppServer21 is null)
                 ocppServer21 = StartedOCPPServer(OCPPVersion.OCPP2_1, port);
 
             if (OCPPServer.Port16 is IPPort port16 && ocppServer16 is null)
@@ -552,8 +554,8 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("tls",       OCPPServerTLS),
                        new JProperty("http3",     OCPPServer.TakesHTTP3),
                        new JProperty("servers",   new JArray(
-                                                      Of(OCPPVersion.OCPP2_1, OCPPServer.Port,   ocppServer21),
-                                                      Of(OCPPVersion.OCPP1_6, OCPPServer.Port16, ocppServer16)
+                                                      Of(OCPPVersion.OCPP2_1, OCPPServer.TCPPort, ocppServer21),
+                                                      Of(OCPPVersion.OCPP1_6, OCPPServer.Port16,  ocppServer16)
                                                   )),
                        new JProperty("inbound",   new JArray(Connections.Connections.
                                                                  Where (connection => connection.Inbound).
@@ -584,7 +586,7 @@ namespace cloud.charging.open.ChargingStation
 
             NotSaved = false;
 
-            if (!OCPPServerConfiguration.TryParse(JSON, out var wanted, out Error))
+            if (!OCPPServerSection.TryParse(JSON, out var wanted, out Error))
                 return false;
 
             reconfigureLock.Wait();

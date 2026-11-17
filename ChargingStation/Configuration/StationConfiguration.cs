@@ -26,6 +26,8 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.RFID;
 
+using OCPPServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.OCPPServerConfiguration;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation.Configuration
@@ -357,7 +359,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                     return false;
                 }
 
-                if (!OCPPServerConfiguration.TryParse(ocppServerJSON, out ocppServer, out Error))
+                if (!OCPPServerSection.TryParse(ocppServerJSON, out ocppServer, out Error))
                     return false;
 
             }
