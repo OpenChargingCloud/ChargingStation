@@ -43,6 +43,15 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// its test made up. So the time is taken here, off a stopwatch, when a
     /// station says something, is made, and is taken away.
     ///
+    /// Where STATION_TESTS_DUMPS names a directory, a dump of the test host
+    /// is taken into it, with the createdump of the runtime, once the thread
+    /// pool kept something waiting for STATION_TESTS_DUMP_AFTER seconds
+    /// (eight where not said) - twice a run at most.
+    ///
+    /// How many timers are alive is said as well: timers that are never
+    /// stopped, and that block a thread of the pool when they tick, starved
+    /// the pool of the CI before.
+    ///
     /// And three things are watched all along, by a thread of its own that
     /// asks for nothing from the thread pool: how long something handed to the
     /// thread pool waited to be run, which is what a pool out of threads
@@ -117,6 +126,34 @@ namespace cloud.charging.open.ChargingStation.Tests
         private static readonly ConcurrentQueue<(TimeSpan At, TimeSpan PoolWait, TimeSpan Overslept)>  seen  = new ();
 
         private static Int32   watching;
+
+        /// <summary>
+        /// Where dumps of a starved thread pool go: STATION_TESTS_DUMPS, or
+        /// nowhere, which is no dump at all.
+        /// </summary>
+        private static readonly String?  dumpsTo       = Environment.GetEnvironmentVariable("STATION_TESTS_DUMPS") is String to && to.Trim().Length > 0
+                                                             ? to.Trim()
+                                                             : null;
+
+        /// <summary>
+        /// From how long a wait of the thread pool on a dump is taken:
+        /// STATION_TESTS_DUMP_AFTER in seconds, or eight.
+        /// </summary>
+        private static readonly TimeSpan dumpAfter     = TimeSpan.FromSeconds(
+                                                             Double.TryParse(Environment.GetEnvironmentVariable("STATION_TESTS_DUMP_AFTER"),
+                                                                             System.Globalization.NumberStyles.Float,
+                                                                             System.Globalization.CultureInfo.InvariantCulture,
+                                                                             out var after) && after > 0
+                                                                 ? after
+                                                                 : 8
+                                                         );
+
+        /// <summary>
+        /// Dumps are large: two a run at most.
+        /// </summary>
+        private const           Int32    MaxDumps      = 2;
+
+        private static Int32   dumpsTaken;
         private static Int64   handedOverAt   = -1;
 
         #endregion
@@ -258,7 +295,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                             $"and the garbage collector held everything for {Seconds(GC.GetTotalPauseDuration() - Followed.GCPaused)}.");
 
             text.AppendLine($"  Now: {ThreadPool.ThreadCount} threads in the pool ({maxWorkers - workers} busy, {maxPorts - ports} on I/O, at least {minWorkers}), " +
-                            $"{ThreadPool.PendingWorkItemCount} items waiting, {Environment.ProcessorCount} processors, {Process.GetCurrentProcess().Threads.Count} threads in the process.");
+                            $"{ThreadPool.PendingWorkItemCount} items waiting, {Environment.ProcessorCount} processors, {Process.GetCurrentProcess().Threads.Count} threads in the process, " +
+                            $"{Timer.ActiveCount} timers alive, {GC.GetTotalMemory(false) / (1024 * 1024)} MiB on the heap.");
 
             var told      = Followed.Told.ToArray();
             var last      = Followed.Started;
@@ -308,6 +346,135 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region (private) Dump(PoolWait)
+
+        /// <summary>
+        /// A dump of this process with its heap, into the directory
+        /// STATION_TESTS_DUMPS names; and which tests were running then, said
+        /// on the error output.
+        /// </summary>
+        /// <remarks>
+        /// Asked of the runtime over its diagnostic IPC channel, as dotnet-dump
+        /// asks it: the createdump beside the runtime takes no process id any
+        /// more, and dotnet-dump is no tool a runner of the CI has.
+        /// </remarks>
+        private static void Dump(TimeSpan PoolWait)
+        {
+
+            try
+            {
+
+                Directory.CreateDirectory(dumpsTo!);
+
+                var file  = Path.Combine(dumpsTo!, $"starved-{dumpsTaken}-{(Int32) PoolWait.TotalSeconds}s-{Environment.ProcessId}.dmp");
+                var said  = AskForADump(file);
+
+                Console.Error.WriteLine($"[where the time went] The thread pool kept something waiting {Seconds(PoolWait)}: " +
+                                        $"{(File.Exists(file) ? $"dumped to {file}" : $"no dump: {said}")}; " +
+                                        $"running then: {String.Join(", ", running.Keys)}.");
+
+            }
+            catch (Exception e)
+            {
+                Console.Error.WriteLine($"[where the time went] No dump of a starved thread pool: {e.Message}");
+            }
+
+        }
+
+        #endregion
+
+        #region (private) AskForADump(File)
+
+        /// <summary>
+        /// Ask the runtime of this process for a dump with its heap, over the
+        /// diagnostic IPC channel: the message GenerateCoreDump (command set 1,
+        /// command 1) with the file, the kind of dump (2, with its heap) and no
+        /// flags. Says what the runtime answered.
+        /// </summary>
+        private static String AskForADump(String File)
+        {
+
+            using var channel = OpenDiagnosticChannel();
+
+            if (channel is null)
+                return "the diagnostic channel of the runtime was not found";
+
+            var name     = System.Text.Encoding.Unicode.GetBytes(File + "\0");
+            var payload  = new List<Byte>();
+
+            payload.AddRange(BitConverter.GetBytes((UInt32) (name.Length / 2)));
+            payload.AddRange(name);
+            payload.AddRange(BitConverter.GetBytes((UInt32) 2));    // with its heap
+            payload.AddRange(BitConverter.GetBytes((UInt32) 0));    // no flags
+
+            var message  = new List<Byte>();
+
+            message.AddRange(System.Text.Encoding.ASCII.GetBytes("DOTNET_IPC_V1\0"));
+            message.AddRange(BitConverter.GetBytes((UInt16) (20 + payload.Count)));
+            message.Add(0x01);                                      // the dump commands
+            message.Add(0x01);                                      // GenerateCoreDump
+            message.AddRange(BitConverter.GetBytes((UInt16) 0));
+            message.AddRange(payload);
+
+            channel.Write([.. message]);
+            channel.Flush();
+
+            var answer   = new Byte[24];
+            var read     = 0;
+
+            while (read < answer.Length)
+            {
+                var got = channel.Read(answer, read, answer.Length - read);
+                if (got <= 0) break;
+                read += got;
+            }
+
+            if (read < 20)
+                return $"the runtime answered {read} bytes";
+
+            var hresult  = read >= 24 ? BitConverter.ToUInt32(answer, 20) : 0;
+
+            return answer[17] == 0x00
+                       ? "the runtime said it was done"
+                       : $"the runtime refused: 0x{hresult:X8}";
+
+        }
+
+        /// <summary>
+        /// The diagnostic IPC channel of the runtime of this process: a named
+        /// pipe on Windows, a Unix socket in the temporary directory elsewhere.
+        /// </summary>
+        private static Stream? OpenDiagnosticChannel()
+        {
+
+            var id = Environment.ProcessId;
+
+            if (OperatingSystem.IsWindows())
+            {
+                var pipe = new System.IO.Pipes.NamedPipeClientStream(".", $"dotnet-diagnostic-{id}", System.IO.Pipes.PipeDirection.InOut);
+                pipe.Connect(10_000);
+                return pipe;
+            }
+
+            var socketFile = Directory.GetFiles(Environment.GetEnvironmentVariable("TMPDIR") is String tmp && tmp.Length > 0 ? tmp : "/tmp",
+                                                $"dotnet-diagnostic-{id}-*-socket").
+                                       FirstOrDefault();
+
+            if (socketFile is null)
+                return null;
+
+            var socket = new System.Net.Sockets.Socket(System.Net.Sockets.AddressFamily.Unix,
+                                                       System.Net.Sockets.SocketType.Stream,
+                                                       System.Net.Sockets.ProtocolType.Unspecified);
+
+            socket.Connect(new System.Net.Sockets.UnixDomainSocketEndPoint(socketFile));
+
+            return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+
+        }
+
+        #endregion
+
         #region (private) Watch()
 
         /// <summary>
@@ -349,6 +516,14 @@ namespace cloud.charging.open.ChargingStation.Tests
                             poolWait = now - TimeSpan.FromTicks(handedOver);
 
                         seen.Enqueue((now, poolWait, overslept > TimeSpan.Zero ? overslept : TimeSpan.Zero));
+
+                        if (dumpsTo is not null && poolWait >= dumpAfter && dumpsTaken < MaxDumps)
+                        {
+                            dumpsTaken++;
+                            Dump(poolWait);
+                            // The next one for a wait that began after this one.
+                            Interlocked.Exchange(ref handedOverAt, -1);
+                        }
 
                         // Twenty minutes of it, and no more.
                         while (seen.Count > 12_000)
