@@ -919,14 +919,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ANoPinAndNoTrustOnFirstUseIsNotDialled()
+        #region ANoPinAndNoTrustOnFirstUseIsNotConnected()
 
         /// <summary>
         /// A connection that pins nothing and does not trust on first use is
-        /// not dialled at all: nothing would say which server to believe.
+        /// not connected at all - nothing is tried: nothing would say which server to believe.
         /// </summary>
         [Test]
-        public async Task ANoPinAndNoTrustOnFirstUseIsNotDialled()
+        public async Task ANoPinAndNoTrustOnFirstUseIsNotConnected()
         {
 
             Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
@@ -936,7 +936,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Start();
 
             Assert.Multiple(() => {
-                Assert.That(station.ConnectionStates[id!].Status,  Is.EqualTo(ConnectionStatus.NotDialled), SaidOf(id!));
+                Assert.That(station.ConnectionStates[id!].Status,  Is.EqualTo(ConnectionStatus.NotConnected), SaidOf(id!));
                 Assert.That(SaidOf(id!),                            Does.Contain("pins no host key and does not trust on first use"));
                 Assert.That(csms!.Logins,                           Is.Empty);
             });

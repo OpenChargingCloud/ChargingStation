@@ -725,7 +725,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => SaidOf(id).Contains("requires a raw public key"), "Turning away the server that shows a certificate", () => SaidOf(id));
 
             Assert.Multiple(() => {
-                Assert.That(station!.ConnectionStates[id].Status,  Is.Not.EqualTo(ConnectionStatus.NotDialled), SaidOf(id));
+                Assert.That(station!.ConnectionStates[id].Status,  Is.Not.EqualTo(ConnectionStatus.NotConnected), SaidOf(id));
                 Assert.That(IsConnected(id),                       Is.False, "a server that showed a certificate was believed");
                 Assert.That(SaidOf(id),                            Does.Contain("was not believed").And.Contain("presented a certificate"));
             });

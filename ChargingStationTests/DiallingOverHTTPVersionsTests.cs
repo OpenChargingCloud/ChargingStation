@@ -421,17 +421,17 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AOneTimePasswordToBeBoundIsNotDialledWhereTheVersionIsNotHTTP3(Named)
+        #region AOneTimePasswordToBeBoundIsNotConnectedWhereTheVersionIsNotHTTP3(Named)
 
         /// <summary>
         /// Left the choice of the version, or told HTTP/1.1 or HTTP/2, the
         /// connection may be, or is, one whose TLS exports nothing: it is not
-        /// dialled, and says that naming HTTP/3 would do.
+        /// connected - nothing is tried - and says that naming HTTP/3 would do.
         /// </summary>
         [TestCase(null)]
         [TestCase("1.1")]
         [TestCase("2")]
-        public async Task AOneTimePasswordToBeBoundIsNotDialledWhereTheVersionIsNotHTTP3(String? Named)
+        public async Task AOneTimePasswordToBeBoundIsNotConnectedWhereTheVersionIsNotHTTP3(String? Named)
         {
 
             // Nothing is asked of it, so it need not take HTTP/3 - whose UDP port
@@ -456,7 +456,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => SaidOf(id!) != "nothing yet", "Saying what came of it");
 
             Assert.Multiple(() => {
-                Assert.That(SaidOf(id!),       Does.StartWith("Not dialled"));
+                Assert.That(SaidOf(id!),       Does.StartWith("Not connected"));
                 Assert.That(SaidOf(id!),       Does.Contain("Name HTTP/3"));
                 Assert.That(csms!.OpenedOver,  Is.Empty);
             });
@@ -478,7 +478,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Start();
 
             await Until(() => station!.ConnectionStates.TryGetValue(id, out var state) &&
-                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotDialled,
+                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotConnected,
                         "Giving up", () => SaidOf(id));
 
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -519,7 +519,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Start();
 
             await Until(() => station!.ConnectionStates.TryGetValue(id, out var state) &&
-                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotDialled,
+                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotConnected,
                         "Giving up", () => SaidOf(id));
 
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -591,7 +591,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Start();
 
             await Until(() => station!.ConnectionStates.TryGetValue(id, out var state) &&
-                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotDialled,
+                              state.Status is not ConnectionStatus.Connected and not ConnectionStatus.NotConnected,
                         "Giving up", () => SaidOf(id));
 
             await Task.Delay(TimeSpan.FromSeconds(1));

@@ -881,9 +881,9 @@ shown among the others once it is.
 |---|---|
 | connected   | since when |
 | lost        | since when, tried again by itself, and which attempt comes next and when |
-| not reached | not connected since the start, and tried again by itself |
+| not reached | not reached since the start, and tried again by itself |
 | refused     | answered with something that means no - a 401, a 404, a host key not believed, an SSH login not taken - and not tried again |
-| not dialled | something it needs is missing here: the credentials it names, a certificate it can show |
+| not connected | not tried, for something it needs is missing here: the credentials it names, a certificate it can show |
 | failed      | dialling it went wrong in a way that says nothing about what comes next |
 
 **What it proves itself with** follows where it goes, as the URL is typed.
@@ -1003,7 +1003,7 @@ the back end has too and nobody else, so a password read off one connection is
 none on another. The TLS of QUIC exports that material and .NET's `SslStream`
 does not, so the password is bound on a connection that says `"httpVersion": "3"`
 and on no other: one that names HTTP/1.1 or HTTP/2, or leaves the choice to the
-server, is not dialled with such credentials and says so, where it is written
+server, is not connected with such credentials and says so, where it is written
 down and where it is dialled or tested. The back end has to verify the password
 as bound - a WebSocket server of this stack does, over HTTP/3.
 
