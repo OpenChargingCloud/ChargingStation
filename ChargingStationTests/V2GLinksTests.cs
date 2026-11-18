@@ -285,14 +285,20 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await SapHandshake.RunEvccSideAsync(stream, ProtocolVariant.Iso15118_2, mode: PowerMode.Ac, transport: TransportSecurity.None);
 
-                await Until(() => V2GOfEVSE(1)?["connection"]?.Value<String>("protocol") == "ISO 15118-2",
+                // Only into a "connection" that is an object: a JSON null's
+                // Value<String>("protocol") throws instead of giving null.
+                await Until(() => V2GOfEVSE(1)?["connection"] is JObject connection && connection.Value<String>("protocol") == "ISO 15118-2",
                             "what the vehicle and the station agreed on was not said");
 
                 await new Evcc2(stream, PowerMode.Ac, TimeProvider.System, new TaskAsyncDelay(), TimeSpan.FromSeconds(10)).RunAsync();
 
             }
 
+            // The link says how the session ended before it lets go of the
+            // vehicle's connection (Ended, then Disconnected once the stream is
+            // done with): both are waited for, or the one is seen without the other.
             await Until(() => V2GOfEVSE(1)?["lastSession"] is JObject, "how the session ended was not said");
+            await Until(() => V2GOfEVSE(1)?["connection"]?.Type == JTokenType.Null, "a vehicle that left is still said to be there");
 
             Assert.Multiple(() => {
                 Assert.That(V2GOfEVSE(1)!["lastSession"]!.Value<String>("protocol"),  Is.EqualTo("ISO 15118-2"));
