@@ -421,11 +421,20 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var before = first.Requests("Heartbeat").Length;
 
-            Assert.That(await Within(() => second!.Requests("Heartbeat").Length >= 2), Is.True,
-                        "the second back end, which accepted the station, gets no heartbeat");
+            // A heartbeat to each, waited for together: each comes within the 5 s
+            // asked for, and two to the second took 5 s more and said no more.
+            await Within(() => second!.Requests("Heartbeat").Length >= 1 &&
+                               first.  Requests("Heartbeat").Length >= before + 1);
 
-            Assert.That(first.Requests("Heartbeat").Length, Is.GreaterThanOrEqualTo(before + 1),
-                        "the first back end got no heartbeat any more once the second one was there");
+            Assert.Multiple(() => {
+
+                Assert.That(second!.Requests("Heartbeat").Length, Is.GreaterThanOrEqualTo(1),
+                            "the second back end, which accepted the station, gets no heartbeat");
+
+                Assert.That(first.Requests("Heartbeat").Length, Is.GreaterThanOrEqualTo(before + 1),
+                            "the first back end got no heartbeat any more once the second one was there");
+
+            });
 
         }
 

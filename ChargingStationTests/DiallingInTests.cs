@@ -338,7 +338,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheCSMSTheStationDials_StaysTheOneInCharge_WhenAnotherDialsIn()
         {
 
-            // The CSMS this station dials: it accepts the station and asks for a heartbeat every second.
+            // The CSMS this station dials: it accepts the station and asks for a heartbeat every 5 s,
+            // the shortest interval the station takes (ShortestHeartbeatInterval) - it used to ask
+            // for one every second, which the station made 5 s of all the same.
             var uplinkPort  = IPPort.Parse(TestPorts.Free());
             var heartbeats  = 0;
             var boots       = 0;
@@ -364,7 +366,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                         action == "BootNotification"
                                                             ? new JObject(new JProperty("status",       "Accepted"),
                                                                           new JProperty("currentTime",  DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
-                                                                          new JProperty("interval",     1))
+                                                                          new JProperty("interval",     5))
                                                             : action == "Heartbeat"
                                                                   ? new JObject(new JProperty("currentTime", DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")))
                                                                   : new JObject()).ToString(Formatting.None));
@@ -399,7 +401,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var before = Volatile.Read(ref heartbeats);
 
-                await Until(() => Volatile.Read(ref heartbeats) >= before + 2, "Heartbeats going on to the CSMS while another is in", Said);
+                // One is what says that they go on: two took 10 s more.
+                await Until(() => Volatile.Read(ref heartbeats) >= before + 1, "Heartbeats going on to the CSMS while another is in", Said);
 
                 // What it asks is answered all the same.
                 await second.Client.SendTextMessage(new JArray(2, "from-the-second-1", "GetLocalListVersion", new JObject()).ToString(Formatting.None));
@@ -421,7 +424,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Gone, it took the way to the CSMS with it neither.
             var after = Volatile.Read(ref heartbeats);
 
-            await Until(() => Volatile.Read(ref heartbeats) >= after + 2, "Heartbeats going on to the CSMS after the other one left", Said);
+            await Until(() => Volatile.Read(ref heartbeats) >= after + 1, "Heartbeats going on to the CSMS after the other one left", Said);
 
             Assert.That(StatusOf(dialled!), Is.EqualTo("connected"));
 
