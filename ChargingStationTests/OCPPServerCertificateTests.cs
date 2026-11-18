@@ -164,7 +164,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
             request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
 
-            using var issued = request.Create(Issuer, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), Guid.NewGuid().ToByteArray());
+            // Ending with its issuer at the latest: made a second after it, it
+            // would end a second after it, which is refused.
+            using var issued = request.Create(Issuer, DateTimeOffset.UtcNow.AddDays(-1), Earlier(DateTimeOffset.UtcNow.AddDays(300), Issuer.NotAfter), Guid.NewGuid().ToByteArray());
 
             var certificate  = issued.CopyWithPrivateKey(key);
 
@@ -173,6 +175,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             return certificate;
 
+        }
+
+        /// <summary>
+        /// The earlier of a moment and the end of a certificate.
+        /// </summary>
+        private static DateTimeOffset Earlier(DateTimeOffset Wanted, DateTime NotAfter)
+        {
+            var end = new DateTimeOffset(NotAfter.ToUniversalTime(), TimeSpan.Zero);
+            return Wanted < end ? Wanted : end;
         }
 
         /// <summary>

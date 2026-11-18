@@ -381,7 +381,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
             request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
 
-            using var issued = request.Create(Above, DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), Guid.NewGuid().ToByteArray());
+            // Ending with the CA above at the latest: made a second after it,
+            // it would end a second after it, which is refused.
+            var end          = new DateTimeOffset(Above.NotAfter.ToUniversalTime(), TimeSpan.Zero);
+            var wanted       = DateTimeOffset.UtcNow.AddDays(300);
+
+            using var issued = request.Create(Above, DateTimeOffset.UtcNow.AddDays(-1), wanted < end ? wanted : end, Guid.NewGuid().ToByteArray());
 
             var certificate  = issued.CopyWithPrivateKey(key);
 
