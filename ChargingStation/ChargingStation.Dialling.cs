@@ -98,6 +98,11 @@ namespace cloud.charging.open.ChargingStation
             if (registrations.TryGetValue(node, out var nodeRegistrations) &&
                 nodeRegistrations.ByConnection.TryRemove(Connection.Id, out var registration))
             {
+
+                // An answer on its way is taken as one to a registration gone.
+                lock (registration)
+                    registration.Gone = true;
+
                 StopTheHeartbeat(registration);
                 registration.Asking?.Cancel();
             }

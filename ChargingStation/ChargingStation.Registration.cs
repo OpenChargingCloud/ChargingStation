@@ -196,6 +196,13 @@ namespace cloud.charging.open.ChargingStation
             public Int32                    Asks         { get; set; }
 
             /// <summary>
+            /// Whether it was ended - its connection hung up - and is no longer
+            /// one of its node's: an answer taken after says nothing of how the
+            /// connection stands. Set and read under a lock of it.
+            /// </summary>
+            public Boolean                  Gone         { get; set; }
+
+            /// <summary>
             /// The heartbeat this station sends a back end other than the
             /// primary, which the node does not: cancelled when it changes.
             /// </summary>
@@ -226,6 +233,13 @@ namespace cloud.charging.open.ChargingStation
         public static readonly TimeSpan  ShortestHeartbeatInterval  = TimeSpan.FromSeconds(5);
 
         private readonly ConditionalWeakTable<AWWCPNetworkingNode, Registrations>  registrations  = new();
+
+        /// <summary>
+        /// For tests: awaited once a BootNotification over the given connection
+        /// was answered, before the answer is taken - to have something happen
+        /// in between that otherwise happens there only by chance.
+        /// </summary>
+        internal Func<ConnectionEntry, Task>? WhenABootNotificationIsAnswered { get; set; }
 
         private Boolean nodesBuiltBefore;
 
@@ -424,7 +438,7 @@ namespace cloud.charging.open.ChargingStation
             Boolean StillCounts()
             {
                 lock (Registration)
-                    return ask == Registration.Asks && !Registration.Ended.IsCancellationRequested;
+                    return ask == Registration.Asks && !Registration.Ended.IsCancellationRequested && !Registration.Gone;
             }
 
             try
@@ -465,6 +479,9 @@ namespace cloud.charging.open.ChargingStation
 
                 };
 
+                if (WhenABootNotificationIsAnswered is Func<ConnectionEntry, Task> hook)
+                    await hook(Registration.Connection);
+
                 if (!StillCounts())
                     return;
 
@@ -485,15 +502,24 @@ namespace cloud.charging.open.ChargingStation
 
                 var wait = interval > TimeSpan.Zero ? interval : DefaultRegistrationRetry;
 
-                Registration.State     = status == "Pending" ? RegistrationState.Pending : RegistrationState.Rejected;
-                Registration.Interval  = wait;
-
-                StopTheHeartbeat(Registration);
-
                 var what = $"{BackEndOf(Registration)} has not accepted this station's OCPP {Registration.Version} node yet ({status}); " +
                            $"it asks again in {wait.TotalSeconds:F0} s, and tells it nothing else until then.";
 
-                Note(Registration.Connection, $"Connected, but {what}");
+                // Ended since it was asked whether it still counts: not said.
+                lock (Registration)
+                {
+
+                    if (Registration.Gone)
+                        return;
+
+                    Registration.State     = status == "Pending" ? RegistrationState.Pending : RegistrationState.Rejected;
+                    Registration.Interval  = wait;
+
+                    Note(Registration.Connection, $"Connected, but {what}");
+
+                }
+
+                StopTheHeartbeat(Registration);
 
                 if (Registration.State == RegistrationState.Rejected)
                     Log.Warning($"Registering: {what}", "ocpp", "connections");
@@ -552,17 +578,28 @@ namespace cloud.charging.open.ChargingStation
                               TimeSpan             Interval)
         {
 
-            Registration.State     = RegistrationState.Accepted;
-            Registration.Interval  = Interval;
-
             var every = Interval >= ShortestHeartbeatInterval ? Interval : ShortestHeartbeatInterval;
 
             var what  = $"{BackEndOf(Registration)} accepted this station's OCPP {Registration.Version} node, " +
                         $"which sends it a heartbeat every {every.TotalSeconds:F0} s.";
 
-            Log.Notice($"Registering: {what}", "ocpp", "connections");
+            // Ended since it was asked whether it still counts - its connection
+            // hung up, an endpoint gone into reserve: it is not said to be
+            // connected, nor sent heartbeats.
+            lock (Registration)
+            {
 
-            Note(Registration.Connection, $"Connected; {what}");
+                if (Registration.Gone)
+                    return;
+
+                Registration.State     = RegistrationState.Accepted;
+                Registration.Interval  = Interval;
+
+                Log.Notice($"Registering: {what}", "ocpp", "connections");
+
+                Note(Registration.Connection, $"Connected; {what}");
+
+            }
 
             if (Registration.Primary)
             {

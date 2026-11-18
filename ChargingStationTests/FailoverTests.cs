@@ -314,6 +314,87 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region AnAnswerTakenAfterAnEndpointWentIntoReserveLeavesItThere()
+
+        /// <summary>
+        /// An endpoint that goes into reserve while the answer to its
+        /// BootNotification is being taken stays in reserve: the answer does
+        /// not say afterwards that it is connected.
+        /// </summary>
+        /// <remarks>
+        /// What happened by chance in a run of all tests: the answer was read
+        /// before the endpoint was hung up and taken after, and the endpoint
+        /// said "Connected" with nothing connected. Here the station holds the
+        /// answer until the endpoint is in reserve.
+        /// </remarks>
+        [Test]
+        public async Task AnAnswerTakenAfterAnEndpointWentIntoReserveLeavesItThere()
+        {
+
+            first   = new CSMS();
+            second  = new CSMS();
+
+            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{first.Port}/cs001", "CSMS", true, null, null,
+                                                              out var mainId, out var error, OCPPVersion: "OCPP2.1"),
+                        Is.True, error);
+
+            station = await TestStations.Started(station, directory);
+
+            Assert.That(await Within(() => Said(mainId!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(mainId!));
+
+            var held     = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            station.WhenABootNotificationIsAnswered = async connection => {
+                if (connection.Description == "Its spare")
+                {
+                    held.TrySetResult();
+                    await release.Task;
+                }
+            };
+
+            try
+            {
+
+                Assert.That(station.Connections.TryAddConnection("Its spare", $"ws://127.0.0.1:{second.Port}/cs001", "CSMS", true, null, null,
+                                                                 out var spareId, out error, OCPPVersion: "OCPP2.1"),
+                            Is.True, error);
+
+                Assert.That(await Within(() => held.Task.IsCompleted), Is.True,
+                            $"the spare's BootNotification was not answered: '{Said(spareId!)}'");
+
+                Assert.That(station.Connections.TryMoveEndpoint(spareId, station.Connections.PeerOf(mainId!)!.Id, null, out error), Is.True, error);
+
+                Assert.That(await Within(() => Status(spareId!) == ConnectionStatus.Standby && second.Connections == 0), Is.True,
+                            $"the endpoint added does not wait in reserve: '{Said(spareId!)}', {second.Connections} connection(s)");
+
+                // The answer is taken now - after the endpoint went into reserve.
+                release.TrySetResult();
+
+                var watch = Stopwatch.StartNew();
+
+                while (watch.Elapsed < TimeSpan.FromSeconds(1))
+                {
+
+                    Assert.That(Status(spareId!), Is.EqualTo(ConnectionStatus.Standby),
+                                $"an answer taken after the endpoint went into reserve says how it stands: '{Said(spareId!)}'");
+
+                    await Task.Delay(20);
+
+                }
+
+                Assert.That(first.Accepted, Is.EqualTo(1), "the connection that was up was dialled again");
+
+            }
+            finally
+            {
+                release.TrySetResult();
+            }
+
+        }
+
+        #endregion
+
 
         #region (private) OnePeerOfTwo(MainPort, SparePort)
 
