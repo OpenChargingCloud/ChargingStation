@@ -667,6 +667,39 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region LetGoOf_ItsOCPPNodesStopCleanly_ThoughItsServerWentFirst()
+
+        /// <summary>
+        /// A station that served OCPP and is let go of stops its OCPP server
+        /// first and its OCPP nodes after it. The server was the nodes', and a
+        /// node stops its servers: one that was let go of already could not be
+        /// stopped again, so that stopping the node failed there - "The
+        /// CancellationTokenSource has been disposed" - and left its SSH
+        /// servers and clients running. The server leaves its node first.
+        /// </summary>
+        [Test]
+        public async Task LetGoOf_ItsOCPPNodesStopCleanly_ThoughItsServerWentFirst()
+        {
+
+            station = await TestStations.Started(station!, directory);
+
+            Assert.That(Said("A CSMS or a local controller may dial this charging station"), Is.Not.Empty, "The OCPP server did not start.");
+
+            await station.DisposeAsync();
+            station = null;
+
+            Assert.That(Said("Stopping the OCPP node"), Is.Empty);
+
+        }
+
+        private String[] Said(String Part)
+        {
+            lock (said)
+                return [.. said.Where(message => message.Contains(Part))];
+        }
+
+        #endregion
+
     }
 
 }

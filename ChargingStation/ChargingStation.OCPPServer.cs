@@ -17,6 +17,7 @@
 
 #region Usings
 
+using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using System.Net.Security;
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
@@ -303,6 +304,20 @@ namespace cloud.charging.open.ChargingStation
 
         private async Task StoppedOCPPServer(OCPPWebSocketServer Server)
         {
+
+            // Out of the node it was attached to first - or of the node that
+            // node was replaced by a change of the EVSEs with. A node stops
+            // its servers when it is stopped, and one that was let go of here
+            // cannot be stopped: the node's stop failed there, and left its
+            // SSH servers and clients as they were.
+            AWWCPNetworkingNode[] nodes;
+
+            lock (replacedNodes)
+                nodes = [.. replacedNodes, cs01, cs02];
+
+            foreach (var node in nodes)
+                node.DetachWebSocketServer(Server);
+
             try
             {
                 await Server.DisposeAsync();
