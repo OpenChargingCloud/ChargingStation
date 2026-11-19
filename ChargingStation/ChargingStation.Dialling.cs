@@ -51,63 +51,29 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region OCPPDialling / Nodes
-
-        /// <summary>
-        /// What OCPP says of the connections of this node.
-        /// </summary>
-        public OCPPDialling OCPPDialling
-            => (OCPPDialling) Dialling;
-
-        /// <summary>
-        /// The OCPP nodes this one has: the one for OCPP 2.1, and before it
-        /// the one for OCPP 1.6 where it speaks that.
-        /// </summary>
-        protected IEnumerable<cloud.charging.open.protocols.OCPP.NetworkingNode.AOCPPNetworkingNode> Nodes
-            => OCPPDialling.Nodes;
-
-        #endregion
-
-        #region Node16 / Node21
+        #region Node16 / Node21 / NewOCPPDialling()
 
         /// <summary>
         /// The node that speaks OCPP 1.6 for this station.
         /// </summary>
-        protected OCPPv1_6.NetworkingNode.AOCPPNetworkingNode? Node16
+        protected override OCPPv1_6.NetworkingNode.AOCPPNetworkingNode? Node16
             => cs01;
 
         /// <summary>
         /// The node that speaks OCPP 2.1 for this station.
         /// </summary>
-        protected OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node21
+        protected override OCPPv2_1.NetworkingNode.AOCPPNetworkingNode Node21
             => cs02;
 
-        #endregion
-
-        #region (protected override) EndRegistrationOf(Connection)
-
         /// <summary>
-        /// Nothing more is asked of the back end over the given connection, nor
-        /// waited for: no BootNotification, no heartbeat.
+        /// OCPP as every node that dials over it speaks it, with the Device
+        /// Model of this station's OCPP 2.1 node: asked for once, before
+        /// anything of its connections is, and its OCPP nodes whenever they
+        /// are needed.
         /// </summary>
-        protected override void EndRegistrationOf(ConnectionEntry Connection)
-        {
+        protected override OCPPDialling NewOCPPDialling()
 
-            AWWCPNetworkingNode node = Connection.OCPPVersion == OCPPVersion.OCPP1_6 ? cs01 : cs02;
-
-            if (registrations.TryGetValue(node, out var nodeRegistrations) &&
-                nodeRegistrations.ByConnection.TryRemove(Connection.Id, out var registration))
-            {
-
-                // An answer on its way is taken as one to a registration gone.
-                lock (registration)
-                    registration.Gone = true;
-
-                StopTheHeartbeat(registration);
-                registration.Asking?.Cancel();
-            }
-
-        }
+            => new StationDialling(this);
 
         #endregion
 

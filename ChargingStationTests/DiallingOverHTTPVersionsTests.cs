@@ -381,7 +381,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             ACSMS(AcceptHTTP2: true, AcceptHTTP3: true);
 
             csms!.Server.RequireAuthentication      = true;
-            csms. Server.ClientTOTPConfig["cs001"]  = new TOTPConfig(secret, UseTLSExporterMaterial: true);
+            csms. Server.ClientTOTPConfig["cs001"]  = new TOTPConfig(secret, TLSChannelBinding: true);
 
             var sent = new ConcurrentQueue<HTTPTOTPAuthentication>();
 
@@ -391,7 +391,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 return Task.CompletedTask;
             };
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", secret,
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, "CSMS one-time password",
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
@@ -412,8 +412,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var (before, now, next, _, _) = TOTPGenerator.GenerateTOTPs(secret);
 
             Assert.Multiple(() => {
-                Assert.That(csms!.OpenedOver,   Is.EqualTo(new[] { HTTPVersion.HTTP_3_0 }));
-                Assert.That(sent.First().Type,  Is.EqualTo(TOTPHTTPHeaderType.TLSChannelBinding),  "the password does not say it is bound");
+                Assert.That(csms!.OpenedOver,             Is.EqualTo([ HTTPVersion.HTTP_3_0 ]));
                 Assert.That(new[] { before, now, next },  Has.None.EqualTo(sent.First().TOTP),     "the password sent as bound is the unbound one");
             });
 
@@ -438,7 +437,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // is not always there to have.
             ACSMS(AcceptHTTP2: true);
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", "0123456789abcdefghijklmnopqrstuv",
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", "0123456789abcdefghijklmnopqrstuv", "CSMS one-time password",
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);

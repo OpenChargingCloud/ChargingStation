@@ -39,10 +39,10 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Logo">A URL to the operator's logo, or a data: URI holding it.</param>
     /// <param name="Language">What the display speaks, e.g. "de".</param>
     /// <param name="EMPs">The e-mobility providers whose cards this station recognises.</param>
-    public sealed record OperatorConfiguration(String?                           Name       = null,
-                                               String?                           Logo       = null,
-                                               String?                           Language   = null,
-                                               IReadOnlyList<EMobilityProvider>? EMPs       = null)
+    public sealed record OperatorConfiguration(String?                            Name       = null,
+                                               String?                            Logo       = null,
+                                               String?                            Language   = null,
+                                               IReadOnlyList<EMobilityProvider>?  EMPs       = null)
     {
 
         #region Data

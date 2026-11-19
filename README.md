@@ -413,7 +413,7 @@ interface will not delete the part it did not understand.
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
-| `/configuration/ocpp-server` | the OCPP server a CSMS or a local controller dials, where the station cannot dial them: on or off, its ports, where the other end dials and who is in |
+| `/configuration/ocpp-server` | the station port a CSMS or a local controller dials, where the station cannot dial them - the routes every node that serves OCPP has, with its WebSocket logins (`/logins`) and the chains it accepts (`/trust`) |
 | `/configuration/connections` | where the station dials - and who dials it, where **The other end dials** is ticked -, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
 | `/configuration/client-identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
@@ -1129,8 +1129,9 @@ of each connection: the last part of the address it dials.
 
 ### Commissioning over SSH
 
-A commissioning tool may speak OCPP 2.1 to the station on the node's SSH
-server, where the `commissioning` section switches it on:
+A commissioning tool may speak OCPP to the station on the node's SSH server,
+where the `commissioning` section switches it on - as to a local controller, a
+gateway or a CSMS of WWCP_OCPP, whose serving node it is part of:
 
 ```json
 "commissioning": { "enabled": true }
@@ -1143,16 +1144,17 @@ connected; switched off, every tool connected is let go of:
     GET  /api/v1/configuration/commissioning
     {"enabled": true, "served": true, "sshServer": true, "url": "ssh://127.0.0.1:22348",
      "hostKey": "ssh-ed25519 SHA256:...", "subsystem": "ocpp@open.charging.cloud",
-     "subprotocols": ["ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor"], "station": "test02",
+     "subprotocols": ["ocpp2.1", "ocpp2.0.1", "ocpp2.1cbor", "ocpp1.6", "ocpp1.6cbor"], "node": "test02",
      "permission": "commissioning:run", "tools": ["installer"], ...}
     PUT  /api/v1/configuration/commissioning    {"enabled": false}
 
 The tool signs in as an account of the station with its own key and asks for
 the subsystem `ocpp@open.charging.cloud`, which only an account that may run
-`commissioning` gets. The OCPP 2.1 node answers it, as the CSMS would be. A
-tool that offers `ocpp2.1cbor` in its HELLO speaks OCPP 2.1 as CBOR, in the
-binary messages of the subsystem; one that offers `ocpp2.1` is spoken to in
-JSON, as before.
+`commissioning` gets - the installer and the system administrator. The node
+of the version its HELLO chose answers it, as the CSMS would be: OCPP 2.1 or
+2.0.1, or OCPP 1.6. A tool that offers `ocpp2.1cbor` in its HELLO speaks OCPP
+2.1 as CBOR, in the binary messages of the subsystem; one that offers `ocpp2.1`
+is spoken to in JSON, as before.
 
 It is a networking node of its own, named after its account - not the CSMS.
 A route is one per destination, and the newest connection takes it: a tool
@@ -1165,76 +1167,92 @@ account named like the CSMS or like the station.
 
 Without a destination on the wire, a request that comes in over a connection
 somebody else made is sent on to the CSMS - what a local controller does with
-its stations' requests. A station has nothing below it, so its OCPP 2.1 node
-takes the CSMS's name as one of its own: a request from a tool is for the
-station.
+its stations' requests. A tool's connection is read as the station's line up
+instead, as one the station dialled: what the tool asks is for the station.
 
-OCPP 1.6 is not served this way: a subsystem has one handler, and the HELLO
-that says which version a tool speaks is read by the message server itself, so
-one name could not lead to either node.
+The subsystem is one, with one handler, and who signed in says what comes: an
+account is a tool, a WebSocket login with an SSH key a charging station - which
+a station does not serve, so on a station the subsystem is the tools' alone.
 
-### The OCPP server: a back end that dials the station
+### The station port: a back end that dials the station
 
 Where the station cannot dial its CSMS or its local controller - behind a
 firewall that lets nothing out, on a network only the back end reaches - the
 back end dials the station. OCPP stays as it is: the station is the charging
 station, says that it started and is asked; only who opens the WebSocket is
-the other way round. The `ocppServer` section switches it on:
+the other way round. The `webSocketServer` section switches it on:
 
 ```json
-"ocppServer": { "enabled": true, "port": 9443, "port16": 9444 }
+"webSocketServer": { "enabled": true, "port": 9443 }
 ```
 
-Off where the file says nothing. `port` serves OCPP 2.1 and 2.0.1 (JSON, and
-CBOR for whoever offers `ocpp2.1cbor`), `port16` OCPP 1.6: the station is two
-OCPP nodes, and a port is one's. A version without a port is not served.
+Off where the file says nothing. `port` serves every version of OCPP: the
+station is two OCPP nodes, and the port hands each WebSocket by the
+subprotocol it asks for to the node of OCPP 2.1 and 2.0.1 (JSON, and CBOR for
+whoever offers `ocpp2.1cbor`) or to the node of OCPP 1.6. A port of its own for
+OCPP 1.6, `port16`, is no more, and refused where a file still names it.
 
-The section is the one a local controller and a gateway have, WWCP_OCPP_Node's
-`OCPPServerConfiguration`: they read more of it - the interface, the security
-profiles, the versions on offer - and have one port for every version, so
-`port16` is a station's alone. A station reads `enabled`, `port`, `port16` and
-`http3`, and refuses any other field.
+The station is an `OCPPServingNode` of WWCP_OCPP_Node, as a local controller,
+a gateway and a CSMS are, and its station port is theirs: the whole section
+`WebSocketServerConfiguration` - the interface, how a client may authenticate
+(`clientAuthentication`), the subprotocols on offer, the TLS versions, the
+logging - and the same pages, Station port, WebSocket logins and Accepted
+chains. Where the file names no port it is 2351. What a station does not do of
+it: it serves no charging stations, so a WebSocket under a name no connection
+the other end makes is written down under is turned away; and it serves no
+OCPP over SSH (`ssh` of the section is passed over), as its subsystem
+`ocpp@open.charging.cloud` is the tools' that commission it.
 
 ```json
-"ocppServer": { "enabled": true, "port": 9443, "http3": true }
+"webSocketServer": { "enabled": true, "port": 9443, "http3": true }
 ```
 
 `http3` takes WebSockets over HTTP/3 as well, beside HTTP/1.1 and HTTP/2. Off
 where the file says nothing: HTTP/3 is QUIC, and opens a **UDP** port of the
-same number beside each TCP port - 9443/udp here -, which a firewall has to
-let through as well. It needs TLS, so HTTPS switched on; without, the server
-is served over TCP as before and the page says why not over HTTP/3. It is what
+same number beside the TCP port - 9443/udp here -, which a firewall has to
+let through as well. It needs TLS, so a certificate of the station port (see
+**TLS** below); without, the server is served over TCP as before and the page
+says why not over HTTP/3. It is what
 a one-time password bound to its TLS session is checked over (see "Who gets
 in" below).
 
-`/configuration/ocpp-server` switches it on and off and changes the ports and
-HTTP/3 at once, without a restart, and says where the other end dials and who
-is in:
+`/configuration/ocpp-server` switches it and HTTP/3 on and off at once,
+without a restart; the port, the interface and the subprotocols wait for the
+next start, which `state.waitingForARestart` says. Beside what every node that
+serves OCPP says of its station port, a station says who dialled in and is
+connected, and the connections the other end makes:
 
     GET  /api/v1/configuration/ocpp-server
-    {"enabled": true, "tls": true, "http3": true,
-     "servers": [{"ocppVersion": "OCPP2.1", "port": 9443, "served": true,
-                  "url": "wss://0.0.0.0:9443/", "connected": ["csms-01"], "http3Port": 9443},
-                 {"ocppVersion": "OCPP1.6", "port": null, "served": false, "url": null, "connected": []}],
-     "inbound": [{"id": "...", "description": "The CSMS", "name": "csms-01",
-                  "ocppVersion": "OCPP2.1", "letIn": true}], ...}
-    PUT  /api/v1/configuration/ocpp-server    {"enabled": true, "port": 9443, "port16": null, "http3": true}
+    {"enabled": true, "port": 9443, "http3": true, "clientAuthentication": [...], ...,
+     "state": {"running": true, "tls": true, "url": "wss://0.0.0.0:9443", "http3Port": 9443,
+               "http3Problem": null, "connected": ["csms-01"],
+               "inbound": [{"id": "...", "description": "The CSMS", "name": "csms-01",
+                            "ocppVersion": "OCPP2.1", "letIn": true}], ...}}
+    PUT  /api/v1/configuration/ocpp-server    {"enabled": true, "http3": true}
 
-`http3Port` is the UDP port a server takes WebSockets over HTTP/3 on now, null
-where it takes none; `http3Problem` says why not where the file asks for it. A
-PUT that says nothing of `http3` switches it off.
+`http3Port` is the UDP port the port takes WebSockets over HTTP/3 on now, null
+where it takes none; `http3Problem` says why not where the file asks for it.
 
 Whoever may change the connections may change this (`connections:edit`).
 
-**Who gets in.** Nothing that is not written down. On the Connections page a
-connection is written down with **The other end dials** ticked: its URL is the
-one the back end dials - `wss://station.example.org:9443/csms-01` - and the
-last part of it the name the back end comes under; the credentials it names
-are what the back end signs in with, a login of that name with a password
-(HTTP Basic) or a TOTP secret. "Connect by itself" is what lets it in: off,
-nothing comes in under its name, and one that is in is let go of. A name that
-is not written down, a wrong password, a name other than the login's - all
-are answered 401; an address that signs in wrong ten times within a minute is
+**Who gets in.** Nothing that is not written down, and it signs in as whoever
+signs in at a station port does: with a **WebSocket login**. On the Connections
+page a connection is written down with **The other end dials** ticked: its URL
+is the one the back end dials - `wss://station.example.org:9443/csms-01` - and
+the last part of it the name the back end comes under. That name is the name
+of its WebSocket login, on the WebSocket logins page
+(`/api/v1/configuration/ocpp-server/logins`), and the login says what it signs
+in with: a password (HTTP Basic), a TOTP secret, a key pin of its client
+certificate - and its login group which of them, over which ways of client
+authentication. The connection names nothing it signs in with: credentials of
+the station, key pins and roots on it are refused, in the file as on the page,
+and say what to do instead - they are what the station proves itself with, and
+holds a server to, where it dials. "Connect by itself" is what lets it in: off,
+nothing comes in under its name, and one that is in is let go of, as it is
+when its login goes or is switched off. A name that is not written down, a
+wrong password, a name other than the login's, a login with no connection the
+other end makes under its name - all are answered 401: a station serves no
+charging stations. An address that signs in wrong ten times within a minute is
 answered 429 until the minute is over, the right password included. The names
 `CSMS` and `CentralSystem` are the station's own to say what it says by, and
 nothing comes in under them.
@@ -1242,41 +1260,23 @@ nothing comes in under them.
 A one-time password may be bound to the TLS session it is sent over, so that
 one read on the way opens nothing anywhere else. Only the TLS of HTTP/3 hands
 out what such a password is checked with: the back end is let in where the
-server takes HTTP/3 (`"http3": true`) and the back end opens its WebSocket over
-it, and nowhere else. Where the server takes none, the connection is not
-waited for: the page says that it can not sign in, and why.
+port takes HTTP/3 (`"http3": true`) and the back end opens its WebSocket over
+it, and nowhere else. Where the port takes none, the connection is not waited
+for: the page says that it can not sign in, and why.
 
-**With a client certificate instead.** A connection the other end makes may
-name, in place of credentials, what the client certificate of the back end is
-held to - one or the other, never both:
-
-- **the pin of its key** (`clientKeyPins`): the key is what is known, and what
-  is written around it - the common name, the dates, who issued it - is not
-  looked at. For a back end without a CA behind it. The key opens the
-  connection that pins it and nothing else.
-- **its CA** (`clientPins`): the roots, or the group of roots of the
-  certificate store, its chain has to end at. The certificate has to be issued
-  to the name the back end comes under - its common name is the last part of
-  the URL -, be valid, and is asked whether it is revoked as a server's is.
-
-A certificate issued by a CA below such a root - one, or several, one below
-the other - is checked either way: the back end sends the certificates of
-those CAs beside its own, and the station builds the whole chain with them
-without ever having seen them; or the back end shows its certificate alone,
-and the station knows the CAs between already - kept in its certificate store
-as **issuing CAs** (`tlsIntermediate`, on the Certificates page or with
-`--import-certificate tlsIntermediate=<file>`). An issuing CA kept there helps
-to build a chain and is believed nothing: the chain still has to end at a root
-the connection is held to, so one below another root opens nothing.
-
-The server asks for a client certificate at the TLS handshake and insists on
-none: who signs in with a password shows none. A certificate no connection
-signs in with is refused at the handshake, and one that is shown opens the
-connection it belongs to and no other - not another name, not a connection
-that names a password, and not the connection of the same name of the other
-version of OCPP. It needs TLS, so HTTPS switched on: without, nobody is asked
-for a certificate, and the page says of such a connection that it can not sign
-in.
+**With a client certificate.** By the pin of its key, on its WebSocket login:
+the key is what is known, and what is written around it - the common name, the
+dates, who issued it - is not looked at; it opens the login that pins it, on
+its own path, and nothing else. Or by its CA: a certificate issued to the name
+the back end comes under, of a chain the station port accepts - the Accepted
+chains page (`/api/v1/configuration/ocpp-server/trust`) -, with or without a
+login of that name, as for a charging station at any other station port; a
+login it has decides by its group, and one with key pins is let in by them
+alone. The back end may send the CAs between its certificate and the root
+beside it, or the station port keeps them with the chain it accepts. A
+certificate no connection the other end makes signs in with is refused at the
+handshake. It needs TLS: without, nobody shows a certificate, and the page says
+of a connection without a login that it can not sign in.
 
 **What it is, once in.** One of the station's connections, like one it
 dialled. The page shows it as *waiting* until the back end dials and as
@@ -1288,19 +1288,19 @@ dialled earlier is registered with and answered, and is told nothing of what
 the station says to its CSMS. When it goes, its routes go with it, and it is
 waited for again.
 
-**TLS.** The server shows the certificate of the web interface, where that
-speaks HTTPS (`"web": { "tls": ... }`, or `--https`), and speaks no TLS where
-it does not - which the log and the page say, since a password then crosses
-the network in the clear.
+**TLS.** The station port shows a TLS server identity of the station's
+certificate store for the listener `ocpp` - one told no listener is every
+listener's - or the carrier of a server key of it, made on the Server
+identities page; not the web interface's for being the web interface's. It
+speaks TLS where `clientAuthentication` names a way over TLS and there is such
+a certificate, from the start on, and no TLS otherwise - which the log and the
+page say, since a password then crosses the network in the clear.
 
 **Nothing is forwarded.** A request that comes in is for the station. One
 addressed to anything else is dropped, or refused where it wants an answer:
 what a local controller does with the requests of the stations below it is
 not a charging station's to do.
 
-Not there yet: a client certificate as what a back end signs in with, and a
-TOTP bound to its TLS session - credentials that say so are refused for a
-connection the other end makes.
 
 ### Certificates
 

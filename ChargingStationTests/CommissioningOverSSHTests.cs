@@ -37,6 +37,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.ChargingStation.Configuration;
+using cloud.charging.open.protocols.OCPP.Node.Serving;
 
 #endregion
 
@@ -488,7 +489,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.CommissioningTools.Select(id => id.ToString()), Is.EqualTo(new[] { Root }),
                             "The tool is not known by its account's name.");
 
-                Assert.That(station.SSHSessions.Any(session => session.Account == Root && session.Label == ChargingStation.CommissioningLabel), Is.True,
+                Assert.That(station.SSHSessions.Any(session => session.Account == Root && session.Label == ChargingStation.OCPPOverSSHLabel), Is.True,
                             "The SSH server does not say what the session is for.");
 
             });
@@ -713,7 +714,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(json["served"]?.Value<Boolean>(), Is.True);
                 Assert.That(json["url"]?.Value<String>(),      Is.EqualTo(station.SSHURL));
-                Assert.That(json["station"]?.Value<String>(),  Is.EqualTo("test02"));
+                Assert.That(json["node"]?.Value<String>(),     Is.EqualTo("test02"));
                 Assert.That(json["permission"]?.Value<String>(), Is.EqualTo("commissioning:run"));
                 Assert.That(json["tools"]?.Values<String>(),   Is.EqualTo(new[] { Root }));
                 Assert.That(JObject.Parse(File.ReadAllText(station.ConfigFile.Path))["commissioning"]?["enabled"]?.Value<Boolean>(), Is.True,

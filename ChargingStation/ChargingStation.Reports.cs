@@ -31,6 +31,8 @@ using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.Kiosk;
 
+using cloud.charging.open.protocols.OCPP.Node;
+
 #endregion
 
 namespace cloud.charging.open.ChargingStation

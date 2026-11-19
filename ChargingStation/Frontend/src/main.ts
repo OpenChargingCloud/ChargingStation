@@ -19,14 +19,23 @@ import { evsesPage }           from './pages/evses';
 import { metersPage }          from './pages/meters';
 import { rfidPage }            from './pages/rfid';
 import { nameplatePage }       from './pages/nameplate';
-import { commissioningPage }   from './pages/commissioning';
-import { ocppServerPage }      from './pages/ocppServer';
+import { commissioningPage }   from '@ocpp/pages/commissioning';
+import { ocppServerPage }      from '@ocpp/pages/ocppServer';
+import { stationLoginsPage }   from '@ocpp/pages/stationLogins';
+import { clientTrustPage }     from '@ocpp/pages/clientTrust';
 import { sshKeysSection }      from '@ocpp/sshKeys';
 import { connectionsPage }     from '@ocpp/pages/connections';
+import { setStationsResource } from '@ocpp/settings';
 import { requestTabId }        from '@node/certificateRequests';
 import { signerRolesPage }     from './pages/signerRoles';
 import { calibrationPage }     from './pages/calibration';
 import { evseStatusPage }      from './pages/evseStatus';
+
+// The station port, its WebSocket logins and the chains it accepts are the
+// pages every node that serves OCPP has: here whoever may read or change the
+// connections may read or change them - who may change where this station
+// dials may change who dials it.
+setStationsResource('connections');
 
 // What a charging station has pages for beside what every node has: the
 // vehicle below the cable, what it may draw, the screen on its front, its
@@ -79,7 +88,11 @@ startNode({
         // And who it is where it dials over ssh://: the keys it signs in
         // with, which are no certificates and stand among what it presents
         // all the same.
-        sections: context => [ sshKeysSection(context) ]
+        sections: context => [ sshKeysSection(context) ],
+
+        // The station port's server keys, on Server identities: offered there
+        // before it has one.
+        serverKeyListeners: [ 'ocpp' ]
 
     },
 
@@ -94,7 +107,9 @@ startNode({
         '/configuration/nameplate':       nameplatePage,
         '/configuration/commissioning':   commissioningPage,
         '/configuration/connections':     connectionsPage,
-        '/configuration/ocpp-server':     ocppServerPage,
+        '/configuration/ocpp-server':         ocppServerPage,
+        '/configuration/ocpp-server/logins':  stationLoginsPage,
+        '/configuration/ocpp-server/trust':   clientTrustPage,
         // Where the credentials were while they had a page of their own:
         // they are a tab of the connections, which is where they are used.
         '/configuration/authentication':  movedTo('/configuration/connections?tab=credentials', 'Connections'),

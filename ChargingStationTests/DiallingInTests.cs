@@ -68,14 +68,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             directory  = TestStations.TemporaryDirectory("dialling-in");
             port       = IPPort.Parse(TestPorts.Free());
-            port16     = IPPort.Parse(TestPorts.Free());
+            // OCPP 1.6 on the same port: the subprotocol it asks for decides.
+            port16     = port;
 
             var configuration = TestStations.Offline;
 
-            configuration.Add("ocppServer", new JObject(
+            configuration.Add("webSocketServer", new JObject(
                                                 new JProperty("enabled", true),
-                                                new JProperty("port",    port.ToUInt16()),
-                                                new JProperty("port16",  port16.ToUInt16())
+                                                new JProperty("port",    port.ToUInt16())
                                             ));
 
             station    = TestStations.New(directory, configuration);
@@ -108,17 +108,16 @@ namespace cloud.charging.open.ChargingStation.Tests
             => Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
 
         /// <summary>
-        /// The connection the CSMS makes, written down with the password it
-        /// signs in with.
+        /// The connection the CSMS makes, written down, and the WebSocket
+        /// login of its name with the password it signs in with.
         /// </summary>
         private String WrittenDown(String Password, Boolean LetIn = true)
         {
 
-            Assert.That(station!.Connections.TryAddAuthentication("What the CSMS signs in with", "basic", Name, Password,
-                                                                  out var login, out var error),
+            Assert.That(station!.WebSocketLogins.TrySetPassword(Name, Password, null, "What the CSMS signs in with", out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", LetIn, login, null,
+            Assert.That(station.Connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", LetIn, null, null,
                                                              out var id, out error,
                                                              Inbound: true),
                         Is.True, error);
@@ -254,7 +253,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(csms.Asked("BootNotification").Count(),            Is.EqualTo(1));
                 Assert.That(csms.AnswerTo("from-the-csms-1")![0].Value<Int32>(), Is.EqualTo(3), csms.AnswerTo("from-the-csms-1")!.ToString(Formatting.None));
 
-                Assert.That(station!.OCPPServerJSON()["servers"]![0]!["connected"]!.Values<String>(), Is.EqualTo(new[] { Name }));
+                Assert.That(station!.OCPPServerConfigurationJSON()["state"]!["connected"]!.Values<String>(), Is.EqualTo(new[] { Name }));
 
             });
 
@@ -286,18 +285,26 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station       = await TestStations.Started(station!, directory);
 
+            // A login of its own, and no connection the other end makes under
+            // its name: this station serves no charging stations.
+            Assert.That(station.WebSocketLogins.TrySetPassword("csms-03", password, null, "A login and nothing else", out var loginOnly),
+                        Is.True, loginOnly);
+
             await using var wrongPassword = new DiallingCSMS(Address, Name, APassword());
             await using var unknown       = new DiallingCSMS($"ws://127.0.0.1:{port}/csms-02", "csms-02", password);
             await using var asAnother     = new DiallingCSMS($"ws://127.0.0.1:{port}/csms-02", Name,      password);
+            await using var noConnection  = new DiallingCSMS($"ws://127.0.0.1:{port}/csms-03", "csms-03", password);
 
             var refused1  = (await wrongPassword.Client.Connect()).Item2.HTTPStatusCode;
             var refused2  = (await unknown.      Client.Connect()).Item2.HTTPStatusCode;
             var refused3  = (await asAnother.    Client.Connect()).Item2.HTTPStatusCode;
+            var refused4  = (await noConnection. Client.Connect()).Item2.HTTPStatusCode;
 
             Assert.Multiple(() => {
                 Assert.That(refused1,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a wrong password");
                 Assert.That(refused2,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a name nobody wrote down");
                 Assert.That(refused3,      Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "under another name than its own");
+                Assert.That(refused4,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a login, and no connection the other end makes under its name");
                 Assert.That(StatusOf(id),  Is.EqualTo("waiting"));
             });
 
@@ -309,8 +316,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Until(() => StatusOf(id) == "connected", "Being connected", () => $"{StatusOf(id)}: {SaidOf(id)}");
 
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS, dialling in", Address, "CSMS", false,
-                                                                 station.Connections.Connections.Single(one => one.Id == id).AuthenticationId, null,
+            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS, dialling in", Address, "CSMS", false, null, null,
                                                                  out var error),
                         Is.True, error);
 
@@ -432,35 +438,35 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AOneTimePasswordLetsItIn_AndOCPP16HasAPortOfItsOwn()
+        #region AOneTimePasswordLetsItIn_AndOCPP16ComesInOnTheSamePort()
 
         /// <summary>
         /// The other two things a connection the other end makes can be: one
         /// that signs in with a one-time password, and one that speaks OCPP
-        /// 1.6 - to the station's other node, on the other port.
+        /// 1.6 - on the same port, and handed by the subprotocol it asks for
+        /// to the station's other node, whose BootNotification is OCPP 1.6's.
         /// </summary>
         [Test]
-        public async Task AOneTimePasswordLetsItIn_AndOCPP16HasAPortOfItsOwn()
+        public async Task AOneTimePasswordLetsItIn_AndOCPP16ComesInOnTheSamePort()
         {
 
             var connections = station!.Connections;
 
-            Assert.That(connections.TryAddAuthentication("What the CSMS signs in with", "totp", Name, APassword() + APassword(),
-                                                         out var totpLogin, out var error),
+            Assert.That(station.WebSocketLogins.TrySetTOTP(Name, APassword() + APassword(), null, null, null, null, null, "What the CSMS signs in with",
+                                                           out _, out var error),
                         Is.True, error);
 
-            Assert.That(connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", true, totpLogin, null,
+            Assert.That(connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", true, null, null,
                                                      out var id, out error,
                                                      Inbound: true),
                         Is.True, error);
 
             var password16 = APassword();
 
-            Assert.That(connections.TryAddAuthentication("What the Central System signs in with", "basic", "cs-16", password16,
-                                                         out var login16, out error),
+            Assert.That(station.WebSocketLogins.TrySetPassword("cs-16", password16, null, "What the Central System signs in with", out error),
                         Is.True, error);
 
-            Assert.That(connections.TryAddConnection("The Central System, dialling in", $"ws://127.0.0.1:{port16}/cs-16", "CSMS", true, login16, null,
+            Assert.That(connections.TryAddConnection("The Central System, dialling in", $"ws://127.0.0.1:{port16}/cs-16", "CSMS", true, null, null,
                                                      out var id16, out error,
                                                      OCPPVersion: "OCPP1.6",
                                                      Inbound:     true),
@@ -469,7 +475,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             station = await TestStations.Started(station, directory);
 
             // What a client that knows nothing but Basic has of a TOTP secret: the one-time password, as its password.
-            var totp = connections.Authentications.Single(one => one.Id == totpLogin).ToTOTPConfig()!;
+            Assert.That(station.WebSocketLogins.TryGet(Name, out var totpLogin), Is.True);
+
+            var totp = totpLogin!.TOTP!.ToTOTPConfig();
 
             await using var stale = new DiallingCSMS(Address, Name, "000000000000");
             await using var csms  = new DiallingCSMS(Address, Name, TOTPGenerator.GenerateTOTP(totp.SharedSecret, totp.ValidityTime, totp.Length).Current);
@@ -481,25 +489,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Until(() => csms.Asked("BootNotification").Any(), "The BootNotification of the OCPP 2.1 node", Said);
 
-            // OCPP 1.6: the other node, the other port - and not this one's.
-            await using var onTheWrongPort = new DiallingCSMS($"ws://127.0.0.1:{port}/cs-16",   "cs-16", password16, "ocpp1.6");
+            // OCPP 1.6: the other node, on the same port - by the subprotocol.
             await using var centralSystem  = new DiallingCSMS($"ws://127.0.0.1:{port16}/cs-16", "cs-16", password16, "ocpp1.6");
 
-            Assert.That((await onTheWrongPort.Client.Connect()).Item2.HTTPStatusCode, Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "OCPP 1.6 on the port of OCPP 2.1");
-            Assert.That((await centralSystem. Client.Connect()).Item2.HTTPStatusCode, Is.EqualTo(HTTPStatusCode.SwitchingProtocols));
+            Assert.That(port16, Is.EqualTo(port));
+            Assert.That((await centralSystem.Client.Connect()).Item2.HTTPStatusCode, Is.EqualTo(HTTPStatusCode.SwitchingProtocols));
 
             await Until(() => centralSystem.Asked("BootNotification").Any(), "The BootNotification of the OCPP 1.6 node", Said);
 
             await Until(() => StatusOf(id!) == "connected" && StatusOf(id16!) == "connected", "Both being connected",
                         () => $"{StatusOf(id!)}: {SaidOf(id!)} / {StatusOf(id16!)}: {SaidOf(id16!)}");
 
-            var said = station.OCPPServerJSON();
+            var said = station.OCPPServerConfigurationJSON();
 
             Assert.Multiple(() => {
                 Assert.That(centralSystem.Asked("BootNotification").First()[3]!["chargePointVendor"], Is.Not.Null, "what came was no BootNotification of OCPP 1.6");
                 Assert.That(csms.Asked("BootNotification").First()[3]!["chargingStation"],            Is.Not.Null, "what came was no BootNotification of OCPP 2.1");
-                Assert.That(said["servers"]![0]!["connected"]!.Values<String>(), Is.EqualTo(new[] { Name }));
-                Assert.That(said["servers"]![1]!["connected"]!.Values<String>(), Is.EqualTo(new[] { "cs-16" }));
+                Assert.That(said["state"]!["connected"]!.Values<String>(), Is.EquivalentTo(new[] { Name, "cs-16" }), "both, on the one port");
             });
 
         }
@@ -530,13 +536,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Until(() => StatusOf(id) == "waiting", "Being let go of", () => $"{StatusOf(id)}: {SaidOf(id)}");
 
-            var off = station.OCPPServerJSON();
+            var off = station.OCPPServerConfigurationJSON();
 
             Assert.Multiple(() => {
                 Assert.That(SaidOf(id),                                        Does.Contain("serves no OCPP2.1 to whoever dials it"));
                 Assert.That(off.Value<Boolean>("enabled"),                     Is.False);
-                Assert.That(off["servers"]![0]!.Value<Boolean>("served"),      Is.False);
-                Assert.That(off["servers"]![0]!.Value<Int32>("port"),          Is.EqualTo(port.ToUInt16()), "the port is forgotten with the switch");
+                Assert.That(off["state"]!.Value<Boolean>("running"),           Is.False);
+                Assert.That(off.Value<Int32>("port"),                          Is.EqualTo(port.ToUInt16()), "the port is forgotten with the switch");
             });
 
             // The one that was in is gone for good: a client that comes back by itself would be in
@@ -544,25 +550,15 @@ namespace cloud.charging.open.ChargingStation.Tests
             await csms.DisposeAsync();
 
             // What is wrong with a section is said, and nothing is changed.
-            Assert.Multiple(() => {
-
-                Assert.That(station.TryUpdateOCPPServerConfiguration(new JObject(new JProperty("enabled", true)), out var why, out _), Is.False);
-                Assert.That(why, Does.Contain("names no port"));
-
-                Assert.That(station.TryUpdateOCPPServerConfiguration(new JObject(new JProperty("enabled", true), new JProperty("port", 9443), new JProperty("port16", 9443)), out why, out _), Is.False);
-                Assert.That(why, Does.Contain("the same port"));
-
-                Assert.That(station.TryUpdateOCPPServerConfiguration(new JObject(new JProperty("enabled", true), new JProperty("tls", true)), out why, out _), Is.False);
-                Assert.That(why, Does.Contain("is not known"));
-
-            });
+            Assert.That(station.TryUpdateOCPPServerConfiguration(new JObject(new JProperty("enabled", true), new JProperty("port", 9443), new JProperty("port16", 9444)), out var why, out _), Is.False);
+            Assert.That(why, Does.Contain("'webSocketServer.port16' is no more"));
 
             // On again, on the port it had: the same CSMS dials again and is in.
             Assert.That(station.TryUpdateOCPPServerConfiguration(new JObject(new JProperty("enabled", true), new JProperty("port", port.ToUInt16())),
                                                                  out error, out _),
                         Is.True, error);
 
-            Assert.That(station.OCPPServerJSON()["servers"]![1]!.Value<Boolean>("served"), Is.False, "OCPP 1.6 is served without a port");
+            Assert.That(station.StationServers.Count(), Is.EqualTo(2), "OCPP 1.6 is not served on the one port");
 
             await Until(() => SaidOf(id).Contains("Waiting for"), "Waiting for it again", () => $"{StatusOf(id)}: {SaidOf(id)}");
 
@@ -575,7 +571,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // And the file says what the station does.
             var file = JObject.Parse(File.ReadAllText(Path.Combine(directory, "configuration.json")));
 
-            Assert.That(file["ocppServer"]!.ToString(Formatting.None), Is.EqualTo($"{{\"enabled\":true,\"port\":{port.ToUInt16()}}}"), "the port of OCPP 1.6 was not taken away");
+            Assert.That(file["webSocketServer"]!.ToString(Formatting.None), Is.EqualTo($"{{\"enabled\":true,\"port\":{port.ToUInt16()}}}"));
 
         }
 
@@ -623,8 +619,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var connections = station!.Connections;
 
-            Assert.That(connections.TryAddAuthentication("csms-01", "basic", Name,      APassword(), out var login,   out var error), Is.True, error);
-            Assert.That(connections.TryAddAuthentication("another", "basic", "another", APassword(), out var another, out error),     Is.True, error);
+            // Credentials of this station: what it proves itself with where it dials.
+            Assert.That(connections.TryAddBasicAuthentication(Name, APassword(), "csms-01", out var login, out var error), Is.True, error);
 
             Boolean Add(String URL, String? Credentials, out String? Why, String? HTTPVersion = null)
                 => connections.TryAddConnection("The CSMS, dialling in", URL, "CSMS", true, Credentials, null, out _, out Why,
@@ -632,27 +628,24 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(Add($"ws://127.0.0.1:{port}/",              login,   out var why), Is.False);
+                Assert.That(Add($"ws://127.0.0.1:{port}/",              null,    out var why), Is.False);
                 Assert.That(why, Does.Contain("ends with the name"));
 
-                Assert.That(Add($"ws://127.0.0.1:{port}/CSMS",          login,   out why),     Is.False);
+                Assert.That(Add($"ws://127.0.0.1:{port}/CSMS",          null,    out why),     Is.False);
                 Assert.That(why, Does.Contain("keeps for itself"));
 
-                Assert.That(Add($"ssh://{Name}@127.0.0.1:{port}",       login,   out why),     Is.False);
+                Assert.That(Add($"ssh://{Name}@127.0.0.1:{port}",       null,    out why),     Is.False);
                 Assert.That(why, Does.Contain("Over SSH"));
 
-                Assert.That(Add(Address,                                null,    out why),     Is.False);
-                Assert.That(why, Does.Contain("or credentials. Nothing gets in without"));
+                Assert.That(Add(Address,                                login,   out why),     Is.False);
+                Assert.That(why, Does.Contain("signs in with its WebSocket login"));
 
-                Assert.That(Add(Address,                                another, out why),     Is.False);
-                Assert.That(why, Does.Contain("the two have to agree"));
-
-                Assert.That(Add(Address,                                login,   out why, HTTPVersion: "2"), Is.False);
+                Assert.That(Add(Address,                                null,    out why, HTTPVersion: "2"), Is.False);
                 Assert.That(why, Does.Contain("chosen by whoever dials"));
 
-                Assert.That(Add(Address,                                login,   out why),     Is.True, why);
+                Assert.That(Add(Address,                                null,    out why),     Is.True, why);
 
-                Assert.That(Add(Address,                                login,   out why),     Is.False);
+                Assert.That(Add(Address,                                null,    out why),     Is.False);
                 Assert.That(why, Does.Contain("comes under already"));
 
             });
@@ -686,7 +679,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = await TestStations.Started(station!, directory);
 
-            Assert.That(Said("A CSMS or a local controller may dial this charging station"), Is.Not.Empty, "The OCPP server did not start.");
+            Assert.That(station.OCPPServerRunning, Is.True, "The station port did not start.");
 
             await station.DisposeAsync();
             station = null;

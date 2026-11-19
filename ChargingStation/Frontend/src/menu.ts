@@ -29,7 +29,11 @@ export const stationMenu: MenuEntry[] = [
         { path: '/configuration/nameplate',       label: 'Nameplate',        icon: 'fa-tag',             permission: [ 'nameplate:read' ]    },
         { path: '/configuration/commissioning',   label: 'Commissioning',    icon: 'fa-screwdriver-wrench', permission: [ 'commissioning:read' ] },
         { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
-        { path: '/configuration/ocpp-server',     label: 'OCPP server',      icon: 'fa-tower-broadcast', permission: [ 'connections:read' ]  },
+        // The port a back end dials, where the station cannot dial it: the
+        // pages every node that serves OCPP has, under the connections.
+        { path: '/configuration/ocpp-server',        label: 'Station port',      icon: 'fa-tower-broadcast', permission: [ 'connections:read' ]  },
+        { path: '/configuration/ocpp-server/logins', label: 'WebSocket logins',  icon: 'fa-users-gear',      permission: [ 'connections:read' ]  },
+        { path: '/configuration/ocpp-server/trust',  label: 'Accepted chains',   icon: 'fa-user-shield',     permission: [ 'certificates:read' ] },
         { path: '/configuration/signer-roles',    label: 'Signer roles',     icon: 'fa-user-shield',     permission: [ 'signatures:read' ]   },
         nodeMenu.certificates,
         nodeMenu.identities,

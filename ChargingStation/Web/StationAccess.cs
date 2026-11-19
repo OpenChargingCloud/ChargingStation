@@ -178,7 +178,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// it: whoever speaks OCPP to a station may tell it nearly anything a
         /// CSMS may, from where it dials to when it restarts.
         /// </remarks>
-        public const String  Commissioning = "commissioning";
+        public const String  Commissioning = cloud.charging.open.protocols.OCPP.Node.OCPPServingNode.CommissioningResource;
 
         /// <summary>
         /// The lock of a connector: run, a cable that is stuck let go of - what

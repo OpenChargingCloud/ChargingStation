@@ -1029,7 +1029,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var someoneElse = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
 
-            Assert.That(station!.Connections.TryAddAuthentication("A Basic login", "basic", "cs002", "not-the-real-one", out var basic, out var error),
+            Assert.That(station!.Connections.TryAddBasicAuthentication("cs002", "not-the-real-one", "A Basic login", out var basic, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection("Recorded", SshURL(), "CSMS", true, null, null, out var recorded, out error,
@@ -1206,7 +1206,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms!.LetsIn         = false;
             csms. TakesPassword  = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS over SSH", "basic", "cs001", "the-password-of-cs001", out var login, out var error),
+            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "the-password-of-cs001", "CSMS over SSH", out var login, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
@@ -1246,7 +1246,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms!.TakesPassword = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS over SSH", "basic", "cs001", "the-password-of-cs001", out var login, out var error),
+            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "the-password-of-cs001", "CSMS over SSH", out var login, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
@@ -1298,7 +1298,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms. TakesTOTP    = ("cs001", new TOTPConfig(secret, TimeSpan.FromSeconds(30), 12));
             csms. TakesTOTPAs  = TakenAs;
 
-            Assert.That(station!.Connections.TryAddAuthentication("One-time, over SSH", "totp", "cs001", secret, out var login, out var error,
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, "One-time, over SSH", out var login, out var error,
                                                                   ValiditySeconds: 30, Length: 12, TLSChannelBinding: Bound),
                         Is.True, error);
 

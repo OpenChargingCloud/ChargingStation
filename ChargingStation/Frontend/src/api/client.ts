@@ -657,100 +657,6 @@ export interface NameplateUpdate {
 }
 
 
-/**
- * Commissioning over SSH: a tool speaking OCPP 2.1 to this station on its own
- * SSH server, as an account that may run it - under the account's name, never
- * as the CSMS.
- */
-export interface CommissioningConfiguration {
-    /** What the file says: switched on or not. */
-    enabled:       boolean;
-    /** Whether the subsystem is on the SSH server now. */
-    served:        boolean;
-    /** Whether the node's SSH server is on at all. */
-    sshServer:     boolean;
-    /** Where a tool connects, as its account; null without an SSH server. */
-    url:           string | null;
-    /** The SSH server's host key, "ssh-ed25519 SHA256:...", for the tool to pin. */
-    hostKey:       string | null;
-    /** "ocpp@open.charging.cloud". */
-    subsystem:     string;
-    /** The OCPP versions spoken, "ocpp2.1" first. */
-    subprotocols:  string[];
-    /** The OCPP node a tool speaks to, "test02". */
-    station:       string;
-    /** What an account needs, "commissioning:run". */
-    permission:    string;
-    /** The tools connected now, by the names of their accounts. */
-    tools:         string[];
-    file:          string;
-}
-
-/** What a PUT to commissioning carries. */
-export interface CommissioningUpdate {
-    enabled:  boolean;
-}
-
-
-/**
- * The OCPP server of this station: a WebSocket server a CSMS or a local
- * controller dials. One server for each of its two nodes, on a port of its
- * own; who may come in is a connection the other end makes, on the Connections
- * page.
- */
-export interface OCPPServerConfiguration {
-    /** What the file says: switched on or not. */
-    enabled:  boolean;
-    /** Whether the servers speak TLS: where the web interface does, with its certificate. */
-    tls:      boolean;
-    /** What the file says: whether WebSockets are taken over HTTP/3 as well, on the UDP port of the same number. */
-    http3:    boolean;
-    /** OCPP 2.1 first, then OCPP 1.6. */
-    servers:  OCPPServerOfAVersion[];
-    /** The connections the other end makes, as they are written down. */
-    inbound:  InboundConnection[];
-    file:     string;
-}
-
-export interface OCPPServerOfAVersion {
-    /** "OCPP2.1" or "OCPP1.6". */
-    ocppVersion:  string;
-    /** Its port, or null where the file names none: then it is not served. */
-    port:         number | null;
-    /** Whether it is listening now. */
-    served:       boolean;
-    /** Where the other end dials, without its name: "wss://127.0.0.1:9443/"; null without a port. */
-    url:          string | null;
-    /** The names connected now. */
-    connected:    string[];
-    /** Why it is not served although it has a port: the port was taken, say. */
-    problem?:     string;
-    /** The UDP port it takes WebSockets over HTTP/3 on now, or null: not asked for, or not there. */
-    http3Port?:   number | null;
-    /** Why it takes none over HTTP/3 although the file says it shall: no TLS, or the UDP port was not to be had. */
-    http3Problem?:  string;
-}
-
-export interface InboundConnection {
-    id:           string;
-    description:  string;
-    /** The name it comes under: the last part of its URL. */
-    name:         string;
-    ocppVersion:  string;
-    /** Whether it is let in at all - "connect by itself" of a connection that is dialled. */
-    letIn:        boolean;
-}
-
-/** What a PUT to the OCPP server carries: null takes a port away. */
-export interface OCPPServerUpdate {
-    enabled:  boolean;
-    port:     number | null;
-    port16:   number | null;
-    /** Left out, it is off: a UDP port is given nobody who did not ask. */
-    http3:    boolean;
-}
-
-
 /** A key that signs as a role. */
 export interface SignerKey {
     /** The RFC 7638 thumbprint of the key. */
@@ -927,18 +833,6 @@ export const api = {
         setPolicy:          (policy: Record<string, unknown>)               => request<Signatures>('POST', '/configuration/signatures/policy', policy),
         /** Every key of every role and the policy table are forgotten. */
         reset:              ()                                              => request<Signatures>('POST', '/configuration/signatures/reset', { confirm: 'reset' })
-    },
-
-    commissioning: {
-        get:   ()                              => request<CommissioningConfiguration>('GET', '/configuration/commissioning'),
-        /** Switched on or off at once; off lets go of every tool connected. */
-        save:  (update: CommissioningUpdate)   => request<CommissioningConfiguration>('PUT', '/configuration/commissioning', update)
-    },
-
-    ocppServer: {
-        get:   ()                              => request<OCPPServerConfiguration>('GET', '/configuration/ocpp-server'),
-        /** Taken at once; whoever dialled in is let go of where its server goes. */
-        save:  (update: OCPPServerUpdate)      => request<OCPPServerConfiguration>('PUT', '/configuration/ocpp-server', update)
     },
 
     power: {

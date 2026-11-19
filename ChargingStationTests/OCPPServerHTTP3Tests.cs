@@ -32,6 +32,7 @@ using cloud.charging.open.protocols.WWCP.Node.TestKit;
 using cloud.charging.open.protocols.WWCP.Node.CommandLine;
 
 using cloud.charging.open.ChargingStation.Configuration;
+using cloud.charging.open.protocols.OCPP.Node.Serving;
 
 #endregion
 
@@ -202,7 +203,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var configuration  = TestStations.Offline;
 
-                configuration.Add("ocppServer", ocppServer);
+                configuration.Add("webSocketServer", ocppServer);
 
                 var stationDirectory = Path.Combine(directory, "station" + stations.Count);
 
@@ -236,8 +237,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         }
 
+        /// <summary>
+        /// What the station port is doing: running, over TLS, over HTTP/3.
+        /// </summary>
         private static JObject ServerOf(ChargingStation Station)
-            => (JObject) Station.OCPPServerJSON()["servers"]![0]!;
+            => (JObject) Station.OCPPServerConfigurationJSON()["state"]!;
 
         private String Said()
         {
@@ -299,24 +303,21 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443 }"""), out var silent, out var error), Is.True, error);
+                Assert.That(WebSocketServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443 }"""), out var silent, out var error), Is.True, error);
                 Assert.That(silent!.TakesHTTP3,                    Is.False, "HTTP/3 is on although the file says nothing of it");
                 Assert.That(silent.ToJSON().ContainsKey("http3"),  Is.False);
 
-                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": true }"""), out var on, out error), Is.True, error);
+                Assert.That(WebSocketServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": true }"""), out var on, out error), Is.True, error);
                 Assert.That(on!.TakesHTTP3,                            Is.True);
                 Assert.That(on.ToJSON().Value<Boolean>("http3"),       Is.True);
                 Assert.That(on.ToString(),                             Does.Contain("HTTP/3"));
 
-                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": false }"""), out var off, out error), Is.True, error);
+                Assert.That(WebSocketServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": false }"""), out var off, out error), Is.True, error);
                 Assert.That(off!.TakesHTTP3,                           Is.False);
                 Assert.That(off.ToJSON().Value<Boolean?>("http3"),     Is.False);
 
-                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": "yes" }"""), out _, out error), Is.False);
+                Assert.That(WebSocketServerConfiguration.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http3": "yes" }"""), out _, out error), Is.False);
                 Assert.That(error, Does.Contain("http3"));
-
-                Assert.That(OCPPServerSection.TryParse(JObject.Parse("""{ "enabled": true, "port": 9443, "http4": true }"""), out _, out error), Is.False);
-                Assert.That(error, Does.Contain("'enabled', 'port', 'port16' and 'http3'"));
 
             });
 
@@ -340,15 +341,15 @@ namespace cloud.charging.open.ChargingStation.Tests
             // What a server that takes HTTP/3 would have done by now.
             await Task.Delay(1500);
 
-            var json     = station.OCPPServerJSON();
+            var json     = station.OCPPServerConfigurationJSON();
             var server   = ServerOf(station);
 
             Assert.Multiple(() => {
-                Assert.That(json.Value<Boolean>("tls"),             Is.True);
+                Assert.That(server.Value<Boolean>("tls"),           Is.True);
                 Assert.That(json.Value<Boolean>("http3"),           Is.False);
-                Assert.That(server.Value<Boolean>("served"),        Is.True);
+                Assert.That(server.Value<Boolean>("running"),       Is.True);
                 Assert.That(server["http3Port"]!.Type,              Is.EqualTo(JTokenType.Null), server.ToString());
-                Assert.That(server.ContainsKey("http3Problem"),     Is.False, "a problem is said of something nobody asked for");
+                Assert.That(server["http3Problem"]!.Type,           Is.EqualTo(JTokenType.Null), "a problem is said of something nobody asked for");
                 Assert.That(Said(),                                 Does.Not.Contain("over HTTP/3"));
             });
 
@@ -376,8 +377,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                         "Taking WebSockets over HTTP/3", () => ServerOf(station).ToString() + "\n" + Said());
 
             Assert.Multiple(() => {
-                Assert.That(station.OCPPServerJSON().Value<Boolean>("http3"),   Is.True);
-                Assert.That(ServerOf(station).ContainsKey("http3Problem"),      Is.False, ServerOf(station).ToString());
+                Assert.That(station.OCPPServerConfigurationJSON().Value<Boolean>("http3"),  Is.True);
+                Assert.That(ServerOf(station)["http3Problem"]!.Type,                         Is.EqualTo(JTokenType.Null), ServerOf(station).ToString());
                 Assert.That(Said(),                                             Does.Contain($"over HTTP/3 as well, on UDP port {port}"));
             });
 
@@ -390,13 +391,13 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                  out var error, out _),
                         Is.True, error);
 
-            await Until(() => ServerOf(station).Value<Boolean>("served"), "Being served again", () => ServerOf(station).ToString());
+            await Until(() => ServerOf(station).Value<Boolean>("running"), "Being served again", () => ServerOf(station).ToString());
             await Task.Delay(1000);
 
             Assert.Multiple(() => {
-                Assert.That(station.OCPPServerJSON().Value<Boolean>("http3"),  Is.False);
+                Assert.That(station.OCPPServerConfigurationJSON().Value<Boolean>("http3"),  Is.False);
                 Assert.That(ServerOf(station)["http3Port"]!.Type,              Is.EqualTo(JTokenType.Null), ServerOf(station).ToString());
-                Assert.That(JObject.Parse(File.ReadAllText(station.ConfigFile.Path))["ocppServer"]!.Value<Boolean?>("http3"), Is.False);
+                Assert.That(JObject.Parse(File.ReadAllText(station.ConfigFile.Path))["webSocketServer"]!.Value<Boolean?>("http3"), Is.False);
             });
 
             // And on again, without a restart.
@@ -411,7 +412,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => ServerOf(station).Value<UInt16?>("http3Port") == port.ToUInt16(),
                         "Taking WebSockets over HTTP/3 again", () => ServerOf(station).ToString() + "\n" + Said());
 
-            Assert.That(JObject.Parse(File.ReadAllText(station.ConfigFile.Path))["ocppServer"]!.Value<Boolean?>("http3"), Is.True);
+            Assert.That(JObject.Parse(File.ReadAllText(station.ConfigFile.Path))["webSocketServer"]!.Value<Boolean?>("http3"), Is.True);
 
         }
 
@@ -426,13 +427,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             var port     = APortFreeForBoth();
             var station  = await Started(port, HTTPS: false, HTTP3: true);
 
-            var json     = station.OCPPServerJSON();
+            var json     = station.OCPPServerConfigurationJSON();
             var server   = ServerOf(station);
 
             Assert.Multiple(() => {
-                Assert.That(json.Value<Boolean>("tls"),               Is.False);
+                Assert.That(server.Value<Boolean>("tls"),             Is.False);
                 Assert.That(json.Value<Boolean>("http3"),             Is.True, "what the file says");
-                Assert.That(server.Value<Boolean>("served"),          Is.True, "the server is not served over TCP either");
+                Assert.That(server.Value<Boolean>("running"),         Is.True, "the server is not served over TCP either");
                 Assert.That(server["http3Port"]!.Type,                Is.EqualTo(JTokenType.Null));
                 Assert.That(server.Value<String>("http3Problem"),     Does.Contain("QUIC"));
                 Assert.That(Said(),                                   Does.Contain("takes no WebSockets over HTTP/3"));
@@ -458,11 +459,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await Started(port, HTTPS: true, HTTP3: true, made => {
 
-                Assert.That(made.Connections.TryAddAuthentication("What the CSMS signs in with", "basic", Name, password,
-                                                                  out var login, out var error),
+                Assert.That(made.WebSocketLogins.TrySetPassword(Name, password, null, "What the CSMS signs in with", out var error),
                             Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, login, null,
+                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);
@@ -508,12 +508,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await Started(port, HTTPS: true, HTTP3: true, made => {
 
-                Assert.That(made.Connections.TryAddAuthentication("The one-time password of the CSMS", "totp", Name, secret,
-                                                                  out var login, out var error,
-                                                                  TLSChannelBinding: true),
+                Assert.That(made.WebSocketLogins.TrySetTOTP(Name, secret, null, null, null, null, null, "The one-time password of the CSMS",
+                                                            out _, out var error),
                             Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, login, null,
+                Assert.That(made.WebSocketLogins.TrySetTOTPBinding(Name, true, out error), Is.True, error);
+
+                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);
@@ -530,7 +531,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(SaidOf(station, id), Does.Contain($"Waiting for '{Name}' to dial in"));
 
             // Bound, over HTTP/3: in.
-            await using (var csms = ACSMSOverHTTP3(port, TOTP: new TOTPConfig(secret, UseTLSExporterMaterial: true)))
+            await using (var csms = ACSMSOverHTTP3(port, TOTP: new TOTPConfig(secret, TLSChannelBinding: true)))
             {
 
                 var (_, response) = await csms.Connect();
@@ -546,7 +547,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => StatusOf(station, id) == "waiting", "Waiting again", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
             // The same password, not bound, opens nothing.
-            await using (var unbound = ACSMSOverHTTP3(port, TOTP: new TOTPConfig(secret, UseTLSExporterMaterial: false)))
+            await using (var unbound = ACSMSOverHTTP3(port, TOTP: new TOTPConfig(secret, TLSChannelBinding: false)))
             {
                 Assert.That((await unbound.Connect()).Item2.HTTPStatusCode, Is.EqualTo(HTTPStatusCode.Unauthorized), "a one-time password that is not bound was taken for one that is");
             }

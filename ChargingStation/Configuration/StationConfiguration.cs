@@ -26,7 +26,8 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.ChargingStation.EVSEs;
 using cloud.charging.open.ChargingStation.RFID;
 
-using OCPPServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.OCPPServerConfiguration;
+using WebSocketServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.WebSocketServerConfiguration;
+using CommissioningConfiguration   = cloud.charging.open.protocols.OCPP.Node.Serving.CommissioningConfiguration;
 
 #endregion
 
@@ -77,7 +78,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                                               MetersConfiguration?                     Meters         = null,
                                               NameplateConfiguration?                  Nameplate      = null,
                                               CommissioningConfiguration?              Commissioning  = null,
-                                              OCPPServerConfiguration?                 OCPPServer     = null)
+                                              WebSocketServerConfiguration?                 OCPPServer     = null)
     {
 
         #region Data
@@ -348,18 +349,18 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             #region OCPP server
 
-            OCPPServerConfiguration? ocppServer = null;
+            WebSocketServerConfiguration? ocppServer = null;
 
-            if (JSON[OCPPServerConfiguration.SectionName] is JToken ocppServerToken && ocppServerToken.Type != JTokenType.Null)
+            if (JSON[WebSocketServerConfiguration.SectionName] is JToken ocppServerToken && ocppServerToken.Type != JTokenType.Null)
             {
 
                 if (ocppServerToken is not JObject ocppServerJSON)
                 {
-                    Error = $"'{OCPPServerConfiguration.SectionName}' must be a JSON object.";
+                    Error = $"'{WebSocketServerConfiguration.SectionName}' must be a JSON object.";
                     return false;
                 }
 
-                if (!OCPPServerSection.TryParse(ocppServerJSON, out ocppServer, out Error))
+                if (!WebSocketServerConfiguration.TryParse(ocppServerJSON, out ocppServer, out Error, ChargingStation.ChargingStationKind.Noun))
                     return false;
 
             }
@@ -418,7 +419,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 json.Add(CommissioningConfiguration.SectionName, Commissioning.ToJSON());
 
             if (OCPPServer is not null)
-                json.Add(OCPPServerConfiguration.SectionName,    OCPPServer.ToJSON());
+                json.Add(WebSocketServerConfiguration.SectionName,    OCPPServer.ToJSON());
 
             return json;
 

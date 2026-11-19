@@ -58,7 +58,7 @@ namespace cloud.charging.open.ChargingStation
     /// of all of them. The kiosk's API and the local app's are not this one,
     /// and stay the station's own.
     /// </remarks>
-    public class CSHTTPAPI : OCPPDiallingHTTPAPI
+    public class CSHTTPAPI : OCPPServingHTTPAPI
     {
 
         #region Properties
@@ -88,10 +88,13 @@ namespace cloud.charging.open.ChargingStation
                          HTTPPath?        APIPath   = null,
                          String?          Version   = null)
 
+            // The station port, its logins and the chains it accepts: whoever
+            // may change where this station dials may change who dials it.
             : base(HTTPServer,
                    Station,
                    ExtAPI,
                    Log,
+                   StationAccess.Connections,
                    StationAccess.Connections,
                    APIPath,
                    Version ?? typeof(CSHTTPAPI).Assembly.GetName().Version?.ToString(3) ?? "0.0.0")
@@ -144,11 +147,6 @@ namespace cloud.charging.open.ChargingStation
 
             AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   GetNameplateConfiguration,     HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/nameplate",   PutNameplateConfiguration,     HTTPMethod.PUT);
-
-            AddHandler(HTTPPath.Root + "v1/configuration/commissioning", GetCommissioningConfiguration, HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/commissioning", PutCommissioningConfiguration, HTTPMethod.PUT);
-            AddHandler(HTTPPath.Root + "v1/configuration/ocpp-server",   GetOCPPServerConfiguration,    HTTPMethod.GET);
-            AddHandler(HTTPPath.Root + "v1/configuration/ocpp-server",   PutOCPPServerConfiguration,    HTTPMethod.PUT);
 
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      GetEVSEConfiguration,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/configuration/evses",      PutEVSEConfiguration,         HTTPMethod.PUT);
@@ -324,91 +322,6 @@ namespace cloud.charging.open.ChargingStation
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, Station.NameplateConfigurationJSON())
-                   );
-
-        }
-
-        /// <summary>
-        /// GET /api/v1/configuration/commissioning: whether a tool may speak
-        /// OCPP to this station over its SSH server, where, and who does.
-        /// </summary>
-        private Task<HTTPResponse> GetCommissioningConfiguration(HTTPRequest Request)
-        {
-
-            if (!TryAuthorize(Request, Permission.Read(StationAccess.Commissioning), false, out _, out var refused))
-                return Task.FromResult(refused);
-
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Station.CommissioningJSON())
-                   );
-
-        }
-
-        /// <summary>
-        /// PUT /api/v1/configuration/commissioning with {"enabled"}: switch
-        /// commissioning over SSH on or off, at once. Switched off, every tool
-        /// connected is let go of.
-        /// </summary>
-        /// <remarks>
-        /// The installer's, as running it is - see StationAccess.Commissioning.
-        /// </remarks>
-        private Task<HTTPResponse> PutCommissioningConfiguration(HTTPRequest Request)
-        {
-
-            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Commissioning), true, out _, out var refused))
-                return Task.FromResult(refused);
-
-            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
-
-            if (!Station.TryUpdateCommissioningConfiguration(json, out var error, out var notSaved))
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
-
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Station.CommissioningJSON())
-                   );
-
-        }
-
-        /// <summary>
-        /// GET /api/v1/configuration/ocpp-server: whether a CSMS or a local
-        /// controller may dial this station, on which ports, and who is in.
-        /// </summary>
-        private Task<HTTPResponse> GetOCPPServerConfiguration(HTTPRequest Request)
-        {
-
-            if (!TryAuthorize(Request, Permission.Read(StationAccess.Connections), false, out _, out var refused))
-                return Task.FromResult(refused);
-
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Station.OCPPServerJSON())
-                   );
-
-        }
-
-        /// <summary>
-        /// PUT /api/v1/configuration/ocpp-server with {"enabled", "port",
-        /// "port16"}: switch the OCPP server on or off or give it other ports,
-        /// at once. Whoever dialled in is let go of where its server goes.
-        /// </summary>
-        /// <remarks>
-        /// Whoever may change where this station dials may change who dials
-        /// it - see StationAccess.Connections.
-        /// </remarks>
-        private Task<HTTPResponse> PutOCPPServerConfiguration(HTTPRequest Request)
-        {
-
-            if (!TryAuthorize(Request, Permission.Edit(StationAccess.Connections), true, out _, out var refused))
-                return Task.FromResult(refused);
-
-            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
-                return Task.FromResult(errorResponse);
-
-            if (!Station.TryUpdateOCPPServerConfiguration(json, out var error, out var notSaved))
-                return Task.FromResult(NotChanged(Request, HTTPStatusCode.BadRequest, error, notSaved));
-
-            return Task.FromResult(
-                       JSONResponse(Request, HTTPStatusCode.OK, Station.OCPPServerJSON())
                    );
 
         }

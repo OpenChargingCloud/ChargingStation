@@ -1362,12 +1362,11 @@ namespace cloud.charging.open.ChargingStation
             KeepWhoMayDoWhat(old16.OCPP.SignaturePolicy, cs01.OCPP.SignaturePolicy, old16.UserRoles, cs01.UserRoles);
             KeepWhoMayDoWhat(old21.OCPP.SignaturePolicy, cs02.OCPP.SignaturePolicy, old21.UserRoles, cs02.UserRoles);
 
-            // A tool commissioning this station speaks to the new node from
-            // now on; the old one's sessions end with it.
-            ServeCommissioningByTheNewNode();
-
-            // And whoever dialled this station dials the new nodes.
-            ServeOCPPByTheNewNodes();
+            // And whoever dialled this station dials the new nodes: the
+            // servers of the station port are built again on them, and those
+            // of a tool commissioning it over SSH - whose sessions on the old
+            // ones end with them.
+            ServeOCPPByTheNewNodes(old16, old21).GetAwaiter().GetResult();
 
             // Stopped by DialAgain, and kept so that a station let go of
             // before that is done stops them all the same.
@@ -2032,11 +2031,6 @@ namespace cloud.charging.open.ChargingStation
             // the same.
             chargePoint.    ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
             chargingStation.ReconnectPolicy = new org.GraphDefined.Vanaheimr.Hermod.WebSocket.WebSocketClientReconnectPolicy();
-
-            // Every OCPP 2.1 node has its commissioning server, served or not -
-            // see ChargingStation.Commissioning.cs.
-            commissioningServer    = AttachCommissioning  (chargingStation);
-            commissioningServer16  = AttachCommissioning16(chargePoint);
 
             NewRegistrations(chargePoint, chargingStation);
 

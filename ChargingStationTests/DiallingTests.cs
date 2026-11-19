@@ -355,7 +355,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                 AutoStart:  true
                             );
 
-            listening.ClientTOTPConfig[Login] = new TOTPConfig(ASharedSecret, UseTLSExporterMaterial: false);
+            listening.ClientTOTPConfig[Login] = new TOTPConfig(ASharedSecret, TLSChannelBinding: false);
 
             return listening;
 
@@ -383,7 +383,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
                                                                       out var login, out var error),
                             Is.True, error);
 
@@ -426,7 +426,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AOneTimePasswordBoundToTLSIsNotConnected()
         {
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
@@ -466,7 +466,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station!.Connections.TryAddAuthentication("CSMS one-time password", "totp", "cs001", ASharedSecret,
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
                                                                       out var login, out var error),
                             Is.True, error);
 
@@ -512,7 +512,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task CredentialsWithoutASecretStopTheCallBeforeItIsMade()
         {
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS login", "basic", "cs001", "a-password",
+            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "a-password", "CSMS login",
                                                                   out var login, out var error),
                         Is.True, error);
 
@@ -842,7 +842,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestDoesNotRunWhatCannotWork()
         {
 
-            Assert.That(station!.Connections.TryAddAuthentication("CSMS login", "basic", "cs001", "a-password",
+            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "a-password", "CSMS login",
                                                                   out var login, out var error),
                         Is.True, error);
 
@@ -916,6 +916,158 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.WebSocketClientCount, Is.Zero,
                             "The test left a WebSocket client behind in one of the OCPP nodes.");
 
+            });
+
+        }
+
+        #endregion
+
+        #region (private) UntilItSays(Id, What)
+
+        /// <summary>
+        /// Wait until the line of the given connection says the given word, as
+        /// for any back end that answers - see
+        /// EveryConnectionIsDialledWhateverItIsCalled.
+        /// </summary>
+        private async Task UntilItSays(String Id, String What)
+        {
+
+            var giveUp = DateTimeOffset.UtcNow + TalkingToTheCSMSTests.Patience;
+
+            while (DateTimeOffset.UtcNow < giveUp &&
+                   !(station!.DialledConnections.TryGetValue(Id, out var said) && said.Contains(What)))
+                await Task.Delay(20);
+
+        }
+
+        #endregion
+
+        #region AConnectionKeptReadyIsDialledOnDemandAndHungUpAgain()
+
+        /// <summary>
+        /// A connection that does not dial by itself is dialled when somebody
+        /// asks for it, stays up while the connections are changed around it,
+        /// and is hung up when asked to - and not dialled again by itself.
+        /// </summary>
+        [Test]
+        public async Task AConnectionKeptReadyIsDialledOnDemandAndHungUpAgain()
+        {
+
+            var listening = ABackEndThatKnows("cs001");
+
+            try
+            {
+
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
+                                                                      out var login, out var error),
+                            Is.True, error);
+
+                Assert.That(station.Connections.TryAddConnection("Kept ready", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMSBackup",
+                                                                 false, login, null, out var id, out error),
+                            Is.True, error);
+
+                await Start();
+
+                Assert.That(station.DialledConnections.ContainsKey(id!), Is.False,
+                            "A connection that was not told to connect was tried before anybody asked.");
+
+                Assert.That(await station.DialOnDemand(id!), Is.Null);
+
+                await UntilItSays(id!, "Connected");
+
+                Assert.Multiple(() => {
+                    Assert.That(station.DialledConnections[id!],   Does.Contain("Connected"),
+                                "A connection dialled on demand did not get in.");
+                    Assert.That(station.IsDialledOnDemand(id!),    Is.True);
+                });
+
+                // Dialled again, it is not dialled twice.
+                Assert.That(await station.DialOnDemand(id!), Is.Null);
+
+                // Another connection written down: what was asked for stays up.
+                Assert.That(station.Connections.TryAddConnection("Somewhere else", NowhereInParticular(), "CSMS",
+                                                                 false, null, null, out _, out error),
+                            Is.True, error);
+
+                await Task.Delay(500);
+
+                Assert.Multiple(() => {
+                    Assert.That(station.IsDialledOnDemand(id!),    Is.True,
+                                "A change of the connections hung up what was dialled on demand.");
+                    Assert.That(station.DialledConnections[id!],   Does.Contain("Connected"));
+                });
+
+                Assert.That(await station.HangUpOnDemand(id!), Is.Null);
+
+                await Task.Delay(500);
+
+                Assert.Multiple(() => {
+                    Assert.That(station.IsDialledOnDemand(id!),               Is.False);
+                    Assert.That(station.DialledConnections.ContainsKey(id!),  Is.False,
+                                "A connection hung up on demand came back by itself.");
+                });
+
+                Assert.That(await station.HangUpOnDemand(id!), Does.Contain("is not dialled"));
+
+            }
+            finally
+            {
+                await listening.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
+        #region OneThatDialsByItselfIsNotHungUpOnDemand()
+
+        /// <summary>
+        /// A connection that dials by itself is hung up by switching it off,
+        /// which is written down - not by a word on demand, which the next
+        /// start forgets. Asked to be dialled, it is dialled already.
+        /// </summary>
+        [Test]
+        public async Task OneThatDialsByItselfIsNotHungUpOnDemand()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+                                                              true, null, null, out var id, out var error),
+                        Is.True, error);
+
+            await Start();
+
+            await Assert.MultipleAsync(async () => {
+                Assert.That(await station.DialOnDemand  (id!), Is.Null);
+                Assert.That(station.IsDialledOnDemand   (id!), Is.False);
+                Assert.That(await station.HangUpOnDemand(id!), Does.Contain("dialled by itself"));
+            });
+
+        }
+
+        #endregion
+
+        #region NothingIsDialledOnDemandThatCannotBe()
+
+        /// <summary>
+        /// Before the start, a connection that is not there, and one the other
+        /// end makes: each is refused, and says why.
+        /// </summary>
+        [Test]
+        public async Task NothingIsDialledOnDemandThatCannotBe()
+        {
+
+            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+                                                              false, null, null, out var id, out var error),
+                        Is.True, error);
+
+            Assert.That(await station.DialOnDemand(id!), Does.Contain("once it is started"));
+
+            await Start();
+
+            await Assert.MultipleAsync(async () => {
+                Assert.That(await station.DialOnDemand  ("no-such-connection"), Does.Contain("no connection here"));
+                Assert.That(await station.HangUpOnDemand("no-such-connection"), Does.Contain("no connection here"));
+                Assert.That(await station.HangUpOnDemand(id!),                  Does.Contain("is not dialled"));
             });
 
         }

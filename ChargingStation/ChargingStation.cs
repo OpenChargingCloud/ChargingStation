@@ -52,7 +52,7 @@ using cloud.charging.open.protocols.WWCP.Node.KeyPins;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 
-using OCPPServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.OCPPServerConfiguration;
+using WebSocketServerConfiguration = cloud.charging.open.protocols.OCPP.Node.Serving.WebSocketServerConfiguration;
 
 #endregion
 
@@ -78,7 +78,7 @@ namespace cloud.charging.open.ChargingStation
     /// file, its own JSON API below "/api", a display on a port of its own,
     /// and the OCPP nodes it dials its back ends with.
     /// </remarks>
-    public partial class ChargingStation : WWCPNode
+    public partial class ChargingStation : OCPPServingNode
     {
 
         #region Data
@@ -172,7 +172,7 @@ namespace cloud.charging.open.ChargingStation
                                                                     Product:        "ChargingStation",
                                                                     Organization:   DefaultOrganization,
                                                                     LogFilePrefix:  "station"
-                                                                );
+                                                                ) { Noun = "station" };
 
         /// <summary>
         /// Who is charging where, as far as the display is concerned. See
@@ -376,7 +376,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// The JSON API at "/api/".
         /// </summary>
-        public CSHTTPAPI              API                    { get; }
+        public CSHTTPAPI                      API                    { get; }
 
         /// <summary>
         /// What this station was given for the wire below the cable when it was
@@ -388,7 +388,7 @@ namespace cloud.charging.open.ChargingStation
         /// file's "v2g" section over this; the links that are up are
         /// <see cref="V2GLinks"/>.
         /// </remarks>
-        public V2GOptions             V2GOptions             { get; }
+        public V2GOptions                     V2GOptions             { get; }
 
         #endregion
 
@@ -427,7 +427,8 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="TimeProvider">Where this station reads the time; the system clock by default.</param>
         /// <param name="SSH">What the program says about serving the command line over SSH; nothing by default - see SSHSettings.</param>
         /// <param name="Web">What the program says of HTTPS and of the reverse proxies in front - --https, --https-cert, --redirect-port and --trusted-proxy - over the "web" section of the configuration file; nothing by default, and then the file alone says it.</param>
-        public ChargingStation(DNSClient?                            DNSClient                 = null,
+        public ChargingStation(OCPPv2_1.ChargingStation_Id?          Id                        = null,
+                               DNSClient?                            DNSClient                 = null,
                                NTSClient?                            NTSClient                 = null,
                                HTTPServer?                           HTTPServer                = null,
                                HTTPPath?                             BasePath                  = null,
@@ -455,29 +456,28 @@ namespace cloud.charging.open.ChargingStation
                                Boolean                               BridgeDebugLog            = true,
                                TimeProvider?                         TimeProvider              = null,
                                SSHSettings?                          SSH                       = null,
-                               WebConfiguration?                     Web                       = null,
-                               OCPPv2_1.ChargingStation_Id?          Id                        = null)
+                               WebConfiguration?                     Web                       = null)
 
-            : base(Kind:              ChargingStationKind,
-                   Version:           typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
-                   HTTPPort:          HTTPPort ?? DefaultHTTPPort,
-                   HTTPHostname:      HTTPHostname,
-                   HTTPServer:        HTTPServer,
-                   BasePath:          BasePath,
-                   HTTPRootPath:      HTTPRootPath,
-                   ExtAPI:            ExtAPI,
-                   AccountsPath:      AccountsPath,
+            : base(Kind:                      ChargingStationKind,
+                   Version:                   typeof(ChargingStation).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+                   HTTPPort:                  HTTPPort ?? DefaultHTTPPort,
+                   HTTPHostname:              HTTPHostname,
+                   HTTPServer:                HTTPServer,
+                   BasePath:                  BasePath,
+                   HTTPRootPath:              HTTPRootPath,
+                   ExtAPI:                    ExtAPI,
+                   AccountsPath:              AccountsPath,
                    // What a charging station adds to what every node has - its
                    // resources, and the operator's and the installer's roles as
                    // data - so that a role means here what it means on every node,
                    // and the configuration file may add one. See StationAccess.
-                   Resources:         StationAccess.Resources,
-                   RoleDefinitions:   StationAccess.Roles,
-                   ConfigFile:        ConfigFile,
-                   DNSClient:         DNSClient,
-                   NTSClient:         NTSClient,
-                   Frontend:          Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
-                   CertificatesPath:  CertificatesPath,
+                   Resources:                 StationAccess.Resources,
+                   RoleDefinitions:           StationAccess.Roles,
+                   ConfigFile:                ConfigFile,
+                   DNSClient:                 DNSClient,
+                   NTSClient:                 NTSClient,
+                   Frontend:                  Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(ChargingStation).Assembly),
+                   CertificatesPath:          CertificatesPath,
 
                    // TLS's four, the identity the web interface shows over HTTPS,
                    // and the three roots a vehicle's certificates chain to, and
@@ -489,39 +489,35 @@ namespace cloud.charging.open.ChargingStation
                    // V2G, Mobility Operator and OEM roots are what Plug & Charge
                    // checks a vehicle against. The TLS identity is who the
                    // station is - to a meter, and to a back end it dials.
-                   CertificateKinds:  StoredCertificateKinds,
+                   CertificateKinds:          StoredCertificateKinds,
 
                    // Who the station is to a back end it dials is made here:
                    // a key, a signing request, and the certificate that comes
                    // back for it - see ChargingStation.Certificates.cs. And
                    // who its own servers are, the web interface for one: a
                    // key made here need not be carried to the station.
-                   CertificateRequestKinds: [ CertificateKind.TLSIdentity, CertificateKind.TLSServerIdentity ],
+                   CertificateRequestKinds:   [ CertificateKind.TLSIdentity, CertificateKind.TLSServerIdentity ],
 
                    // Beside "dns" and "nts": a TLS root may vouch for the meters
                    // of the EVSEs and for nothing else - see ChargingStation.Meters.cs.
                    //
                    // And "ocpp": a TLS root may vouch for the servers of the OCPP
                    // connections and for nothing else - see WWCPNode.ServerPins.cs.
-                   CertificateUsages: [ MeterCertificateUsage, OCPPCertificateUsage ],
-                   Log:               Log,
-                   LogToConsole:      LogToConsole,
-                   ConsoleLogLevel:   ConsoleLogLevel,
-                   LogPath:           LogPath,
-                   BridgeDebugLog:    BridgeDebugLog,
-                   TimeProvider:      TimeProvider,
-                   SSH:               SSH,
+                   CertificateUsages:         [ MeterCertificateUsage, OCPPCertificateUsage ],
+                   Log:                       Log,
+                   LogToConsole:              LogToConsole,
+                   ConsoleLogLevel:           ConsoleLogLevel,
+                   LogPath:                   LogPath,
+                   BridgeDebugLog:            BridgeDebugLog,
+                   TimeProvider:              TimeProvider,
+                   SSH:                       SSH,
 
                    // HTTPS of the station's own, or the proxies in front
                    // believed: with --any the sign-in would otherwise cross the
                    // network in the clear - see the node's "web" section.
-                   Web:               Web)
+                   Web:                       Web)
 
         {
-
-            // OCPP is what its connections speak, before anything of them is
-            // asked: its OCPP nodes are asked for whenever they are needed.
-            this.Dialling = new StationDialling(this);
 
             // "this." throughout, and not for tidiness: the parameters of this
             // constructor shadow the properties of the same name, and a
@@ -538,7 +534,8 @@ namespace cloud.charging.open.ChargingStation
                                        System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
                                        ConnectionStore.DefaultDirectoryName
                                    ),
-                                   this.TimeProvider
+                                   this.TimeProvider,
+                                   this.NodeNoun
                                );
 
             // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
@@ -592,7 +589,8 @@ namespace cloud.charging.open.ChargingStation
 
             this.SshKey = new SshClientKey(
                               System.IO.Path.Combine(this.Connections.Path, SshClientKey.DirectoryName),
-                              $"chargingstation@{Environment.MachineName}"
+                              $"chargingstation@{Environment.MachineName}",
+                              NodeNoun:  this.NodeNoun
                           );
 
             this.SshKey.OnNotice                 += (level, message) => this.Log.Log(level, message, "ocpp", "connections", "ssh", "security");
@@ -684,12 +682,6 @@ namespace cloud.charging.open.ChargingStation
             this.Operator       = configuration.Operator      ?? new OperatorConfiguration();
             this.Nameplate      = configuration.Nameplate     ?? new NameplateConfiguration();
             this.idWhenMade     = Id;
-
-            // Served from Start() on - see ChargingStation.Commissioning.cs.
-            this.Commissioning  = configuration.Commissioning ?? new CommissioningConfiguration();
-
-            // Served from Start() on - see ChargingStation.OCPPServer.cs.
-            this.OCPPServer     = configuration.OCPPServer    ?? new OCPPServerConfiguration();
 
             // The logos the display shows, as files put up over SFTP.
             AddLogoAreas();
@@ -861,6 +853,22 @@ namespace cloud.charging.open.ChargingStation
 
             this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up with {this.EVSEs.Count} EVSE(s).", "ocpp");
 
+            // The port a CSMS or a local controller dials, where the station
+            // cannot dial them: after the nodes, because its servers are
+            // attached to them, and listening from Start() on where the file
+            // says so - see ChargingStation.Serving.cs. OCPP 1.6 on it as
+            // well where the file names no subprotocols: the station is a node
+            // of each, and the port hands a WebSocket by the subprotocol it
+            // asks for to the one that speaks it. Not written to the file,
+            // which goes on saying "the default decides".
+            // And a tool commissioning this station over SSH, on the subsystem
+            // of OCPP - see OCPPServingNode.Commissioning.cs. Served from
+            // Start() on.
+            BuildOCPPServer((configuration.OCPPServer ?? new WebSocketServerConfiguration()) with {
+                                Subprotocols = configuration.OCPPServer?.Subprotocols ?? DefaultStationPortSubprotocols
+                            },
+                            configuration.Commissioning);
+
             #endregion
 
             #region The command line over SSH
@@ -964,15 +972,23 @@ namespace cloud.charging.open.ChargingStation
             await StartV2GLinks();
 
             // A tool speaking OCPP to this station over its SSH server, where
-            // the file says so - see ChargingStation.Commissioning.cs.
-            if (Commissioning.IsEnabled)
-                ServeCommissioning();
+            // the file says so - see OCPPServingNode.Commissioning.cs.
+            StartCommissioning();
 
             // A CSMS or a local controller dialling this station, where the
-            // file says so - see ChargingStation.OCPPServer.cs. Before the
+            // file says so - see ChargingStation.Serving.cs. Before the
             // connections are dialled, so that what is said of a connection
-            // the other end makes is that it is waited for.
-            ServeOCPP();
+            // the other end makes is that it is waited for. A port that is
+            // taken is said and does not stop the station: it dials what it
+            // dials all the same.
+            try
+            {
+                await StartOCPPServer();
+            }
+            catch (Exception e)
+            {
+                Log.Critical($"The station port could not be started: {e.GetBaseException().Message}", "ocpp", "station");
+            }
 
             // After the web interface for the same reason as the V2G link
             // above: somebody watching the Logs page sees each back end come up
@@ -1022,11 +1038,11 @@ namespace cloud.charging.open.ChargingStation
             StopWatchingTheEVSEs();
 
             await Take("ending commissioning over SSH", () => {
-                StopServingCommissioning("the station is stopping");
+                StopCommissioning("the station is stopping");
                 return Task.CompletedTask;
             });
 
-            await Take("stopping the OCPP server", () => StopServingOCPP("the station is stopping"));
+            await Take("stopping the station port", StopOCPPServer);
 
             await Take("ending the V2G links", EndTheV2GLinks);
 
