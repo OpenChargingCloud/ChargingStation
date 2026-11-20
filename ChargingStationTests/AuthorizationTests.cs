@@ -137,7 +137,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: Version),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
                         $"the station did not get connected to begin with: {started.DialledConnections[id!]}");
@@ -303,7 +303,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationWithoutABackEndStartsACardByItself()
         {
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             var (started, error) = await station.PresentToken("reader", null, ACard);
 
@@ -332,7 +332,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out _, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => started.RegistrationJSON()["2.1"]?["state"]?.Value<String>() == "Pending"), Is.True,
                         "the station was not told to wait");

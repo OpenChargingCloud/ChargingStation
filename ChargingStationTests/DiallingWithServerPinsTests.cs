@@ -266,7 +266,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => $"wss://127.0.0.1:{csms!.Port}/cs001";
 
         private async Task Start()
-            => station = await TestStations.Started(station!, directory);
+            => station = await TestStations.Booted(station!, directory);
 
         /// <summary>
         /// Keep the given CA as a TLS root of the station's own store: for

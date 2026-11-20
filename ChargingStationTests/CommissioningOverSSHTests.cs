@@ -309,7 +309,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             }
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             var added = await station.AuthorizeSSHKey(Root, SshPublicKey.FromHostKey(toolKey).ToAuthorizedKeyLine());
 

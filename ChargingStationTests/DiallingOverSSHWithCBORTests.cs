@@ -254,7 +254,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var id   = Added(Named);
             var cbor = Agreed.EndsWith("cbor");
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             await Until(() => StatusOf(id) == ConnectionStatus.Connected, "Connecting over SSH", () => SaidOf(id));
             await Until(() => csms!.Boots(cbor ? csms.AsCBOR : csms.AsJSON) > 0, "A BootNotification over SSH");
@@ -299,7 +299,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var id = Added(Encoding, Named);
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             await Until(() => StatusOf(id) == ConnectionStatus.Connected, "Connecting over SSH", () => SaidOf(id));
 
@@ -333,7 +333,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var id = Added("cbor");
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             await Until(() => StatusOf(id) is ConnectionStatus.Refused or ConnectionStatus.Failed or ConnectionStatus.Trying,
                         "the refusal", () => SaidOf(id));

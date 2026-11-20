@@ -202,7 +202,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => $"ws://127.0.0.1:{csms!.Port}/cs001";
 
         private async Task Start()
-            => station = await TestStations.Started(station!, directory);
+            => station = await TestStations.Booted(station!, directory);
 
         private String Added(String? Encoding, String? OCPPVersion = null)
         {

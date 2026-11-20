@@ -115,7 +115,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
                         $"the station did not get connected: {started.DialledConnections[id!]}");
@@ -536,6 +536,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             var boots    = csms!.Requests("BootNotification").Length;
 
             Assert.That(Refused(await Reset(ResetType.OnIdle, support)), Is.False, "a restart once idle");
+
+            // Sent by no node by itself: asked for, as after a reboot.
+            await TestStations.BootsAgain(station!, "2.1");
 
             Assert.That(await Within(() => csms.Requests("BootNotification").Length > boots &&
                                            csms.Connections == 1 &&

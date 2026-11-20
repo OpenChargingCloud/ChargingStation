@@ -245,7 +245,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => csms = new CSMS(leaf, AcceptHTTP2, AcceptHTTP3);
 
         private async Task Start()
-            => station = await TestStations.Started(station!, directory);
+            => station = await TestStations.Booted(station!, directory);
 
         private String Added(String? HTTPVersion)
         {

@@ -410,7 +410,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => $"ssh://{Login}@127.0.0.1:{csms!.Port}";
 
         private async Task Start()
-            => station = await TestStations.Started(station!, directory);
+            => station = await TestStations.Booted(station!, directory);
 
         private static UInt16 FreeUDPPort()
         {

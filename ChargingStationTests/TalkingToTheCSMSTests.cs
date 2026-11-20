@@ -342,7 +342,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: Version),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             // Waited for rather than read at once: a first dial that ran into its
             // own timeout on a runner that stood still is tried again by itself.
@@ -551,6 +551,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Connected(Version);
 
             SwitchTheEVSEs();
+
+            // Sent by no node by itself: asked for, as after a reboot.
+            await TestStations.BootsAgain(station!, Version);
 
             Assert.That(await Within(() => csms!.Accepted == 2 && csms.Connections == 1), Is.True,
                         $"the station did not hang up and connect again: {csms!.Accepted} connection(s) taken, {csms.Connections} open");
@@ -917,6 +920,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             SwitchTheEVSEs();
 
+            // Sent by no node by itself: asked for, as after a reboot.
+            await TestStations.BootsAgain(station!, Version);
+
             Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 2), Is.True, "the new nodes did not register");
 
             if (Version == "2.1")
@@ -952,6 +958,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                  out var error,
                                                                  out _),
                         Is.True, error);
+
+            // Sent by no node by itself: asked for, as after a reboot.
+            await TestStations.BootsAgain(station!, Version);
 
             Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 2), Is.True, "the station did not register again");
             Assert.That(csms!.Accepted, Is.EqualTo(2), "the station did not hang up and dial again");

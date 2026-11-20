@@ -166,6 +166,85 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region Booted(Station, Directory)
+
+        /// <summary>
+        /// A station started as by <see cref="Started"/>, which then sends its
+        /// BootNotification - over every connection that is up, and over each
+        /// one that comes up after - as after a reboot.
+        /// </summary>
+        /// <remarks>
+        /// A station sends no BootNotification by itself: what is to ask for
+        /// one after a reboot is not decided yet, so a test that expects one
+        /// asks for it. Not waited for: a back end that does not answer would
+        /// hold the test up as long as its request takes.
+        /// </remarks>
+        /// <param name="Station">The station, made by <see cref="New"/> in the given directory with nothing else of its own, and not started.</param>
+        /// <param name="Directory">Its directory.</param>
+        public static async Task<ChargingStation> Booted(ChargingStation  Station,
+                                                         String           Directory)
+        {
+
+            var started = await Started(Station, Directory);
+
+            _ = started.SendBootNotifications();
+
+            return started;
+
+        }
+
+        #endregion
+
+        #region BootsAgain(Station, Version)
+
+        /// <summary>
+        /// Once the station built its OCPP side anew - a reset, a change of
+        /// its EVSEs or of what it says it is - it sends its BootNotification
+        /// again, as after a reboot: asked for here, as nothing asks for it by
+        /// itself yet.
+        /// </summary>
+        /// <remarks>
+        /// Built anew, the node of the given version stands where nobody asked
+        /// it anything: asked from then on, it sends its BootNotification over
+        /// each connection as soon as it is up. Asked once more where it was
+        /// asked between the old node and the new one.
+        /// </remarks>
+        /// <param name="Station">The station, accepted by its back end before.</param>
+        /// <param name="Version">"1.6" or "2.1".</param>
+        public static async Task BootsAgain(ChargingStation  Station,
+                                            String           Version)
+        {
+
+            String? StateOf()
+                => Station.RegistrationJSON()[Version]?["state"]?.Value<String>();
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            while (StateOf() == "Accepted")
+            {
+
+                if (watch.Elapsed > TalkingToTheCSMSTests.Patience)
+                    Assert.Fail($"The station did not build its OCPP {Version} side anew: it stands accepted still.");
+
+                await Task.Delay(20);
+
+            }
+
+            do
+            {
+
+                _ = Station.SendBootNotifications();
+
+                for (var wait = 0; wait < 50 && StateOf() == "NotAsked"; wait++)
+                    await Task.Delay(20);
+
+            }
+            while (StateOf() == "NotAsked" && watch.Elapsed < TalkingToTheCSMSTests.Patience);
+
+        }
+
+        #endregion
+
         #region Resolver()
 
         /// <summary>

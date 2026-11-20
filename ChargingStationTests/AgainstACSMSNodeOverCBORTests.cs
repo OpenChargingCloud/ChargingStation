@@ -170,7 +170,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheStationRegisters_IsAsked_AndAnswers(String? Named, String Agreed)
         {
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                              out var id, out var error,

@@ -267,7 +267,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             => $"wss://127.0.0.1:{lc!.Port}/cs001";
 
         private async Task Start()
-            => station = await TestStations.Started(station!, directory);
+            => station = await TestStations.Booted(station!, directory);
 
         private String Added(String? Pins, ServerKeyPinSettings? Trust = null)
         {
@@ -461,6 +461,9 @@ namespace cloud.charging.open.ChargingStation.Tests
             var attempt  = 0;
 
             station      = await TestPorts.StartedOnFreshPorts(() => attempt++ == 0 ? again : TestStations.New(directory, TestStations.Offline, Clock: clock));
+
+            // Sent by no node by itself: asked for, as after a reboot.
+            _ = station.SendBootNotifications();
 
             await Until(() => IsConnected(id), "Connecting again after the restart", () => SaidOf(id));
             await Until(() => lc.Requests("BootNotification").Length == 2, "The BootNotification after the restart");

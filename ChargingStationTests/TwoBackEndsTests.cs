@@ -124,7 +124,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var (firstId, secondId) = TwoConnections(Version, second.Port);
 
-            var started = station = await TestStations.Started(station!, directory);
+            var started = station = await TestStations.Booted(station!, directory);
 
             Assert.That(await Within(() => started.DialledConnections[firstId]. StartsWith("Connected", StringComparison.Ordinal) &&
                                            started.DialledConnections[secondId].StartsWith("Connected", StringComparison.Ordinal)),
@@ -153,7 +153,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var port                 = IPPort.Parse(TestPorts.Free());
             var (firstId, secondId)  = TwoConnections(Version, port);
 
-            var started = station = await TestStations.Started(station!, directory);
+            var started = station = await TestStations.Booted(station!, directory);
 
             Assert.That(await Within(() => started.RegistrationJSON()[Version]?["state"]?.Value<String>() == "Accepted"), Is.True,
                         $"the station did not register with the first back end: '{started.DialledConnections[firstId]}'");

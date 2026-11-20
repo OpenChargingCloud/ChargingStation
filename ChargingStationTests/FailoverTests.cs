@@ -123,7 +123,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(station!.NetworkProfileConnectionAttempts, Is.EqualTo(3), "OCPP's default");
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => Status(mainId) == ConnectionStatus.Trying), Is.True, $"the first endpoint was not tried: '{Said(mainId)}'");
             Assert.That(Status(spareId), Is.EqualTo(ConnectionStatus.Standby), $"the second endpoint does not wait in reserve: '{Said(spareId)}'");
@@ -160,7 +160,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station!.NetworkProfileConnectionAttempts = 100;
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => second.Connections == 1 && Said(spareId).StartsWith("Connected", StringComparison.Ordinal)), Is.True,
                         $"the second endpoint was not dialled: '{Said(spareId)}', '{Said(mainId)}'");
@@ -188,7 +188,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station!.NetworkProfileConnectionAttempts = 1;
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             // Round to the second endpoint, tried once, and back in reserve.
             Assert.That(await Within(() => Status(spareId) is ConnectionStatus.Standby &&
@@ -226,7 +226,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station!.NetworkProfileConnectionAttempts = 1;
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => Status(spareId) is ConnectionStatus.Standby &&
                                            Said(spareId).Contains("1 attempt(s) failed", StringComparison.Ordinal)), Is.True,
@@ -269,7 +269,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station.NetworkProfileConnectionAttempts = 1;
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => station.ConnectionStates.TryGetValue(id!, out var state) &&
                                            state.Status == ConnectionStatus.Trying &&
@@ -297,7 +297,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var mainId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => Said(mainId!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(mainId!));
 
@@ -340,7 +340,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var mainId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => Said(mainId!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(mainId!));
 

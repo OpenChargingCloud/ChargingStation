@@ -434,7 +434,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task Start(TimeSpan? GetsThroughWithin = null)
         {
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             station.SwitchesToANewCertificateAfter    = TimeSpan.FromMilliseconds(200);
             station.ANewCertificateGetsThroughWithin  = GetsThroughWithin ?? TimeSpan.FromSeconds(15);

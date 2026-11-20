@@ -124,7 +124,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
                         $"the station did not get connected: {started.DialledConnections[id!]}");

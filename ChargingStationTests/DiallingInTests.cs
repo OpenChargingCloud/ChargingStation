@@ -225,7 +225,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var password  = APassword();
             var id        = WrittenDown(password);
 
-            station       = await TestStations.Started(station!, directory);
+            station       = await TestStations.Booted(station!, directory);
 
             await Until(() => StatusOf(id) == "waiting", "Waiting for the CSMS", () => $"{StatusOf(id)}: {SaidOf(id)}");
 
@@ -284,10 +284,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             var password  = APassword();
             var id        = WrittenDown(password);
 
-            station       = await TestStations.Started(station!, directory);
+            station       = await TestStations.Booted(station!, directory);
 
             // A login of its own, and no connection the other end makes under
-            // its name: this station serves no charging stations.
+            // its name: let in, as every node lets in its logins.
             Assert.That(station.WebSocketLogins.TrySetPasswordAuthentication("csms-03", password, null, I18NString.Create("A login and nothing else"), out var loginOnly),
                         Is.True, loginOnly);
 
@@ -299,13 +299,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             var refused1  = (await wrongPassword.Client.Connect()).Item2.HTTPStatusCode;
             var refused2  = (await unknown.      Client.Connect()).Item2.HTTPStatusCode;
             var refused3  = (await asAnother.    Client.Connect()).Item2.HTTPStatusCode;
-            var refused4  = (await noConnection. Client.Connect()).Item2.HTTPStatusCode;
+            var letIn4    = (await noConnection. Client.Connect()).Item2.HTTPStatusCode;
 
             Assert.Multiple(() => {
                 Assert.That(refused1,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a wrong password");
                 Assert.That(refused2,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a name nobody wrote down");
                 Assert.That(refused3,      Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "under another name than its own");
-                Assert.That(refused4,      Is.EqualTo(HTTPStatusCode.Unauthorized), "a login, and no connection the other end makes under its name");
+                Assert.That(letIn4,        Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "a login, and no connection the other end makes under its name");
                 Assert.That(StatusOf(id),  Is.EqualTo("waiting"));
             });
 
@@ -395,7 +395,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.IsPrimary(station.Connections.Connections.Single(one => one.Id == id)),      Is.False);
             });
 
-            station       = await TestStations.Started(station, directory);
+            station       = await TestStations.Booted(station, directory);
 
             await Until(() => StatusOf(dialled!) == "connected" && Volatile.Read(ref heartbeats) > 0, "The uplink and its heartbeats", () => $"{StatusOf(dialled!)}: {SaidOf(dialled!)}");
 
@@ -473,7 +473,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                      Inbound:     true),
                         Is.True, error);
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             // What a client that knows nothing but Basic has of a TOTP secret: the one-time password, as its password.
             Assert.That(station.WebSocketLogins.TryGet(Name, out var totpLogin), Is.True);
@@ -522,7 +522,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var password  = APassword();
             var id        = WrittenDown(password);
 
-            station       = await TestStations.Started(station!, directory);
+            station       = await TestStations.Booted(station!, directory);
 
             var csms = new DiallingCSMS(Address, Name, password);
 
@@ -587,11 +587,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             var password  = APassword();
             var id        = WrittenDown(password);
 
-            station       = await TestStations.Started(station!, directory);
+            station       = await TestStations.Booted(station!, directory);
 
             var answers   = new List<HTTPStatusCode>();
 
-            for (var guess = 0; guess < ChargingStation.MaxFailedOCPPSignInsPerMinute + 1; guess++)
+            for (var guess = 0; guess < protocols.WWCP.Node.SignInBrake.DefaultMaxFailedPerMinute + 1; guess++)
             {
                 await using var guessing = new DiallingCSMS(Address, Name, APassword());
                 answers.Add((await guessing.Client.Connect()).Item2.HTTPStatusCode);
@@ -602,7 +602,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var afterwards = (await csms.Client.Connect()).Item2.HTTPStatusCode;
 
             Assert.Multiple(() => {
-                Assert.That(answers.Take((Int32) ChargingStation.MaxFailedOCPPSignInsPerMinute), Is.All.EqualTo(HTTPStatusCode.Unauthorized));
+                Assert.That(answers.Take((Int32) protocols.WWCP.Node.SignInBrake.DefaultMaxFailedPerMinute), Is.All.EqualTo(HTTPStatusCode.Unauthorized));
                 Assert.That(answers.Last(),  Is.EqualTo(HTTPStatusCode.TooManyRequests), "one guess more than it is given");
                 Assert.That(afterwards,      Is.EqualTo(HTTPStatusCode.TooManyRequests), "the right password, from an address that waits");
                 Assert.That(StatusOf(id),    Is.EqualTo("waiting"));
@@ -678,7 +678,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task LetGoOf_ItsOCPPNodesStopCleanly_ThoughItsServerWentFirst()
         {
 
-            station = await TestStations.Started(station!, directory);
+            station = await TestStations.Booted(station!, directory);
 
             Assert.That(station.OCPPServerRunning, Is.True, "The station port did not start.");
 

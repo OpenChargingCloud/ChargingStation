@@ -265,7 +265,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                              out var id, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            station = await TestStations.Started(station, directory);
+            station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => Said(id!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(id!));
 
@@ -337,7 +337,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            var started = station = await TestStations.Started(station, directory);
+            var started = station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => started.RegistrationJSON()["2.1"]?["state"]?.Value<String>() == "Accepted"), Is.True,
                         $"the station did not register with the first CSMS: '{Said(id!)}'");

@@ -42,8 +42,10 @@ namespace cloud.charging.open.ChargingStation
     /// the back end is told how each EVSE stands.
     ///
     /// A node built anew because the EVSEs or what this station says it is
-    /// changed is a new start: it hangs up, dials again and registers again,
-    /// with the BootReason LocalReset in OCPP 2.1 rather than PowerUp.
+    /// changed is a new start: it hangs up and dials again, and registers
+    /// again once that is asked for - with the BootReason LocalReset in OCPP
+    /// 2.1 rather than PowerUp. A BootNotification is sent by no node by
+    /// itself, see SendBootNotifications.
     /// </remarks>
     public partial class ChargingStation
     {

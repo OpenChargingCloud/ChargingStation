@@ -42,11 +42,9 @@ namespace cloud.charging.open.ChargingStation
     /// a connection the other end makes - see WWCPNode.Accepting.cs.
     /// </para>
     /// <para>
-    /// A charging station serves no charging stations: a WebSocket under a
-    /// name no such connection is written down under is turned away, and a
-    /// client certificate none of them signs in with as well. Nor does it
-    /// serve OCPP over SSH to anything but the tools that commission it - see
-    /// OCPPServingNode.Commissioning.cs.
+    /// As every node, it lets in what has a WebSocket login, over a WebSocket
+    /// and over SSH alike, where the file switches them on: a node that dials
+    /// it with a login of its own is let in as any node would let it in.
     /// </para>
     /// </remarks>
     public partial class ChargingStation
@@ -55,41 +53,11 @@ namespace cloud.charging.open.ChargingStation
         #region Data
 
         /// <summary>
-        /// How many sign-ins that were wrong one address is given within a
-        /// minute before the station port tells it to wait.
-        /// </summary>
-        public const UInt32  MaxFailedOCPPSignInsPerMinute  = 10;
-
-        /// <summary>
         /// What the station port offers where the file names no subprotocols:
         /// OCPP 2.1 and 2.0.1, handed to the node of OCPP 2.1, and OCPP 1.6,
         /// handed to the node of OCPP 1.6.
         /// </summary>
         public static readonly String[]  DefaultStationPortSubprotocols  = [ "ocpp2.1", "ocpp2.0.1", "ocpp1.6" ];
-
-        #endregion
-
-        #region (protected override) ServesStations / ServesOCPPOverSSH / MaxFailedSignInsPerMinute
-
-        /// <summary>
-        /// None: what dials this station is its back end, and nothing else.
-        /// </summary>
-        protected override Boolean ServesStations
-            => false;
-
-        /// <summary>
-        /// Not over SSH, whose subsystem is the tools' that commission this
-        /// station, and over which nothing dials it.
-        /// </summary>
-        protected override Boolean ServesOCPPOverSSH
-            => false;
-
-        /// <summary>
-        /// A password is guessed at from wherever the station port can be
-        /// reached: so many wrong a minute, and then the address waits.
-        /// </summary>
-        protected override UInt32? MaxFailedSignInsPerMinute
-            => MaxFailedOCPPSignInsPerMinute;
 
         #endregion
 
