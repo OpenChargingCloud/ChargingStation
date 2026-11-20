@@ -302,13 +302,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             // One of each that is there, for the changes of one that is there.
             var (made, credentials) = await Said(await http.PostAsync("api/v1/configuration/authentications", JSONBody(
-                                                                          new JProperty("description",     "The CSMS's login"),
+                                                                          new JProperty("description",     new JObject(new JProperty("en", "The CSMS's login"))),
                                                                           new JProperty("kind",            "basic"),
                                                                           new JProperty("login",           "cs001"),
                                                                           new JProperty("secret",          ASecret))));
 
             var (dialled, connection) = await Said(await http.PostAsync("api/v1/configuration/connections", JSONBody(
-                                                                          new JProperty("description",     "The CSMS"),
+                                                                          new JProperty("description",     new JObject(new JProperty("en", "The CSMS"))),
                                                                           new JProperty("url",             "wss://csms.example.org/cs001"),
                                                                           new JProperty("connectionType",  "CSMS"))));
 
@@ -328,11 +328,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             System.IO.Directory.CreateDirectory(file + ".tmp");
 
             var (status, said)      = Change switch {
-                "add a connection"      => await Said(await http.PostAsync("api/v1/configuration/connections",            JSONBody(new JProperty("description", "The spare CSMS"),  new JProperty("url", "wss://spare.example.org/cs001"), new JProperty("connectionType", "CSMSBackup")))),
-                "change a connection"   => await Said(await http.PostAsync("api/v1/configuration/connections/update",     JSONBody(new JProperty("id", connectionId), new JProperty("description", "The CSMS, renamed"), new JProperty("url", "wss://csms.example.org/cs001"), new JProperty("connectionType", "CSMS")))),
+                "add a connection"      => await Said(await http.PostAsync("api/v1/configuration/connections",            JSONBody(new JProperty("description", new JObject(new JProperty("en", "The spare CSMS"))),  new JProperty("url", "wss://spare.example.org/cs001"), new JProperty("connectionType", "CSMSBackup")))),
+                "change a connection"   => await Said(await http.PostAsync("api/v1/configuration/connections/update",     JSONBody(new JProperty("id", connectionId), new JProperty("description", new JObject(new JProperty("en", "The CSMS, renamed"))), new JProperty("url", "wss://csms.example.org/cs001"), new JProperty("connectionType", "CSMS")))),
                 "remove a connection"   => await Said(await http.PostAsync("api/v1/configuration/connections/remove",     JSONBody(new JProperty("id", connectionId)))),
-                "add credentials"       => await Said(await http.PostAsync("api/v1/configuration/authentications",        JSONBody(new JProperty("description", "The spare's login"), new JProperty("kind", "basic"), new JProperty("login", "cs002"), new JProperty("secret", ASecret)))),
-                "change credentials"    => await Said(await http.PostAsync("api/v1/configuration/authentications/update", JSONBody(new JProperty("id", credentialsId), new JProperty("description", "The CSMS's login, renamed"), new JProperty("kind", "basic"), new JProperty("login", "cs001")))),
+                "add credentials"       => await Said(await http.PostAsync("api/v1/configuration/authentications",        JSONBody(new JProperty("description", new JObject(new JProperty("en", "The spare's login"))), new JProperty("kind", "basic"), new JProperty("login", "cs002"), new JProperty("secret", ASecret)))),
+                "change credentials"    => await Said(await http.PostAsync("api/v1/configuration/authentications/update", JSONBody(new JProperty("id", credentialsId), new JProperty("description", new JObject(new JProperty("en", "The CSMS's login, renamed"))), new JProperty("kind", "basic"), new JProperty("login", "cs001")))),
                 "remove credentials"    => await Said(await http.PostAsync("api/v1/configuration/authentications/remove", JSONBody(new JProperty("id", credentialsId)))),
                 _                       => throw new ArgumentException($"No change '{Change}' here.", nameof(Change))
             };
@@ -371,8 +371,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             System.IO.Directory.CreateDirectory(Path.Combine(Station.Connections.Path, ConnectionStore.PeersFileName           + ".tmp"));
             System.IO.Directory.CreateDirectory(Path.Combine(Station.Connections.Path, ConnectionStore.AuthenticationsFileName + ".tmp"));
 
-            var noURL      = await http.PostAsync("api/v1/configuration/connections",         JSONBody(new JProperty("description", "Nowhere"), new JProperty("url", "ftp://csms.example.org"), new JProperty("connectionType", "CSMS")));
-            var noSecret   = await http.PostAsync("api/v1/configuration/authentications",     JSONBody(new JProperty("description", "No secret"), new JProperty("kind", "basic"), new JProperty("login", "cs001")));
+            var noURL      = await http.PostAsync("api/v1/configuration/connections",         JSONBody(new JProperty("description", new JObject(new JProperty("en", "Nowhere"))), new JProperty("url", "ftp://csms.example.org"), new JProperty("connectionType", "CSMS")));
+            var noSecret   = await http.PostAsync("api/v1/configuration/authentications",     JSONBody(new JProperty("description", new JObject(new JProperty("en", "No secret"))), new JProperty("kind", "basic"), new JProperty("login", "cs001")));
             var notThere   = await http.PostAsync("api/v1/configuration/connections/remove",  JSONBody(new JProperty("id", "nothing-by-this-id")));
 
             Assert.Multiple(() => {

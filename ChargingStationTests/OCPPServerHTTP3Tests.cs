@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -459,10 +460,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await Started(port, HTTPS: true, HTTP3: true, made => {
 
-                Assert.That(made.WebSocketLogins.TrySetPassword(Name, password, null, "What the CSMS signs in with", out var error),
+                Assert.That(made.WebSocketLogins.TrySetPasswordAuthentication(Name, password, null, I18NString.Create("What the CSMS signs in with"), out var error),
                             Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, null, null,
+                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);
@@ -508,13 +509,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await Started(port, HTTPS: true, HTTP3: true, made => {
 
-                Assert.That(made.WebSocketLogins.TrySetTOTP(Name, secret, null, null, null, null, null, "The one-time password of the CSMS",
-                                                            out _, out var error),
+                Assert.That(made.WebSocketLogins.TrySetTOTPAuthentication(Name, secret, null, null, null, null, null, I18NString.Create("The one-time password of the CSMS"),
+                                                            out var error),
                             Is.True, error);
 
                 Assert.That(made.WebSocketLogins.TrySetTOTPBinding(Name, true, out error), Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection("The CSMS, dialling in", $"wss://127.0.0.1:{port}/{Name}", "CSMS", true, null, null,
+                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);

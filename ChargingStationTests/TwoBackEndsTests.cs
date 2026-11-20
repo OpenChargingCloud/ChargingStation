@@ -23,7 +23,9 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
@@ -174,11 +176,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         private (String First, String Second) TwoConnections(String Version, IPPort SecondPort)
         {
 
-            Assert.That(station!.Connections.TryAddConnection($"The CSMS, OCPP {Version}", $"ws://127.0.0.1:{first!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create($"The CSMS, OCPP {Version}"), URL.Parse($"ws://127.0.0.1:{first!.Port}/cs001"), "CSMS", true, null, null,
                                                               out var firstId, out var error, OCPPVersion: Version),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection($"Its successor, OCPP {Version}", $"ws://127.0.0.1:{SecondPort}/cs001", "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create($"Its successor, OCPP {Version}"), URL.Parse($"ws://127.0.0.1:{SecondPort}/cs001"), "CSMS", true, null, null,
                                                              out var secondId, out error, OCPPVersion: Version),
                         Is.True, error);
 

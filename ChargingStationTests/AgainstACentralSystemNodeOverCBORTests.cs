@@ -166,7 +166,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = await TestStations.Started(station!, directory);
 
-            Assert.That(station.Connections.TryAddConnection("The central system", Address, "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The central system"), URL.Parse(Address), "CSMS", true, null, null,
                                                              out var id, out var error,
                                                              OCPPVersion:  "1.6",
                                                              Encoding:     Named),

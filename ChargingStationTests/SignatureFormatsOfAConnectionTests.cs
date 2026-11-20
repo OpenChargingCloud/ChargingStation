@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -184,7 +185,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = await TestStations.Started(station!, directory);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                              out var id, out var error,
                                                              SignatureFormats: Named),
                         Is.True, error);
@@ -214,21 +215,21 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = await TestStations.Started(station!, directory);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                              out var id, out var e1,
                                                              SignatureFormats: "cose"),
                         Is.True, e1);
 
             await Until(() => IsConnected(id!) && station.SignatureFormatsOf(Entry) == SignatureFormats.COSE, "the connection", () => SaidOf(id!));
 
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS", Address, "CSMS", true, null, null, out var e2,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null, out var e2,
                                                                 SignatureFormats: "both"),
                         Is.True, e2);
 
             await Until(() => IsConnected(id!) && station.SignatureFormatsOf(Entry) == SignatureFormats.Both,
                         "the change", () => $"{SaidOf(id!)}; the node says {station.SignatureFormatsOf(Entry)?.ToString() ?? "nothing"}");
 
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS", Address, "CSMS", true, null, null, out var e3,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null, out var e3,
                                                                 SignatureFormats: "policy"),
                         Is.True, e3);
 
@@ -254,7 +255,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void WhatNamesNoSignatures_IsRefused_ForEveryVersion(String Named, String OCPPVersion, Boolean Taken)
         {
 
-            var added = station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null,
+            var added = station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", false, null, null,
                                                               out _, out var error,
                                                               OCPPVersion:       OCPPVersion,
                                                               SignatureFormats:  Named);
@@ -278,13 +279,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void AChangeKeepsWhatItDoesNotSay_AndIsReadAgain()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", false, null, null,
                                                               out var id, out var e0,
                                                               SignatureFormats: "both"),
                         Is.True, e0);
 
             // A change that says nothing of it keeps it.
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e1),
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", false, null, null, out var e1),
                         Is.True, e1);
 
             Assert.That(Entry.SignatureFormats,  Is.EqualTo(SignatureFormats.Both));
@@ -294,20 +295,20 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(readAgain?.SignatureFormats,  Is.EqualTo(SignatureFormats.Both));
 
             // OCPP 1.6 has its COSE signature as well: a connection that becomes one keeps what it said.
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e3,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", false, null, null, out var e3,
                                                                 OCPPVersion: "1.6"),
                         Is.True, e3);
 
             Assert.That(Entry.SignatureFormats,  Is.EqualTo(SignatureFormats.Both));
 
             // "policy" takes back what a connection said.
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e4,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", false, null, null, out var e4,
                                                                 OCPPVersion: "2.1", SignatureFormats: "cose"),
                         Is.True, e4);
 
             Assert.That(Entry.SignatureFormats,  Is.EqualTo(SignatureFormats.COSE));
 
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", false, null, null, out var e5,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", false, null, null, out var e5,
                                                                 SignatureFormats: "policy"),
                         Is.True, e5);
 

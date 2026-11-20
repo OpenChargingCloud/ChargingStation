@@ -28,6 +28,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 using cloud.charging.open.protocols.OCPP.WebSockets;
@@ -225,7 +226,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String Added(String? Encoding, String? SignatureFormats = null)
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL, "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               SshTrust:          new SshTrustSettings("HostKey", null, null),
                                                               Encoding:          Encoding,
@@ -310,7 +311,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             });
 
             // "policy" takes it back, on the connection that is dialled again for the change.
-            Assert.That(station.Connections.TryUpdateConnection(id, "CSMS over SSH", SshURL, "CSMS", true, null, null, out var error,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("CSMS over SSH"), URL.Parse(SshURL), "CSMS", true, null, null, out var error,
                                                                 SignatureFormats: "policy"),
                         Is.True, error);
 
@@ -359,7 +360,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await ACSMS("ocpp2.1cbor", "ocpp2.1");
 
-            var result = await station!.TestConnection("CSMS over SSH", SshURL, "CSMS", Encoding: Named);
+            var result = await station!.TestConnection(I18NString.Create("CSMS over SSH"), SshURL, "CSMS", Encoding: Named);
             var steps  = String.Join("\n", result["steps"]!.Select(step => step.Value<String>("text")));
             var cbor   = Agreed.EndsWith("cbor");
 

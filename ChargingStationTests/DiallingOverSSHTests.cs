@@ -31,6 +31,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP;
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
@@ -464,7 +465,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationRegistersOverSSHWithItsOwnKeyAndLearnsTheHostKeyOnProbation()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
@@ -580,7 +581,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                              out var id, out error,
                                                              SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
@@ -634,7 +635,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionThatLearnedItsHostKey_IsGatedBeforeAnythingIsSaid()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
@@ -680,7 +681,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                              out var id, out error,
                                                              SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
@@ -728,7 +729,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                              out var id, out error,
                                                              SshTrust: new SshTrustSettings("HostKey", null, null)),
                         Is.True, error);
@@ -773,7 +774,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AKeyIsRotatedWhenTheCSMSAsksAndConfirms()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms!.Fingerprint),
                         Is.True, error);
 
@@ -825,7 +826,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AKeyOfAFileServerIsShownAndConfirmedOverOCPP()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms!.Fingerprint),
                         Is.True, error);
 
@@ -929,7 +930,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ANoPinAndNoTrustOnFirstUseIsNotConnected()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error),
                         Is.True, error);
 
@@ -956,7 +957,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AProbationThatRunsOutForgetsTheKeyAndLearnsAgain()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               SshTrust: new SshTrustSettings("HostKey", null, 2)),
                         Is.True, error);
@@ -988,7 +989,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AProbationThatRunsOut_LeavesNoGapAtTheGate()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               SshTrust: new SshTrustSettings("HostKey", null, 2)),
                         Is.True, error);
@@ -1029,14 +1030,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var someoneElse = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs002", "not-the-real-one", "A Basic login", out var basic, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs002", "not-the-real-one", I18NString.Create("A Basic login"), out var basic, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("Recorded", SshURL(), "CSMS", true, null, null, out var recorded, out error,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("Recorded"), URL.Parse(SshURL()), "CSMS", true, null, null, out var recorded, out error,
                                                              SshHostKey: someoneElse, SshTrust: new SshTrustSettings(null, "Record", null)),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("With a password", SshURL("cs002"), "CSMS", true, basic, null, out var withPassword, out error,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("With a password"), URL.Parse(SshURL("cs002")), "CSMS", true, basic, null, out var withPassword, out error,
                                                              SshHostKey: someoneElse, SshTrust: new SshTrustSettings(null, "Accept", null)),
                         Is.True, error);
 
@@ -1072,7 +1073,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                               ? SshHelloVerdict.Refuse(SshMessageRefusal.ConnectionExists, "cs001 is connected, and answers.", TimeSpan.FromSeconds(2))
                                               : null;
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
@@ -1104,7 +1105,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var someoneElse = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: someoneElse),
                         Is.True, error);
 
@@ -1152,7 +1153,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Its authorized_keys still has the old line alone.
             csms!.LetsInOnly = own.PublicKeyBlob;
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                              out var id, out var error, SshHostKey: csms.Fingerprint,
                                                              Identities: [ new ConnectionIdentity(SshClientKeys.OwnId),
                                                                            new ConnectionIdentity(next!.Id,  now.AddHours(-1)),
@@ -1206,10 +1207,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms!.LetsIn         = false;
             csms. TakesPassword  = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "the-password-of-cs001", "CSMS over SSH", out var login, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, login, null,
                                                              out var id, out error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
@@ -1246,10 +1247,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms!.TakesPassword = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "the-password-of-cs001", "CSMS over SSH", out var login, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, login, null,
                                                              out var id, out error, SshHostKey: csms.Fingerprint,
                                                              Identities: [ new ConnectionIdentity(SshClientKeys.NoneId) ]),
                         Is.True, error);
@@ -1298,11 +1299,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms. TakesTOTP    = ("cs001", new TOTPConfig(secret, TimeSpan.FromSeconds(30), 12));
             csms. TakesTOTPAs  = TakenAs;
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, "One-time, over SSH", out var login, out var error,
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, I18NString.Create("One-time, over SSH"), out var login, out var error,
                                                                   ValiditySeconds: 30, Length: 12, TLSChannelBinding: Bound),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, login, null,
                                                              out var id, out error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
@@ -1343,7 +1344,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms!.LetsIn = false;
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
@@ -1371,12 +1372,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             TheStationsNameServersKnow("csms.test");
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms!.Port}", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse($"ssh://cs001@csms.test:{csms!.Port}"), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
             // The test button first: it resolves as the dialling does.
-            var test   = await station.TestConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS");
+            var test   = await station.TestConnection(I18NString.Create("CSMS over SSH"), $"ssh://cs001@csms.test:{csms.Port}", "CSMS");
             var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
 
             Assert.That(test.Value<Boolean>("ok"), Is.True, steps);
@@ -1408,7 +1409,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await csms.DisposeAsync();
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{port}", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse($"ssh://cs001@127.0.0.1:{port}"), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: SshFingerprint.Sha256(later.PublicKeyBlob)),
                         Is.True, error);
 
@@ -1448,7 +1449,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms!.ServesOCPP = false;
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", SshURL(), "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
@@ -1485,7 +1486,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await csms.DisposeAsync();
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@127.0.0.1:{port}", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse($"ssh://cs001@127.0.0.1:{port}"), "CSMS", true, null, null,
                                                               out var id, out var error, SshHostKey: SshFingerprint.Sha256(later.PublicKeyBlob)),
                         Is.True, error);
 
@@ -1542,7 +1543,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await AStationWithItsTimeAtTheCSMS(ntpPort);
 
-                Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse($"ssh://cs001@csms.test:{csms.Port}"), "CSMS", true, null, null,
                                                                  out var id, out var error, SshHostKey: csms.Fingerprint),
                             Is.True, error);
 
@@ -1630,7 +1631,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station!.Connections.TryAddPinSetSigner(Convert.ToBase64String(signer.PublicKeyBytes), "The CSMS", out var error, out _),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("CSMS over SSH", $"ssh://cs001@csms.test:{csms.Port}", "CSMS", true, null, null,
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse($"ssh://cs001@csms.test:{csms.Port}"), "CSMS", true, null, null,
                                                                  out var id, out error,
                                                                  SshTrust: new SshTrustSettings("HostKey", null, null)),
                             Is.True, error);
@@ -1719,7 +1720,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             station!.DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.A,    TimeSpan.FromHours(1));
             station. DNSClient.DNSCache.AddNoData(DNSServiceName.Parse(name.ToString()), DNSResourceRecordTypes.AAAA, TimeSpan.FromHours(1));
 
-            var test   = await station.TestConnection("Nowhere", "ws://nowhere.test/cs001", "CSMS");
+            var test   = await station.TestConnection(I18NString.Create("Nowhere"), "ws://nowhere.test/cs001", "CSMS");
             var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
 
             Assert.That(test.Value<Boolean>("ok"), Is.False, steps);
@@ -1741,7 +1742,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestOverSSHSaysWhichHostKeyItSawAndWritesNothing()
         {
 
-            var result = await station!.TestConnection("CSMS over SSH", SshURL(), "CSMS");
+            var result = await station!.TestConnection(I18NString.Create("CSMS over SSH"), SshURL(), "CSMS");
 
             var steps  = String.Join("\n", result["steps"]!.Select(step => step.Value<String>("text")));
 

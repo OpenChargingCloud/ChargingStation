@@ -20,6 +20,7 @@
 using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.protocols.WWCP.Node.Connections;
+using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
 
@@ -111,7 +112,7 @@ namespace cloud.charging.open.ChargingStation
                                                                  Where (connection => connection.Inbound).
                                                                  Select(connection => new JObject(
                                                                                           new JProperty("id",           connection.Id),
-                                                                                          new JProperty("description",  connection.Description),
+                                                                                          new JProperty("description",  connection.Description.ToJSON()),
                                                                                           new JProperty("name",         connection.InboundName),
                                                                                           new JProperty("ocppVersion",  ConnectionEntry.AsText(connection.OCPPVersion)),
                                                                                           new JProperty("letIn",        connection.AutoConnect)

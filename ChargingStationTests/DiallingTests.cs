@@ -21,8 +21,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 
@@ -181,7 +183,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationComesUpAlthoughNothingAnswers()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                               true, null, null, out var id, out var error),
                         Is.True, error);
 
@@ -221,11 +223,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task OneThatWasNotToldToConnectIsLeftAlone()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("Kept ready"), URL.Parse(NowhereInParticular()), "CSMSBackup",
                                                               false, null, null, out var kept, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("In use", NowhereInParticular(), "CSMS",
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("In use"), URL.Parse(NowhereInParticular()), "CSMS",
                                                              true, null, null, out var used, out error),
                         Is.True, error);
 
@@ -281,17 +283,17 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "Answers",
-                                $"ws://127.0.0.1:{listening.IPPort}/cs001",
+                                I18NString.Create("Answers"),
+                                URL.Parse($"ws://127.0.0.1:{listening.IPPort}/cs001"),
                                 "CSMS",
                                 true, null, null, out var answering, out var error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("Called a spare", NowhereInParticular(), "CSMSBackup",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("Called a spare"), URL.Parse(NowhereInParticular()), "CSMSBackup",
                                                                  true, null, null, out var spare, out error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("A local controller", NowhereInParticular(), "LocalController",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("A local controller"), URL.Parse(NowhereInParticular()), "LocalController",
                                                                  true, null, null, out var controller, out error),
                             Is.True, error);
 
@@ -383,11 +385,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, I18NString.Create("CSMS one-time password"),
                                                                       out var login, out var error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("CSMS", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMS",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse($"ws://127.0.0.1:{listening.IPPort}/cs001"), "CSMS",
                                                                  true, login, null, out var id, out error,
                                                                  OCPPVersion: Version),
                             Is.True, error);
@@ -426,12 +428,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AOneTimePasswordBoundToTLSIsNotConnected()
         {
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, I18NString.Create("CSMS one-time password"),
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                              true, login, null, out var id, out error),
                         Is.True, error);
 
@@ -466,11 +468,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, I18NString.Create("CSMS one-time password"),
                                                                       out var login, out var error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("Answers", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMS",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("Answers"), URL.Parse($"ws://127.0.0.1:{listening.IPPort}/cs001"), "CSMS",
                                                                  false, login, null, out _, out error),
                             Is.True, error);
 
@@ -512,11 +514,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task CredentialsWithoutASecretStopTheCallBeforeItIsMade()
         {
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "a-password", "CSMS login",
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "a-password", I18NString.Create("CSMS login"),
                                                                   out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                             true, login, null, out var id, out error),
                         Is.True, error);
 
@@ -559,7 +561,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // As it was when the connection was written down.
             station!.Connections.KnownCertificateIds = () => [ gone ];
 
-            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                             true, null, gone, out var id, out var error),
                         Is.True, error);
 
@@ -589,7 +591,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task EitherOCPPVersionCanBeAskedFor(String Version)
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                               true, null, null, out var id, out var error,
                                                               OCPPVersion: Version),
                         Is.True, error);
@@ -616,7 +618,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void AnUnknownOCPPVersionIsRefusedWithTheOnesItSpeaks()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS", "wss://csms.example.org/cs001", "CSMS",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse("wss://csms.example.org/cs001"), "CSMS",
                                                               false, null, null, out _, out var refused,
                                                               OCPPVersion: "OCPP3.0"),
                         Is.False,
@@ -674,7 +676,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private Task<JObject> TestOf(String Description)
         {
 
-            var entry = station!.Connections.Connections.Single(one => one.Description == Description);
+            var entry = station!.Connections.Connections.Single(one => one.Description.FirstText() == Description);
 
             return station.TestConnection(entry.Description,
                                           entry.URL.ToString(),
@@ -705,7 +707,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestSaysWhatHappenedAndLeavesNothingBehind()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("Kept ready"), URL.Parse(NowhereInParticular()), "CSMSBackup",
                                                               false, null, null, out _, out var error),
                         Is.True, error);
 
@@ -764,8 +766,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "Answers",
-                                $"ws://127.0.0.1:{listening.IPPort}/cs001",
+                                I18NString.Create("Answers"),
+                                URL.Parse($"ws://127.0.0.1:{listening.IPPort}/cs001"),
                                 "CSMS",
                                 false, null, null, out _, out var error),
                             Is.True, error);
@@ -815,7 +817,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Start();
 
-            var result = await station!.TestConnection("Half filled in", "", "CSMS");
+            var result = await station!.TestConnection(I18NString.Create("Half filled in"), "", "CSMS");
 
             Assert.Multiple(() => {
                 Assert.That(result.Value<Boolean>("ok"), Is.False);
@@ -842,11 +844,11 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ATestDoesNotRunWhatCannotWork()
         {
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "a-password", "CSMS login",
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "a-password", I18NString.Create("CSMS login"),
                                                                   out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                             false, login, null, out _, out error),
                         Is.True, error);
 
@@ -896,7 +898,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Start();
 
-            var result = await station!.TestConnection("Not saved anywhere",
+            var result = await station!.TestConnection(I18NString.Create("Not saved anywhere"),
                                                       NowhereInParticular(),
                                                       "CSMS",
                                                       "OCPP1.6");
@@ -958,11 +960,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, "CSMS one-time password",
+                Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", ASharedSecret, I18NString.Create("CSMS one-time password"),
                                                                       out var login, out var error),
                             Is.True, error);
 
-                Assert.That(station.Connections.TryAddConnection("Kept ready", $"ws://127.0.0.1:{listening.IPPort}/cs001", "CSMSBackup",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("Kept ready"), URL.Parse($"ws://127.0.0.1:{listening.IPPort}/cs001"), "CSMSBackup",
                                                                  false, login, null, out var id, out error),
                             Is.True, error);
 
@@ -985,7 +987,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(await station.DialOnDemand(id!), Is.Null);
 
                 // Another connection written down: what was asked for stays up.
-                Assert.That(station.Connections.TryAddConnection("Somewhere else", NowhereInParticular(), "CSMS",
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("Somewhere else"), URL.Parse(NowhereInParticular()), "CSMS",
                                                                  false, null, null, out _, out error),
                             Is.True, error);
 
@@ -1030,7 +1032,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task OneThatDialsByItselfIsNotHungUpOnDemand()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("CSMS", NowhereInParticular(), "CSMS",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("CSMS"), URL.Parse(NowhereInParticular()), "CSMS",
                                                               true, null, null, out var id, out var error),
                         Is.True, error);
 
@@ -1056,7 +1058,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task NothingIsDialledOnDemandThatCannotBe()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("Kept ready", NowhereInParticular(), "CSMSBackup",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("Kept ready"), URL.Parse(NowhereInParticular()), "CSMSBackup",
                                                               false, null, null, out var id, out var error),
                         Is.True, error);
 

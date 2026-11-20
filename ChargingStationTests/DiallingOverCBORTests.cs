@@ -207,7 +207,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String Added(String? Encoding, String? OCPPVersion = null)
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               OCPPVersion:  OCPPVersion,
                                                               Encoding:     Encoding),
@@ -350,7 +350,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms = new CSMS("ocpp2.1");
 
-            var added = station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null,
+            var added = station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", false, null, null,
                                                               out _, out var error,
                                                               OCPPVersion:  OCPPVersion,
                                                               Encoding:     Named);
@@ -379,13 +379,13 @@ namespace cloud.charging.open.ChargingStation.Tests
             var id = Added("auto");
 
             // A change that says nothing of it keeps it.
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", true, null, null, out var e1),
+            Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", true, null, null, out var e1),
                         Is.True, e1);
 
             Assert.That(Entry.Encoding,  Is.EqualTo(MessageEncodings.Auto));
 
             // One that says so changes it.
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", true, null, null, out var e2,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", true, null, null, out var e2,
                                                                 Encoding: "cbor"),
                         Is.True, e2);
 
@@ -396,7 +396,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(readAgain?.Encoding,  Is.EqualTo(MessageEncodings.CBOR));
 
             // OCPP 1.6 has its CBOR as well: a connection that becomes one keeps what it said.
-            Assert.That(station.Connections.TryUpdateConnection(id, "The CSMS, renamed", Address, "CSMS", true, null, null, out var e4,
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, renamed"), URL.Parse(Address), "CSMS", true, null, null, out var e4,
                                                                 OCPPVersion: "1.6"),
                         Is.True, e4);
 
@@ -416,7 +416,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Start();
 
-            var result = await station!.TestConnection("The CSMS", Address, "CSMS", Encoding: "cbor");
+            var result = await station!.TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", Encoding: "cbor");
             var steps  = Steps(result);
 
             Assert.Multiple(() => {
@@ -442,7 +442,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Start();
 
-            var result = await station!.TestConnection("The CSMS", Address, "CSMS", Encoding: Named);
+            var result = await station!.TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", Encoding: Named);
             var steps  = Steps(result);
             var cbor   = Agreed.EndsWith("cbor");
 

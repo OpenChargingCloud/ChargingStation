@@ -18,6 +18,8 @@
 #region Usings
 
 using System.Diagnostics;
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using Newtonsoft.Json.Linq;
 
@@ -108,7 +110,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             second = new CSMS();
 
-            Assert.That(station!.Connections.TryAddConnection("Another back end", $"ws://127.0.0.1:{second.Port}/cs001", "LocalController",
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("Another back end"), URL.Parse($"ws://127.0.0.1:{second.Port}/cs001"), "LocalController",
                                                               true, null, null, out var secondId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -162,7 +164,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             second = new CSMS();
 
-            Assert.That(station!.Connections.TryUpdateConnection(firstId, "The CSMS", $"ws://127.0.0.1:{second.Port}/cs001", "CSMS",
+            Assert.That(station!.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{second.Port}/cs001"), "CSMS",
                                                                  true, null, null, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -197,7 +199,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var firstId = await ConnectedToTheFirst();
 
-            Assert.That(station!.Connections.TryUpdateConnection(firstId, "The CSMS, renamed", $"ws://127.0.0.1:{first!.Port}/cs001", "CSMS",
+            Assert.That(station!.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS, renamed"), URL.Parse($"ws://127.0.0.1:{first!.Port}/cs001"), "CSMS",
                                                                  true, null, null, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -222,15 +224,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var firstId  = await ConnectedToTheFirst();
-            var url      = $"ws://127.0.0.1:{first!.Port}/cs001";
+            var url      = URL.Parse($"ws://127.0.0.1:{first!.Port}/cs001");
 
-            Assert.That(station!.Connections.TryUpdateConnection(firstId, "The CSMS", url, "CSMS", false, null, null, out var error, OCPPVersion: "OCPP2.1"),
+            Assert.That(station!.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS"), url, "CSMS", false, null, null, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
             Assert.That(await Within(() => first.Connections == 0 && !station.DialledConnections.ContainsKey(firstId)), Is.True,
                         "a connection switched off was not hung up");
 
-            Assert.That(station.Connections.TryUpdateConnection(firstId, "The CSMS", url, "CSMS", true, null, null, out error, OCPPVersion: "OCPP2.1"),
+            Assert.That(station.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS"), url, "CSMS", true, null, null, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
             Assert.That(await Within(() => first.Accepted == 2 && first.Connections == 1 && Said(firstId).StartsWith("Connected", StringComparison.Ordinal)),
@@ -251,15 +253,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task CredentialsChangedAreDialledWith()
         {
 
-            Assert.That(station!.Connections.TryAddBasicAuthentication("cs001", "an old secret of sixteen", "The CSMS's password",
+            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "an old secret of sixteen", I18NString.Create("The CSMS's password"),
                                                                   out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddBasicAuthentication("cs002", "a secret named by no one", "Nobody's password",
+            Assert.That(station.Connections.TryAddPasswordAuthentication("cs002", "a secret named by no one", I18NString.Create("Nobody's password"),
                                                                  out var unused, out error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{first!.Port}/cs001", "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{first!.Port}/cs001"), "CSMS", true, login, null,
                                                              out var id, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -267,7 +269,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Within(() => Said(id!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(id!));
 
-            Assert.That(station.Connections.TryUpdateBasicAuthentication(unused, "cs002", "another secret no one names", "Nobody's password",
+            Assert.That(station.Connections.TryUpdateBasicAuthentication(unused, "cs002", "another secret no one names", I18NString.Create("Nobody's password"),
                                                                     out error),
                         Is.True, error);
 
@@ -275,7 +277,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(first.Accepted, Is.EqualTo(1), "credentials named by no connection dialled one again");
 
-            Assert.That(station.Connections.TryUpdateBasicAuthentication(login, "cs001", "a new secret of sixteen", "The CSMS's password",
+            Assert.That(station.Connections.TryUpdateBasicAuthentication(login, "cs001", "a new secret of sixteen", I18NString.Create("The CSMS's password"),
                                                                     out error),
                         Is.True, error);
 
@@ -298,21 +300,21 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var store = station!.Connections;
 
-            Assert.That(store.TryAddBasicAuthentication("cs001", "a secret of sixteen", "A password", out var login, out var error), Is.True, error);
-            Assert.That(store.TryAddConnection("A", "ws://a.example.org/cs001", "CSMS", true, login, null, out var id, out error), Is.True, error);
+            Assert.That(store.TryAddPasswordAuthentication("cs001", "a secret of sixteen", I18NString.Create("A password"), out var login, out var error), Is.True, error);
+            Assert.That(store.TryAddConnection(I18NString.Create("A"), URL.Parse("ws://a.example.org/cs001"), "CSMS", true, login, null, out var id, out error), Is.True, error);
 
             Assert.That(store.DialRevisionOf(id!), Is.EqualTo(0));
 
-            Assert.That(store.TryUpdateConnection(id, "A, renamed", "ws://a.example.org/cs001", "CSMS", true, login, null, out error), Is.True, error);
+            Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://a.example.org/cs001"), "CSMS", true, login, null, out error), Is.True, error);
             Assert.That(store.DialRevisionOf(id!), Is.EqualTo(0), "a description is no change of how it is dialled");
 
-            Assert.That(store.TryUpdateConnection(id, "A, renamed", "ws://b.example.org/cs001", "CSMS", true, login, null, out error), Is.True, error);
+            Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://b.example.org/cs001"), "CSMS", true, login, null, out error), Is.True, error);
             Assert.That(store.DialRevisionOf(id!), Is.EqualTo(1), "an address is");
 
-            Assert.That(store.TryUpdateConnection(id, "A, renamed", "ws://b.example.org/cs001", "CSMS", false, login, null, out error), Is.True, error);
+            Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://b.example.org/cs001"), "CSMS", false, login, null, out error), Is.True, error);
             Assert.That(store.DialRevisionOf(id!), Is.EqualTo(2), "whether it dials by itself is");
 
-            Assert.That(store.TryUpdateBasicAuthentication(login, "cs001", "another secret of sixteen", "A password", out error), Is.True, error);
+            Assert.That(store.TryUpdateBasicAuthentication(login, "cs001", "another secret of sixteen", I18NString.Create("A password"), out error), Is.True, error);
             Assert.That(store.DialRevisionOf(id!), Is.EqualTo(3), "what it proves itself with is");
 
             Assert.That(store.DialRevisionOf("nothing-under-this-id"), Is.EqualTo(0));
@@ -331,7 +333,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task<String> ConnectedToTheFirst()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{first!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{first!.Port}/cs001"), "CSMS", true, null, null,
                                                               out var id, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 

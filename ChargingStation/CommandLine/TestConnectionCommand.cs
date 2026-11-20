@@ -19,6 +19,7 @@
 
 using Newtonsoft.Json.Linq;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.CLI;
 
 using cloud.charging.open.protocols.WWCP.Node.Web;
@@ -106,7 +107,7 @@ namespace cloud.charging.open.ChargingStation.CommandLine
             var found  = connections.Where(connection => connection.Id.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
 
             if (found.Length == 0)
-                found  = [.. connections.Where(connection => connection.Description.Equals(name, StringComparison.OrdinalIgnoreCase))];
+                found  = [.. connections.Where(connection => connection.Description.Any(text => text.Text.Equals(name, StringComparison.OrdinalIgnoreCase)))];
 
             if (found.Length == 0)
                 return [
@@ -193,7 +194,7 @@ namespace cloud.charging.open.ChargingStation.CommandLine
         /// description, and where it goes.
         /// </summary>
         private static String Said(ConnectionEntry Connection)
-            => $"  {Connection.Id}  {Connection.Description}  {Connection.URL}";
+            => $"  {Connection.Id}  {Connection.Description.FirstText()}  {Connection.URL}";
 
         #endregion
 

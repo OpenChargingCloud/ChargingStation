@@ -18,6 +18,8 @@
 #region Usings
 
 using System.Diagnostics;
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -118,7 +120,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task Connected(String Version)
         {
 
-            Assert.That(station!.Connections.TryAddConnection($"A CSMS of OCPP {Version}", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create($"A CSMS of OCPP {Version}"), URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", true, null, null,
                                                               out var id, out var error, OCPPVersion: Version),
                         Is.True, error);
 

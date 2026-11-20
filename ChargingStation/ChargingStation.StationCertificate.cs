@@ -24,6 +24,7 @@ using cloud.charging.open.protocols.WWCP.NetworkingNode;
 
 using OCPPv2_1 = cloud.charging.open.protocols.OCPPv2_1;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.PKI;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
@@ -703,7 +704,7 @@ namespace cloud.charging.open.ChargingStation
                         switched.Add(id);
 
                     else
-                        Log.Warning($"'{now.Description}' could not be switched to the new certificate '{Shows}': {error}", "ocpp", "certificates", "security");
+                        Log.Warning($"'{now.Description.FirstText()}' could not be switched to the new certificate '{Shows}': {error}", "ocpp", "certificates", "security");
 
                 }
 

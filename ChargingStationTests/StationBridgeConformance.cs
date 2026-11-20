@@ -18,6 +18,8 @@
 #region Usings
 
 using Newtonsoft.Json.Linq;
+using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using NUnit.Framework;
 
@@ -108,7 +110,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                String       OCPPVersion,
                                out String?  Error)
 
-            => Station.Connections.TryAddConnection($"A CSMS of OCPP {OCPPVersion}", URL, "CSMS", false, null, null,
+            => Station.Connections.TryAddConnection(I18NString.Create($"A CSMS of OCPP {OCPPVersion}"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null,
                                                     out _, out Error, OCPPVersion: OCPPVersion);
 
 
@@ -190,7 +192,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void AnEventForTheCSMSIsKeptInTheFileBesideTheConfiguration()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("A CSMS of OCPP 2.1", "ws://127.0.0.1:9/cs", "CSMS", false, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("A CSMS of OCPP 2.1"), URL.Parse("ws://127.0.0.1:9/cs"), "CSMS", false, null, null,
                                                               out _, out var error, OCPPVersion: "2.1"),
                         Is.True,
                         error);

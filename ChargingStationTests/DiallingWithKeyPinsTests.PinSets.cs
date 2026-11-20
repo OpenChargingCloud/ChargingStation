@@ -627,11 +627,11 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Instances.Single(instance => instance.Connection is not null).Instance, Is.EqualTo(id));
             });
 
-            Assert.That(station!.Connections.TryAddConnection("Another one", "wss://127.0.0.1:1/cs001", "CSMS", false, null, null, out var other, out var error),
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("Another one"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse("wss://127.0.0.1:1/cs001"), "CSMS", false, null, null, out var other, out var error),
                         Is.True, error);
-            Assert.That(station.Connections.TryAddConnection("Plain",       "ws://127.0.0.1:1/cs001",  "CSMS", false, null, null, out var plain, out error),
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("Plain"),       org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse("ws://127.0.0.1:1/cs001"),  "CSMS", false, null, null, out var plain, out error),
                         Is.True, error);
-            Assert.That(station.Connections.TryAddConnection("Over SSH",    "ssh://cs001@127.0.0.1:1", "CSMS", false, null, null, out var ssh, out error,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("Over SSH"),    org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse("ssh://cs001@127.0.0.1:1"), "CSMS", false, null, null, out var ssh, out error,
                                                              SshHostKey: "SHA256:" + Convert.ToBase64String(new Byte[32]).TrimEnd('=')),
                         Is.True, error);
 
@@ -653,7 +653,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var certificateId = identity!.Id;
 
-            Assert.That(station.Connections.TryAddConnection("With a certificate", "wss://127.0.0.1:1/cs001", "CSMS", false, null, certificateId,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("With a certificate"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse("wss://127.0.0.1:1/cs001"), "CSMS", false, null, certificateId,
                                                              out _, out error),
                         Is.True, error);
 

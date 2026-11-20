@@ -25,8 +25,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.ChargingStation.CommandLine;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
@@ -161,12 +163,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             => backEnd = new BackEnd(Answers);
 
         private Task<JObject> Test(String? OCPPRequest = null)
-            => station!.TestConnection("The CSMS", Address, "CSMS", OCPPRequest: OCPPRequest);
+            => station!.TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", OCPPRequest: OCPPRequest);
 
         private String Written()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", false, null, null,
                                                               out var id, out var error),
                         Is.True, error);
 
@@ -347,7 +349,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AConnectionThatDidNotComeThatFarSaysNothingOfOCPP()
         {
 
-            var result = await station!.TestConnection("Nobody", $"ws://127.0.0.1:{TestPorts.Free()}/cs001", "CSMS");
+            var result = await station!.TestConnection(I18NString.Create("Nobody"), $"ws://127.0.0.1:{TestPorts.Free()}/cs001", "CSMS");
 
             Assert.Multiple(() => {
                 Assert.That(result.Value<Boolean>("ok"),  Is.False);

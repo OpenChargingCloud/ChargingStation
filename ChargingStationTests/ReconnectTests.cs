@@ -19,6 +19,7 @@
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -242,8 +243,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             var port = closed.Number;
 
             Assert.That(station!.Connections.TryAddConnection(
-                            "Not up yet",
-                            $"ws://127.0.0.1:{port}/cs001",
+                            I18NString.Create("Not up yet"),
+                            URL.Parse($"ws://127.0.0.1:{port}/cs001"),
                             "CSMS",
                             true, null, null, out var connection, out var error),
                         Is.True, error);
@@ -397,8 +398,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "Restarts",
-                                $"ws://127.0.0.1:{Port}/cs001",
+                                I18NString.Create("Restarts"),
+                                URL.Parse($"ws://127.0.0.1:{Port}/cs001"),
                                 "CSMS",
                                 true, null, null, out var connection, out var error),
                             Is.True, error);

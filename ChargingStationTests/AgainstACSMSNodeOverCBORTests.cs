@@ -172,7 +172,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = await TestStations.Started(station!, directory);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                              out var id, out var error,
                                                              Encoding: Named),
                         Is.True, error);

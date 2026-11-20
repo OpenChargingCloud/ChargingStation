@@ -22,6 +22,7 @@ using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using Newtonsoft.Json.Linq;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using org.GraphDefined.Vanaheimr.Illias;
 
 #endregion
 
@@ -227,7 +228,7 @@ namespace cloud.charging.open.ChargingStation
                         if (identity is not null)
                             foreach (var connection in Connections.Connections.Where(connection => connection.CertificateId == id).ToArray())
                                 if (!Connections.TrySetCertificate(connection.Id, identity.Id, out var notSwitched))
-                                    Log.Warning($"'{connection.Description}' showed the certificate of the key '{id}', which is the identity '{identity.Id}' now, " +
+                                    Log.Warning($"'{connection.Description.FirstText()}' showed the certificate of the key '{id}', which is the identity '{identity.Id}' now, " +
                                                 $"and could not be told so: {notSwitched}", "ocpp", "connections");
 
                     }

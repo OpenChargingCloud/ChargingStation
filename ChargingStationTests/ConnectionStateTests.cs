@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -132,7 +133,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                     Assert.That(state!["status"]?.Value<String>(),       Is.EqualTo("connected"));
                     Assert.That(state ["url"]?.Value<String>(),          Is.EqualTo($"ws://127.0.0.1:{port}/cs001"));
-                    Assert.That(state ["description"]?.Value<String>(),  Is.EqualTo("Restarts"));
+                    Assert.That(state ["description"]?["en"]?.Value<String>(),  Is.EqualTo("Restarts"));
                     Assert.That(state ["said"]?.Value<String>(),         Does.StartWith("Connected"));
 
                     Assert.That(DateTimeOffset.TryParse(state["since"]?.Value<String>(), out _),        Is.True,
@@ -304,8 +305,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             using var nowhere = new ClosedPort();
 
             Assert.That(station!.Connections.TryAddConnection(
-                            "Not up yet",
-                            $"ws://127.0.0.1:{nowhere}/cs001",
+                            I18NString.Create("Not up yet"),
+                            URL.Parse($"ws://127.0.0.1:{nowhere}/cs001"),
                             "CSMS",
                             true, null, null, out var id, out var error),
                         Is.True, error);
@@ -368,8 +369,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "Says nothing",
-                                $"ws://127.0.0.1:{((IPEndPoint) listener.LocalEndpoint).Port}/cs001",
+                                I18NString.Create("Says nothing"),
+                                URL.Parse($"ws://127.0.0.1:{((IPEndPoint) listener.LocalEndpoint).Port}/cs001"),
                                 "CSMS",
                                 true, null, null, out var id, out var error),
                             Is.True, error);
@@ -468,8 +469,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 Assert.That(station!.Connections.TryAddConnection(
-                                "Restarts",
-                                $"ws://127.0.0.1:{Port}/cs001",
+                                I18NString.Create("Restarts"),
+                                URL.Parse($"ws://127.0.0.1:{Port}/cs001"),
                                 "CSMS",
                                 true, null, null, out var connection, out var error),
                             Is.True, error);

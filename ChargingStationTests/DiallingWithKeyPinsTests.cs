@@ -27,8 +27,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
@@ -269,7 +271,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private String Added(String? Pins, ServerKeyPinSettings? Trust = null)
         {
-            Assert.That(station!.Connections.TryAddConnection("The local controller", URL, "LocalController", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The local controller"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "LocalController", true, null, null,
                                                               out var id, out var error, ServerKeyPins: Pins, KeyPinTrust: Trust),
                         Is.True, error);
             return id!;
@@ -746,13 +748,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var shown     = KeyPin.FromKey(lcKey).ToHex();
 
-            var learning  = await station!.TestConnection("The local controller", URL, "LocalController",
+            var learning  = await station!.TestConnection(I18NString.Create("The local controller"), URL, "LocalController",
                                                           KeyPinTrust: new ServerKeyPinSettings(null, "Key", null));
 
-            var refused   = await station.TestConnection("The local controller", URL, "LocalController",
+            var refused   = await station.TestConnection(I18NString.Create("The local controller"), URL, "LocalController",
                                                          ServerKeyPins: KeyPin.FromKey(otherKey).ToHex());
 
-            var byTheCA   = await station.TestConnection("The local controller", URL, "LocalController");
+            var byTheCA   = await station.TestConnection(I18NString.Create("The local controller"), URL, "LocalController");
 
             String Steps(JObject Result)
                 => String.Join("\n", Result["steps"]!.Select(step => step.Value<String>("text")));
@@ -811,7 +813,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 => new (JSON.ToString(), System.Text.Encoding.UTF8, "application/json");
 
             JObject Connection(String URL, JArray Pins)
-                => new (new JProperty("description",                "The local controller"),
+                => new (new JProperty("description",                new JObject(new JProperty("en", "The local controller"))),
                         new JProperty("url",                        URL),
                         new JProperty("connectionType",             "LocalController"),
                         new JProperty("autoConnect",                false),

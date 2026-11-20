@@ -111,7 +111,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task Connected()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("A CSMS of OCPP 2.1", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("A CSMS of OCPP 2.1"), URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", true, null, null,
                                                               out var id, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 

@@ -26,6 +26,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -249,7 +250,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String Added(String? HTTPVersion)
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               HTTPVersion: HTTPVersion),
                         Is.True, error);
@@ -391,12 +392,12 @@ namespace cloud.charging.open.ChargingStation.Tests
                 return Task.CompletedTask;
             };
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, "CSMS one-time password",
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, I18NString.Create("CSMS one-time password"),
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, login, null,
                                                              out var id, out error,
                                                              HTTPVersion: "3"),
                         Is.True, error);
@@ -437,12 +438,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             // is not always there to have.
             ACSMS(AcceptHTTP2: true);
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", "0123456789abcdefghijklmnopqrstuv", "CSMS one-time password",
+            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", "0123456789abcdefghijklmnopqrstuv", I18NString.Create("CSMS one-time password"),
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", Address, "CSMS", true, login, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, login, null,
                                                              out var id, out error,
                                                              HTTPVersion: Named),
                         Is.True, error);
@@ -546,10 +547,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             ACSMS(AcceptHTTP2: true, AcceptHTTP3: true);
 
-            var first   = await station!.TestConnection("The CSMS", Address, "CSMS");
-            var second  = await station. TestConnection("The CSMS", Address, "CSMS");
-            var named   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "3");
-            var other   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "2");
+            var first   = await station!.TestConnection(I18NString.Create("The CSMS"), Address, "CSMS");
+            var second  = await station. TestConnection(I18NString.Create("The CSMS"), Address, "CSMS");
+            var named   = await station. TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", HTTPVersion: "3");
+            var other   = await station. TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", HTTPVersion: "2");
 
             Assert.Multiple(() => {
 
@@ -619,12 +620,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => IsConnected(id) && csms!.OpenedOver.Count == 1, "Connecting", () => SaidOf(id));
 
             // Named now: dialled again, over that.
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS", Address, "CSMS", true, null, null, out var error, HTTPVersion: "1.1"), Is.True, error);
+            Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null, out var error, HTTPVersion: "1.1"), Is.True, error);
 
             await Until(() => csms!.OpenedOver.Count == 2 && IsConnected(id) && InUse == "1.1", "Connecting again over HTTP/1.1", () => SaidOf(id));
 
             // A change of something else that says nothing of it: kept, and not dialled again.
-            Assert.That(station.Connections.TryUpdateConnection(id, "Still the CSMS", Address, "CSMS", true, null, null, out error), Is.True, error);
+            Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("Still the CSMS"), URL.Parse(Address), "CSMS", true, null, null, out error), Is.True, error);
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
@@ -633,7 +634,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(csms!.OpenedOver,        Is.EqualTo(new[] { HTTPVersion.HTTP_2_0, HTTPVersion.HTTP_1_1 }));
-                Assert.That(Entry.Description,       Is.EqualTo("Still the CSMS"));
+                Assert.That(Entry.Description.FirstText(),       Is.EqualTo("Still the CSMS"));
                 Assert.That(Entry.HTTPVersion,       Is.EqualTo(WebSocketHTTPVersion.HTTP1_1));
                 Assert.That(readAgain?.HTTPVersion,  Is.EqualTo(WebSocketHTTPVersion.HTTP1_1));
             });
@@ -652,7 +653,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var parsed  = ConnectionEntry.TryParseHTTPVersion(URL.Parse(Address), Named, out var version, out var error);
-            var added   = station!.Connections.TryAddConnection("The CSMS", Address, "CSMS", false, null, null, out _, out var addError, HTTPVersion: Named);
+            var added   = station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", false, null, null, out _, out var addError, HTTPVersion: Named);
 
             Assert.Multiple(() => {
                 Assert.That(parsed,     Is.False);
@@ -675,9 +676,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             ACSMS(AcceptHTTP2: true);
 
-            var chosen  = await station!.TestConnection("The CSMS", Address, "CSMS");
-            var named   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "1.1");
-            var wrong   = await station. TestConnection("The CSMS", Address, "CSMS", HTTPVersion: "h2");
+            var chosen  = await station!.TestConnection(I18NString.Create("The CSMS"), Address, "CSMS");
+            var named   = await station. TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", HTTPVersion: "1.1");
+            var wrong   = await station. TestConnection(I18NString.Create("The CSMS"), Address, "CSMS", HTTPVersion: "h2");
 
             Assert.Multiple(() => {
 
@@ -728,7 +729,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             JObject Connection(String? HTTPVersion, String Description = "The CSMS", String? Id = null)
             {
 
-                var json = new JObject(new JProperty("description",     Description),
+                var json = new JObject(new JProperty("description",     new JObject(new JProperty("en", Description))),
                                        new JProperty("url",             Address),
                                        new JProperty("connectionType",  "CSMS"),
                                        new JProperty("autoConnect",     true));
@@ -766,7 +767,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(added.IsSuccessStatusCode,              Is.True,  addedJSON.ToString());
                 Assert.That(updated.IsSuccessStatusCode,            Is.True,  updatedJSON.ToString());
 
-                Assert.That(shown?.Value<String>("description"),       Is.EqualTo("Still the CSMS"),  updatedJSON.ToString());
+                Assert.That(shown?["description"]?.Value<String>("en"),       Is.EqualTo("Still the CSMS"),  updatedJSON.ToString());
                 Assert.That(shown?.Value<String>("httpVersion"),       Is.EqualTo("2"),               "the version it names");
                 Assert.That(shown?.Value<String>("httpVersionInUse"),  Is.EqualTo("2"),               "the version it came to");
 

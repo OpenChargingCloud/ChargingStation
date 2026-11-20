@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -332,12 +333,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             if (KeyPin is not null)
-                Assert.That(Station.WebSocketLogins.TryAddKeyPin(InboundName, KeyPin, "its client certificate", null, $"'{InboundName}', dialling in", "tests",
+                Assert.That(Station.WebSocketLogins.TryAddKeyPin(InboundName, KeyPin, "its client certificate", null, I18NString.Create($"'{InboundName}', dialling in"), "tests",
                                                                  out _, out var pinned),
                             Is.True, pinned);
 
-            Assert.That(Station.Connections.TryAddConnection($"'{InboundName}' over {OCPPVersion ?? "OCPP2.1"}, dialling in",
-                                                             $"wss://127.0.0.1:{Port}/{InboundName}", "CSMS", true, null, null,
+            Assert.That(Station.Connections.TryAddConnection(I18NString.Create($"'{InboundName}' over {OCPPVersion ?? "OCPP2.1"}, dialling in"),
+                                                             URL.Parse($"wss://127.0.0.1:{Port}/{InboundName}"), "CSMS", true, null, null,
                                                              out var id, out var error,
                                                              OCPPVersion:  OCPPVersion,
                                                              Inbound:      true),
@@ -502,7 +503,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 other = WrittenDown(made, port, "csms-02", KeyPin: KeyPin.FromKey(AKey()).ToHex());
 
-                Assert.That(made.WebSocketLogins.TrySetPassword("csms-03", password, null, "What the third signs in with", out var error),
+                Assert.That(made.WebSocketLogins.TrySetPasswordAuthentication("csms-03", password, null, I18NString.Create("What the third signs in with"), out var error),
                             Is.True, error);
 
                 withLogin = WrittenDown(made, port, "csms-03");

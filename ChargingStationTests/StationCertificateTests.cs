@@ -26,6 +26,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
 
@@ -507,7 +508,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// </summary>
         private String Added(String KeyId)
         {
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", URL, "CSMS", true, null, KeyId, out var id, out var error),
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, null, KeyId, out var id, out var error),
                         Is.True, error);
             return id!;
         }
@@ -991,7 +992,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // it was written down then: by the name of its key.
             station!.Connections.KnownCertificateIds = () => [ shown ];
 
-            Assert.That(station.Connections.TryAddConnection("CSMS", "wss://127.0.0.1:1/cs001", "CSMS", false, null, shown, out var connection, out var problem),
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse("wss://127.0.0.1:1/cs001"), "CSMS", false, null, shown, out var connection, out var problem),
                         Is.True, problem);
 
             await station.DisposeAsync();
@@ -1075,7 +1076,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var (_, keyId, _) = await Connected();
 
             async Task<JObject> Test()
-                => await station!.TestConnection("A test", URL, "CSMS", "OCPP2.1", CertificateId: keyId, OCPPRequest: ChargingStation.TestAsksNothing);
+                => await station!.TestConnection(I18NString.Create("A test"), URL, "CSMS", "OCPP2.1", CertificateId: keyId, OCPPRequest: ChargingStation.TestAsksNothing);
 
             // The server the CSMS moves to has a certificate of its next CA,
             // which nobody here knows yet.

@@ -21,10 +21,12 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SSH;
 using org.GraphDefined.Vanaheimr.Hermod.SSH.Server;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.NetworkingNode;
 using cloud.charging.open.protocols.OCPP.Node;
@@ -208,7 +210,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var before  = station!.NameServerSSHPeerHosts;
 
-            Assert.That(station.Connections.TryAddConnection("A Local Controller over SSH", "ssh://lc.example:22", "CSMS", false, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("A Local Controller over SSH"), URL.Parse("ssh://lc.example:22"), "CSMS", false, null, null,
                                                              out _, out var error, OCPPVersion: "2.1"),
                         Is.True,
                         error);

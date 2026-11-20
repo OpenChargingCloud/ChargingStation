@@ -25,8 +25,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
@@ -336,7 +338,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task Connected(String Version)
         {
 
-            Assert.That(station!.Connections.TryAddConnection($"A CSMS of OCPP {Version}", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create($"A CSMS of OCPP {Version}"), URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", true, null, null,
                                                               out var id, out var error, OCPPVersion: Version),
                         Is.True, error);
 
@@ -603,7 +605,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationNotStartedDialsNothingWhenItsEVSEsChange()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("A CSMS", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("A CSMS"), URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", true, null, null,
                                                               out _, out var error, OCPPVersion: "2.1"),
                         Is.True, error);
 

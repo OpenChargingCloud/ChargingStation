@@ -26,8 +26,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.Connections;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
@@ -280,7 +282,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private String Added(ServerPins? Pins = null)
         {
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", URL, "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, null, null,
                                                               out var id, out var error,
                                                               Pins: Pins is not null ? new ServerPinsChange(Pins) : null),
                         Is.True, error);
@@ -416,7 +418,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Held to another root by somebody's hand: dialled again, and refused.
             var accepted = csms!.Accepted;
 
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS", URL, "CSMS", true, null, null, out var error,
+            Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, null, null, out var error,
                                                                  Pins: new ServerPinsChange(new ServerPins([], [ KeyPinOf(otherCA) ]))),
                         Is.True, error);
 
@@ -460,7 +462,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var accepted = csms.Accepted;
 
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS", URL, "CSMS", true, null, null, out var error,
+            Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, null, null, out var error,
                                                                  Pins: new ServerPinsChange(new ServerPins([ Fingerprint(leaf) ], []))),
                         Is.True, error);
 
@@ -556,22 +558,22 @@ namespace cloud.charging.open.ChargingStation.Tests
             var keyPin  = KeyPin.FromKey(csmsKey).ToHex();
             var pins    = new ServerPinsChange(new ServerPins([], [ KeyPinOf(ca) ]));
 
-            var both     = station!.Connections.TryAddConnection("The CSMS", URL, "CSMS", false, null, null, out _, out var bothError,
+            var both     = station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null, out _, out var bothError,
                                                                  ServerKeyPins: keyPin, Pins: pins);
 
-            var learning = station.Connections.TryAddConnection("The CSMS", URL, "CSMS", false, null, null, out _, out var learningError,
+            var learning = station.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null, out _, out var learningError,
                                                                 KeyPinTrust: new ServerKeyPinSettings(null, "Key", null),
                                                                 Pins: new ServerPinsChange(new ServerPins([], [], RootGroup: "backend")));
 
-            var plain    = station.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{csms!.Port}/cs001", "CSMS", false, null, null, out _, out var plainError,
+            var plain    = station.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", false, null, null, out _, out var plainError,
                                                                 Pins: pins);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS", URL, "CSMS", false, null, null, out var id, out var error, ServerKeyPins: keyPin),
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null, out var id, out var error, ServerKeyPins: keyPin),
                         Is.True, error);
 
-            var changed  = station.Connections.TryUpdateConnection(id, "The CSMS", URL, "CSMS", false, null, null, out var changedError, Pins: pins);
+            var changed  = station.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null, out var changedError, Pins: pins);
 
-            var tested   = await station.TestConnection("The CSMS", URL, "CSMS", ServerKeyPins: keyPin,
+            var tested   = await station.TestConnection(I18NString.Create("The CSMS"), URL, "CSMS", ServerKeyPins: keyPin,
                                                         Pins: new JObject(new JProperty("rootFingerprint", KeyPinOf(ca))));
 
             Assert.Multiple(() => {
@@ -653,7 +655,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(Entry.PinsVersion, Is.EqualTo(3));
 
             // One known by the key of its server asks no CA.
-            Assert.That(station.Connections.TryAddConnection("By its key", URL, "CSMS", false, null, null, out var keyPinned, out error,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("By its key"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", false, null, null, out var keyPinned, out error,
                                                              ServerKeyPins: KeyPin.FromKey(csmsKey).ToHex()),
                         Is.True, error);
 
@@ -682,14 +684,14 @@ namespace cloud.charging.open.ChargingStation.Tests
             String Steps(JObject Result)
                 => String.Join("\n", Result["steps"]!.Select(step => step.Value<String>("text")));
 
-            var believed  = await station!.TestConnection("The CSMS", URL, "CSMS",
+            var believed  = await station!.TestConnection(I18NString.Create("The CSMS"), URL, "CSMS",
                                                           Pins: new JObject(new JProperty("rootFingerprint",  KeyPinOf(ca)),
                                                                             new JProperty("trustOnFirstUse",  "certificate")));
 
-            var refused   = await station.TestConnection("The CSMS", URL, "CSMS",
+            var refused   = await station.TestConnection(I18NString.Create("The CSMS"), URL, "CSMS",
                                                          Pins: new JObject(new JProperty("rootFingerprints", new JArray(KeyPinOf(otherCA)))));
 
-            var wrong     = await station.TestConnection("The CSMS", URL, "CSMS",
+            var wrong     = await station.TestConnection(I18NString.Create("The CSMS"), URL, "CSMS",
                                                          Pins: new JObject(new JProperty("rootFingerprint", "spki:abcd")));
 
             Assert.Multiple(() => {
@@ -748,7 +750,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             JObject Connection(JObject? Pins, JObject? AsShown = null, String? Id = null)
             {
 
-                var json = new JObject(new JProperty("description",     "The CSMS"),
+                var json = new JObject(new JProperty("description",     new JObject(new JProperty("en", "The CSMS"))),
                                        new JProperty("url",             URL),
                                        new JProperty("connectionType",  "CSMS"),
                                        new JProperty("autoConnect",     false));

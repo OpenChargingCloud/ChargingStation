@@ -26,7 +26,9 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
@@ -261,7 +263,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task APeerOfOneEndpointGoesOnTryingIt()
         {
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{TestPorts.Free()}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{TestPorts.Free()}/cs001"), "CSMS", true, null, null,
                                                               out var id, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -291,7 +293,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             first   = new CSMS();
             second  = new CSMS();
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{first.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{first.Port}/cs001"), "CSMS", true, null, null,
                                                               out var mainId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -299,7 +301,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Within(() => Said(mainId!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(mainId!));
 
-            Assert.That(station.Connections.TryAddConnection("Its spare", $"ws://127.0.0.1:{second.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("Its spare"), URL.Parse($"ws://127.0.0.1:{second.Port}/cs001"), "CSMS", true, null, null,
                                                              out var spareId, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -334,7 +336,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             first   = new CSMS();
             second  = new CSMS();
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{first.Port}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{first.Port}/cs001"), "CSMS", true, null, null,
                                                               out var mainId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
@@ -346,7 +348,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var release  = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
             station.WhenABootNotificationIsAnswered = async connection => {
-                if (connection.Description == "Its spare")
+                if (connection.Description.FirstText() == "Its spare")
                 {
                     held.TrySetResult();
                     await release.Task;
@@ -356,7 +358,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             try
             {
 
-                Assert.That(station.Connections.TryAddConnection("Its spare", $"ws://127.0.0.1:{second.Port}/cs001", "CSMS", true, null, null,
+                Assert.That(station.Connections.TryAddConnection(I18NString.Create("Its spare"), URL.Parse($"ws://127.0.0.1:{second.Port}/cs001"), "CSMS", true, null, null,
                                                                  out var spareId, out error, OCPPVersion: "OCPP2.1"),
                             Is.True, error);
 
@@ -407,11 +409,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var store = station!.Connections;
 
-            Assert.That(store.TryAddConnection("The CSMS", $"ws://127.0.0.1:{MainPort}/cs001", "CSMS", true, null, null,
+            Assert.That(store.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{MainPort}/cs001"), "CSMS", true, null, null,
                                                out var mainId, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            Assert.That(store.TryAddConnection("Its spare", $"ws://127.0.0.1:{SparePort}/cs001", "CSMS", true, null, null,
+            Assert.That(store.TryAddConnection(I18NString.Create("Its spare"), URL.Parse($"ws://127.0.0.1:{SparePort}/cs001"), "CSMS", true, null, null,
                                                out var spareId, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 

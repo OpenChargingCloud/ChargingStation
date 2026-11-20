@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.WebSocket;
@@ -114,10 +115,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         private String WrittenDown(String Password, Boolean LetIn = true)
         {
 
-            Assert.That(station!.WebSocketLogins.TrySetPassword(Name, Password, null, "What the CSMS signs in with", out var error),
+            Assert.That(station!.WebSocketLogins.TrySetPasswordAuthentication(Name, Password, null, I18NString.Create("What the CSMS signs in with"), out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", LetIn, null, null,
+            Assert.That(station.Connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse(Address), "CSMS", LetIn, null, null,
                                                              out var id, out error,
                                                              Inbound: true),
                         Is.True, error);
@@ -287,7 +288,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             // A login of its own, and no connection the other end makes under
             // its name: this station serves no charging stations.
-            Assert.That(station.WebSocketLogins.TrySetPassword("csms-03", password, null, "A login and nothing else", out var loginOnly),
+            Assert.That(station.WebSocketLogins.TrySetPasswordAuthentication("csms-03", password, null, I18NString.Create("A login and nothing else"), out var loginOnly),
                         Is.True, loginOnly);
 
             await using var wrongPassword = new DiallingCSMS(Address, Name, APassword());
@@ -316,7 +317,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Until(() => StatusOf(id) == "connected", "Being connected", () => $"{StatusOf(id)}: {SaidOf(id)}");
 
-            Assert.That(station!.Connections.TryUpdateConnection(id, "The CSMS, dialling in", Address, "CSMS", false, null, null,
+            Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS, dialling in"), URL.Parse(Address), "CSMS", false, null, null,
                                                                  out var error),
                         Is.True, error);
 
@@ -379,7 +380,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             };
 
-            Assert.That(station!.Connections.TryAddConnection("The CSMS", $"ws://127.0.0.1:{uplinkPort}/cs001", "CSMS", true, null, null,
+            Assert.That(station!.Connections.TryAddConnection(I18NString.Create("The CSMS"), URL.Parse($"ws://127.0.0.1:{uplinkPort}/cs001"), "CSMS", true, null, null,
                                                               out var dialled, out var error),
                         Is.True, error);
 
@@ -452,21 +453,21 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var connections = station!.Connections;
 
-            Assert.That(station.WebSocketLogins.TrySetTOTP(Name, APassword() + APassword(), null, null, null, null, null, "What the CSMS signs in with",
-                                                           out _, out var error),
+            Assert.That(station.WebSocketLogins.TrySetTOTPAuthentication(Name, APassword() + APassword(), null, null, null, null, null, I18NString.Create("What the CSMS signs in with"),
+                                                           out var error),
                         Is.True, error);
 
-            Assert.That(connections.TryAddConnection("The CSMS, dialling in", Address, "CSMS", true, null, null,
+            Assert.That(connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse(Address), "CSMS", true, null, null,
                                                      out var id, out error,
                                                      Inbound: true),
                         Is.True, error);
 
             var password16 = APassword();
 
-            Assert.That(station.WebSocketLogins.TrySetPassword("cs-16", password16, null, "What the Central System signs in with", out error),
+            Assert.That(station.WebSocketLogins.TrySetPasswordAuthentication("cs-16", password16, null, I18NString.Create("What the Central System signs in with"), out error),
                         Is.True, error);
 
-            Assert.That(connections.TryAddConnection("The Central System, dialling in", $"ws://127.0.0.1:{port16}/cs-16", "CSMS", true, null, null,
+            Assert.That(connections.TryAddConnection(I18NString.Create("The Central System, dialling in"), URL.Parse($"ws://127.0.0.1:{port16}/cs-16"), "CSMS", true, null, null,
                                                      out var id16, out error,
                                                      OCPPVersion: "OCPP1.6",
                                                      Inbound:     true),
@@ -620,10 +621,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             var connections = station!.Connections;
 
             // Credentials of this station: what it proves itself with where it dials.
-            Assert.That(connections.TryAddBasicAuthentication(Name, APassword(), "csms-01", out var login, out var error), Is.True, error);
+            Assert.That(connections.TryAddPasswordAuthentication(Name, APassword(), I18NString.Create("csms-01"), out var login, out var error), Is.True, error);
 
             Boolean Add(String URL, String? Credentials, out String? Why, String? HTTPVersion = null)
-                => connections.TryAddConnection("The CSMS, dialling in", URL, "CSMS", true, Credentials, null, out _, out Why,
+                => connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, Credentials, null, out _, out Why,
                                                 HTTPVersion: HTTPVersion, Inbound: true);
 
             Assert.Multiple(() => {
