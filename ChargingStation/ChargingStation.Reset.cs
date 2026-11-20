@@ -39,8 +39,15 @@ namespace cloud.charging.open.ChargingStation
     /// <para>
     /// A restart of this station is its OCPP side built anew: both nodes made
     /// again from what the station is, what they were connected to hung up and
-    /// dialled again, and a BootNotification over each - what a change of the
-    /// EVSEs does. The page, SSH and the configuration stay as they are.
+    /// dialled again - what a change of the EVSEs does. The page, SSH and the
+    /// configuration stay as they are.
+    /// </para>
+    /// <para>
+    /// <b>A restart is a reboot</b>, and the one thing that asks for a
+    /// BootNotification by itself: sent over each connection of the new nodes
+    /// as it comes up again - "RemoteReset" where the back end asked for the
+    /// restart over OCPP, "LocalReset" where the page or the command line did.
+    /// A change of the EVSEs, or of what the station says it is, asks for none.
     /// </para>
     /// <para>
     /// While something charges, the restart waits for it, and no new session
@@ -74,6 +81,12 @@ namespace cloud.charging.open.ChargingStation
         private String?  restartOnceIdle;
 
         /// <summary>
+        /// Why the restart that waits says it booted: "RemoteReset" where the
+        /// back end asked for it over OCPP, "LocalReset" otherwise.
+        /// </summary>
+        private OCPPv2_1.BootReason  restartReason  = OCPPv2_1.BootReason.LocalReset;
+
+        /// <summary>
         /// 1 while the OCPP side is built anew for a restart.
         /// </summary>
         private Int32    restarting;
@@ -83,6 +96,8 @@ namespace cloud.charging.open.ChargingStation
         /// answer to its Reset went out.
         /// </summary>
         private Int32    endSessionsForRestart;
+
+        private readonly Object  restartOnceIdleLock  = new();
 
         #endregion
 
@@ -138,10 +153,10 @@ namespace cloud.charging.open.ChargingStation
         {
 
             if (Request.ResetType == OCPPv1_6.ResetType.Soft)
-                RestartWhenIdle("a Soft reset over OCPP 1.6");
+                RestartWhenIdle("a Soft reset over OCPP 1.6", OCPPv2_1.BootReason.RemoteReset);
 
             else if (Request.ResetType == OCPPv1_6.ResetType.Hard)
-                RestartWhenIdle("a Hard reset over OCPP 1.6", AtOnce: true);
+                RestartWhenIdle("a Hard reset over OCPP 1.6", OCPPv2_1.BootReason.RemoteReset, AtOnce: true);
 
             else
                 return Task.FromResult<OCPPv1_6.CP.ResetResponse?>(null);
@@ -171,7 +186,7 @@ namespace cloud.charging.open.ChargingStation
             if (Request.ResetType == OCPPv2_1.ResetType.Immediate)
             {
 
-                RestartWhenIdle("a Reset Immediate over OCPP 2.1", AtOnce: true);
+                RestartWhenIdle("a Reset Immediate over OCPP 2.1", OCPPv2_1.BootReason.RemoteReset, AtOnce: true);
 
                 return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(
                            new OCPPv2_1.CS.ResetResponse(
@@ -185,7 +200,7 @@ namespace cloud.charging.open.ChargingStation
             if (Request.ResetType != OCPPv2_1.ResetType.OnIdle)
                 return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(null);
 
-            RestartWhenIdle("a Reset OnIdle over OCPP 2.1");
+            RestartWhenIdle("a Reset OnIdle over OCPP 2.1", OCPPv2_1.BootReason.RemoteReset);
 
             return Task.FromResult<OCPPv2_1.CS.ResetResponse?>(
                        new OCPPv2_1.CS.ResetResponse(
@@ -216,7 +231,7 @@ namespace cloud.charging.open.ChargingStation
 
             var charging = sessions.Count;
 
-            RestartWhenIdle(By, AtOnce);
+            RestartWhenIdle(By, OCPPv2_1.BootReason.LocalReset, AtOnce);
             RestartAsAskedFor();
 
             return new JObject(
@@ -229,7 +244,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) RestartWhenIdle(Why, AtOnce = false)
+        #region (private) RestartWhenIdle(Why, Reason, AtOnce = false)
 
         /// <summary>
         /// Restart once nothing charges any more, and start no new session until
@@ -237,9 +252,11 @@ namespace cloud.charging.open.ChargingStation
         /// asked for at once, it no longer waits.
         /// </summary>
         /// <param name="Why">What asked for it, for the log: "a Soft reset over OCPP 1.6".</param>
+        /// <param name="Reason">What the BootNotification after the restart says: "RemoteReset" where it was asked for over OCPP, "LocalReset" otherwise.</param>
         /// <param name="AtOnce">Whether what is charging is ended for it, by <see cref="RestartAsAskedFor"/>.</param>
-        private void RestartWhenIdle(String   Why,
-                                     Boolean  AtOnce = false)
+        private void RestartWhenIdle(String               Why,
+                                     OCPPv2_1.BootReason  Reason,
+                                     Boolean              AtOnce = false)
         {
 
             if (AtOnce)
@@ -250,6 +267,9 @@ namespace cloud.charging.open.ChargingStation
                 Log.Notice($"{Capitalized(Why)} asked for the restart that waits already ({waiting}){(AtOnce ? ", and for it at once" : "")}.", "ocpp", "reset");
                 return;
             }
+
+            lock (restartOnceIdleLock)
+                restartReason = Reason;
 
             var charging = sessions.Count;
 
@@ -366,6 +386,10 @@ namespace cloud.charging.open.ChargingStation
                         return;
                     }
 
+                    // A restart is a reboot: the new nodes say why they booted.
+                    lock (restartOnceIdleLock)
+                        bootReasonOfTheNextNodes = restartReason;
+
                     (old16, old21) = RebuildTheOCPPNodes(EVSEChange.None);
 
                     // Sessions may start again: the restart they waited for is
@@ -380,6 +404,9 @@ namespace cloud.charging.open.ChargingStation
                     // it; until then the station is not to stay closed.
                     Volatile.Write(ref restartOnceIdle, null);
 
+                    // And a change of the EVSEs after it says nothing of a reset.
+                    bootReasonOfTheNextNodes = null;
+
                     Log.Critical($"This station could not restart its OCPP side: {e.Message} Restart it.", "ocpp", "reset");
                     return;
 
@@ -390,6 +417,10 @@ namespace cloud.charging.open.ChargingStation
                 }
 
                 Log.Notice($"This station restarted its OCPP side, as {why} asked for.", "ocpp", "reset");
+
+                // A restart is a reboot: the new nodes send their
+                // BootNotification over each connection as it comes up again.
+                _ = SendBootNotifications();
 
                 await OCPPDialling.DialAgain(old16, old21, $"This charging station restarted, as {why} asked for");
 

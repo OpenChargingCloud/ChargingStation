@@ -537,9 +537,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(Refused(await Reset(ResetType.OnIdle, support)), Is.False, "a restart once idle");
 
-            // Sent by no node by itself: asked for, as after a reboot.
-            await TestStations.BootsAgain(station!, "2.1");
-
             Assert.That(await Within(() => csms.Requests("BootNotification").Length > boots &&
                                            csms.Connections == 1 &&
                                            station!.RegistrationJSON()["2.1"]?["state"]?.Value<String>() == "Accepted"),

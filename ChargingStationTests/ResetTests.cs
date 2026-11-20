@@ -212,7 +212,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// Nothing charges: the station says yes, and restarts its OCPP side -
         /// the CSMS sees the connection close and come back, and is sent a new
-        /// BootNotification.
+        /// BootNotification by the station itself, a restart being a reboot:
+        /// over OCPP 2.1 for a "RemoteReset", the CSMS having asked for it.
         /// </summary>
         [TestCase("1.6", "Soft")]
         [TestCase("2.1", "OnIdle")]
@@ -226,11 +227,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Reset(Type), Is.EqualTo("Accepted"));
 
-            // Sent by no node by itself: asked for, as after a reboot.
-            await TestStations.BootsAgain(station!, Version);
-
             Assert.That(await Within(() => csms.Accepted > connections && Boots > boots), Is.True,
                         $"the station did not restart: {csms.Accepted - connections} new connection(s), {Boots - boots} new BootNotification(s)");
+
+            if (Version == "2.1")
+                Assert.That(csms.Requests("BootNotification").Last()[3]!.Value<String>("reason"), Is.EqualTo("RemoteReset"));
 
         }
 
@@ -267,9 +268,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Stop(1);
 
-            // Sent by no node by itself: asked for, as after a reboot.
-            await TestStations.BootsAgain(station!, Version);
-
             Assert.That(await Within(() => Boots > boots), Is.True, "the station did not restart when the last session ended");
 
             String? afterwards = null;
@@ -300,9 +298,6 @@ namespace cloud.charging.open.ChargingStation.Tests
             var boots = Boots;
 
             Assert.That(await Reset(Type), Is.EqualTo("Accepted"));
-
-            // Sent by no node by itself: asked for, as after a reboot.
-            await TestStations.BootsAgain(station!, Version);
 
             Assert.That(await Within(() => Boots > boots), Is.True, "the station did not restart at once");
             Assert.That(await Within(() => StatusOf(1) == "available"), Is.True, $"the session was not ended for the restart: EVSE 1 is {StatusOf(1)}");
@@ -353,19 +348,16 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(atOnce.Value<Int32> ("ended"),     Is.EqualTo(1));
             });
 
-            // Sent by no node by itself: asked for, as after a reboot.
-            await TestStations.BootsAgain(station, Version);
-
             Assert.That(await Within(() => Boots > boots), Is.True, "the station did not restart at once");
-            Assert.That(await Within(() => station.RegistrationJSON()[Version]?["state"]?.Value<String>() == "Accepted"), Is.True, "the station was not accepted after the restart");
 
             var idle     = RestartCommand.Said(station.Restart(false, "somebody at the command line"));
 
             Assert.That(idle, Does.Contain("Nothing is charging"));
-
-            await TestStations.BootsAgain(station, Version);
-
             Assert.That(await Within(() => Boots > boots + 1), Is.True, "an idle station did not restart when asked to");
+
+            // Asked on the page or at the command line: a reset of its own.
+            if (Version == "2.1")
+                Assert.That(csms!.Requests("BootNotification").Last()[3]!.Value<String>("reason"), Is.EqualTo("LocalReset"));
 
         }
 

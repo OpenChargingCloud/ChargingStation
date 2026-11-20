@@ -44,8 +44,10 @@ namespace cloud.charging.open.ChargingStation
     /// A node built anew because the EVSEs or what this station says it is
     /// changed is a new start: it hangs up and dials again, and registers
     /// again once that is asked for - with the BootReason LocalReset in OCPP
-    /// 2.1 rather than PowerUp. A BootNotification is sent by no node by
-    /// itself, see SendBootNotifications.
+    /// 2.1 rather than PowerUp. A BootNotification is sent where it is asked
+    /// for (see SendBootNotifications): after a restart of the station, a
+    /// reset, it is - with RemoteReset where the back end asked for the reset
+    /// (see ChargingStation.Reset.cs).
     /// </remarks>
     public partial class ChargingStation
     {
@@ -54,6 +56,12 @@ namespace cloud.charging.open.ChargingStation
 
         private Boolean nodesBuiltBefore;
 
+        /// <summary>
+        /// Why the next two nodes built say they booted, where a restart says
+        /// it; taken by them. Written and read while the OCPP side is built.
+        /// </summary>
+        private OCPPv2_1.BootReason? bootReasonOfTheNextNodes;
+
         #endregion
 
 
@@ -61,15 +69,19 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Two nodes just built, neither of them registered: PowerUp for the
-        /// first two this station builds, LocalReset for every two after.
+        /// first two this station builds, LocalReset for every two after -
+        /// unless a restart says otherwise.
         /// </summary>
         private void NewRegistrations(OCPPv1_6.TestChargePointNode         ChargePoint,
                                       OCPPv2_1.CS.TestChargingStationNode  ChargingStation)
         {
 
-            var reason = nodesBuiltBefore
-                             ? OCPPv2_1.BootReason.LocalReset
-                             : OCPPv2_1.BootReason.PowerUp;
+            var reason = bootReasonOfTheNextNodes
+                             ?? (nodesBuiltBefore
+                                     ? OCPPv2_1.BootReason.LocalReset
+                                     : OCPPv2_1.BootReason.PowerUp);
+
+            bootReasonOfTheNextNodes = null;
 
             nodesBuiltBefore = true;
 
