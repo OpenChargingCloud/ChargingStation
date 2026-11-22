@@ -154,7 +154,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;

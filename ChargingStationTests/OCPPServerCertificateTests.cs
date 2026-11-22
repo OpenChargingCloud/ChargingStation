@@ -42,7 +42,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// A CSMS that dials the station and signs in with its client
+    /// A CSMS that connects to the station and signs in with its client
     /// certificate: known by the pin of its key, or checked by its CA and
     /// issued to the name it comes under. A certificate opens nothing but the
     /// connection that names it - not another name, not a connection that
@@ -82,7 +82,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 said.Clear();
 
             directory  = TestStations.TemporaryDirectory("ocpp-server-certificates");
-            port       = IPPort.Parse(TestPorts.Free());
+            port       = TestPorts.Free();
             // OCPP 1.6 on the same port: the subprotocol it asks for decides.
             port16     = port;
 
@@ -327,17 +327,17 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// </summary>
         private static String WrittenDown(ChargingStation  Station,
                                           IPPort           Port,
-                                          String           InboundName,
+                                          User_Id          InboundName,
                                           String?          KeyPin       = null,
                                           String?          OCPPVersion  = null)
         {
 
             if (KeyPin is not null)
-                Assert.That(Station.WebSocketLogins.TryAddKeyPin(InboundName, KeyPin, "its client certificate", null, I18NString.Create($"'{InboundName}', dialling in"), "tests",
+                Assert.That(Station.WebSocketLogins.TryAddKeyPin(InboundName, KeyPin, "its client certificate", null, I18NString.Create($"'{InboundName}', connecting"), "tests",
                                                                  out _, out var pinned),
                             Is.True, pinned);
 
-            Assert.That(Station.Connections.TryAddConnection(I18NString.Create($"'{InboundName}' over {OCPPVersion ?? "OCPP2.1"}, dialling in"),
+            Assert.That(Station.Connections.TryAddConnection(I18NString.Create($"'{InboundName}' over {OCPPVersion ?? "OCPP2.1"}, connecting"),
                                                              URL.Parse($"wss://127.0.0.1:{Port}/{InboundName}"), "CSMS", true, null, null,
                                                              out var id, out var error,
                                                              OCPPVersion:  OCPPVersion,
@@ -396,10 +396,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                    : "nothing yet";
 
         private static String SaidOf(ChargingStation Station, String Id)
-            => Station.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => Station.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         /// <summary>
-        /// A CSMS that dials the station, believes whatever certificate it is
+        /// A CSMS that connects to the station, believes whatever certificate it is
         /// shown, and shows the given one of its own - alone, or with the
         /// given certificates of the CAs above it sent along.
         /// </summary>
@@ -423,7 +423,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// What the station answered - or nothing, where it did not get that
         /// far: a TLS handshake that was refused.
         /// </summary>
-        private static async Task<HTTPStatusCode?> Dialled(WebSocketClient CSMS)
+        private static async Task<HTTPStatusCode?> Connected(WebSocketClient CSMS)
         {
             try
             {
@@ -452,27 +452,27 @@ namespace cloud.charging.open.ChargingStation.Tests
             var key      = AKey();
             var id       = "";
 
-            var station  = await Started(made => id = WrittenDown(made, port, Name, KeyPin: KeyPin.FromKey(key).ToHex()));
+            var station  = await Started(made => id = WrittenDown(made, port, User_Id.Parse(Name), KeyPin: KeyPin.FromKey(key).ToHex()));
 
             await Until(() => StatusOf(station, id) == "waiting", "Waiting for the CSMS", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
-            Assert.That(SaidOf(station, id), Does.Contain($"Waiting for '{Name}' to dial in"), "the station says that nobody can sign in with a certificate");
+            Assert.That(SaidOf(station, id), Does.Contain($"Waiting for '{Name}' to connect"), "the station says that nobody can sign in with a certificate");
 
             await using (var stranger = ACSMS(port, Name, AClientCertificate(Name, AKey())))
             {
-                Assert.That(await Dialled(stranger), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "a certificate of another key, issued to the right name");
+                Assert.That(await Connected(stranger), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "a certificate of another key, issued to the right name");
             }
 
             await using (var without = ACSMS(port, Name))
             {
-                Assert.That(await Dialled(without), Is.EqualTo(HTTPStatusCode.Unauthorized), "no certificate at all");
+                Assert.That(await Connected(without), Is.EqualTo(HTTPStatusCode.Unauthorized), "no certificate at all");
             }
 
             Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
 
             await using var csms = ACSMS(port, Name, AClientCertificate("whatever its maker wrote", key));
 
-            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in by the key of its certificate.\n" + Said());
+            Assert.That(await Connected(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in by the key of its certificate.\n" + Said());
 
             await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
@@ -499,14 +499,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station   = await Started(made => {
 
-                WrittenDown(made, port, Name, KeyPin: KeyPin.FromKey(key).ToHex());
+                WrittenDown(made, port, User_Id.Parse(Name), KeyPin: KeyPin.FromKey(key).ToHex());
 
-                other = WrittenDown(made, port, "csms-02", KeyPin: KeyPin.FromKey(AKey()).ToHex());
+                other = WrittenDown(made, port, User_Id.Parse("csms-02"), KeyPin: KeyPin.FromKey(AKey()).ToHex());
 
-                Assert.That(made.WebSocketLogins.TrySetPasswordAuthentication("csms-03", password, null, I18NString.Create("What the third signs in with"), out var error),
+                Assert.That(made.WebSocketLogins.TrySetPasswordAuthentication(User_Id.Parse("csms-03"), password, null, I18NString.Create("What the third signs in with"), out var error),
                             Is.True, error);
 
-                withLogin = WrittenDown(made, port, "csms-03");
+                withLogin = WrittenDown(made, port, User_Id.Parse("csms-03"));
 
             });
 
@@ -515,17 +515,17 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Issued to the very name it asks for: the name is its maker's to write.
             await using (var asAnother = ACSMS(port, "csms-02", AClientCertificate("csms-02", key)))
             {
-                Assert.That(await Dialled(asAnother), Is.EqualTo(HTTPStatusCode.Unauthorized), "under the name of a login that pins another key");
+                Assert.That(await Connected(asAnother), Is.EqualTo(HTTPStatusCode.Unauthorized), "under the name of a login that pins another key");
             }
 
             await using (var asTheThird = ACSMS(port, "csms-03", AClientCertificate("csms-03", key)))
             {
-                Assert.That(await Dialled(asTheThird), Is.EqualTo(HTTPStatusCode.Unauthorized), "under the name of a login with a password");
+                Assert.That(await Connected(asTheThird), Is.EqualTo(HTTPStatusCode.Unauthorized), "under the name of a login with a password");
             }
 
             await using (var asNobody = ACSMS(port, "csms-04", AClientCertificate("csms-04", key)))
             {
-                Assert.That(await Dialled(asNobody), Is.EqualTo(HTTPStatusCode.Unauthorized), "under a name nobody wrote down");
+                Assert.That(await Connected(asNobody), Is.EqualTo(HTTPStatusCode.Unauthorized), "under a name nobody wrote down");
             }
 
             Assert.Multiple(() => {
@@ -543,7 +543,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// By its CA: a certificate of a chain the station port accepts,
         /// issued to the name it comes under - and neither one issued to
         /// another name, nor one of another CA, though the station keeps that
-        /// one's root for what it dials.
+        /// one's root for what it connects to.
         /// </summary>
         [Test]
         public async Task CheckedByItsCA_ItIsLetInUnderTheNameItIsIssuedTo()
@@ -558,7 +558,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Accepted(made, ca);
                 Kept(made, otherCA);
 
-                id = WrittenDown(made, port, Name);
+                id = WrittenDown(made, port, User_Id.Parse(Name));
 
             });
 
@@ -566,24 +566,24 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await using (var ofAnotherCA = ACSMS(port, Name, AClientCertificate(Name, AKey(), otherCA)))
             {
-                Assert.That(await Dialled(ofAnotherCA), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to the right name by a CA the station port does not accept");
+                Assert.That(await Connected(ofAnotherCA), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to the right name by a CA the station port does not accept");
             }
 
             await using (var asAnother = ACSMS(port, Name, AClientCertificate("csms-02", AKey(), ca)))
             {
-                Assert.That(await Dialled(asAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued by the right CA to another name");
+                Assert.That(await Connected(asAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued by the right CA to another name");
             }
 
             await using (var selfMade = ACSMS(port, Name, AClientCertificate(Name, AKey())))
             {
-                Assert.That(await Dialled(selfMade), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to the right name by itself");
+                Assert.That(await Connected(selfMade), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to the right name by itself");
             }
 
             Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
 
             await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), ca));
 
-            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in by the certificate of its CA.\n" + Said());
+            Assert.That(await Connected(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in by the certificate of its CA.\n" + Said());
 
             await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
@@ -622,7 +622,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Accepted(made, root);
                 Kept(made, other);
 
-                id = WrittenDown(made, port, Name);
+                id = WrittenDown(made, port, User_Id.Parse(Name));
 
             });
 
@@ -649,19 +649,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await using (var alone = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0])))
             {
-                Assert.That(await Dialled(alone), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "its certificate alone, of a CA the station has never seen");
+                Assert.That(await Connected(alone), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "its certificate alone, of a CA the station has never seen");
             }
 
             await using (var ofAnother = ACSMS(port, Name, AClientCertificate(Name, AKey(), aboveOther[0]), SentAlong: aboveOther.Select(WithoutItsKey)))
             {
-                Assert.That(await Dialled(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "a whole chain, which ends at a root the station port does not accept");
+                Assert.That(await Connected(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "a whole chain, which ends at a root the station port does not accept");
             }
 
             Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
 
             await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0]), SentAlong: above.Select(WithoutItsKey));
 
-            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with the intermediates it sent along.\n" + Said());
+            Assert.That(await Connected(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with the intermediates it sent along.\n" + Said());
 
             await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
@@ -675,7 +675,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// The other way: the back end shows its certificate and nothing
         /// else, and the station knows the CAs between it and the root - kept
         /// with the chain the station port accepts. One below another root,
-        /// which the station keeps for what it dials, opens nothing.
+        /// which the station keeps for what it connects to, opens nothing.
         /// </summary>
         [TestCase(1)]
         [TestCase(2)]
@@ -713,7 +713,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 foreach (var intermediate in aboveOther)
                     Kept(made, intermediate, CertificateKind.TLSIntermediate);
 
-                id = WrittenDown(made, port, Name);
+                id = WrittenDown(made, port, User_Id.Parse(Name));
 
             });
 
@@ -721,19 +721,19 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await using (var ofAnother = ACSMS(port, Name, AClientCertificate(Name, AKey(), aboveOther[0])))
             {
-                Assert.That(await Dialled(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued below a root the station port does not accept, through CAs the station keeps");
+                Assert.That(await Connected(ofAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued below a root the station port does not accept, through CAs the station keeps");
             }
 
             await using (var asAnother = ACSMS(port, Name, AClientCertificate("csms-02", AKey(), above[0])))
             {
-                Assert.That(await Dialled(asAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to another name");
+                Assert.That(await Connected(asAnother), Is.Not.EqualTo(HTTPStatusCode.SwitchingProtocols), "issued to another name");
             }
 
             Assert.That(StatusOf(station, id), Is.EqualTo("waiting"));
 
             await using var csms = ACSMS(port, Name, AClientCertificate(Name, AKey(), above[0]));
 
-            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with its certificate alone, though the station knows the CAs above it.\n" + Said());
+            Assert.That(await Connected(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in with its certificate alone, though the station knows the CAs above it.\n" + Said());
 
             await Until(() => StatusOf(station, id) == "connected", "Being connected", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
@@ -761,8 +761,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Accepted(made, ca);
 
-                over16 = WrittenDown(made, port16, Name, OCPPVersion: "OCPP1.6");
-                over21 = WrittenDown(made, port,   Name);
+                over16 = WrittenDown(made, port16, User_Id.Parse(Name), OCPPVersion: "OCPP1.6");
+                over21 = WrittenDown(made, port,   User_Id.Parse(Name));
 
             });
 
@@ -771,7 +771,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await using var csms = ACSMS(port16, Name, AClientCertificate(Name, AKey(), ca), Subprotocol: "ocpp1.6");
 
-            Assert.That(await Dialled(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in over OCPP 1.6.\n" + Said());
+            Assert.That(await Connected(csms), Is.EqualTo(HTTPStatusCode.SwitchingProtocols), "The CSMS was not let in over OCPP 1.6.\n" + Said());
 
             await Until(() => StatusOf(station, over16) == "connected", "Being connected over OCPP 1.6", () => $"{StatusOf(station, over16)}: {SaidOf(station, over16)}");
 
@@ -795,7 +795,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var id       = "";
 
-            var station  = await Started(made => id = WrittenDown(made, port, Name),
+            var station  = await Started(made => id = WrittenDown(made, port, User_Id.Parse(Name)),
                                          HTTPS: false);
 
             await Until(() => SaidOf(station, id).Contains("can not sign in"), "Saying that it can not sign in", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");

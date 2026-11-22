@@ -56,9 +56,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         public SunSpecMeterDevice  Device
             => device ?? throw new InvalidOperationException("This bench serves a register image, and no simulated meter.");
 
-        public UInt16              Port    { get; }
+        public IPPort              Port    { get; }
 
-        private MeterOnTheBench(SunSpecMeterDevice? Device, ModbusTlsFrontend Frontend, CancellationTokenSource Stopping, Task Running, UInt16 Port)
+        private MeterOnTheBench(SunSpecMeterDevice? Device, ModbusTlsFrontend Frontend, CancellationTokenSource Stopping, Task Running, IPPort Port)
         {
             this.device    = Device;
             this.frontend  = Frontend;
@@ -101,7 +101,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var frontend = new ModbusTlsFrontend(
                                new ModbusTlsFrontendOptions(
-                                   System.Net.IPAddress.Loopback, 0,
+                                   System.Net.IPAddress.Loopback, IPPort.Zero,
                                    ServerPfxPath:              null,
                                    ServerPfxPassword:          null,
                                    CaCertPath:                 null,
@@ -119,7 +119,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var running  = Task.Run(() => frontend.RunAsync(stopping.Token));
             var bound    = await frontend.BoundEndPoint;
 
-            return new MeterOnTheBench(Device, frontend, stopping, running, (UInt16) bound.Port);
+            return new MeterOnTheBench(Device, frontend, stopping, running, IPPort.Parse((UInt16) bound.Port));
 
         }
 
@@ -300,10 +300,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// The meter of one EVSE read as the given entry says - as the Meters
         /// page saves it.
         /// </summary>
-        private async Task ReadTheMeterOf(Byte EVSE, String Host, UInt16 Port, params JProperty[] More)
+        private async Task ReadTheMeterOf(Byte EVSE, String Host, IPPort Port, params JProperty[] More)
         {
 
-            var json = new JObject(new JProperty("evse", EVSE), new JProperty("host", Host), new JProperty("port", Port));
+            var json = new JObject(new JProperty("evse", EVSE), new JProperty("host", Host), new JProperty("port", Port.ToUInt16()));
 
             foreach (var property in More)
                 json.Add(property);
@@ -500,7 +500,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 var configuration = Configuration;
-                configuration["meters"] = new JArray(new JObject(new JProperty("evse", 2), new JProperty("host", "127.0.0.1"), new JProperty("port", meterB.Port)));
+                configuration["meters"] = new JArray(new JObject(new JProperty("evse", 2), new JProperty("host", "127.0.0.1"), new JProperty("port", meterB.Port.ToUInt16())));
 
                 await using var station = await TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, configuration));
 
@@ -581,7 +581,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var (success, error, _) = await Station.UpdateMeterConfiguration(new JObject(
-                                                 new JProperty("evse", 1), new JProperty("host", "127.0.0.1"), new JProperty("port", meterA.Port),
+                                                 new JProperty("evse", 1), new JProperty("host", "127.0.0.1"), new JProperty("port", meterA.Port.ToUInt16()),
                                                  Identities(null, "0123456789abcdef")));
 
             Assert.That(success, Is.False);

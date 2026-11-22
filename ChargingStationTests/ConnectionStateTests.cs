@@ -38,7 +38,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     /// <summary>
     /// What the station says about where each of its connections stands - to
-    /// the Connections page, and in DialledConnections - follows the
+    /// the Connections page, and in OutboundConnections - follows the
     /// connection: connected, lost, not reached yet, turned away.
     /// </summary>
     /// <remarks>
@@ -100,7 +100,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AConnectionThatGotThroughIsSaidToBeConnected()
 
         /// <summary>
-        /// Connected, since when, and what was dialled - on the route the page
+        /// Connected, since when, and what was connected to - on the route the page
         /// asks while it is open, and in what the page loads first.
         /// </summary>
         [Test]
@@ -122,10 +122,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                 using var http   = await SignedIn();
 
                 var answer       = await GetJSON(http, States);
-                var id           = station!.DialledConnections.Keys.Single();
+                var id           = station!.OutboundConnections.Keys.Single();
                 var state        = answer["states"]?[id] as JObject;
 
-                Assert.That(state, Is.Not.Null, $"The station said nothing about the connection it dialled: {answer}");
+                Assert.That(state, Is.Not.Null, $"The station said nothing about the connection it made: {answer}");
 
                 var loaded       = await GetJSON(http, "/api/v1/configuration/connections");
 
@@ -177,7 +177,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Let go of when the test ends: shutting it down below does not.
             await using var first = await Connected(port);
 
-            var id       = station!.DialledConnections.Keys.Single();
+            var id       = station!.OutboundConnections.Keys.Single();
 
             using var http = await SignedIn();
 
@@ -246,7 +246,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Let go of when the test ends: shutting it down below does not.
             await using var first = await Connected(port);
 
-            var id       = station!.DialledConnections.Keys.Single();
+            var id       = station!.OutboundConnections.Keys.Single();
 
             await first.Shutdown("Restarting.");
 
@@ -385,7 +385,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.Multiple(() => {
                     Assert.That(took.Elapsed, Is.LessThan(TimeSpan.FromSeconds(15)));
-                    Assert.That(station.DialledConnections[id!], Does.Contain("tried again by itself"));
+                    Assert.That(station.OutboundConnections[id!], Does.Contain("tried again by itself"));
                 });
 
                 var giveUp = DateTimeOffset.UtcNow + Within;
@@ -477,7 +477,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await Start();
 
-                // Waited for rather than read at once: a first dial that ran
+                // Waited for rather than read at once: a first attempt to connect that ran
                 // into its own timeout (408) on a runner that stood still is
                 // tried again by itself.
                 Assert.That(await Said(connection!, what => what.StartsWith("Connected"), TalkingToTheCSMSTests.Patience),
@@ -517,7 +517,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var response  = await http.PostAsync(
                                 $"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
                                 new FormUrlEncodedContent([
-                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                     new KeyValuePair<String, String>("password",  station!.GeneratedPassword!)
                                 ]));
 
@@ -583,7 +583,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region (private) Said(Id, Enough, Within = 5 s)
 
         /// <summary>
-        /// What DialledConnections says of the connection, once it says what
+        /// What OutboundConnections says of the connection, once it says what
         /// is expected or the time is up.
         /// </summary>
         private async Task<String> Said(String                  Id,
@@ -592,12 +592,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var giveUp = DateTimeOffset.UtcNow + (Within ?? TimeSpan.FromSeconds(5));
-            var what   = station!.DialledConnections[Id];
+            var what   = station!.OutboundConnections[Id];
 
             while (DateTimeOffset.UtcNow < giveUp && !Enough(what))
             {
                 await Task.Delay(50);
-                what = station.DialledConnections[Id];
+                what = station.OutboundConnections[Id];
             }
 
             return what;

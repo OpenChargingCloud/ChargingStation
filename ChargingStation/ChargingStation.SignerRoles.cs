@@ -94,7 +94,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// The resource of this station's role model a device model component
-        /// belongs to: where this station dials is its connections.
+        /// belongs to: where this station connects to is its connections.
         /// </summary>
         /// <remarks>
         /// Its SSH peers among them: who a host is believed by, what goes over

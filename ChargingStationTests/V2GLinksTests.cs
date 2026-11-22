@@ -38,6 +38,7 @@ using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.ChargingStation.ISO15118;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -147,7 +148,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(second.Enabled,  Is.False, "nobody switched it on");
-                Assert.That(second.V2GPort,  Is.EqualTo((UInt16) (V2GOptions.DefaultV2GPort + 1)));
+                Assert.That(second.V2GPort,  Is.EqualTo(IPPort.Parse((UInt16) (V2GOptions.DefaultV2GPort.ToUInt16() + 1))));
                 Assert.That(second.EVSEId,   Is.EqualTo("DE*GEF*E0001*2"));
             });
 
@@ -204,7 +205,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var http = await SignedIn();
 
-            var port = (Int32) TestPorts.Free();
+            var port = TestPorts.Free().ToInt32();
 
             var first  = await http.PutAsync(Resource, JSONBody(new JProperty("evse", 1), new JProperty("port", port)));
             Assert.That(first.IsSuccessStatusCode, Is.True, await first.Content.ReadAsStringAsync());
@@ -273,7 +274,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var link = Station.V2GLinkOf(1)!;
-            var port = link.V2GEndpoint!.Port;
+            var port = IPPort.Parse(link.V2GEndpoint!.Port);
 
             await using (var stream = await TcpV2GClient.ConnectAsync("::1", port))
             {
@@ -320,7 +321,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                            true, null));
 
             link.Answered(new SDP_ResponseSentEventArgs(DateTimeOffset.UtcNow, vehicle,
-                                                        new SDP_Response(IPAddress.Parse("fe80::2"), 15118, SDP_Security.NoTLS, SDP_TransportProtocol.TCP),
+                                                        new SDP_Response(IPAddress.Parse("fe80::2"), IPPort.Parse(15118), SDP_Security.NoTLS, SDP_TransportProtocol.TCP),
                                                         28));
 
             var sdp = V2GOfEVSE(1)!["lastSDP"]!;
@@ -368,7 +369,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await using var link  = (await V2GLink.TryStart(new V2GOptions {
                                                                  Enabled            = true,
-                                                                 V2GPort            = 0,
+                                                                 V2GPort            = IPPort.Zero,
                                                                  SDP                = false,
                                                                  SlacTransport      = SlacTransportKind.None,
                                                                  ServerCertificate  = certificate
@@ -376,7 +377,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                              new EventLog(),
                                                              About: "EVSE A"))!;
 
-            await using var stream = await TcpV2GClient.ConnectAsync("::1", link.V2GEndpoint!.Port, new TlsOptions {
+            await using var stream = await TcpV2GClient.ConnectAsync("::1", IPPort.Parse(link.V2GEndpoint!.Port), new TlsOptions {
                                                                          EnabledSslProtocols          = SslProtocols.Tls13,
                                                                          ServerCertificateValidation  = (_, _, _, _) => true
                                                                      });

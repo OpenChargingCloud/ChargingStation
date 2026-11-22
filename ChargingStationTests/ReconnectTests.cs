@@ -256,7 +256,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(took.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)),
                             "The station waited for a back end that was not there before it said it had started.");
-                Assert.That(station.DialledConnections[connection!], Does.Contain("could not be reached").And.Contain("tried again by itself"),
+                Assert.That(station.OutboundConnections[connection!], Does.Contain("could not be reached").And.Contain("tried again by itself"),
                             "What the station says of the connection does not say that it goes on trying.");
             });
 
@@ -297,12 +297,12 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A connection that is lost is said to be lost - in the log, and in
-        /// what DialledConnections tells somebody who arrives later - and one
+        /// what OutboundConnections tells somebody who arrives later - and one
         /// that comes back is said to be connected again.
         /// </summary>
         /// <remarks>
         /// The station used to write "Connected, and will come back by itself
-        /// if it drops" once, when it dialled, and then nothing: a connection
+        /// if it drops" once, when it connected, and then nothing: a connection
         /// gone for an hour was still "Connected".
         /// </remarks>
         [Test]
@@ -320,7 +320,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Let go of when the test ends: shutting it down below does not.
             await using var first = await Connected(port);
 
-            var id     = station!.DialledConnections.Keys.Single();
+            var id     = station!.OutboundConnections.Keys.Single();
 
             await first.Shutdown("Restarting.");
 
@@ -406,7 +406,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await Start();
 
-                // Waited for rather than read at once: a first dial that ran
+                // Waited for rather than read at once: a first attempt to connect that ran
                 // into its own timeout (408) on a runner that stood still is
                 // tried again by itself.
                 Assert.That(await Said(connection!, what => what.Contains("Connected"), TalkingToTheCSMSTests.Patience),
@@ -429,7 +429,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region (private) Said(Id, Enough, Within = 5 s)
 
         /// <summary>
-        /// What DialledConnections says of the connection, once it says what
+        /// What OutboundConnections says of the connection, once it says what
         /// is expected or the time is up.
         /// </summary>
         private async Task<String> Said(String                 Id,
@@ -438,12 +438,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var giveUp = DateTimeOffset.UtcNow + (Within ?? TimeSpan.FromSeconds(5));
-            var what   = station!.DialledConnections[Id];
+            var what   = station!.OutboundConnections[Id];
 
             while (DateTimeOffset.UtcNow < giveUp && !Enough(what))
             {
                 await Task.Delay(50);
-                what = station.DialledConnections[Id];
+                what = station.OutboundConnections[Id];
             }
 
             return what;

@@ -66,7 +66,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Meters">How the meter of each EVSE that has one read is read.</param>
     /// <param name="Nameplate">What this station tells a CSMS it is.</param>
     /// <param name="Commissioning">Whether a tool may speak OCPP to this station over its SSH server.</param>
-    /// <param name="OCPPServer">Whether a CSMS or a local controller may dial this station, and on which ports.</param>
+    /// <param name="OCPPServer">Whether a CSMS or a local controller may connect to this station, and on which ports.</param>
     public sealed record StationConfiguration(PowerConfiguration?                      Power          = null,
                                               IReadOnlyList<EVSEConfig>?               EVSEs          = null,
                                               IReadOnlyList<CalibrationCertificate>?   Calibration    = null,

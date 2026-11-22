@@ -62,7 +62,7 @@ namespace cloud.charging.open.ChargingStation
         /// <param name="Address">Where it listens.</param>
         /// <param name="Port">On which port.</param>
         /// <param name="SayWhatIsMissing">Whether to log that there is no display page to serve - once, at the start, and not again at every move.</param>
-        private (HTTPServer Server, KioskHTTPAPI API) BuildTheDisplay(IIPAddress  Address,
+        private (HTTPServer Server, KioskHTTPAPI API) BuildTheDisplay(IPAddress  Address,
                                                                       IPPort      Port,
                                                                       Boolean     SayWhatIsMissing)
         {
@@ -136,7 +136,7 @@ namespace cloud.charging.open.ChargingStation
             if (LocalAppPort.HasValue && Port == LocalAppPort.Value)
                 return (null, null, $"Port {Port} is the local app server's.");
 
-            var (server, api) = BuildTheDisplay(kioskAddress, Port, SayWhatIsMissing: false);
+            var (server, api) = BuildTheDisplay(kioskAddress.Value, Port, SayWhatIsMissing: false);
 
             if (!started)
                 return (server, api, null);

@@ -44,7 +44,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// The OCPP server of a station over HTTP/3: off unless the file says
     /// otherwise, since it opens a UDP port beside each TCP port; switched on
     /// and off while the station runs; never without TLS, and then said; and
-    /// what a CSMS dials over that signs in with a one-time password bound to
+    /// what a CSMS connects over that signs in with a one-time password bound to
     /// its TLS session, which nothing but HTTP/3 lets a server check.
     /// </summary>
     [TestFixture]
@@ -53,7 +53,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #region Data
 
-        private const String                    Name       = "csms-01";
+        private static readonly User_Id Name       = User_Id.Parse("csms-01");
 
         private          String                 directory  = "";
         private readonly List<ChargingStation>  stations   = [];
@@ -272,10 +272,10 @@ namespace cloud.charging.open.ChargingStation.Tests
                    : "nothing yet";
 
         private static String SaidOf(ChargingStation Station, String Id)
-            => Station.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => Station.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         /// <summary>
-        /// A CSMS that dials the station over HTTP/3 and believes whatever
+        /// A CSMS that connects to the station over HTTP/3 and believes whatever
         /// certificate it is shown.
         /// </summary>
         private static WebSocketClient ACSMSOverHTTP3(IPPort                Port,
@@ -288,7 +288,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                    SecWebSocketProtocols:       [ "ocpp2.1" ],
                    RemoteCertificateValidator:  (sender, certificate, chain, client, errors) => TLSValidationResult.Success(),
                    TOTPConfig:                  TOTP,
-                   TOTPLogin:                   TOTP is not null ? Name : null
+                   TOTPLogin:                   TOTP is not null ? Name.ToString() : null
                ) {
                    WebSocketOver = WebSocketHTTPVersion.HTTP3
                };
@@ -444,14 +444,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ACSMSDialsInOverHTTP3()
+        #region ACSMSConnectsOverHTTP3()
 
         /// <summary>
         /// A CSMS that opens its WebSocket over HTTP/3 and signs in with its
         /// password is let in as over TCP.
         /// </summary>
         [Test]
-        public async Task ACSMSDialsInOverHTTP3()
+        public async Task ACSMSConnectsOverHTTP3()
         {
 
             var port      = APortFreeForBoth();
@@ -463,7 +463,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(made.WebSocketLogins.TrySetPasswordAuthentication(Name, password, null, I18NString.Create("What the CSMS signs in with"), out var error),
                             Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
+                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, connecting"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);
@@ -475,7 +475,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Until(() => ServerOf(station).Value<UInt16?>("http3Port") == port.ToUInt16(),
                         "Taking WebSockets over HTTP/3", () => ServerOf(station).ToString() + "\n" + Said());
 
-            await using var csms = ACSMSOverHTTP3(port, HTTPBasicAuthentication.Create(Name, password));
+            await using var csms = ACSMSOverHTTP3(port, HTTPBasicAuthentication.Create(Name.ToString(), password));
 
             var (_, response) = await csms.Connect();
 
@@ -515,7 +515,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(made.WebSocketLogins.TrySetTOTPBinding(Name, true, out error), Is.True, error);
 
-                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, dialling in"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
+                Assert.That(made.Connections.TryAddConnection(I18NString.Create("The CSMS, connecting"), URL.Parse($"wss://127.0.0.1:{port}/{Name}"), "CSMS", true, null, null,
                                                               out var written, out error,
                                                               Inbound: true),
                             Is.True, error);
@@ -529,7 +529,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Until(() => StatusOf(station, id) == "waiting", "Waiting for the CSMS", () => $"{StatusOf(station, id)}: {SaidOf(station, id)}");
 
-            Assert.That(SaidOf(station, id), Does.Contain($"Waiting for '{Name}' to dial in"));
+            Assert.That(SaidOf(station, id), Does.Contain($"Waiting for '{Name}' to connect"));
 
             // Bound, over HTTP/3: in.
             await using (var csms = ACSMSOverHTTP3(port, TOTP: new TOTPConfig(secret, TLSChannelBinding: true)))

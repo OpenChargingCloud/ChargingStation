@@ -78,14 +78,14 @@ namespace cloud.charging.open.ChargingStation
         /// </para>
         /// <para>
         /// What this station presents - the TLS identity - is also who it is
-        /// to a back end it dials, and to a meter. One may be brought, with
+        /// to a back end it connects to, and to a meter. One may be brought, with
         /// its key; or its key is made here, see
         /// <see cref="CertificateStore.RequestKinds"/>, and only its
         /// certificate ever travels: handed to whoever issues certificates as
         /// a signing request, or sent to the CSMS in SignCertificate.
         /// </para>
         /// <para>
-        /// The issuing CAs because a back end that dials this station may sign
+        /// The issuing CAs because a back end that connects to this station may sign
         /// in with a certificate of a CA below a root and show it alone: the
         /// CAs between are kept here to build its chain with, and are believed
         /// nothing by themselves - see WWCPNode.Accepting.
@@ -139,7 +139,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// The directory beside the configuration file a station of before
-        /// kept the keys it dials its back ends with in.
+        /// kept the keys it connects to its back ends with in.
         /// </summary>
         public const String FormerClientKeysDirectoryName = "ocpp-client-keys";
 
@@ -260,7 +260,7 @@ namespace cloud.charging.open.ChargingStation
 
             if (moved + stayed > 0)
                 Log.Metrological(LogLevel.Notice,
-                                 $"The keys this station dials its back ends with are kept in its certificate store from now on: {moved} moved over from '{Directory}'" +
+                                 $"The keys this station connects to its back ends with are kept in its certificate store from now on: {moved} moved over from '{Directory}'" +
                                  (stayed > 0 ? $", {stayed} could not be and stayed" : "") + ".",
                                  "certificates", "security");
 

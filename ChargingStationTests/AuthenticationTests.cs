@@ -147,7 +147,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var display = AtTheDisplay();
 
-            var response = await display.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
+            var response = await display.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser.ToString(), Password));
 
             Assert.Multiple(() => {
 

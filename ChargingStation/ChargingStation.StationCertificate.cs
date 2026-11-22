@@ -55,7 +55,7 @@ namespace cloud.charging.open.ChargingStation
     /// <para>
     /// CertificateSigned is answered first and acted on a moment later, so
     /// that the answer still goes out over the connection it came in on. Then
-    /// every connection that showed the old certificate is dialled again with
+    /// every connection that showed the old certificate is connected again with
     /// the new one. Where that does not get through within
     /// <see cref="ANewCertificateGetsThroughWithin"/>, the connection goes
     /// back to the certificate it had: a certificate its CSMS does not let in
@@ -128,7 +128,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// How long after CertificateSigned was answered the connections are
-        /// dialled again with the new certificate: long enough for the answer
+        /// connected again with the new certificate: long enough for the answer
         /// to be on its way.
         /// </summary>
         internal TimeSpan SwitchesToANewCertificateAfter       { get; set; } = TimeSpan.FromSeconds(2);
@@ -198,7 +198,7 @@ namespace cloud.charging.open.ChargingStation
 
         /// <summary>
         /// Who the station says it is on a connection: the last segment of the
-        /// address it dials, which is the name its CSMS knows it by.
+        /// address it connects to, which is the name its CSMS knows it by.
         /// </summary>
         private static String? IdentityOf(ConnectionEntry Connection)
         {
@@ -239,7 +239,7 @@ namespace cloud.charging.open.ChargingStation
 
             if (candidates.Length == 0)
                 return (false, ConnectionId is null
-                                   ? "This station dials no wss:// connection as OCPP 2.1 a certificate could be shown on."
+                                   ? "This station makes no wss:// connection as OCPP 2.1 a certificate could be shown on."
                                    : $"'{ConnectionId}' is no wss:// connection as OCPP 2.1 of this station.");
 
             var first       = candidates[0];
@@ -570,7 +570,7 @@ namespace cloud.charging.open.ChargingStation
             if (ConnectionsShowingACertificate().Length == 0)
                 return Task.FromResult<OCPPv2_1.CS.TriggerMessageResponse?>(
                            new OCPPv2_1.CS.TriggerMessageResponse(Request, OCPPv2_1.TriggerMessageStatus.Rejected,
-                                                                  new OCPPv2_1.StatusInfo("NoTLS", "This station dials no wss:// connection as OCPP 2.1 a certificate could be shown on."))
+                                                                  new OCPPv2_1.StatusInfo("NoTLS", "This station makes no wss:// connection as OCPP 2.1 a certificate could be shown on."))
                        );
 
             _ = Task.Run(() => AskForAStationCertificate("its CSMS asked for it"));
@@ -650,7 +650,7 @@ namespace cloud.charging.open.ChargingStation
 
                 Log.Notice($"CertificateSigned brought the certificate of the new key {keyId}: the identity '{identity.Id}'" +
                            (warnings.Count > 0 ? $" ({String.Join(" ", warnings)})" : "") +
-                           $". {(pending.Connections.Count == 1 ? "Its connection is" : $"Its {pending.Connections.Count} connections are")} dialled again with it in {SwitchesToANewCertificateAfter.TotalSeconds:0.#} second(s).",
+                           $". {(pending.Connections.Count == 1 ? "Its connection is" : $"Its {pending.Connections.Count} connections are")} connected again with it in {SwitchesToANewCertificateAfter.TotalSeconds:0.#} second(s).",
                            "ocpp", "certificates", "security");
 
                 var shows = identity.Id;
@@ -676,7 +676,7 @@ namespace cloud.charging.open.ChargingStation
         #region (private) SwitchTo(Pending, Shows)
 
         /// <summary>
-        /// Dial the connections again with the new certificate - and go back to
+        /// Reconnect the connections with the new certificate - and go back to
         /// the one they had where that does not get through.
         /// </summary>
         /// <param name="Pending">The key that waited, and what it replaces.</param>
@@ -754,7 +754,7 @@ namespace cloud.charging.open.ChargingStation
                         Log.Warning($"Connection '{id}' could not be switched back to the identity {Pending.Replaces}: {error}", "ocpp", "certificates", "security");
 
                 Log.Warning($"The new certificate '{Shows}' did not get through within {ANewCertificateGetsThroughWithin.TotalSeconds:0.#} second(s): " +
-                            $"{(stuck.Length == 1 ? "the connection is" : $"{stuck.Length} connections are")} dialled with the identity {Pending.Replaces} again. " +
+                            $"{(stuck.Length == 1 ? "the connection is" : $"{stuck.Length} connections are")} connected with the identity {Pending.Replaces} again. " +
                              "The new one is kept, and is chosen on the Connections page once its CSMS lets it in.",
                             "ocpp", "certificates", "security");
 

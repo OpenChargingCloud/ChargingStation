@@ -85,7 +85,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         /// which is "deny".
         /// </summary>
         /// <remarks>
-        /// A station dials a back end because that one decides which cards may
+        /// A station connects to a back end because that one decides which cards may
         /// charge. While it cannot be asked - the line is down, or it has not
         /// accepted this station - a station that started a session for every
         /// card would charge for whoever pulled its network cable. So it starts

@@ -225,10 +225,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Become("support", "systemadmin");
 
-            Assert.That(Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser), out var stored) && stored is User, Is.True);
+            Assert.That(Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser.ToString()), out var stored) && stored is User, Is.True);
 
             var account = (User) stored!;
-            var session = new SshSessionInfo("42", account.Id.ToString(), "publickey", null, null, null, null, SshSessionRestrictions.None);
+            var session = new SshSessionInfo("42", User_Id.Parse(account.Id.ToString()), "publickey", null, null, null, null, SshSessionRestrictions.None);
 
             await using var terminal  = new VT100Terminal((bytes, cancellationToken) => ValueTask.CompletedTask);
             using       var cli       = new StationCLI(Station, terminal, new CLICaller(account, session));

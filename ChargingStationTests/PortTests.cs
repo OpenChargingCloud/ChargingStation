@@ -215,7 +215,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                                                               LocalAppPort: IPPort.Parse(TestPorts.Free())));
+                                                                                               LocalAppPort: TestPorts.Free()));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);
@@ -245,7 +245,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             await using var first = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Path.Combine(directory, "first"), TestStations.Offline,
-                                                                                               LocalAppPort: IPPort.Parse(TestPorts.Free())));
+                                                                                               LocalAppPort: TestPorts.Free()));
 
             await using var second = TestStations.New(Path.Combine(directory, "second"), TestStations.Offline,
                                                       LocalAppPort: first.LocalAppPort);
@@ -280,7 +280,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void TheLocalAppServerIsNeitherTheWebInterfaceNorTheDisplay()
         {
 
-            var port = IPPort.Parse(TestPorts.Free());
+            var port = TestPorts.Free();
 
             Assert.Multiple(() => {
 
@@ -318,8 +318,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             await using var station = TestStations.New(Path.Combine(directory, "given"), TestStations.Offline);
 
             Assert.Multiple(() => {
-                Assert.That(TestPorts.TryClaim(station.HTTPPort.ToUInt16()),          Is.False, "The web interface's port could still be claimed by somebody else.");
-                Assert.That(TestPorts.TryClaim(station.KioskPort!.Value.ToUInt16()),  Is.False, "The display's port could still be claimed by somebody else.");
+                Assert.That(TestPorts.TryClaim(station.HTTPPort),          Is.False, "The web interface's port could still be claimed by somebody else.");
+                Assert.That(TestPorts.TryClaim(station.KioskPort!.Value),  Is.False, "The display's port could still be claimed by somebody else.");
             });
 
         }

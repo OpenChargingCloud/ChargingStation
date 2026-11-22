@@ -36,7 +36,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// <summary>
     /// A restart once nothing charges any more: a Reset of OCPP 2.1 OnIdle,
     /// and a Soft one of OCPP 1.6. The station builds its OCPP side anew and
-    /// dials again - its CSMS sees the connection come back, and a new
+    /// connects again - its CSMS sees the connection come back, and a new
     /// BootNotification - and while something charges it waits, and starts
     /// nothing new. And a restart at once, Immediate and Hard, which ends
     /// what charges; both as the web page and the command line ask for them.
@@ -126,8 +126,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var started = station = await TestStations.Booted(station, directory);
 
-            Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the station did not get connected: {started.DialledConnections[id!]}");
+            Assert.That(await Within(() => started.OutboundConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected: {started.OutboundConnections[id!]}");
 
             Assert.That(await Within(() => started.RegistrationJSON()[Version]?["state"]?.Value<String>() == "Accepted"), Is.True,
                         "the station did not register");

@@ -19,6 +19,7 @@
 
 using System.Net;
 using System.Net.Sockets;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -48,7 +49,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// Whether anything takes a connection on the given port.
         /// </summary>
         /// <param name="Port">A TCP port.</param>
-        public static async Task<Boolean> Listening(UInt16 Port)
+        public static async Task<Boolean> Listening(IPPort Port)
 
             => (await Task.WhenAll(TakesAConnection(IPAddress.Loopback,     Port),
                                    TakesAConnection(IPAddress.IPv6Loopback, Port))).
@@ -59,7 +60,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region (private static) TakesAConnection(Address, Port)
 
         private static async Task<Boolean> TakesAConnection(IPAddress  Address,
-                                                            UInt16     Port)
+                                                            IPPort     Port)
         {
 
             using var client   = new TcpClient(Address.AddressFamily);
@@ -67,7 +68,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             try
             {
-                await client.ConnectAsync(Address, Port, timeout.Token);
+                await client.ConnectAsync(Address, Port.ToInt32(), timeout.Token);
                 return true;
             }
             catch (SocketException e) when (e.SocketErrorCode is SocketError.ConnectionRefused

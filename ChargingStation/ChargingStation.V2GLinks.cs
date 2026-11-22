@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using System.Collections.Concurrent;
 
 using cloud.charging.open.ChargingStation.Configuration;
@@ -125,7 +126,7 @@ namespace cloud.charging.open.ChargingStation
                                                        ? SlacTransportKind.Auto
                                                        : V2GOptions.SlacTransport,
 
-                         V2GPort                 = (UInt16) (V2GOptions.DefaultV2GPort + EVSE - 1),
+                         V2GPort                 = IPPort.Parse((UInt16) (V2GOptions.DefaultV2GPort.ToUInt16() + EVSE - 1)),
                          EVSEId                  = V2GOptions.DefaultEVSEIdOf(EVSE)
 
                      };
@@ -157,7 +158,7 @@ namespace cloud.charging.open.ChargingStation
             if (!A.Enabled || !B.Enabled)
                 return null;
 
-            if (A.V2GPort != 0 && A.V2GPort == B.V2GPort)
+            if (!A.V2GPort.IsZero && A.V2GPort == B.V2GPort)
                 return $"both would listen on port {A.V2GPort}";
 
             var sameInterface = String.Equals(A.InterfaceName ?? "", B.InterfaceName ?? "", StringComparison.OrdinalIgnoreCase);

@@ -50,7 +50,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// A charging station that dials its CSMS over SSH: signed in with its
+    /// A charging station that connects to its CSMS over SSH: signed in with its
     /// own key, the server believed by its host key, and OCPP spoken over the
     /// subsystem "ocpp@open.charging.cloud".
     /// </summary>
@@ -62,7 +62,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// signed in, with which key, and what it was sent.
     /// </remarks>
     [TestFixture]
-    public class DiallingOverSSHTests
+    public class ConnectingOverSSHTests
     {
 
         #region (class) SshCSMS
@@ -74,7 +74,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             private readonly ConcurrentQueue<JArray>                      received   = new ();
-            private readonly ConcurrentQueue<(String User, Byte[] Key)>  logins     = new ();
+            private readonly ConcurrentQueue<(User_Id User, Byte[] Key)> logins     = new ();
 
             public ISshHostKey       HostKey        { get; }
             public SshServer         Server         { get; }
@@ -190,23 +190,23 @@ namespace cloud.charging.open.ChargingStation.Tests
                     return ValueTask.FromResult(CSMS.LetsIn && (CSMS.LetsInOnly is null || CSMS.LetsInOnly.AsSpan().SequenceEqual(Request.PublicKeyBlob)));
                 }
 
-                public ValueTask<Boolean> AuthorizePasswordAsync(String Username, String Password, CancellationToken CancellationToken = default)
+                public ValueTask<Boolean> AuthorizePasswordAsync(User_Id Username, String Password, CancellationToken CancellationToken = default)
                 {
-                    CSMS.passwords.Enqueue((Username, Password));
+                    CSMS.passwords.Enqueue((Username.ToString(), Password));
                     CSMS.methods.  Enqueue(UserAuthentication.PasswordMethod);
-                    return ValueTask.FromResult((CSMS.TakesPassword is (String, String) taken && taken == (Username, Password)) ||
-                                                (CSMS.TakesTOTPAs == UserAuthentication.PasswordMethod && CSMS.IsTheOneTimePassword(Username, Password, default)));
+                    return ValueTask.FromResult((CSMS.TakesPassword is (String, String) taken && taken == (Username.ToString(), Password)) ||
+                                                (CSMS.TakesTOTPAs == UserAuthentication.PasswordMethod && CSMS.IsTheOneTimePassword(Username.ToString(), Password, default)));
                 }
 
-                public ISshKeyboardInteractiveFactor? GetKeyboardInteractive(String Username)
+                public ISshKeyboardInteractiveFactor? GetKeyboardInteractive(User_Id Username)
                     => CSMS.TakesTOTP is not null && CSMS.TakesTOTPAs == UserAuthentication.KeyboardInteractiveMethod
-                           ? new Prompt(CSMS, Username)
+                           ? new Prompt(CSMS, Username.ToString())
                            : null;
 
-                public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(String Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
+                public ValueTask<Boolean> AuthorizeSessionBoundTotpAsync(User_Id Username, String Totp, ReadOnlyMemory<Byte> SessionId, System.Net.IPAddress? Client, CancellationToken CancellationToken = default)
                 {
                     CSMS.methods.Enqueue(UserAuthentication.SessionBoundTotpMethod);
-                    return ValueTask.FromResult(CSMS.TakesTOTPAs == UserAuthentication.SessionBoundTotpMethod && CSMS.IsTheOneTimePassword(Username, Totp, SessionId));
+                    return ValueTask.FromResult(CSMS.TakesTOTPAs == UserAuthentication.SessionBoundTotpMethod && CSMS.IsTheOneTimePassword(Username.ToString(), Totp, SessionId));
                 }
 
             }
@@ -237,8 +237,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// </summary>
             public Func<Int32, SshHelloVerdict?>?  RefuseHello  { get; set; }
 
-            public UInt16            Port
-                => Server.LocalEndPoint.Port.ToUInt16();
+            public IPPort            Port
+                => Server.LocalEndPoint.Port;
 
             public String            Fingerprint
                 => SshFingerprint.Sha256(HostKey.PublicKeyBlob);
@@ -319,7 +319,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// <summary>
             /// Who tried to sign in, with which key.
             /// </summary>
-            public (String User, Byte[] Key)[] Logins
+            public (User_Id User, Byte[] Key)[] Logins
                 => [.. logins];
 
             /// <summary>
@@ -377,7 +377,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task MakeAStationAndACSMS()
         {
 
-            directory  = TestStations.TemporaryDirectory("dialling-ssh");
+            directory  = TestStations.TemporaryDirectory("connecting-ssh");
             station    = TestStations.New(directory, TestStations.Offline);
 
             csms       = new SshCSMS();
@@ -412,10 +412,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task Start()
             => station = await TestStations.Booted(station!, directory);
 
-        private static UInt16 FreeUDPPort()
+        private static IPPort FreeUDPPort()
         {
             using var udp = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
-            return (UInt16) ((System.Net.IPEndPoint) udp.Client.LocalEndPoint!).Port;
+            return IPPort.Parse((UInt16) ((System.Net.IPEndPoint) udp.Client.LocalEndPoint!).Port);
         }
 
         private static async Task Until(Func<Boolean> Condition, String What, Func<String>? Otherwise = null)
@@ -430,7 +430,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         /// <summary>
         /// Make the station's name servers know the given name as 127.0.0.1 -
@@ -455,7 +455,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AStationRegistersOverSSHWithItsOwnKeyAndLearnsTheHostKeyOnProbation()
 
         /// <summary>
-        /// Dialled over SSH, a station signs in as the URL says with a key of
+        /// Connected over SSH, a station signs in as the URL says with a key of
         /// its own, registers with its CSMS, and - where it trusts on first use
         /// and pins nothing - learns the host key it was shown, on probation:
         /// until a signed pin set confirms it, it executes nothing its server
@@ -485,7 +485,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(key, Is.Not.Null, "No key was made to sign in with.");
 
-                Assert.That(csms!.Logins.Select(login => login.User).Distinct(), Is.EqualTo(new[] { "cs001" }),
+                Assert.That(csms!.Logins.Select(login => login.User).Distinct(), Is.EqualTo(new[] { User_Id.Parse("cs001") }),
                             "The station did not sign in as the URL says.");
 
                 Assert.That(csms.Logins.Last().Key, Is.EqualTo(key!.PublicKeyBlob),
@@ -864,7 +864,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(shown.Value<String>("purpose"),  Is.EqualTo("SFTP"));
                 Assert.That(shown.Value<String>("peer"),     Is.EqualTo("files"));
                 Assert.That(shown.Value<String>("login"),    Is.EqualTo("cs001"));
-                Assert.That(line,                            Is.EqualTo(station.FileTransferPublicKey("files", "cs001")));
+                Assert.That(line,                            Is.EqualTo(station.FileTransferPublicKey("files", User_Id.Parse("cs001"))));
                 Assert.That(line,                            Does.EndWith(" cs001@files"));
             });
 
@@ -903,16 +903,16 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(otherLogin [2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
                 Assert.That(otherServer[2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
                 Assert.That(halfNamed  [2]!.Value<String>("status"),  Is.EqualTo("Rejected"));
-                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001"),     Is.False);
-                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001-fw"),  Is.False);
+                Assert.That(station.IsFileTransferKeyConfirmed("files", User_Id.Parse("cs001")),     Is.False);
+                Assert.That(station.IsFileTransferKeyConfirmed("files", User_Id.Parse("cs001-fw")),  Is.False);
             });
 
             var signed = await csms.Ask("SSHKeySigned", Signed(line, "files", "cs001"));
 
             Assert.Multiple(() => {
                 Assert.That(signed[2]!.Value<String>("status"),                       Is.EqualTo("Accepted"), signed.ToString());
-                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001"),     Is.True);
-                Assert.That(station.IsFileTransferKeyConfirmed("files", "cs001-fw"),  Is.False, "the other login's key is not confirmed by it");
+                Assert.That(station.IsFileTransferKeyConfirmed("files", User_Id.Parse("cs001")),     Is.True);
+                Assert.That(station.IsFileTransferKeyConfirmed("files", User_Id.Parse("cs001-fw")),  Is.False, "the other login's key is not confirmed by it");
                 Assert.That(station.JudgeFileTransfer(url, cloud.charging.open.protocols.WWCP.Node.SecureShell.FileTransferDirections.Upload).IsAllowed, Is.True, "a request for that login is carried out now");
             });
 
@@ -1030,7 +1030,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var someoneElse = SshFingerprint.Sha256(SshHostKey.GenerateEd25519().PublicKeyBlob);
 
-            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs002", "not-the-real-one", I18NString.Create("A Basic login"), out var basic, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication(User_Id.Parse("cs002"), "not-the-real-one", I18NString.Create("A Basic login"), out var basic, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection(I18NString.Create("Recorded"), URL.Parse(SshURL()), "CSMS", true, null, null, out var recorded, out error,
@@ -1051,7 +1051,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(SaidOf(withPassword!),  Does.Contain("a password is never sent to a server that is not believed"));
-                Assert.That(csms!.Logins.Select(login => login.User), Has.None.EqualTo("cs002"), "A password went to a server that was not believed.");
+                Assert.That(csms!.Logins.Select(login => login.User), Has.None.EqualTo(User_Id.Parse("cs002")), "A password went to a server that was not believed.");
             });
 
         }
@@ -1207,7 +1207,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms!.LetsIn         = false;
             csms. TakesPassword  = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication(User_Id.Parse("cs001"), "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, login, null,
@@ -1247,7 +1247,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             csms!.TakesPassword = ("cs001", "the-password-of-cs001");
 
-            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication(User_Id.Parse("cs001"), "the-password-of-cs001", I18NString.Create("CSMS over SSH"), out var login, out var error),
                         Is.True, error);
 
             Assert.That(station.Connections.TryAddConnection(I18NString.Create("CSMS over SSH"), URL.Parse(SshURL()), "CSMS", true, login, null,
@@ -1299,7 +1299,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             csms. TakesTOTP    = ("cs001", new TOTPConfig(secret, TimeSpan.FromSeconds(30), 12));
             csms. TakesTOTPAs  = TakenAs;
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, I18NString.Create("One-time, over SSH"), out var login, out var error,
+            Assert.That(station!.Connections.TryAddTOTPAuthentication(User_Id.Parse("cs001"), secret, I18NString.Create("One-time, over SSH"), out var login, out var error,
                                                                   ValiditySeconds: 30, Length: 12, TLSChannelBinding: Bound),
                         Is.True, error);
 
@@ -1376,7 +1376,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                               out var id, out var error, SshHostKey: csms.Fingerprint),
                         Is.True, error);
 
-            // The test button first: it resolves as the dialling does.
+            // The test button first: it resolves as the connecting does.
             var test   = await station.TestConnection(I18NString.Create("CSMS over SSH"), $"ssh://cs001@csms.test:{csms.Port}", "CSMS");
             var steps  = String.Join("\n", test["steps"]!.Select(step => step.Value<String>("text")));
 
@@ -1418,7 +1418,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
 
             csms        = new SshCSMS(later) { LetsIn = false };
-            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, IPPort.Parse(port)), CancellationToken.None);
+            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, port), CancellationToken.None);
 
             await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
                         "Being turned away once the CSMS is up", () => SaidOf(id!));
@@ -1495,7 +1495,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station.ConnectionStates[id!].Status, Is.EqualTo(ConnectionStatus.Trying), SaidOf(id!));
 
             csms        = new SshCSMS(later) { ServesOCPP = false };
-            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, IPPort.Parse(port)), CancellationToken.None);
+            await csms.Server.StartAsync(new IPSocket(IPv4Address.Localhost, port), CancellationToken.None);
 
             await Until(() => station.ConnectionStates.TryGetValue(id!, out var state) && state.Status == ConnectionStatus.Refused,
                         "Being refused the OCPP subsystem once the CSMS is up", () => SaidOf(id!));
@@ -1520,7 +1520,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// as one more channel of the one connection the station keeps to that
         /// host - signed in once, with the station's key, and the host key the
         /// one its connection entry holds it to. The host is an SSH peer of the
-        /// station from when it is dialled: before, there is no key exchange,
+        /// station from when it is connected to: before, there is no key exchange,
         /// and nothing else is tried. After the key exchange the connection
         /// goes on, OCPP with it; and it is the one connection there ever was.
         /// </summary>
@@ -1530,8 +1530,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var ntpPort = FreeUDPPort();
 
-            var time    = new NTSServer(NTSKEPort:           IPPort.Parse(TestPorts.Free()),
-                                        NTSPort:             IPPort.Parse(ntpPort),
+            var time    = new NTSServer(NTSKEPort:           TestPorts.Free(),
+                                        NTSPort:             ntpPort,
                                         MasterKeysFilePath:  null);
 
             try
@@ -1549,7 +1549,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var model   = new NTSDeviceModel(station, Log: null);
 
-                // Before the station dials: the host is no SSH peer yet.
+                // Before the station connects: the host is no SSH peer yet.
                 var before  = await station.SyncTimeAsync(station.NTSGroupOf("local")!);
 
                 await Start();
@@ -1602,7 +1602,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// SSHConnection Shared over a connection whose host key was learned on
         /// first use: while it is on probation the station sends nothing but its
-        /// BootNotification (section 10.4 of the white paper "OCPP over SSH"),
+        /// BootNotification (section 10.4 of the white paper "OCPP-over-SSH"),
         /// and nothing but OCPP goes over the connection to a host held to no
         /// pinned key - so its time server makes no key exchange over it. Once a
         /// signed pin set confirms the key, it does.
@@ -1613,8 +1613,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var ntpPort = FreeUDPPort();
 
-            var time    = new NTSServer(NTSKEPort:           IPPort.Parse(TestPorts.Free()),
-                                        NTSPort:             IPPort.Parse(ntpPort),
+            var time    = new NTSServer(NTSKEPort:           TestPorts.Free(),
+                                        NTSPort:             ntpPort,
                                         MasterKeysFilePath:  null);
 
             try
@@ -1674,7 +1674,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// is the CSMS's host, over the connection shared with it, with the name
         /// "csms.test" known to its name servers.
         /// </summary>
-        private async Task AStationWithItsTimeAtTheCSMS(UInt16 NTPPort)
+        private async Task AStationWithItsTimeAtTheCSMS(IPPort NTPPort)
         {
 
             await station!.DisposeAsync();
@@ -1689,7 +1689,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                                       new JProperty("servers",     new JArray(new JObject(
                                           new JProperty("id",        "csms-time"),
                                           new JProperty("hostname",  "csms.test"),
-                                          new JProperty("ntpPort",   NTPPort),
+                                          new JProperty("ntpPort",   NTPPort.ToUInt16()),
                                           new JProperty("ssh",       new JObject(new JProperty("connection", "shared")))
                                       )))
                                   ))
@@ -1725,7 +1725,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(test.Value<Boolean>("ok"), Is.False, steps);
             Assert.That(steps, Does.Contain("could not be looked up with this station's name servers"));
-            Assert.That(steps, Does.Not.Contain("TCP connection"), "Something was dialled although nothing was resolved.");
+            Assert.That(steps, Does.Not.Contain("TCP connection"), "Something was connected to although nothing was resolved.");
 
         }
 

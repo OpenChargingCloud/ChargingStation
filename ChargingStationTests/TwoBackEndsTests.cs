@@ -44,7 +44,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// CSMS and its successor, during a migration.
     /// </summary>
     /// <remarks>
-    /// Both connections were dialled, and both were registered in the OCPP
+    /// Both connections were made, and both were registered in the OCPP
     /// node's routing table under one name, "CSMS" or "CentralSystem". The route
     /// by that name went to whichever connection came up last, so:
     /// - everything the station said by itself - its security events, the
@@ -56,7 +56,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     ///   the heartbeat of the node, whose heartbeat goes to the first.
     ///
     /// Each connection has a name of its own now, and the name "CSMS" is the
-    /// oldest connection that dials by itself: the primary, until a switchover
+    /// oldest connection that connects by itself: the primary, until a switchover
     /// says otherwise. Each connection is registered with on its own, and a
     /// back end that accepted the station gets its heartbeats at the interval
     /// it gave.
@@ -115,7 +115,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// The station started with a connection to the first back end and then
-        /// one to the second, both dialling by themselves - and connected to both.
+        /// one to the second, both connecting by themselves - and connected to both.
         /// </summary>
         private async Task ConnectedToBoth(String Version)
         {
@@ -126,10 +126,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var started = station = await TestStations.Booted(station!, directory);
 
-            Assert.That(await Within(() => started.DialledConnections[firstId]. StartsWith("Connected", StringComparison.Ordinal) &&
-                                           started.DialledConnections[secondId].StartsWith("Connected", StringComparison.Ordinal)),
+            Assert.That(await Within(() => started.OutboundConnections[firstId]. StartsWith("Connected", StringComparison.Ordinal) &&
+                                           started.OutboundConnections[secondId].StartsWith("Connected", StringComparison.Ordinal)),
                         Is.True,
-                        $"the station did not get connected to both: '{started.DialledConnections[firstId]}', '{started.DialledConnections[secondId]}'");
+                        $"the station did not get connected to both: '{started.OutboundConnections[firstId]}', '{started.OutboundConnections[secondId]}'");
 
         }
 
@@ -150,18 +150,18 @@ namespace cloud.charging.open.ChargingStation.Tests
         private async Task ConnectedToTheFirstThenToTheSecond(String Version, Func<IPPort, CSMS> Second)
         {
 
-            var port                 = IPPort.Parse(TestPorts.Free());
+            var port                 = TestPorts.Free();
             var (firstId, secondId)  = TwoConnections(Version, port);
 
             var started = station = await TestStations.Booted(station!, directory);
 
             Assert.That(await Within(() => started.RegistrationJSON()[Version]?["state"]?.Value<String>() == "Accepted"), Is.True,
-                        $"the station did not register with the first back end: '{started.DialledConnections[firstId]}'");
+                        $"the station did not register with the first back end: '{started.OutboundConnections[firstId]}'");
 
             second = Second(port);
 
-            Assert.That(await Within(() => started.DialledConnections[secondId].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the station did not get connected to the second back end: '{started.DialledConnections[secondId]}'");
+            Assert.That(await Within(() => started.OutboundConnections[secondId].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected to the second back end: '{started.OutboundConnections[secondId]}'");
 
         }
 
@@ -171,7 +171,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A connection to the first back end and then one to the given port, both
-        /// dialling by themselves.
+        /// connecting by themselves.
         /// </summary>
         private (String First, String Second) TwoConnections(String Version, IPPort SecondPort)
         {
@@ -255,7 +255,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await ConnectedToTheFirstThenToTheSecond(Version, port => new CSMS(port));
 
             Assert.That(first!.Requests("BootNotification"),                                 Has.Length.EqualTo(1),
-                        "the back end the station dialled first was not told who it is, once");
+                        "the back end the station connected to first was not told who it is, once");
 
             Assert.That(await Within(() => second!.Requests("BootNotification").Length > 0), Is.True,
                         "the back end that came second received no BootNotification");
@@ -280,10 +280,10 @@ namespace cloud.charging.open.ChargingStation.Tests
             await QueueSecurityEvent(Version, "ConnectedTestEvent");
 
             Assert.That(await first!.SentRequest("SecurityEventNotification", "ConnectedTestEvent"), Is.Not.Null,
-                        "the back end the station dialled first was not told");
+                        "the back end the station connected to first was not told");
 
             Assert.That(second!.Requests("SecurityEventNotification"), Is.Empty,
-                        "the back end the station dialled second was told what is the first one's");
+                        "the back end the station connected to second was told what is the first one's");
 
         }
 
@@ -312,7 +312,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await QueueSecurityEvent(Version, "ConnectedTestEvent");
 
             Assert.That(await first!.SentRequest("SecurityEventNotification", "ConnectedTestEvent"), Is.Not.Null,
-                        "the back end the station dialled first was not told");
+                        "the back end the station connected to first was not told");
 
             Assert.That(second.Requests("SecurityEventNotification"), Is.Empty,
                         "the back end that connected again took over what is the first one's");

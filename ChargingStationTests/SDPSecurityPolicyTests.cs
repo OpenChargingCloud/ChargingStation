@@ -25,6 +25,7 @@ using cloud.charging.open.protocols.ISO15118.NetworkInterfaces;
 using cloud.charging.open.protocols.ISO15118.SDP.Messages;
 
 using cloud.charging.open.ChargingStation.ISO15118;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -71,7 +72,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void AStationWithoutACertificateAnswersAVehicleAskingForPlainTCP()
         {
 
-            var options = V2GLink.SDPOptionsFor(Interface(), 16000, UsesTLS: false, MulticastLoopback: false);
+            var options = V2GLink.SDPOptionsFor(Interface(), IPPort.Parse(16000), UsesTLS: false, MulticastLoopback: false);
 
             Assert.Multiple(() => {
 
@@ -96,7 +97,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void AStationWithACertificateTurnsAwayADowngrade()
         {
 
-            var options = V2GLink.SDPOptionsFor(Interface(), 15118, UsesTLS: true, MulticastLoopback: false);
+            var options = V2GLink.SDPOptionsFor(Interface(), IPPort.Parse(15118), UsesTLS: true, MulticastLoopback: false);
 
             Assert.Multiple(() => {
                 Assert.That(options.OfferedSecurity,      Is.EqualTo(SDP_Security.TLS));
@@ -123,7 +124,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 foreach (var usesTLS in new[] { true, false })
                 {
 
-                    var options = V2GLink.SDPOptionsFor(Interface(), 15118, usesTLS, MulticastLoopback: false);
+                    var options = V2GLink.SDPOptionsFor(Interface(), IPPort.Parse(15118), usesTLS, MulticastLoopback: false);
 
                     Assert.That(options.RejectNoTlsRequests,
                                 Is.EqualTo(options.OfferedSecurity == SDP_Security.TLS),
@@ -143,13 +144,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void TheRestIsCarriedThrough()
         {
 
-            var options = V2GLink.SDPOptionsFor(Interface(), 16000, UsesTLS: false, MulticastLoopback: true);
+            var options = V2GLink.SDPOptionsFor(Interface(), IPPort.Parse(16000), UsesTLS: false, MulticastLoopback: true);
 
             Assert.Multiple(() => {
 
                 // The port SDP advertises is the one the endpoint actually got,
                 // which is why it is handed in rather than looked up.
-                Assert.That(options.SeccPort,           Is.EqualTo((UInt16) 16000));
+                Assert.That(options.SeccPort,           Is.EqualTo(IPPort.Parse(16000)));
                 Assert.That(options.Interface.Name,     Is.EqualTo("plc0"));
 
                 // Off in the field; on for a bench where the car runs here too.

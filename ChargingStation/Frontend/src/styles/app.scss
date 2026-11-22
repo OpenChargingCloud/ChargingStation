@@ -1,7 +1,7 @@
 // The web interface of a charging station. What every node shows alike -
 // the frame, the forms, sign-in, logs, DNS, NTS, pins, the certificate store -
 // is WWCP_Node's, in the station's colour; what the pages of its connections
-// need - the keys it dials with, and where a connection stands - is
+// need - the keys it connects with, and where a connection stands - is
 // WWCP_OCPP_Node's, as the pages are; below them, what only the station's own
 // pages need: its EVSEs, card readers and calibration certificates.
 @use '@node/styles/node' as * with (

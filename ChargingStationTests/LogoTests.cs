@@ -32,6 +32,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SSH.Client;
 
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -57,7 +58,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         private const String  ConfiguredEMP  = "https://example.org/emp-one.png";
         private const String  ConfiguredCPO  = "https://example.org/operator.png";
 
-        private UInt16        sshPort;
+        private IPPort        sshPort;
 
         #endregion
 
@@ -114,7 +115,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                     new JProperty("ssh",       new JObject(
                         new JProperty("enabled",  true),
-                        new JProperty("port",     sshPort),
+                        new JProperty("port",     sshPort.ToUInt16()),
                         new JProperty("sftp",     true)
                     )),
 
@@ -136,7 +137,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// The station's one account, in whatever role it holds now, with an
         /// SFTP session open.
         /// </summary>
-        private async Task<(SshClient Client, SftpClient Sftp)> Sftp()
+        private async Task<(SSHClient Client, SFTPClient Sftp)> Sftp()
         {
 
             var key    = SshHostKey.GenerateEd25519();
@@ -144,15 +145,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(added.IsAdded, Is.True, added.Reason);
 
-            var client = await SshClient.ConnectAsync("127.0.0.1",
-                                                      Station.SSHPort!.Value.ToUInt16(),
-                                                      new SshClientOptions {
+            var client = await SSHClient.Connect("127.0.0.1",
+                                                      Station.SSHPort!.Value,
+                                                      new SSHClientOptions {
                                                           Username       = ChargingStation.DefaultAdminUser,
                                                           VerifyHostKey  = blob => Station.SSHHostKey == $"ssh-ed25519 {SshFingerprint.Sha256(blob)}",
                                                           Credentials    = [ key ]
                                                       });
 
-            return (client, await client.OpenSftpClientAsync());
+            return (client, await client.OpenSFTPClient());
 
         }
 

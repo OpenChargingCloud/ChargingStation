@@ -35,15 +35,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// What is written down about the connections is what is dialled, from the
+    /// What is written down about the connections is what is connected to, from the
     /// moment it is written - work package P7 of EVQI Transport.
     /// </summary>
     /// <remarks>
     /// A connection written down, removed, switched on or off, sent elsewhere
     /// or given other credentials used to wait for the next start, and the
-    /// page said so. Now the station takes it at once: what dials by itself is
-    /// dialled, what does not any more is hung up, and what is dialled
-    /// differently is hung up and dialled again. A description written anew
+    /// page said so. Now the station takes it at once: what connects by itself is
+    /// connected, what does not any more is hung up, and what is connected
+    /// differently is hung up and connected again. A description written anew
     /// changes nothing that is up.
     /// </remarks>
     [TestFixture]
@@ -96,14 +96,14 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region AConnectionWrittenDownIsDialledAtOnce()
+        #region AConnectionWrittenDownIsConnectedAtOnce()
 
         /// <summary>
-        /// A connection written down while the station runs, set to dial by
-        /// itself, is dialled - and the one that was up stays up.
+        /// A connection written down while the station runs, set to connect by
+        /// itself, is connected - and the one that was up stays up.
         /// </summary>
         [Test]
-        public async Task AConnectionWrittenDownIsDialledAtOnce()
+        public async Task AConnectionWrittenDownIsConnectedAtOnce()
         {
 
             var firstId  = await ConnectedToTheFirst();
@@ -115,9 +115,9 @@ namespace cloud.charging.open.ChargingStation.Tests
                         Is.True, error);
 
             Assert.That(await Within(() => second.Connections == 1 && Said(secondId!).StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"what was written down was not dialled: '{Said(secondId!)}'");
+                        $"what was written down was not connected to: '{Said(secondId!)}'");
 
-            Assert.That(first!.Accepted, Is.EqualTo(1), "the connection that was up was dialled again");
+            Assert.That(first!.Accepted, Is.EqualTo(1), "the connection that was up was connected to again");
             Assert.That(Said(firstId),   Does.StartWith("Connected"));
 
         }
@@ -139,8 +139,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station!.Connections.TryRemoveConnection(firstId, out var error), Is.True, error);
 
             Assert.That(await Within(() => first!.Connections == 0), Is.True, "the connection removed was not hung up");
-            Assert.That(await Within(() => !station.DialledConnections.ContainsKey(firstId)), Is.True,
-                        "a connection removed is still said to be dialled");
+            Assert.That(await Within(() => !station.OutboundConnections.ContainsKey(firstId)), Is.True,
+                        "a connection removed is still said to be connected");
 
             await Task.Delay(TimeSpan.FromSeconds(2));
 
@@ -150,14 +150,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AnAddressChangedIsDialledThere()
+        #region AnAddressChangedIsConnectedThere()
 
         /// <summary>
-        /// A connection sent elsewhere is hung up and dialled where it is sent,
-        /// registers there, and the CSMS it left is not dialled again.
+        /// A connection sent elsewhere is hung up and connected where it is sent,
+        /// registers there, and the CSMS it left is not connected to again.
         /// </summary>
         [Test]
-        public async Task AnAddressChangedIsDialledThere()
+        public async Task AnAddressChangedIsConnectedThere()
         {
 
             var firstId = await ConnectedToTheFirst();
@@ -182,7 +182,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Task.Delay(TimeSpan.FromSeconds(2));
 
-            Assert.That(first!.Accepted, Is.EqualTo(1), "the CSMS it left was dialled again");
+            Assert.That(first!.Accepted, Is.EqualTo(1), "the CSMS it left was connected to again");
 
         }
 
@@ -205,7 +205,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await Task.Delay(TimeSpan.FromSeconds(2));
 
-            Assert.That(first.Accepted,    Is.EqualTo(1), "a description written anew dialled the connection again");
+            Assert.That(first.Accepted,    Is.EqualTo(1), "a description written anew reconnected the connection");
             Assert.That(first.Connections, Is.EqualTo(1));
             Assert.That(Said(firstId),     Does.StartWith("Connected"));
 
@@ -213,14 +213,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region SwitchedOffItIsHungUpAndSwitchedOnDialled()
+        #region SwitchedOffItIsHungUpAndSwitchedOnConnected()
 
         /// <summary>
-        /// A connection that no longer dials by itself is hung up, and dialled
+        /// A connection that no longer connects by itself is hung up, and connected
         /// again once it does.
         /// </summary>
         [Test]
-        public async Task SwitchedOffItIsHungUpAndSwitchedOnDialled()
+        public async Task SwitchedOffItIsHungUpAndSwitchedOnConnected()
         {
 
             var firstId  = await ConnectedToTheFirst();
@@ -229,35 +229,35 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(station!.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS"), url, "CSMS", false, null, null, out var error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
-            Assert.That(await Within(() => first.Connections == 0 && !station.DialledConnections.ContainsKey(firstId)), Is.True,
+            Assert.That(await Within(() => first.Connections == 0 && !station.OutboundConnections.ContainsKey(firstId)), Is.True,
                         "a connection switched off was not hung up");
 
             Assert.That(station.Connections.TryUpdateConnection(firstId, I18NString.Create("The CSMS"), url, "CSMS", true, null, null, out error, OCPPVersion: "OCPP2.1"),
                         Is.True, error);
 
             Assert.That(await Within(() => first.Accepted == 2 && first.Connections == 1 && Said(firstId).StartsWith("Connected", StringComparison.Ordinal)),
-                        Is.True, $"a connection switched on again was not dialled: '{Said(firstId)}'");
+                        Is.True, $"a connection switched on again was not connected: '{Said(firstId)}'");
 
         }
 
         #endregion
 
-        #region CredentialsChangedAreDialledWith()
+        #region CredentialsChangedAreConnectedWith()
 
         /// <summary>
         /// Credentials given another secret are what every connection naming
-        /// them is dialled with again - and credentials named by none change
+        /// them is connected with again - and credentials named by none change
         /// nothing.
         /// </summary>
         [Test]
-        public async Task CredentialsChangedAreDialledWith()
+        public async Task CredentialsChangedAreConnectedWith()
         {
 
-            Assert.That(station!.Connections.TryAddPasswordAuthentication("cs001", "an old secret of sixteen", I18NString.Create("The CSMS's password"),
+            Assert.That(station!.Connections.TryAddPasswordAuthentication(User_Id.Parse("cs001"), "an old secret of sixteen", I18NString.Create("The CSMS's password"),
                                                                   out var login, out var error),
                         Is.True, error);
 
-            Assert.That(station.Connections.TryAddPasswordAuthentication("cs002", "a secret named by no one", I18NString.Create("Nobody's password"),
+            Assert.That(station.Connections.TryAddPasswordAuthentication(User_Id.Parse("cs002"), "a secret named by no one", I18NString.Create("Nobody's password"),
                                                                  out var unused, out error),
                         Is.True, error);
 
@@ -269,55 +269,55 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Within(() => Said(id!).StartsWith("Connected", StringComparison.Ordinal)), Is.True, Said(id!));
 
-            Assert.That(station.Connections.TryUpdateBasicAuthentication(unused, "cs002", "another secret no one names", I18NString.Create("Nobody's password"),
+            Assert.That(station.Connections.TryUpdateBasicAuthentication(unused, User_Id.Parse("cs002"), "another secret no one names", I18NString.Create("Nobody's password"),
                                                                     out error),
                         Is.True, error);
 
             await Task.Delay(TimeSpan.FromSeconds(2));
 
-            Assert.That(first.Accepted, Is.EqualTo(1), "credentials named by no connection dialled one again");
+            Assert.That(first.Accepted, Is.EqualTo(1), "credentials named by no connection connected one again");
 
-            Assert.That(station.Connections.TryUpdateBasicAuthentication(login, "cs001", "a new secret of sixteen", I18NString.Create("The CSMS's password"),
+            Assert.That(station.Connections.TryUpdateBasicAuthentication(login, User_Id.Parse("cs001"), "a new secret of sixteen", I18NString.Create("The CSMS's password"),
                                                                     out error),
                         Is.True, error);
 
             Assert.That(await Within(() => first.Accepted == 2 && first.Connections == 1 && Said(id!).StartsWith("Connected", StringComparison.Ordinal)),
-                        Is.True, $"the connection was not dialled again with what changed: '{Said(id!)}'");
+                        Is.True, $"the connection was not connected again with what changed: '{Said(id!)}'");
 
         }
 
         #endregion
 
-        #region TheDialRevisionCountsWhatIsDialledDifferently()
+        #region TheConnectionRevisionCountsWhatIsConnectedDifferently()
 
         /// <summary>
         /// What the store tells the station a change is: one in how a connection
-        /// is dialled, not one in what it is called or a host key learned.
+        /// is connected, not one in what it is called or a host key learned.
         /// </summary>
         [Test]
-        public void TheDialRevisionCountsWhatIsDialledDifferently()
+        public void TheConnectionRevisionCountsWhatIsConnectedDifferently()
         {
 
             var store = station!.Connections;
 
-            Assert.That(store.TryAddPasswordAuthentication("cs001", "a secret of sixteen", I18NString.Create("A password"), out var login, out var error), Is.True, error);
+            Assert.That(store.TryAddPasswordAuthentication(User_Id.Parse("cs001"), "a secret of sixteen", I18NString.Create("A password"), out var login, out var error), Is.True, error);
             Assert.That(store.TryAddConnection(I18NString.Create("A"), URL.Parse("ws://a.example.org/cs001"), "CSMS", true, login, null, out var id, out error), Is.True, error);
 
-            Assert.That(store.DialRevisionOf(id!), Is.EqualTo(0));
+            Assert.That(store.ConnectionRevisionOf(id!), Is.EqualTo(0));
 
             Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://a.example.org/cs001"), "CSMS", true, login, null, out error), Is.True, error);
-            Assert.That(store.DialRevisionOf(id!), Is.EqualTo(0), "a description is no change of how it is dialled");
+            Assert.That(store.ConnectionRevisionOf(id!), Is.EqualTo(0), "a description is no change of how it is connected");
 
             Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://b.example.org/cs001"), "CSMS", true, login, null, out error), Is.True, error);
-            Assert.That(store.DialRevisionOf(id!), Is.EqualTo(1), "an address is");
+            Assert.That(store.ConnectionRevisionOf(id!), Is.EqualTo(1), "an address is");
 
             Assert.That(store.TryUpdateConnection(id, I18NString.Create("A, renamed"), URL.Parse("ws://b.example.org/cs001"), "CSMS", false, login, null, out error), Is.True, error);
-            Assert.That(store.DialRevisionOf(id!), Is.EqualTo(2), "whether it dials by itself is");
+            Assert.That(store.ConnectionRevisionOf(id!), Is.EqualTo(2), "whether it connects by itself is");
 
-            Assert.That(store.TryUpdateBasicAuthentication(login, "cs001", "another secret of sixteen", I18NString.Create("A password"), out error), Is.True, error);
-            Assert.That(store.DialRevisionOf(id!), Is.EqualTo(3), "what it proves itself with is");
+            Assert.That(store.TryUpdateBasicAuthentication(login, User_Id.Parse("cs001"), "another secret of sixteen", I18NString.Create("A password"), out error), Is.True, error);
+            Assert.That(store.ConnectionRevisionOf(id!), Is.EqualTo(3), "what it proves itself with is");
 
-            Assert.That(store.DialRevisionOf("nothing-under-this-id"), Is.EqualTo(0));
+            Assert.That(store.ConnectionRevisionOf("nothing-under-this-id"), Is.EqualTo(0));
 
         }
 
@@ -352,7 +352,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private String Said(String Id)
 
-            => station!.DialledConnections.TryGetValue(Id, out var said)
+            => station!.OutboundConnections.TryGetValue(Id, out var said)
                    ? said
                    : "(nothing)";
 

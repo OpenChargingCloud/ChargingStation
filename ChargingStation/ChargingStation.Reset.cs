@@ -39,7 +39,7 @@ namespace cloud.charging.open.ChargingStation
     /// <para>
     /// A restart of this station is its OCPP side built anew: both nodes made
     /// again from what the station is, what they were connected to hung up and
-    /// dialled again - what a change of the EVSEs does. The page, SSH and the
+    /// connected to again - what a change of the EVSEs does. The page, SSH and the
     /// configuration stay as they are.
     /// </para>
     /// <para>
@@ -353,8 +353,8 @@ namespace cloud.charging.open.ChargingStation
         #region (private) RestartAsync()
 
         /// <summary>
-        /// Build the OCPP side anew, as a change of the EVSEs does, and dial
-        /// again what it was connected to.
+        /// Build the OCPP side anew, as a change of the EVSEs does, and connect
+        /// again to what it was connected to.
         /// </summary>
         private async Task RestartAsync()
         {
@@ -378,7 +378,7 @@ namespace cloud.charging.open.ChargingStation
                     if (why is null || !sessions.IsEmpty)
                         return;
 
-                    // A station stopped meanwhile has nothing to dial again,
+                    // A station stopped meanwhile has nothing to connect to again,
                     // and its next start is a restart of its own.
                     if (!started)
                     {
@@ -393,7 +393,7 @@ namespace cloud.charging.open.ChargingStation
                     (old16, old21) = RebuildTheOCPPNodes(EVSEChange.None);
 
                     // Sessions may start again: the restart they waited for is
-                    // done, and what follows is only dialling.
+                    // done, and what follows is only connecting.
                     Volatile.Write(ref restartOnceIdle, null);
 
                 }
@@ -422,12 +422,12 @@ namespace cloud.charging.open.ChargingStation
                 // BootNotification over each connection as it comes up again.
                 _ = SendBootNotifications();
 
-                await OCPPDialling.DialAgain(old16, old21, $"This charging station restarted, as {why} asked for");
+                await OCPPConnecting.ConnectAgain(old16, old21, $"This charging station restarted, as {why} asked for");
 
             }
             catch (Exception e)
             {
-                Log.Warning($"Dialling again after a restart failed: {e.GetBaseException().Message}", "ocpp", "reset");
+                Log.Warning($"Connecting again after a restart failed: {e.GetBaseException().Message}", "ocpp", "reset");
             }
             finally
             {

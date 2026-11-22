@@ -17,5 +17,5 @@
 
 // The connections of a charging station - their entries, their store, what
 // they prove themselves with and whom they trust - are those of every node
-// that dials, and live with the WWCP node. The alias keeps its old name.
+// that connects, and live with the WWCP node. The alias keeps its old name.
 global using OCPP = cloud.charging.open.protocols.WWCP.Node.Connections;

@@ -40,10 +40,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
     /// <summary>
     /// What only a charging station does with a name server over SSH (white
-    /// paper "DNS over SSH", chapter 7): its key of the purpose DNS in
+    /// paper "DNS-over-SSH", chapter 7): its key of the purpose DNS in
     /// SSHClientController, its own identity as the login where a server names
-    /// none, and the host of a connection of OCPP over SSH as an SSH peer a
-    /// name server may share the connection of - before it was ever dialled.
+    /// none, and the host of a connection of OCPP-over-SSH as an SSH peer a
+    /// name server may share the connection of - before it was ever connected.
     /// </summary>
     [TestFixture]
     [NonParallelizable]
@@ -195,17 +195,17 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AConnectionOfOCPPOverSSHIsAnSSHPeerANameServerMayShare_BeforeItWasDialled()
+        #region AConnectionOfOCPPOverSSHIsAnSSHPeerANameServerMayShare_BeforeItWasConnected()
 
         /// <summary>
         /// The host of a network connection profile with an ssh:// URL is an
         /// SSH peer of the station (section 7.2): a name server may be given
         /// SSHConnection Shared with that host as its Address before the
-        /// connection was ever dialled - a station that starts cold has its
+        /// connection was ever made - a station that starts cold has its
         /// names over that connection first. Another host is refused.
         /// </summary>
         [Test]
-        public async Task AConnectionOfOCPPOverSSHIsAnSSHPeerANameServerMayShare_BeforeItWasDialled()
+        public async Task AConnectionOfOCPPOverSSHIsAnSSHPeerANameServerMayShare_BeforeItWasConnected()
         {
 
             var before  = station!.NameServerSSHPeerHosts;
@@ -216,7 +216,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         error);
 
             var after   = station.NameServerSSHPeerHosts;
-            var dialled = station.SSHPeerTo(DomainName.Parse("lc.example"));
+            var peer    = station.SSHPeerTo(DomainName.Parse("lc.example"));
 
             var other   = await Set(OCPPv2_1.DataConsistencyModel.ACID,
                                     (null, "Servers",        "plain,lc"),
@@ -234,7 +234,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(before,                                          Has.None.EqualTo("lc.example"));
                 Assert.That(after,                                           Has.Member("lc.example"));
-                Assert.That(dialled,                                         Is.Null, "the connection was dialled already, and its host a peer by that");
+                Assert.That(peer,                                            Is.Null, "the connection was made already, and its host a peer by that");
 
                 Assert.That(other.Where (result => result.Component.Instance == "lc").
                                   Select(result => result.AttributeStatusInfo?.ReasonCode),
@@ -316,7 +316,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That((answer["answers"] as JArray)?.Select(record => record["value"]?.Value<String>()), Is.EqualTo(new[] { "192.0.2.10" }), answer.ToString());
                 Assert.That(asked,                                           Is.EqualTo(1), "the resolver was not asked over SSH");
                 Assert.That(identity,                                        Is.Not.Empty);
-                Assert.That(audit.Events.OfType<AuthenticationSucceededEvent>().Select(login => login.Username),
+                Assert.That(audit.Events.OfType<AuthenticationSucceededEvent>().Select(login => login.Username.ToString()),
                                                                              Is.EqualTo(new[] { identity }), "the login is not what the station calls itself in OCPP");
             });
 

@@ -139,8 +139,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var started = station = await TestStations.Booted(station, directory);
 
-            Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the station did not get connected to begin with: {started.DialledConnections[id!]}");
+            Assert.That(await Within(() => started.OutboundConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected to begin with: {started.OutboundConnections[id!]}");
 
             Assert.That(await Within(() => started.RegistrationJSON()[Version]?["state"]?.Value<String>() == "Accepted"), Is.True,
                         "the station did not register");
@@ -296,7 +296,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AStationWithoutABackEndStartsACardByItself()
 
         /// <summary>
-        /// A station that dials nobody has nobody to ask, and lets a card start
+        /// A station that connects to nobody has nobody to ask, and lets a card start
         /// as it did before there was an Authorize.
         /// </summary>
         [Test]
@@ -317,13 +317,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region (private) DiallingABackEndThatWaits()
+        #region (private) ConnectingToABackEndThatWaits()
 
         /// <summary>
-        /// The station dials a back end that tells it to wait: connected, and
+        /// The station connects to a back end that tells it to wait: connected, and
         /// not accepted.
         /// </summary>
-        private async Task DiallingABackEndThatWaits()
+        private async Task ConnectingToABackEndThatWaits()
         {
 
             csms!.BootStatus = "Pending";
@@ -352,7 +352,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationItsBackEndDidNotAcceptStartsNoCard()
         {
 
-            await DiallingABackEndThatWaits();
+            await ConnectingToABackEndThatWaits();
 
             var (atTheReader, readerError)        = await station!.PresentToken("reader", null, ACard);
             var (inTheApp,    refusal, appError)  = await station. StartLocally(null, ACard);
@@ -432,7 +432,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             station = AStation(OfflineCards: "allow");
 
-            await DiallingABackEndThatWaits();
+            await ConnectingToABackEndThatWaits();
 
             var (session, startError) = await station.PresentToken("reader", null, ACard);
 

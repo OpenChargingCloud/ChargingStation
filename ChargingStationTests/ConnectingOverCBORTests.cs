@@ -49,7 +49,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// connection test asks in the way the connection speaks.
     /// </summary>
     [TestFixture]
-    public class DiallingOverCBORTests
+    public class ConnectingOverCBORTests
     {
 
         #region (class) CSMS
@@ -80,7 +80,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             public CSMS(params String[] Speaks)
             {
 
-                this.Port  = IPPort.Parse(TestPorts.Free());
+                this.Port  = TestPorts.Free();
 
                 Server     = new WebSocketServer(HTTPPort:               Port,
                                                  RequireAuthentication:  false,
@@ -173,7 +173,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         [SetUp]
         public void MakeAStation()
         {
-            directory  = TestStations.TemporaryDirectory("dialling-cbor");
+            directory  = TestStations.TemporaryDirectory("connecting-cbor");
             station    = TestStations.New(directory, TestStations.Offline);
         }
 
@@ -235,7 +235,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;

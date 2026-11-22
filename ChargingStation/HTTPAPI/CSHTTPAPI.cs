@@ -89,7 +89,7 @@ namespace cloud.charging.open.ChargingStation
                          String?          Version   = null)
 
             // The station port, its logins and the chains it accepts: whoever
-            // may change where this station dials may change who dials it.
+            // may change where this station connects to may change who connects to it.
             : base(HTTPServer,
                    Station,
                    ExtAPI,
@@ -300,7 +300,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// PUT /api/v1/configuration/nameplate with {"vendor", "model",
         /// "serialNumber", "firmwareVersion"}: what this station tells a CSMS it
-        /// is. Its OCPP nodes hang up, dial again and say so in their
+        /// is. Its OCPP nodes hang up, connect again and say so in their
         /// BootNotification.
         /// </summary>
         /// <remarks>
@@ -1102,7 +1102,7 @@ namespace cloud.charging.open.ChargingStation
         /// reaches it as an "evses" event on the stream. At the permission that
         /// reads what is going on, apart from how the station is set up: the
         /// support sees how each EVSE stands, and not what is fitted, nor where
-        /// the station dials (white paper "Signed OCPP Messages and Signer
+        /// the station connects to (white paper "Signed OCPP Messages and Signer
         /// Roles", section 5.3).
         /// </remarks>
         private Task<HTTPResponse> GetEVSEStates(HTTPRequest Request)

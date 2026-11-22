@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
@@ -68,7 +69,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.Multiple(() => {
                 Assert.That(links.Links.Keys,                   Is.EqualTo(new Byte[] { 1 }));
-                Assert.That(links.LinkOf(1).V2GPort,            Is.EqualTo((UInt16) 15200));
+                Assert.That(links.LinkOf(1).V2GPort,            Is.EqualTo(IPPort.Parse(15200)));
                 Assert.That(links.LinkOf(1).EVSEId,             Is.EqualTo("DE*GEF*E0007*3"));
                 Assert.That(links.LinkOf(2),                    Is.EqualTo(new V2GConfiguration()), "nothing was said about EVSE 2");
             });
@@ -93,8 +94,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                               """);
 
             Assert.Multiple(() => {
-                Assert.That(links.LinkOf(1).V2GPort,        Is.EqualTo((UInt16) 15118));
-                Assert.That(links.LinkOf(2).V2GPort,        Is.EqualTo((UInt16) 15119));
+                Assert.That(links.LinkOf(1).V2GPort,        Is.EqualTo(IPPort.Parse(15118)));
+                Assert.That(links.LinkOf(2).V2GPort,        Is.EqualTo(IPPort.Parse(15119)));
                 Assert.That(links.LinkOf(2).Mode,           Is.EqualTo(PowerMode.Dc));
                 Assert.That(links.LinkOf(2).SlacTransport,  Is.EqualTo(SlacTransportKind.None));
             });
@@ -169,10 +170,10 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var changed = Parse("""{ "links": [ { "evse": 1, "port": 15200, "sdp": false } ] }""").
-                              With(1, new V2GConfiguration(V2GPort: 15300));
+                              With(1, new V2GConfiguration(V2GPort: IPPort.Parse(15300)));
 
             Assert.Multiple(() => {
-                Assert.That(changed.LinkOf(1).V2GPort,  Is.EqualTo((UInt16) 15300));
+                Assert.That(changed.LinkOf(1).V2GPort,  Is.EqualTo(IPPort.Parse(15300)));
                 Assert.That(changed.LinkOf(1).SDP,      Is.False);
             });
 
@@ -182,41 +183,41 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #region What two links cannot share
 
-        private static V2GOptions On(UInt16 Port, String? Interface = null, Boolean SDP = false, SlacTransportKind SLAC = SlacTransportKind.None)
+        private static V2GOptions On(IPPort Port, String? Interface = null, Boolean SDP = false, SlacTransportKind SLAC = SlacTransportKind.None)
             => new () { Enabled = true, V2GPort = Port, InterfaceName = Interface, SDP = SDP, SlacTransport = SLAC };
 
         [Test]
         public void TwoLinksCannotListenOnOnePort()
         {
-            Assert.That(ChargingStation.ConflictBetween(On(15118), On(15118)), Does.Contain("port 15118"));
+            Assert.That(ChargingStation.ConflictBetween(On(IPPort.Parse(15118)), On(IPPort.Parse(15118))), Does.Contain("port 15118"));
         }
 
         [Test]
         public void AnyFreePortIsNotOnePort()
         {
-            Assert.That(ChargingStation.ConflictBetween(On(0), On(0)), Is.Null);
+            Assert.That(ChargingStation.ConflictBetween(On(IPPort.Zero), On(IPPort.Zero)), Is.Null);
         }
 
         [Test]
         public void TwoLinksCannotBothAnswerSDPOnOneInterface()
         {
             Assert.Multiple(() => {
-                Assert.That(ChargingStation.ConflictBetween(On(15118, "eth1", SDP: true), On(15119, "ETH1", SDP: true)), Does.Contain("SDP"));
-                Assert.That(ChargingStation.ConflictBetween(On(15118, "eth1", SDP: true), On(15119, "eth2", SDP: true)), Is.Null);
+                Assert.That(ChargingStation.ConflictBetween(On(IPPort.Parse(15118), "eth1", SDP: true), On(IPPort.Parse(15119), "ETH1", SDP: true)), Does.Contain("SDP"));
+                Assert.That(ChargingStation.ConflictBetween(On(IPPort.Parse(15118), "eth1", SDP: true), On(IPPort.Parse(15119), "eth2", SDP: true)), Is.Null);
             });
         }
 
         [Test]
         public void TwoLinksCannotBothListenForSLACOnOneInterface()
         {
-            Assert.That(ChargingStation.ConflictBetween(On(15118, "plc0", SLAC: SlacTransportKind.Auto),
-                                                        On(15119, "plc0", SLAC: SlacTransportKind.Auto)), Does.Contain("SLAC"));
+            Assert.That(ChargingStation.ConflictBetween(On(IPPort.Parse(15118), "plc0", SLAC: SlacTransportKind.Auto),
+                                                        On(IPPort.Parse(15119), "plc0", SLAC: SlacTransportKind.Auto)), Does.Contain("SLAC"));
         }
 
         [Test]
         public void ALinkThatIsOffSharesNothing()
         {
-            Assert.That(ChargingStation.ConflictBetween(On(15118), On(15118) with { Enabled = false }), Is.Null);
+            Assert.That(ChargingStation.ConflictBetween(On(IPPort.Parse(15118)), On(IPPort.Parse(15118)) with { Enabled = false }), Is.Null);
         }
 
         #endregion

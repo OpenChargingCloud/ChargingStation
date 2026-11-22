@@ -47,7 +47,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// messages of the SSH subsystem where its server takes "ocpp2.1cbor".
     /// </summary>
     [TestFixture]
-    public class DiallingOverSSHWithCBORTests
+    public class ConnectingOverSSHWithCBORTests
     {
 
         #region (class) SshCSMS
@@ -68,8 +68,8 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// <summary>The messages that came as CBOR, as the JSON they stand for.</summary>
             public ConcurrentQueue<JArray>  AsCBOR    { get; } = new ();
 
-            public UInt16 Port
-                => Server.LocalEndPoint.Port.ToUInt16();
+            public IPPort Port
+                => Server.LocalEndPoint.Port;
 
             public SshCSMS(params String[] Speaks)
             {
@@ -166,7 +166,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         [SetUp]
         public void MakeAStation()
         {
-            directory  = TestStations.TemporaryDirectory("dialling-ssh-cbor");
+            directory  = TestStations.TemporaryDirectory("connecting-ssh-cbor");
             station    = TestStations.New(directory, TestStations.Offline);
         }
 
@@ -218,7 +218,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private ConnectionStatus? StatusOf(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) ? state.Status : null;
@@ -310,7 +310,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.SignatureFormatsOf(entry),  Is.EqualTo(Expected), "the OCPP node was not told what the connection says");
             });
 
-            // "policy" takes it back, on the connection that is dialled again for the change.
+            // "policy" takes it back, on the connection that is connected again for the change.
             Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("CSMS over SSH"), URL.Parse(SshURL), "CSMS", true, null, null, out var error,
                                                                 SignatureFormats: "policy"),
                         Is.True, error);

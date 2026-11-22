@@ -23,7 +23,7 @@ namespace cloud.charging.open.ChargingStation.Web
     /// </summary>
     /// <remarks>
     /// What goes through here is what this station cannot let anybody else
-    /// read: the private keys it dials its back ends with, and the credentials
+    /// read: the private keys it connects to its back ends with, and the credentials
     /// that go alongside them. The accounts are not among them - the HTTPExt
     /// API keeps those, and their permissions with them.
     ///

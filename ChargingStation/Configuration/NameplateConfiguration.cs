@@ -37,7 +37,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// </summary>
     /// <remarks>
     /// A CSMS learns these only from a BootNotification, so a change hangs up
-    /// and dials again, as a change of the EVSEs does: the station registers
+    /// and connects again, as a change of the EVSEs does: the station registers
     /// anew and says what it is now.
     ///
     /// Each field is held to the shorter of what OCPP 1.6 and OCPP 2.1 take,
@@ -162,7 +162,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 return false;
             }
 
-            // A name, and what a CSMS may find in the address it is dialled
+            // A name, and what a CSMS may find in the address it connects
             // under: nothing with a blank in it.
             if (id is not null && id.Contains(' '))
             {

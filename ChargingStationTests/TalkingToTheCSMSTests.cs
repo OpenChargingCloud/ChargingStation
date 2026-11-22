@@ -41,15 +41,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// Whether a CSMS this station dialled can talk to it, and it to the CSMS.
+    /// Whether a CSMS this station connected to can talk to it, and it to the CSMS.
     /// </summary>
     /// <remarks>
-    /// The station dialled its connections without telling its OCPP nodes who
+    /// The station made its connections without telling its OCPP nodes who
     /// was at the other end. A node sends what it has to say to "CSMS" and
     /// answers a request by the name of the connection it came over, so a
     /// station connected to its CSMS answered none of the CSMS's requests and
     /// sent none of its security events or the events of its monitors: they
-    /// waited in the queue. Every test that dialled asked only whether the
+    /// waited in the queue. Every test that connected asked only whether the
     /// connection was made.
     ///
     /// A plain WebSocket server stands in for the CSMS, one that answers a
@@ -104,11 +104,11 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// <summary>
             /// A CSMS listening on the given port, or on a free one.
             /// </summary>
-            /// <param name="Port">A port nothing listens on yet, for a CSMS that comes after the station dialled it.</param>
+            /// <param name="Port">A port nothing listens on yet, for a CSMS that comes after the station connected to it.</param>
             public CSMS(IPPort? Port = null)
             {
 
-                this.Port  = Port ?? IPPort.Parse(TestPorts.Free());
+                this.Port  = Port ?? TestPorts.Free();
                 Server     = new WebSocketServer(HTTPPort: this.Port, RequireAuthentication: false, AutoStart: true);
 
                 Server.OnNewWebSocketConnection += (timestamp, server, connection, sharedSubprotocols, selectedSubprotocol, eventTrackingId, cancellationToken) => {
@@ -284,7 +284,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// these waits takes more than five. GitHub's runners stand still for
         /// seconds now and then: a heartbeat due after five seconds had not
         /// come after fifteen, a station answered a CSMS dropped seven seconds
-        /// later in one run and one in the next, and a first dial on the
+        /// later in one run and one in the next, and a first attempt to connect on the
         /// loopback ran into its own timeout - a different test of these each
         /// time, never one locally. Every wait here looks every 20 ms and ends
         /// as soon as what it waits for is there, so a longer one costs a run
@@ -344,10 +344,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var started = station = await TestStations.Booted(station, directory);
 
-            // Waited for rather than read at once: a first dial that ran into its
+            // Waited for rather than read at once: a first attempt to connect that ran into its
             // own timeout on a runner that stood still is tried again by itself.
-            Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the station did not get connected to begin with: {started.DialledConnections[id!]}");
+            Assert.That(await Within(() => started.OutboundConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected to begin with: {started.OutboundConnections[id!]}");
 
             if (csms.BootStatus == "Accepted")
                 Assert.That(await Within(() => Registration(Version) == "Accepted"), Is.True, $"the station did not register: it is {Registration(Version)}");
@@ -520,7 +520,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             await csms!.Drop();
 
-            Assert.That(await Within(() => station!.DialledConnections.Values.Single().Contains("was lost")), Is.True, "the station did not notice the loss");
+            Assert.That(await Within(() => station!.OutboundConnections.Values.Single().Contains("was lost")), Is.True, "the station did not notice the loss");
 
             await QueueSecurityEvent(Version, "WhileItWasGone");
 
@@ -534,7 +534,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A change of the EVSEs, which builds the OCPP nodes anew, hangs up
-        /// and dials again: the CSMS is answered, and told what the station
+        /// and connects again: the CSMS is answered, and told what the station
         /// says, by the new nodes.
         /// </summary>
         /// <remarks>
@@ -598,14 +598,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AStationNotStartedDialsNothingWhenItsEVSEsChange()
+        #region AStationNotStartedConnectsToNothingWhenItsEVSEsChange()
 
         /// <summary>
-        /// A station that was never started dials nothing when its EVSEs change,
+        /// A station that was never started connects to nothing when its EVSEs change,
         /// although it has a connection set to connect by itself.
         /// </summary>
         [Test]
-        public async Task AStationNotStartedDialsNothingWhenItsEVSEsChange()
+        public async Task AStationNotStartedConnectsToNothingWhenItsEVSEsChange()
         {
 
             Assert.That(station!.Connections.TryAddConnection(I18NString.Create("A CSMS"), URL.Parse($"ws://127.0.0.1:{csms!.Port}/cs001"), "CSMS", true, null, null,
@@ -937,7 +937,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AChangeOfWhatTheStationSaysItIsRegistersAgainWithIt(Version)
 
         /// <summary>
-        /// A change of what the station says it is hangs up, dials again and
+        /// A change of what the station says it is hangs up, connects again and
         /// registers with what it says now.
         /// </summary>
         [TestCase("2.1")]
@@ -963,7 +963,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             await TestStations.BootsAgain(station!, Version);
 
             Assert.That(await Within(() => csms!.Requests("BootNotification").Length == 2), Is.True, "the station did not register again");
-            Assert.That(csms!.Accepted, Is.EqualTo(2), "the station did not hang up and dial again");
+            Assert.That(csms!.Accepted, Is.EqualTo(2), "the station did not hang up and connect again");
 
             var said = Said(csms.Requests("BootNotification")[1], Version);
 

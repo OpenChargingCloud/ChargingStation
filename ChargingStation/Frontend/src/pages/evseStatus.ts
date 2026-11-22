@@ -147,7 +147,7 @@ export const evseStatusPage: Page = {
 
                         <p class="muted small">
                             What a CSMS asks over OCPP with TriggerMessage and Reset. A restart builds the OCPP side
-                            of the station anew and dials again; once idle, it waits for what is charging and no new
+                            of the station anew and connects again; once idle, it waits for what is charging and no new
                             session starts until then.
                         </p>
 

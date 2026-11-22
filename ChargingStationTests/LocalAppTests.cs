@@ -661,7 +661,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             }
 
             var signIn = await app.PostAsync("ext/login", new FormUrlEncodedContent([
-                                                              new KeyValuePair<String, String>("login",    ChargingStation.DefaultAdminUser),
+                                                              new KeyValuePair<String, String>("login",    ChargingStation.DefaultAdminUser.ToString()),
                                                               new KeyValuePair<String, String>("password", Password)
                                                           ]));
 

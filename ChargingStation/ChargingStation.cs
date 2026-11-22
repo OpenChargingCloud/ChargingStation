@@ -76,7 +76,7 @@ namespace cloud.charging.open.ChargingStation
     /// web interface behind it - is the <see cref="WWCPNode"/> below. A
     /// charging station is one of those with sections of its own in the same
     /// file, its own JSON API below "/api", a display on a port of its own,
-    /// and the OCPP nodes it dials its back ends with.
+    /// and the OCPP nodes it connects to its back ends with.
     /// </remarks>
     public partial class ChargingStation : OCPPServingNode
     {
@@ -189,7 +189,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// Where the display listens, or null where there is no display.
         /// </summary>
-        private readonly  IIPAddress?                          kioskAddress;
+        private readonly  IPAddress?                          kioskAddress;
 
         /// <summary>
         /// The port the command line gave the display, which a start puts it
@@ -314,7 +314,7 @@ namespace cloud.charging.open.ChargingStation
         /// Both of its OCPP nodes are named by it. A station without one has
         /// the nodes 'test01' (OCPP 1.6) and 'test02' (OCPP 2.1), as every
         /// station had before there was one. Whom it says it is to a back end
-        /// is a matter of each connection: the last part of the address dialled.
+        /// is a matter of each connection: the last part of the address connected to.
         /// </remarks>
         public OCPPv2_1.ChargingStation_Id?   Id
             => Nameplate.Id ?? idWhenMade;
@@ -434,7 +434,7 @@ namespace cloud.charging.open.ChargingStation
                                HTTPPath?                             BasePath                  = null,
                                HTTPPath?                             HTTPRootPath              = null,
                                HTTPExtAPI?                           ExtAPI                    = null,
-                               IIPAddress?                           HTTPHostname              = null,
+                               IPAddress?                           HTTPHostname              = null,
                                IPPort?                               HTTPPort                  = null,
                                String?                               AccountsPath              = null,
                                WWCPConfigFile?                       ConfigFile                = null,
@@ -442,10 +442,10 @@ namespace cloud.charging.open.ChargingStation
                                Decimal?                              UplinkPowerLimit_kW       = null,
                                IEnumerable<CalibrationCertificate>?  CalibrationCertificates   = null,
                                IPPort?                               KioskPort                 = null,
-                               IIPAddress?                           KioskHostname             = null,
+                               IPAddress?                           KioskHostname             = null,
                                Boolean                               NoKiosk                   = false,
                                IPPort?                               LocalAppPort              = null,
-                               IIPAddress?                           LocalAppHostname          = null,
+                               IPAddress?                           LocalAppHostname          = null,
                                IStaticContentSource?                 Frontend                  = null,
                                String?                               CertificatesPath          = null,
                                V2GOptions?                           V2G                       = null,
@@ -488,10 +488,10 @@ namespace cloud.charging.open.ChargingStation
                    // their server certificates what one may be held to; the
                    // V2G, Mobility Operator and OEM roots are what Plug & Charge
                    // checks a vehicle against. The TLS identity is who the
-                   // station is - to a meter, and to a back end it dials.
+                   // station is - to a meter, and to a back end it connects to.
                    CertificateKinds:          StoredCertificateKinds,
 
-                   // Who the station is to a back end it dials is made here:
+                   // Who the station is to a back end it connects to is made here:
                    // a key, a signing request, and the certificate that comes
                    // back for it - see ChargingStation.Certificates.cs. And
                    // who its own servers are, the web interface for one: a
@@ -540,9 +540,9 @@ namespace cloud.charging.open.ChargingStation
 
             // The key pins of its wss:// connections, decided by WWCP_OCPP_Node,
             // and what TLSClientController reads and writes of them - see
-            // WWCPNode.KeyPins.cs and OCPPDialling.TLSClient.cs.
+            // WWCPNode.KeyPins.cs and OCPPConnecting.TLSClient.cs.
             this.keyPinning       = NewKeyPinning();
-            OCPPDialling.MakeTLSClientSource();
+            OCPPConnecting.MakeTLSClientSource();
 
             this.SignedSessions = new SignedSessionStore(
                                       System.IO.Path.Combine(
@@ -569,21 +569,21 @@ namespace cloud.charging.open.ChargingStation
 
             // What a station of before kept in a directory of its own: its
             // keys and their certificates, into the certificate store - and
-            // its connections with them. Once, and before anything dials.
+            // its connections with them. Once, and before anything connects.
             MoveClientKeysIntoTheStore(
                 System.IO.Path.Combine(
                     System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".",
                     FormerClientKeysDirectoryName
                 )
             );
-            this.Connections.OnConnectionsChanged += () => OCPPDialling.FollowSSHClientComponents(cs02);
+            this.Connections.OnConnectionsChanged += () => OCPPConnecting.FollowSSHClientComponents(cs02);
 
-            // Before the dialling below, which is told after it: a connection
-            // dialled again has its TLSClientController instance by then - see
-            // OCPPDialling.TLSClient.cs.
-            this.Connections.OnConnectionsChanged += () => OCPPDialling.FollowTLSClientComponents(cs02);
+            // Before the connecting below, which is told after it: a connection
+            // connected again has its TLSClientController instance by then - see
+            // OCPPConnecting.TLSClient.cs.
+            this.Connections.OnConnectionsChanged += () => OCPPConnecting.FollowTLSClientComponents(cs02);
 
-            // What is written down is what is dialled, from the moment it is
+            // What is written down is what is connected to, from the moment it is
             // written - see WWCPNode.Peers.cs.
             this.Connections.OnConnectionsChanged += () => _ = ApplyConnectionChanges();
 
@@ -736,7 +736,7 @@ namespace cloud.charging.open.ChargingStation
             // for the whole argument. Building it here and starting it in
             // OnListening, once the node below has its own port.
             var webAddress      = HTTPHostname ?? IPv4Address.Localhost;
-            var displayAddress  = (IIPAddress?) null;
+            var displayAddress  = (IPAddress?) null;
 
             if (!NoKiosk)
             {
@@ -832,8 +832,8 @@ namespace cloud.charging.open.ChargingStation
             // connection is configured for.
             deviceModelBridge   = new DeviceModelBridge(this,
                                                         CSMSNames,
-                                                        DialsOCPP2_1: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1),
-                                                        DialsOCPP1_6: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP1_6));
+                                                        ConnectsOCPP2_1: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1),
+                                                        ConnectsOCPP1_6: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP1_6));
 
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.
@@ -853,8 +853,8 @@ namespace cloud.charging.open.ChargingStation
 
             this.Log.Info($"OCPP 1.6 charge point '{cs01.Id}' and OCPP 2.1 charging station '{cs02.Id}' are set up with {this.EVSEs.Count} EVSE(s).", "ocpp");
 
-            // The port a CSMS or a local controller dials, where the station
-            // cannot dial them: after the nodes, because its servers are
+            // The port a CSMS or a local controller connects to, where the station
+            // cannot connect to them: after the nodes, because its servers are
             // attached to them, and listening from Start() on where the file
             // says so - see ChargingStation.Serving.cs. OCPP 1.6 on it as
             // well where the file names no subprotocols: the station is a node
@@ -975,12 +975,12 @@ namespace cloud.charging.open.ChargingStation
             // the file says so - see OCPPServingNode.Commissioning.cs.
             StartCommissioning();
 
-            // A CSMS or a local controller dialling this station, where the
+            // A CSMS or a local controller connecting to this station, where the
             // file says so - see ChargingStation.Serving.cs. Before the
-            // connections are dialled, so that what is said of a connection
+            // connections are made, so that what is said of a connection
             // the other end makes is that it is waited for. A port that is
-            // taken is said and does not stop the station: it dials what it
-            // dials all the same.
+            // taken is said and does not stop the station: it connects to what it
+            // connects to all the same.
             try
             {
                 await StartOCPPServer();
@@ -994,8 +994,8 @@ namespace cloud.charging.open.ChargingStation
             // above: somebody watching the Logs page sees each back end come up
             // or fail while it happens, rather than reloading afterwards to
             // find out how it went. Nothing in here throws - see
-            // DialConfiguredConnections.
-            await DialConfiguredConnections();
+            // ConnectConfiguredConnections.
+            await ConnectConfiguredConnections();
 
         }
 
@@ -1211,7 +1211,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// Stop both OCPP nodes, and every one a change of the EVSEs replaced:
         /// their timers, and the connections still on them. A node replaced
-        /// is stopped once it has hung up - see DialAgain - and here again,
+        /// is stopped once it has hung up - see ConnectAgain - and here again,
         /// which does no harm, for a station let go of before that was done.
         /// </summary>
         /// <remarks>

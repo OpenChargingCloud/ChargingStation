@@ -49,7 +49,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// one it came to.
     /// </summary>
     [TestFixture]
-    public class DiallingOverHTTPVersionsTests
+    public class ConnectingOverHTTPVersionsTests
     {
 
         #region (class) CSMS
@@ -70,7 +70,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             public CSMS(X509Certificate2 Certificate, Boolean AcceptHTTP2, Boolean AcceptHTTP3 = false)
             {
 
-                this.Port  = IPPort.Parse(AcceptHTTP3 ? APortFreeForBoth() : TestPorts.Free());
+                this.Port  = AcceptHTTP3 ? APortFreeForBoth() : TestPorts.Free();
 
                 Server = new WebSocketServer(HTTPPort:                   Port,
                                              RequireAuthentication:      false,
@@ -121,7 +121,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             /// TCP apart, so the UDP port of the number of a free TCP port may
             /// not be there to have.
             /// </summary>
-            private static UInt16 APortFreeForBoth()
+            private static IPPort APortFreeForBoth()
             {
 
                 for (var attempt = 0; attempt < 200; attempt++)
@@ -143,7 +143,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         tcp6.Start();
                         tcp6.Stop();
 
-                        return (UInt16) port;
+                        return IPPort.Parse((UInt16) port);
 
                     }
                     catch (System.Net.Sockets.SocketException)
@@ -181,7 +181,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void MakeAStation()
         {
 
-            directory  = TestStations.TemporaryDirectory("dialling-httpversions");
+            directory  = TestStations.TemporaryDirectory("connecting-httpversions");
             station    = TestStations.New(directory, TestStations.Offline);
 
             using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -277,7 +277,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;
@@ -392,7 +392,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 return Task.CompletedTask;
             };
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", secret, I18NString.Create("CSMS one-time password"),
+            Assert.That(station!.Connections.TryAddTOTPAuthentication(User_Id.Parse("cs001"), secret, I18NString.Create("CSMS one-time password"),
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
@@ -438,7 +438,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // is not always there to have.
             ACSMS(AcceptHTTP2: true);
 
-            Assert.That(station!.Connections.TryAddTOTPAuthentication("cs001", "0123456789abcdefghijklmnopqrstuv", I18NString.Create("CSMS one-time password"),
+            Assert.That(station!.Connections.TryAddTOTPAuthentication(User_Id.Parse("cs001"), "0123456789abcdefghijklmnopqrstuv", I18NString.Create("CSMS one-time password"),
                                                                   out var login, out var error,
                                                                   TLSChannelBinding: true),
                         Is.True, error);
@@ -606,10 +606,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region AChangeOfTheVersionDialsAgain_AndAChangeThatDoesNotSayKeepsIt()
+        #region AChangeOfTheVersionConnectsAgain_AndAChangeThatDoesNotSayKeepsIt()
 
         [Test]
-        public async Task AChangeOfTheVersionDialsAgain_AndAChangeThatDoesNotSayKeepsIt()
+        public async Task AChangeOfTheVersionConnectsAgain_AndAChangeThatDoesNotSayKeepsIt()
         {
 
             ACSMS(AcceptHTTP2: true);
@@ -619,12 +619,12 @@ namespace cloud.charging.open.ChargingStation.Tests
             await Start();
             await Until(() => IsConnected(id) && csms!.OpenedOver.Count == 1, "Connecting", () => SaidOf(id));
 
-            // Named now: dialled again, over that.
+            // Named now: connected again, over that.
             Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), URL.Parse(Address), "CSMS", true, null, null, out var error, HTTPVersion: "1.1"), Is.True, error);
 
             await Until(() => csms!.OpenedOver.Count == 2 && IsConnected(id) && InUse == "1.1", "Connecting again over HTTP/1.1", () => SaidOf(id));
 
-            // A change of something else that says nothing of it: kept, and not dialled again.
+            // A change of something else that says nothing of it: kept, and not connected again.
             Assert.That(station.Connections.TryUpdateConnection(id, I18NString.Create("Still the CSMS"), URL.Parse(Address), "CSMS", true, null, null, out error), Is.True, error);
 
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -717,7 +717,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var signedIn = await http.PostAsync($"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
                                                 new FormUrlEncodedContent([
-                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                                     new KeyValuePair<String, String>("password",  station.GeneratedPassword!)
                                                 ]));
 

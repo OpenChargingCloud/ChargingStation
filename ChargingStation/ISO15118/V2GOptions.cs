@@ -23,6 +23,7 @@ using System.Security.Cryptography.X509Certificates;
 using cloud.charging.open.protocols.ISO15118.StateMachines;
 using cloud.charging.open.protocols.ISO15118.T1S.Monitoring;
 using cloud.charging.open.protocols.ISO15118.T1S.Transport;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -154,7 +155,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// Zero still means "any free one" and is still the right answer for a
         /// machine running two stations at once.
         /// </remarks>
-        public const UInt16 DefaultV2GPort = 15118;
+        public static readonly IPPort DefaultV2GPort = IPPort.Parse(15118);
 
         #endregion
 
@@ -179,7 +180,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// advertises, because SDP carries the port it was told rather than
         /// one it assumes.
         /// </summary>
-        public UInt16             V2GPort            { get; init; } = DefaultV2GPort;
+        public IPPort             V2GPort            { get; init; } = DefaultV2GPort;
 
         /// <summary>
         /// The certificate the V2G endpoint authenticates itself with. Without

@@ -77,7 +77,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             public BackEnd(Answers Answers)
             {
 
-                Port    = IPPort.Parse(TestPorts.Free());
+                Port    = TestPorts.Free();
 
                 Server  = new WebSocketServer(HTTPPort:               Port,
                                               RequireAuthentication:  false,
@@ -336,7 +336,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(result.Value<Boolean>("ok"),  Is.False);
                 Assert.That(Steps(result),                Does.Contain("error: 'bootNotification' is nothing a connection test asks in OCPP: it is 'heartbeat', which it is where nothing is said, or 'none'."));
-                Assert.That(backEnd!.Received,            Is.Empty,  "It was dialled all the same.");
+                Assert.That(backEnd!.Received,            Is.Empty,  "It was connected to all the same.");
             });
 
         }
@@ -437,7 +437,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// Without a name, and with one that is none: how the command is
-        /// used, and what is written down - and nothing is dialled.
+        /// used, and what is written down - and nothing is connected to.
         /// </summary>
         [Test]
         public async Task TheCommandLineSaysWhichConnectionsThereAre()

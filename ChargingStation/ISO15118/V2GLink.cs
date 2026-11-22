@@ -49,6 +49,7 @@ using cloud.charging.open.protocols.ISO15118.V2GTP;
 using cloud.charging.open.protocols.ISO15118.Framing;
 
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -465,7 +466,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                 };
 
                 v2gListener  = new TcpV2GListener(
-                                   new IPEndPoint(IPAddress.IPv6Any, Options.V2GPort),
+                                   new IPEndPoint(IPAddress.IPv6Any, Options.V2GPort.ToInt32()),
                                    tls
                                ) {
                                    // Not a policy: everybody is let in. It is
@@ -975,7 +976,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
         /// against found on the first request, 506 ms.
         /// </remarks>
         public static SECC_SDPServerOptions SDPOptionsFor(V2GNetworkInterface  Interface,
-                                                          UInt16               SeccPort,
+                                                          IPPort               SeccPort,
                                                           Boolean              UsesTLS,
                                                           Boolean              MulticastLoopback)
 
@@ -1024,7 +1025,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
 
                 sdpServer = new SECC_SDPServer(
                                 SDPOptionsFor(Interface,
-                                              (UInt16) V2GEndpoint.Port,
+                                              IPPort.Parse(V2GEndpoint.Port),
                                               UsesTLS,
                                               Options.MulticastLoopback)
                             );

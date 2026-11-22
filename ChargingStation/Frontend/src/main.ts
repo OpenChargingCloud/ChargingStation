@@ -34,13 +34,13 @@ import { evseStatusPage }      from './pages/evseStatus';
 // The station port, its WebSocket logins and the chains it accepts are the
 // pages every node that serves OCPP has: here whoever may read or change the
 // connections may read or change them - who may change where this station
-// dials may change who dials it.
+// connects to may change who connects to it.
 setStationsResource('connections');
 
 // What a charging station has pages for beside what every node has: the
 // vehicle below the cable, what it may draw, the screen on its front, its
 // EVSEs, their meters and its card readers, what it tells its back ends it is,
-// a tool commissioning it over SSH, the back ends it dials and what it proves
+// a tool commissioning it over SSH, the back ends it connects to and what it proves
 // itself with, and what it is
 // calibrated under - and, outside the
 // configuration, how each of its EVSEs stands right now. The keys it makes
@@ -61,7 +61,7 @@ startNode({
     // The certificate store in the station's words where every node's do not
     // say enough: that three of the roots are Plug & Charge's, what a vehicle,
     // a contract and an OEM's provisioning chain to, and that the keys the
-    // station dials its back ends with are identities like the others - one
+    // station connects to its back ends with are identities like the others - one
     // brought with its key, or one whose key was made here.
     certificates: {
 
@@ -76,7 +76,7 @@ startNode({
                 A TLS identity, with its private key: what this station would show a server that asks for
                 one - and a meter, where its certificate carries a SunSpec role: the
                 <a href="${toURL('/configuration/meters')}">Meters</a> page says which one reads and which
-                one writes - and a back end it dials: the
+                one writes - and a back end it connects to: the
                 <a href="${toURL('/configuration/connections')}">Connections</a> page says which one each
                 connection shows. An identity is brought here with its key, or its key is
                 <a href="${toURL(`/configuration/client-identities?tab=${requestTabId}`)}">made on this station</a>
@@ -85,7 +85,7 @@ startNode({
             unencrypted:  html`can take the identity this station presents in TLS.`
         },
 
-        // And who it is where it dials over ssh://: the keys it signs in
+        // And who it is where it connects over ssh://: the keys it signs in
         // with, which are no certificates and stand among what it presents
         // all the same.
         sections: context => [ sshKeysSection(context) ],

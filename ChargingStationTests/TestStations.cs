@@ -108,8 +108,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var station = new ChargingStation(
                        DNSClient:        Resolver(),
-                       HTTPPort:         HTTPPort  ?? IPPort.Parse(TestPorts.Free()),
-                       KioskPort:        WithDisplay ? (KioskPort ?? IPPort.Parse(TestPorts.Free())) : null,
+                       HTTPPort:         HTTPPort  ?? TestPorts.Free(),
+                       KioskPort:        WithDisplay ? (KioskPort ?? TestPorts.Free()) : null,
                        NoKiosk:          !WithDisplay,
                        LocalAppPort:     LocalAppPort,
                        AccountsPath:     Path.Combine(Directory, ChargingStation.DefaultAccountsPath),

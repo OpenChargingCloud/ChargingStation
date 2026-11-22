@@ -176,7 +176,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             var station = await TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, TestStations.Offline,
-                                                                                     LocalAppPort: IPPort.Parse(TestPorts.Free())));
+                                                                                     LocalAppPort: TestPorts.Free()));
 
             try
             {
@@ -245,7 +245,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             File.WriteAllText(Path.Combine(directory, "configuration.json"), TestStations.Offline.ToString());
 
-            var station   = await TestPorts.StartedOnFreshPorts(() => new AStationWhoseV2GLinkWillNotEnd(directory, IPPort.Parse(TestPorts.Free())));
+            var station   = await TestPorts.StartedOnFreshPorts(() => new AStationWhoseV2GLinkWillNotEnd(directory, TestPorts.Free()));
 
             try
             {
@@ -256,7 +256,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                         warnings.Enqueue(entry.Message);
                 };
 
-                var ports     = new (String What, UInt16 Port)[] {
+                var ports     = new (String What, IPPort Port)[] {
                                     ("the web interface",     PortOf(station.WebInterfaceURL.ToString())),
                                     ("the display",           PortOf(station.KioskURL!.Value.ToString())),
                                     ("the local app server",  PortOf(station.LocalAppURL!.Value.ToString()))
@@ -346,7 +346,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var response = await http.PostAsync(
                                      $"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
                                      new FormUrlEncodedContent([
-                                         new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                         new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                          new KeyValuePair<String, String>("password",  Station.GeneratedPassword ?? "")
                                      ])
                                  );
@@ -422,9 +422,9 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #region (private static) PortOf(URL)
 
-        private static UInt16 PortOf(String URL)
+        private static IPPort PortOf(String URL)
 
-            => (UInt16) new Uri(URL).Port;
+            => IPPort.Parse((UInt16) new Uri(URL).Port);
 
         #endregion
 
@@ -445,8 +445,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                             IPPort  LocalAppPort)
 
             : ChargingStation(DNSClient:       TestStations.Resolver(),
-                              HTTPPort:        IPPort.Parse(TestPorts.Free()),
-                              KioskPort:       IPPort.Parse(TestPorts.Free()),
+                              HTTPPort:        TestPorts.Free(),
+                              KioskPort:       TestPorts.Free(),
                               LocalAppPort:    LocalAppPort,
                               AccountsPath:    Path.Combine(Directory, ChargingStation.DefaultAccountsPath),
                               ConfigFile:      new WWCPConfigFile(Path.Combine(Directory, "configuration.json")),

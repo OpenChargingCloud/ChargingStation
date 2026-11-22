@@ -42,7 +42,7 @@ namespace cloud.charging.open.ChargingStation
     /// the back end is told how each EVSE stands.
     ///
     /// A node built anew because the EVSEs or what this station says it is
-    /// changed is a new start: it hangs up and dials again, and registers
+    /// changed is a new start: it hangs up and connects again, and registers
     /// again once that is asked for - with the BootReason LocalReset in OCPP
     /// 2.1 rather than PowerUp. A BootNotification is sent where it is asked
     /// for (see SendBootNotifications): after a restart of the station, a
@@ -101,7 +101,7 @@ namespace cloud.charging.open.ChargingStation
         protected override void ConnectionIsUp(ConnectionEntry Connection)
         {
 
-            _ = OCPPDialling.RotateIfOld();
+            _ = OCPPConnecting.RotateIfOld();
             _ = RenewStationCertificateIfDue();
 
             base.ConnectionIsUp(Connection);

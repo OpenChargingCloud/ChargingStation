@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
@@ -101,15 +102,15 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 // What a station does when nobody says anything at all.
                 Assert.That(new V2GOptions().V2GPort,
-                            Is.EqualTo((UInt16) 15118),
+                            Is.EqualTo(IPPort.Parse(15118)),
                             "a station that says nothing would advertise a different port at every start");
 
-                Assert.That(V2GOptions.DefaultV2GPort,  Is.EqualTo((UInt16) 15118));
+                Assert.That(V2GOptions.DefaultV2GPort,  Is.EqualTo(IPPort.Parse(15118)));
 
                 // And a section that does not mention the port leaves it there,
                 // rather than quietly reverting it to zero.
                 Assert.That(Parse("""{ "enabled": true }""").Apply(new V2GOptions()).V2GPort,
-                            Is.EqualTo((UInt16) 15118));
+                            Is.EqualTo(IPPort.Parse(15118)));
 
             });
 
@@ -138,9 +139,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         {
 
             Assert.Multiple(() => {
-                Assert.That(Parse("""{ "port": 0 }""").    V2GPort,  Is.EqualTo((UInt16) 0));
-                Assert.That(Parse("""{ "port": 15118 }""").V2GPort,  Is.EqualTo((UInt16) 15118));
-                Assert.That(Parse("""{ "port": 65535 }""").V2GPort,  Is.EqualTo((UInt16) 65535));
+                Assert.That(Parse("""{ "port": 0 }""").    V2GPort,  Is.EqualTo(IPPort.Zero));
+                Assert.That(Parse("""{ "port": 15118 }""").V2GPort,  Is.EqualTo(IPPort.Parse(15118)));
+                Assert.That(Parse("""{ "port": 65535 }""").V2GPort,  Is.EqualTo(IPPort.Parse(65535)));
             });
 
         }
@@ -297,7 +298,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var asked = new V2GOptions {
                             Enabled        = true,
                             InterfaceName      = "eth0",
-                            V2GPort            = 15118,
+                            V2GPort            = IPPort.Parse(15118),
                             SDP                = true,
                             MulticastLoopback  = true,
                             SlacTransport      = SlacTransportKind.AfPacket,
@@ -312,7 +313,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(after.Enabled,            Is.True,                         "'enabled' was not mentioned and changed anyway.");
                 Assert.That(after.MulticastLoopback,  Is.True,                         "'loopback' was not mentioned and changed anyway.");
                 Assert.That(after.InterfaceName,  Is.EqualTo("eth0"));
-                Assert.That(after.V2GPort,        Is.EqualTo((UInt16) 15118));
+                Assert.That(after.V2GPort,        Is.EqualTo(IPPort.Parse(15118)));
                 Assert.That(after.SlacTransport,  Is.EqualTo(SlacTransportKind.AfPacket));
                 Assert.That(after.EVSEId,         Is.EqualTo("DE*GEF*E0001*1"));
             });
@@ -330,7 +331,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var asked = new V2GOptions {
                             Enabled        = false,
                             InterfaceName  = "eth0",
-                            V2GPort        = 15118,
+                            V2GPort        = IPPort.Parse(15118),
                             SDP            = false,
                             SlacTransport  = SlacTransportKind.None,
                             EVSEId         = "DE*GEF*E0001*1"
@@ -350,7 +351,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(after.Enabled,        Is.True);
                 Assert.That(after.InterfaceName,  Is.EqualTo("eth1"));
-                Assert.That(after.V2GPort,        Is.EqualTo((UInt16) 0));
+                Assert.That(after.V2GPort,        Is.EqualTo(IPPort.Zero));
                 Assert.That(after.SDP,            Is.True);
                 Assert.That(after.SlacTransport,  Is.EqualTo(SlacTransportKind.UDP));
                 Assert.That(after.EVSEId,         Is.EqualTo("DE*GEF*E0002*7"));
@@ -373,7 +374,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var asked = new V2GOptions {
                             Enabled        = true,
                             InterfaceName  = "eth0",
-                            V2GPort        = 15118,
+                            V2GPort        = IPPort.Parse(15118),
                             SDP            = false,
                             SlacTransport  = SlacTransportKind.UDP,
                             EVSEId         = "DE*GEF*E0001*1"
@@ -428,7 +429,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var written = new V2GConfiguration(
                               Enabled:        true,
                               InterfaceName:  "eth1",
-                              V2GPort:        0,
+                              V2GPort:        IPPort.Zero,
                               SDP:            false,
                               Loopback:       true,
                               SlacTransport:  SlacTransportKind.AfPacket,

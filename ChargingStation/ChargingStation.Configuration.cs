@@ -134,7 +134,7 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("sdp",             options.SDP),
                        new JProperty("loopback",        options.MulticastLoopback),
                        new JProperty("interface",       options.InterfaceName),
-                       new JProperty("port",            options.V2GPort),
+                       new JProperty("port",            options.V2GPort.ToUInt16()),
                        new JProperty("evseId",          options.EVSEId),
                        new JProperty("slac",            options.SlacTransport.ToString().ToLowerInvariant()),
                        new JProperty("mode",            V2GConfiguration.Write(options.Mode)),
@@ -270,7 +270,7 @@ namespace cloud.charging.open.ChargingStation
                    new JProperty("identities",  MeterIdentitiesJSON()),
                    new JProperty("usage",       MeterCertificateUsage),
                    new JProperty("defaults",    new JObject(
-                                                    new JProperty("port",  MeterEndpoint.DefaultPort),
+                                                    new JProperty("port",  MeterEndpoint.DefaultPort.ToUInt16()),
                                                     new JProperty("unit",  MeterEndpoint.DefaultUnit)
                                                 )),
                    new JProperty("running",     started),
@@ -310,7 +310,7 @@ namespace cloud.charging.open.ChargingStation
                        new JProperty("read",        meter is not null),
 
                        new JProperty("host",        meter?.Endpoint.Host),
-                       new JProperty("port",        meter?.Endpoint.Port),
+                       new JProperty("port",        meter?.Endpoint.Port.ToUInt16()),
                        new JProperty("unit",        meter?.Endpoint.Unit),
                        new JProperty("server",      server),
 
@@ -707,7 +707,7 @@ namespace cloud.charging.open.ChargingStation
         /// The whole section at once, and an empty object is a station that
         /// says the defaults. A CSMS learns what a station is only from its
         /// BootNotification, so the OCPP nodes are built anew, as for a change
-        /// of the EVSEs: they hang up, dial again and register with what this
+        /// of the EVSEs: they hang up, connect again and register with what this
         /// station is now.
         /// </remarks>
         /// <param name="JSON">The new section.</param>
@@ -769,8 +769,8 @@ namespace cloud.charging.open.ChargingStation
                 Log.Notice($"This station now says it is {wanted}.", "ocpp", "config");
 
                 // Not waited for, as after a change of the EVSEs.
-                _ = OCPPDialling.DialAgain(old16, old21, "What this charging station says it is changed").
-                        ContinueWith(task => Log.Warning($"Dialling again after what this station says it is changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
+                _ = OCPPConnecting.ConnectAgain(old16, old21, "What this charging station says it is changed").
+                        ContinueWith(task => Log.Warning($"Connecting again after what this station says it is changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
                 return true;
@@ -1181,8 +1181,8 @@ namespace cloud.charging.open.ChargingStation
         /// what they are made of when they are built and there is no way to
         /// tell them otherwise afterwards. What they were connected to is said
         /// goodbye to: the old nodes hang up and are stopped, and what this
-        /// station dials is dialled again through the new ones - see
-        /// DialAgain. A CSMS sees the connection close and come back.
+        /// station connects to is connected to again through the new ones - see
+        /// ConnectAgain. A CSMS sees the connection close and come back.
         /// </remarks>
         /// <param name="JSON">The new list.</param>
         /// <param name="IsAllowed">Asked with the kind of change this turns out to be.</param>
@@ -1312,12 +1312,12 @@ namespace cloud.charging.open.ChargingStation
                                      TaskContinuationOptions.OnlyOnFaulted);
 
                 // And what the old nodes were connected to is hung up and
-                // dialled again through the new ones, for the same reason not
+                // connected to again through the new ones, for the same reason not
                 // waited for: the old nodes would go on answering a CSMS with
                 // the EVSEs as they were, and nothing said from now on goes
                 // through them.
-                _ = OCPPDialling.DialAgain(old16, old21, "The EVSEs of this charging station changed").
-                        ContinueWith(task => Log.Warning($"Dialling again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
+                _ = OCPPConnecting.ConnectAgain(old16, old21, "The EVSEs of this charging station changed").
+                        ContinueWith(task => Log.Warning($"Connecting again after the EVSEs changed failed: {task.Exception?.GetBaseException().Message}", "ocpp", "connections"),
                                      TaskContinuationOptions.OnlyOnFaulted);
 
                 return true;
@@ -1337,7 +1337,7 @@ namespace cloud.charging.open.ChargingStation
         /// <summary>
         /// Build both OCPP nodes anew from what this station is now - its EVSEs
         /// and what it says it is - and carry over what only the old ones knew.
-        /// Answers the old ones, for DialAgain to hang up and stop.
+        /// Answers the old ones, for ConnectAgain to hang up and stop.
         /// </summary>
         private (OCPPv1_6.TestChargePointNode Old16, OCPPv2_1.CS.TestChargingStationNode Old21) RebuildTheOCPPNodes(EVSEChange Change)
         {
@@ -1362,13 +1362,13 @@ namespace cloud.charging.open.ChargingStation
             KeepWhoMayDoWhat(old16.OCPP.SignaturePolicy, cs01.OCPP.SignaturePolicy, old16.UserRoles, cs01.UserRoles);
             KeepWhoMayDoWhat(old21.OCPP.SignaturePolicy, cs02.OCPP.SignaturePolicy, old21.UserRoles, cs02.UserRoles);
 
-            // And whoever dialled this station dials the new nodes: the
+            // And whoever connected to this station connects to the new nodes: the
             // servers of the station port are built again on them, and those
             // of a tool commissioning it over SSH - whose sessions on the old
             // ones end with them.
             ServeOCPPByTheNewNodes(old16, old21).GetAwaiter().GetResult();
 
-            // Stopped by DialAgain, and kept so that a station let go of
+            // Stopped by ConnectAgain, and kept so that a station let go of
             // before that is done stops them all the same.
             lock (replacedNodes)
                 replacedNodes.AddRange([old16, old21]);
@@ -1682,8 +1682,8 @@ namespace cloud.charging.open.ChargingStation
         #region (private) CSMSNames()
 
         /// <summary>
-        /// The names the CSMS connections are dialled by - every configured one,
-        /// whether it is dialled now or not - leaving out those dialled by an
+        /// The names the CSMS connections connect to - every configured one,
+        /// whether it is connected now or not - leaving out those that connect by an
         /// address, which need no name resolution: what a change of the name
         /// servers through OCPP must keep resolving.
         /// </summary>
@@ -2009,9 +2009,9 @@ namespace cloud.charging.open.ChargingStation
             // The name servers and the time servers, as WWCP_OCPP_Node shows
             // them to every node of either version.
             deviceModelBridge.Configure(chargingStation);
-            OCPPDialling.AttachSSHClient(chargingStation);
+            OCPPConnecting.AttachSSHClient(chargingStation);
             AttachStationCertificate(chargingStation);
-            OCPPDialling.AttachTLSClient(chargingStation);
+            OCPPConnecting.AttachTLSClient(chargingStation);
             deviceModelBridge.Configure(chargePoint);
 
             // The roots of its CSMS are the station's, whichever version
@@ -2023,7 +2023,7 @@ namespace cloud.charging.open.ChargingStation
             chargingStation.OfflineQueue      = ocppQueue21;
             chargingStation.VariableMonitors  = ocppMonitors;
 
-            // Every back end this station dials is dialled again after a drop,
+            // Every back end this station connects to is connected to again after a drop,
             // and until it answers at all: the node gives each client the
             // policy before its first attempt, so that a CSMS that is down
             // while this station starts is reached once it is up. Here, where

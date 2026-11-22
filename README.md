@@ -13,7 +13,7 @@ accounts, and the HTTP server with the web interface behind it. The vehicle of
 [EV](https://github.com/OpenChargingCloud/EV) is one of those with a battery;
 this station is one with EVSEs, a display on a port of its own, a server for an
 app in the station's own network on a third port when it is given one, and the
-OCPP nodes it dials its back ends with.
+OCPP nodes it connects to its back ends with.
 
 Nothing is rendered on the server. The browser loads one bundle and talks to
 the station over a JSON API and one Server-Sent Events stream.
@@ -154,14 +154,14 @@ node has to answer over HTTP alike is WWCP_Node's conformance suite,
 | `CertificateStoreTests` | the certificate store over the wire: the kinds it keeps and the ones it does not, what each of them is for, that only the administrators change it, and what a start says about the keys in it |
 | `StationHTTPSTests`     | the switches of the `web` section as ChargingStationCLI hands them on: `--https` with an identity imported at the same start, shown with HSTS and a secure session cookie, and behind a `--trusted-proxy` the sign-in's ration of guesses counted per client |
 | `ConnectionStateTests`  | where each connection stands, as the Connections page is told: connected, lost and when it is tried next, not reached, turned away on its way back |
-| `TalkingToTheCSMSTests` | a CSMS the station dialled is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
+| `TalkingToTheCSMSTests` | a CSMS the station connected to is answered over that connection and told the station's security events - at once, and what waited as soon as it is reached - in OCPP 1.6 and 2.1; after a change of the EVSEs the station hangs up and connects again through its new nodes, and a station stopped afterwards hangs up; and registering: the BootNotification once connected, nothing else and no heartbeat until it is accepted, asked again after the interval a Pending or a Rejected gives, heartbeats at the interval an Accepted gives, again after a change of the EVSEs or of the nameplate, not when an accepted connection comes back, and the OCPP 2.1 node's queue tried again by the clock |
 | `SshConnectionStoreTests` | ssh:// connections as they are written down: a host key pinned or not, refused where it is no key or beside a WebSocket, no certificate and no TOTP password over SSH, the first host key written down only where nothing changed, and kept by a save of a page drawn before it |
-| `DiallingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, for OCPP 2.1 and OCPP 1.6 alike; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
+| `ConnectingOverCBORTests` | a connection saying how its OCPP messages are written: `ocpp2.1, ocpp2.0.1` offered where it says nothing or "json", `ocpp2.1cbor` alone for "cbor", `ocpp2.1cbor` first for "auto", which falls back to JSON where the back end has no CBOR; a BootNotification in binary frames and none in text ones; a back end that took a "cbor" connection without the subprotocol let go of and not tried again; what is no encoding refused, for OCPP 2.1 and OCPP 1.6 alike; a change keeping what it does not say; the connection test asking its Heartbeat in CBOR, and failing where a "cbor" connection came to none |
 | `AgainstACSMSNodeOverCBORTests` | the station program against a CSMS node of WWCP_OCPP, over `ocpp2.1` and over `ocpp2.1cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the CSMS for a Heartbeat and sending it; nothing told of as a message of the binary format |
 | `AgainstACentralSystemNodeOverCBORTests` | the station program against a central system node of WWCP_OCPP in OCPP 1.6, over `ocpp1.6` and over `ocpp1.6cbor` ("cbor" and "auto"): registered, its BootNotification read by the class of the message, asked by the central system for its configuration and answering; nothing told of as a message of the binary format |
 | `SignatureFormatsOfAConnectionTests` | a connection saying which signatures the messages the station signs for it get: "jws", "cose", "both" told the OCPP node when the connection is made, nothing and "policy" left to the signature policy; a change told the node as well; what names no signatures refused, for OCPP 2.1 and OCPP 1.6 alike; a change keeping what it does not say, and "policy" taking it back |
-| `DiallingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks; what the connection agreed on said by the station as of a WebSocket; which signatures it writes told the OCPP node, and taken back by "policy" |
-| `DiallingOverSSHTests`  | a station dialling its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
+| `ConnectingOverSSHWithCBORTests` | an ssh:// connection agreeing on the subprotocols a WebSocket agrees on: JSON where it says nothing, `ocpp2.1cbor` and a BootNotification in the binary messages of the subsystem for "cbor" and "auto", JSON for "auto" where the server has no CBOR; a server without CBOR not spoken to by a "cbor" connection; the connection test over SSH asking its Heartbeat the way the connection speaks; what the connection agreed on said by the station as of a WebSocket; which signatures it writes told the OCPP node, and taken back by "policy" |
+| `ConnectingOverSSHTests`  | a station connecting to its CSMS over SSH: signed in as the URL says with a key of its own, registered, the host key it was shown written down; a server showing another host key than the one pinned not believed and not signed in to, a login not taken not tried again - nor one turned away once a CSMS that was down at the start is up - and a test that says which host key it saw and writes nothing; a host name only the station's name servers know reached, and a WebSocket's test that stops where they know nothing |
 | `StationCLITests`       | the station's command line: the one a session over SSH gets is made by the station itself, has every node's commands and the station's own, and is the one on the console |
 | `EVSEsCommandTests`     | `evses` at the command line: each EVSE by what is written on it, available, charging at what power - the display's ramp, said to be simulated, where no meter is read; what a meter measures is in `MeterTests` - since when, how and for whom, out of service, and out of service once a session ends; and asked over SSH by the support, who sees what is going on and nothing else |
 | `ConnectionTestRequestTests` | what a connection test asks in OCPP: a Heartbeat as it was sent, its answer and how long it took, and how far the back end's clock is off; an error as an answer; no answer, or one to something else, failing the test; `none` asking nothing; and `testconnection` at the command line, by description and by identification, line by line with its milliseconds |
@@ -193,10 +193,10 @@ and on GitHub's Windows runners, with four cores, the thread pool ran dry and
 the run hung - in a different test each time. A station now stops its nodes
 when it is let go of, and these say it does.
 
-So does `TalkingToTheCSMSTests`. The station dialled its connections without
+So does `TalkingToTheCSMSTests`. The station made its connections without
 telling its OCPP nodes that the CSMS was at the other end, so it answered none
 of the CSMS's requests, and its security events and the events of its monitors
-never left the queue. Every test that dialled asked only whether the
+never left the queue. Every test that connected asked only whether the
 connection was made; these ask what goes over it. They also ask whether it
 registers as OCPP has it: the station sent no BootNotification and no
 heartbeat at all, and its OCPP 2.1 node tried nothing again by the clock.
@@ -227,7 +227,7 @@ is handed something else.
 | `ChargingStation.Signatures.cs` | which keys sign as which role and how signed messages are held to the policy: the station's table of signer roles, the policy table it was given and the settings of the policy, kept in `signatures/signer-roles.json` and given to both OCPP nodes; `MessageSignatureController`, `SignerRoleController` and the keys `signatures.*` of OCPP 1.6 |
 | `CommandLine/SignerRolesCommand.cs` | `signerroles`: the roles and their keys, a role assignment or the first owner from a file, the mode of the policy, and the reset |
 | `ChargingStation.Certificates.cs` | the kinds of certificate this station keeps in the node's store, and the store as the Certificates page reads it |
-| `Connections/` of `WWCP_OCPP_Node` | the back ends this station dials, and the keys and certificates it holds up when it gets there: no code of the station's own any more, but that of every node that dials a CSMS |
+| `Connections/` of `WWCP_OCPP_Node` | the back ends this station connects to, and the keys and certificates it holds up when it gets there: no code of the station's own any more, but that of every node that connects to a CSMS |
 | `ChargingStation.Configuration.cs` | what the Configuration pages read and write: one resource per thing, each saying which fields may be changed |
 | `EVSEs/`                  | the EVSEs this station has, and the file they live in |
 | `ISO15118/V2GLink.cs`     | the wire below the charging cable: SLAC, SDP and the V2G endpoint, and every event of theirs in the log |
@@ -351,7 +351,7 @@ The node below reads the sections every one of these programs has - `dns`,
 `nts`, `certificates`, `roles`, `ssh` and `web` - and the station reads its own
 from the same document; each passes over what is the other's. The node's
 certificate store is `certificates/` beside this file (see
-[Certificates](#certificates)) - the keys the station dials its back ends with
+[Certificates](#certificates)) - the keys the station connects to its back ends with
 are in it, as TLS identities, and the ones still waiting for their certificate
 below `certificates/requests/` -, the connections in
 `ocpp-connections/` - and the key it signs in with over SSH in
@@ -413,9 +413,9 @@ interface will not delete the part it did not understand.
 | `/configuration/calibration` | the calibration certificates this station runs under |
 | `/configuration/nameplate`   | what the station tells a CSMS it is, and whether each OCPP node is accepted |
 | `/configuration/commissioning` | a tool speaking OCPP to the station over its SSH server: on or off, where it connects, who is connected |
-| `/configuration/ocpp-server` | the station port a CSMS or a local controller dials, where the station cannot dial them - the routes every node that serves OCPP has, with its WebSocket logins (`/logins`) and the chains it accepts (`/trust`) |
-| `/configuration/connections` | where the station dials - and who dials it, where **The other end dials** is ticked -, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
-| `/configuration/client-identities` | **Client identities**: who the station is - to a meter, and to a back end it dials: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
+| `/configuration/ocpp-server` | the station port a CSMS or a local controller connects to, where the station cannot connect to them - the routes every node that serves OCPP has, with its WebSocket logins (`/logins`) and the chains it accepts (`/trust`) |
+| `/configuration/connections` | where the station connects to - and who connects to it, where **The other end connects** is ticked -, what it proves itself with, and where each connection stands - on its tab **New connection** one is written down, and on its tab **Credentials** the logins and TOTP secrets it proves itself with (`/configuration/authentication` leads there) |
+| `/configuration/client-identities` | **Client identities**: who the station is - to a meter, and to a back end it connects to: TLS identities brought with their key, or whose key is made here (tab **New key**: a signing request - to a template, with the key usages asked for - and, below it, a new SSH key). A key still waiting for its certificate stands among them, with its request to copy or to send to the CSMS |
 | `/configuration/certificates` | the certificate store: the roots it believes, what it presents, and the servers it recognises |
 
     GET  /api/v1/configuration/dns          PUT with the fields to change
@@ -432,7 +432,7 @@ interface will not delete the part it did not understand.
     GET  /api/v1/messages                   POST {"text": "...", "priority": "...", "state": "...", "evse": 1}
     POST /api/v1/messages/clear             {"id": "..."}
     GET  /api/v1/configuration/calibration  PUT with {"certificates": [...]}, all of them at once
-    GET  /api/v1/status/connections         where each connection this station dialled stands
+    GET  /api/v1/status/connections         where each connection this station made stands
     GET  /api/v1/certificates               POST {"kind", "content", "password", "label", "usages"}
     GET  /api/v1/certificates/{id}          PATCH {"active", "label", "usages"}, DELETE
     POST /api/v1/certificates/reload        read the store's directory again
@@ -443,7 +443,7 @@ interface will not delete the part it did not understand.
 
 Every change takes effect at once - no restart, and no page that says a restart
 is owed. The one exception is the connections: they are written at once and
-dialled when the station starts, and their page says so beside each one - see
+connected when the station starts, and their page says so beside each one - see
 [Connections](#connections). The file is written first and the change applied
 second, because a change that was applied but not written down disappears at
 the next start without anybody noticing, and that is the worse of the two
@@ -510,7 +510,7 @@ how it is set up), `firmware` and `signatures` - and the station's sixteen, in
 | `calibration`  | the calibration certificates |
 | `display`      | edited, when the screen is dim; run, a message put on it |
 | `session`      | read, the reservations; run, an outlet held, a session paid at the screen started, one stopped |
-| `connections`  | where the station dials, with what credentials and keys, and where each connection stands; run, a test |
+| `connections`  | where the station connects to, with what credentials and keys, and where each connection stands; run, a test |
 | `v2g`          | the wire below the charging cable |
 | `meters`       | how each meter is read and what it measures; edited, where it is read and whom it is believed to be; run, a request that writes to it |
 | `providers`    | read, the e-mobility providers and their logos; edited, a logo put up, replaced or removed over SFTP |
@@ -541,7 +541,7 @@ What is going on is therefore apart from how the station is set up. How each
 EVSE stands right now - `GET /api/v1/status/evses`, the **EVSEs** page outside
 Configuration, and `evses` at the command line - needs `state:read`, which
 everybody who may read anything holds and the support holds too; what is fitted
-there, where the station dials and what its meters are set to stay with
+there, where the station connects to and what its meters are set to stay with
 `evses`, `connections` and `meters`. The support is shown the EVSEs as they
 stand and nothing under Configuration, and is not sent to a page that is not
 theirs.
@@ -559,7 +559,7 @@ asked:
 | register again, or send a heartbeat | **Register again**, **Send a heartbeat**, `POST /api/v1/ocpp/send` | `send BootNotification`, `send Heartbeat` | TriggerMessage `BootNotification`, `Heartbeat` | `node:run` |
 
 A restart is the OCPP side of the station built anew: both nodes made again,
-what they were connected to hung up and dialled again, and a BootNotification
+what they were connected to hung up and connected to again, and a BootNotification
 over each. Once idle, it waits for what is charging, and no new session starts
 until then - a free EVSE is out of service meanwhile; at once, it ends every
 session first. A cable is let go of only where nobody is charging: OCPP 2.1
@@ -863,13 +863,13 @@ second of its slot is still good for the whole slot after it.
 the one piece of configuration in this station worth stealing, and the display
 it ends up on hangs in public - so it stays in the file, and changing it is
 editing the file and restarting. Everything else this station can be told still
-changes while it runs - the connections are written down at once and dialled at
+changes while it runs - the connections are written down at once and connected at
 the next start, see below.
 
 ### Connections
 
-`/configuration/connections` is where this station dials: an address, which of
-its two OCPP nodes dials it, what it proves itself with, and whether it
+`/configuration/connections` is where this station connects to: an address, which of
+its two OCPP nodes connects to it, what it proves itself with, and whether it
 connects by itself. Beside each one it says where the connection stands, and
 asks again every five seconds while the page is in view - it is where somebody
 looks to find out whether the station is on its back end, and a page that was
@@ -884,7 +884,7 @@ shown among the others once it is.
 | not reached | not reached since the start, and tried again by itself |
 | refused     | answered with something that means no - a 401, a 404, a host key not believed, an SSH login not taken - and not tried again |
 | not connected | not tried, for something it needs is missing here: the credentials it names, a certificate it can show |
-| failed      | dialling it went wrong in a way that says nothing about what comes next |
+| failed      | connecting to it went wrong in a way that says nothing about what comes next |
 
 **What it proves itself with** follows where it goes, as the URL is typed.
 Over `ws://` and `wss://` it is one choice: nothing, a login - one written
@@ -920,8 +920,8 @@ two that say no time the one ticked first: over TLS, where one certificate is
 shown in a handshake, the first that can be shown is - one switched off or run
 out is passed over for the one before it - and over SSH all of them are offered
 to the server in that order. The time is looked at when the connection is
-dialled; a connection that stands at that moment goes on with what it showed
-until it is dialled again.
+made; a connection that stands at that moment goes on with what it showed
+until it is connected again.
 
 **Trying a connection.** A connection that is only written down is never
 tried, so the **Test** button beside it, `POST
@@ -989,8 +989,8 @@ HTTP/3 goes over UDP, on the port of the number of the back end's TCP port,
 and needs a `wss://` address, as QUIC is TLS and nothing else. `"auto"` comes
 to it by the back end's own word: a back end that says with a connection it
 accepts that it is reached over HTTP/3 (`Alt-Svc: h3=":port"`, RFC 7838) is
-dialled over HTTP/3 the next time, for as long as it said and no longer than
-the station runs; where it is not found there, it is dialled as before. Who
+connected to over HTTP/3 the next time, for as long as it said and no longer than
+the station runs; where it is not found there, it is connected to as before. Who
 the station is, what it shows for it and what its server is held to - its
 roots, its pins, its key - are the same over all three; a client certificate
 is shown over HTTP/3 with a key of ECDSA P-256, ECDSA P-384 or RSA. The page
@@ -1004,14 +1004,14 @@ none on another. The TLS of QUIC exports that material and .NET's `SslStream`
 does not, so the password is bound on a connection that says `"httpVersion": "3"`
 and on no other: one that names HTTP/1.1 or HTTP/2, or leaves the choice to the
 server, is not connected with such credentials and says so, where it is written
-down and where it is dialled or tested. The back end has to verify the password
+down and where it is connected or tested. The back end has to verify the password
 as bound - a WebSocket server of this stack does, over HTTP/3.
 
 **Over SSH.** `ssh://cs001@csms.example.org:2222` speaks the same OCPP over
 the SSH subsystem `ocpp@open.charging.cloud`. The station signs in as the URL's
 login - or the login of the HTTP Basic credentials it names, or else the name of
-the OCPP node that dials - with a key of its own, an Ed25519 key made the first
-time an ssh:// connection is written down, tested or dialled, and kept in
+the OCPP node that connects - with a key of its own, an Ed25519 key made the first
+time an ssh:// connection is written down, tested or connected, and kept in
 `ocpp-connections/ssh/`, where only its owner may read it. The page shows its
 public half, the line for the server's `authorized_keys`; credentials add their
 password where the server asks for one - written into the file, or kept from
@@ -1066,9 +1066,9 @@ seconds, with a 408 of the client's own making, and tried again like any other
 that is not there yet. It used to hold the start of the station for ten
 minutes and was never tried again.
 
-**A connection is dialled when the station starts.** One written down, changed
-or removed while it runs is written at once and dialled, or hung up, at the
-next start - and the page says so: beside a changed one, what was dialled;
+**A connection is made when the station starts.** One written down, changed
+or removed while it runs is written at once and connected, or hung up, at the
+next start - and the page says so: beside a changed one, what was connected to;
 below the list, one removed here that the station is still on.
 
     GET  /api/v1/status/connections
@@ -1092,7 +1092,7 @@ what waited is sent.
 A node registers once: after the start, when its first connection is up, and
 when a connection comes back only where it was not accepted yet - one that got
 no answer asks at once, one told to wait waits. A change of the EVSEs, or of
-the nameplate, builds the nodes anew: they hang up, dial again and register
+the nameplate, builds the nodes anew: they hang up, connect again and register
 again, in OCPP 2.1 with the reason `LocalReset` rather than `PowerUp`.
 
 What the BootNotification says is the `nameplate` section:
@@ -1119,7 +1119,7 @@ printable ASCII, no blank. A program that makes a `ChargingStation` itself
 may hand one to the constructor (`Id`), which holds where the file names
 none. A station without one names its nodes `test01` (OCPP 1.6) and `test02`
 (OCPP 2.1), as before. Whom the station says it is to a back end stays a matter
-of each connection: the last part of the address it dials.
+of each connection: the last part of the address it connects to.
 `/configuration/nameplate` changes it, and says where each node stands:
 
     GET  /api/v1/configuration/nameplate
@@ -1159,7 +1159,7 @@ is spoken to in JSON, as before.
 It is a networking node of its own, named after its account - not the CSMS.
 A route is one per destination, and the newest connection takes it: a tool
 connected as the CSMS would take the route to the CSMS from the connection the
-station dialled, and with it everything the station sends the CSMS and every
+station made, and with it everything the station sends the CSMS and every
 answer it owes it, and leave it pointing at a closed connection when it went.
 Under its own name it is answered what it asks, and the uplink keeps the rest.
 So a HELLO naming another node than the account is refused, and so is an
@@ -1168,17 +1168,17 @@ account named like the CSMS or like the station.
 Without a destination on the wire, a request that comes in over a connection
 somebody else made is sent on to the CSMS - what a local controller does with
 its stations' requests. A tool's connection is read as the station's line up
-instead, as one the station dialled: what the tool asks is for the station.
+instead, as one the station made: what the tool asks is for the station.
 
 The subsystem is one, with one handler, and who signed in says what comes: an
 account is a tool, a WebSocket login with an SSH key a charging station - which
 a station does not serve, so on a station the subsystem is the tools' alone.
 
-### The station port: a back end that dials the station
+### The station port: a back end that connects to the station
 
-Where the station cannot dial its CSMS or its local controller - behind a
+Where the station cannot connect to its CSMS or its local controller - behind a
 firewall that lets nothing out, on a network only the back end reaches - the
-back end dials the station. OCPP stays as it is: the station is the charging
+back end connects to the station. OCPP stays as it is: the station is the charging
 station, says that it started and is asked; only who opens the WebSocket is
 the other way round. The `webSocketServer` section switches it on:
 
@@ -1219,7 +1219,7 @@ in" below).
 `/configuration/ocpp-server` switches it and HTTP/3 on and off at once,
 without a restart; the port, the interface and the subprotocols wait for the
 next start, which `state.waitingForARestart` says. Beside what every node that
-serves OCPP says of its station port, a station says who dialled in and is
+serves OCPP says of its station port, a station says who came in and is
 connected, and the connections the other end makes:
 
     GET  /api/v1/configuration/ocpp-server
@@ -1237,8 +1237,8 @@ Whoever may change the connections may change this (`connections:edit`).
 
 **Who gets in.** Nothing that is not written down, and it signs in as whoever
 signs in at a station port does: with a **WebSocket login**. On the Connections
-page a connection is written down with **The other end dials** ticked: its URL
-is the one the back end dials - `wss://station.example.org:9443/csms-01` - and
+page a connection is written down with **The other end connects** ticked: its URL
+is the one the back end connects to - `wss://station.example.org:9443/csms-01` - and
 the last part of it the name the back end comes under. That name is the name
 of its WebSocket login, on the WebSocket logins page
 (`/api/v1/configuration/ocpp-server/logins`), and the login says what it signs
@@ -1247,7 +1247,7 @@ certificate - and its login group which of them, over which ways of client
 authentication. The connection names nothing it signs in with: credentials of
 the station, key pins and roots on it are refused, in the file as on the page,
 and say what to do instead - they are what the station proves itself with, and
-holds a server to, where it dials. "Connect by itself" is what lets it in: off,
+holds a server to, where it connects to. "Connect by itself" is what lets it in: off,
 nothing comes in under its name, and one that is in is let go of, as it is
 when its login goes or is switched off. A name that is not written down, a
 wrong password, a name other than the login's, a login with no connection the
@@ -1279,12 +1279,12 @@ handshake. It needs TLS: without, nobody shows a certificate, and the page says
 of a connection without a login that it can not sign in.
 
 **What it is, once in.** One of the station's connections, like one it
-dialled. The page shows it as *waiting* until the back end dials and as
+made. The page shows it as *waiting* until the back end connects and as
 *connected* from then on; the station sends it a BootNotification, the status
 of its EVSEs and its heartbeats, and answers what it asks. Which back end is
 in charge is decided as it always is - the oldest connection that is switched
-on, whoever opened it: a back end that dials in beside a CSMS the station
-dialled earlier is registered with and answered, and is told nothing of what
+on, whoever opened it: a back end that connects beside a CSMS the station
+connected to earlier is registered with and answered, and is told nothing of what
 the station says to its CSMS. When it goes, its routes go with it, and it is
 waited for again.
 
@@ -1323,7 +1323,7 @@ provisioning certificate, the key it checks a tariff with - is not kept here:
 the store refuses those kinds, and the page does not offer them.
 
 A **TLS identity** is who the station is: to a meter, where its certificate
-carries a SunSpec role, and to a back end it dials - the Connections page
+carries a SunSpec role, and to a back end it connects to - the Connections page
 says which one each connection shows. There are two ways to one. It is
 brought, with its key, on the Upload tab of `/configuration/client-identities`. Or
 its key is **made on the station** and never leaves it, on the **New key**
@@ -1352,7 +1352,7 @@ by name, or as object identifiers - and **key usages** may be ticked;
 what a kind of key cannot do is not on offer. What it is for and what it is
 called once its certificate has come may be said with it.
 
-A station of before kept the keys it dials with in `ocpp-client-keys/` beside
+A station of before kept the keys it connects with in `ocpp-client-keys/` beside
 the configuration file. They are moved into the certificate store at the
 first start that finds them - a key with its certificate as a TLS identity,
 one whose request is still out among the keys that wait - and a connection
@@ -1384,7 +1384,7 @@ the administrators' alone, as on the vehicle: a root is a decision about whom th
 station believes, and somebody who can add one can make it believe a server
 nobody else would. One thing in the store is no such decision, and is
 `certificates:run`, which the operator (`cpo`) and the installer hold as well:
-making a key the station dials with, sending its signing request to the CSMS,
+making a key the station connects with, sending its signing request to the CSMS,
 bringing the certificate that came back for it - pasted beside the key, which
 is matched to it by the node - and taking a key back that still waits for one.
 The upload, where a certificate comes with its key and a root comes at all,
@@ -1402,7 +1402,7 @@ the station asks its CSMS for the next one, and the CSMS brings it:
 |---|---|
 | `TriggerMessage` of `SignChargingStationCertificate` | the station makes a new key - with the subject and the kind of the one it replaces - and sends its signing request in `SignCertificate`. The key never leaves the station. |
 | by itself | where the certificate a `wss://` connection shows runs out within 30 days, the station asks when it connects - once a day at most |
-| `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is dialled again with the new one. |
+| `CertificateSigned` | the certificate is taken where it answers a signing request made here, and rejected otherwise (`InvalidCertificate`, with a security event). It is answered first; two seconds later every connection that showed the old certificate is connected again with the new one. |
 | a new certificate its CSMS does not let in | after 60 seconds without a connection the station goes back to the certificate it had. Both identities are kept; the old one is taken out on `/configuration/client-identities`. |
 | `InstallCertificate` of `CSMSRootCertificate` | a TLS root of the certificate store kept for `ocpp` - on the certificates page, and vouching for the server of a `wss://` connection from the next handshake on. `GetInstalledCertificateIds` lists it, `DeleteCertificate` takes it out again; a root kept for every use is deleted on the page and not for the back ends alone. OCPP 1.6 installs the same as `CentralSystemRootCertificate`. |
 
@@ -1415,7 +1415,7 @@ it is shown alone, to a CSMS that knows them already.
 On Windows, the TLS of the operating system sends along only what it finds in
 a certificate store: the certificates of those CAs are written into the
 intermediate store of the user the station runs as (`CurrentUser\CA`) when the
-station dials, and stay there. Nothing is believed by being there - it is no
+station connects, and stay there. Nothing is believed by being there - it is no
 store of roots -, and on Linux nothing is written anywhere.
 
 A certificate for a vehicle (`V2GCertificate`) is refused: this station keeps

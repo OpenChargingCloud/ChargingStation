@@ -31,8 +31,8 @@ namespace cloud.charging.open.ChargingStation
 {
 
     /// <summary>
-    /// What a charging station says of itself to the dialling it shares with
-    /// every node that dials a CSMS: its two OCPP nodes, what they keep for
+    /// What a charging station says of itself to the connecting it shares with
+    /// every node that connects to a CSMS: its two OCPP nodes, what they keep for
     /// a CSMS out of reach, and the SSH client of its device model.
     /// </summary>
     public partial class ChargingStation
@@ -51,7 +51,7 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region Node16 / Node21 / NewOCPPDialling()
+        #region Node16 / Node21 / NewOCPPConnecting()
 
         /// <summary>
         /// The node that speaks OCPP 1.6 for this station.
@@ -66,14 +66,14 @@ namespace cloud.charging.open.ChargingStation
             => cs02;
 
         /// <summary>
-        /// OCPP as every node that dials over it speaks it, with the Device
+        /// OCPP as every node that connects over it speaks it, with the Device
         /// Model of this station's OCPP 2.1 node: asked for once, before
         /// anything of its connections is, and its OCPP nodes whenever they
         /// are needed.
         /// </summary>
-        protected override OCPPDialling NewOCPPDialling()
+        protected override OCPPConnecting NewOCPPConnecting()
 
-            => new StationDialling(this);
+            => new StationConnecting(this);
 
         #endregion
 
@@ -108,15 +108,15 @@ namespace cloud.charging.open.ChargingStation
 
         #endregion
 
-        #region (private) StationDialling
+        #region (private) StationConnecting
 
         /// <summary>
-        /// OCPP as every node that dials over it speaks it, with the Device
+        /// OCPP as every node that connects over it speaks it, with the Device
         /// Model of this station's OCPP 2.1 node.
         /// </summary>
-        private sealed class StationDialling(ChargingStation Station)
+        private sealed class StationConnecting(ChargingStation Station)
 
-            : OCPPDialling(Station, () => Station.Node16, () => Station.Node21)
+            : OCPPConnecting(Station, () => Station.Node16, () => Station.Node21)
 
         {
 

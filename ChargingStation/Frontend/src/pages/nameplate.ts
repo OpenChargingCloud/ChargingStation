@@ -13,7 +13,7 @@ import { html, nothing, render, type TemplateResult } from '@node/view';
  * stands with its CSMS.
  *
  * A CSMS learns these only from a BootNotification, so a change builds the
- * OCPP nodes anew: they hang up, dial again and say what the station is now.
+ * OCPP nodes anew: they hang up, connect again and say what the station is now.
  * Each field is held to what both OCPP 1.6 and 2.1 take, and to printable
  * ASCII, which is all OCPP 1.6 takes.
  *
@@ -120,7 +120,7 @@ export const nameplatePage: Page = {
 
                             <span class="hint">
                                 Printable ASCII only - it is all OCPP 1.6 takes. Saved to ${nameplate.file}; the
-                                station then hangs up, dials again and registers with what it says now.
+                                station then hangs up, connects again and registers with what it says now.
                             </span>
 
                         </form>
@@ -222,7 +222,7 @@ export const nameplatePage: Page = {
                 // back to what it says now - the station's answer.
                 form.reset();
 
-                note.textContent = 'Saved. The station dials again and registers with it.';
+                note.textContent = 'Saved. The station connects again and registers with it.';
             }
             catch (problem)
             {

@@ -42,13 +42,13 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// A back end with more than one endpoint is dialled at one of them at a
+    /// A back end with more than one endpoint is connected to at one of them at a
     /// time, and at the next one when that cannot be reached - work package P8
     /// of EVQI Transport.
     /// </summary>
     /// <remarks>
     /// The endpoints of a peer are alternatives, tried in order (section 11.4),
-    /// and the next one is dialled after NetworkProfileConnectionAttempts
+    /// and the next one is connected to after NetworkProfileConnectionAttempts
     /// attempts at one failed (OCPP 2.1, B09), or at once where the answer was
     /// final. A peer of one endpoint goes on trying it, as before.
     /// </remarks>
@@ -106,20 +106,20 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region TheSecondEndpointIsDialledAfterTheAttemptsAtTheFirstFailed()
+        #region TheSecondEndpointIsConnectedAfterTheAttemptsAtTheFirstFailed()
 
         /// <summary>
         /// A first endpoint nothing listens at is tried as often as the station
-        /// is told to, and then the second one is dialled - not before, and not
+        /// is told to, and then the second one is connected to - not before, and not
         /// beside it: the first one waits in reserve.
         /// </summary>
         [Test]
-        public async Task TheSecondEndpointIsDialledAfterTheAttemptsAtTheFirstFailed()
+        public async Task TheSecondEndpointIsConnectedAfterTheAttemptsAtTheFirstFailed()
         {
 
             second = new CSMS();
 
-            var (mainId, spareId) = OnePeerOfTwo(IPPort.Parse(TestPorts.Free()), second.Port);
+            var (mainId, spareId) = OnePeerOfTwo(TestPorts.Free(), second.Port);
 
             Assert.That(station!.NetworkProfileConnectionAttempts, Is.EqualTo(3), "OCPP's default");
 
@@ -127,10 +127,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(await Within(() => Status(mainId) == ConnectionStatus.Trying), Is.True, $"the first endpoint was not tried: '{Said(mainId)}'");
             Assert.That(Status(spareId), Is.EqualTo(ConnectionStatus.Standby), $"the second endpoint does not wait in reserve: '{Said(spareId)}'");
-            Assert.That(second.Accepted, Is.EqualTo(0), "the second endpoint was dialled beside the first one");
+            Assert.That(second.Accepted, Is.EqualTo(0), "the second endpoint was connected to beside the first one");
 
             Assert.That(await Within(() => second.Connections == 1 && Said(spareId).StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the second endpoint was not dialled: '{Said(spareId)}', '{Said(mainId)}'");
+                        $"the second endpoint was not connected to: '{Said(spareId)}', '{Said(mainId)}'");
 
             Assert.That(Status(mainId), Is.EqualTo(ConnectionStatus.Standby));
             Assert.That(Said(mainId),   Does.Contain("3 attempt(s) failed"));
@@ -147,7 +147,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A first endpoint whose answer means no is not tried again: the second
-        /// one is dialled at once, however many attempts were allowed.
+        /// one is connected to at once, however many attempts were allowed.
         /// </summary>
         [Test]
         public async Task AFinalAnswerGoesOnToTheNextEndpointAtOnce()
@@ -163,7 +163,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             station = await TestStations.Booted(station, directory);
 
             Assert.That(await Within(() => second.Connections == 1 && Said(spareId).StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the second endpoint was not dialled: '{Said(spareId)}', '{Said(mainId)}'");
+                        $"the second endpoint was not connected to: '{Said(spareId)}', '{Said(mainId)}'");
 
             Assert.That(Status(mainId), Is.EqualTo(ConnectionStatus.Standby));
             Assert.That(Said(mainId),   Does.Contain("it cannot be tried again"));
@@ -183,8 +183,8 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task ARoundThatReachedNoneStartsAgainAfterAPause()
         {
 
-            var mainPort          = IPPort.Parse(TestPorts.Free());
-            var (mainId, spareId) = OnePeerOfTwo(mainPort, IPPort.Parse(TestPorts.Free()));
+            var mainPort          = TestPorts.Free();
+            var (mainId, spareId) = OnePeerOfTwo(mainPort, TestPorts.Free());
 
             station!.NetworkProfileConnectionAttempts = 1;
 
@@ -198,7 +198,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             first = new CSMS(mainPort);
 
             Assert.That(await Within(() => first.Connections == 1 && Said(mainId).StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the first endpoint was not dialled again: '{Said(mainId)}', '{Said(spareId)}'");
+                        $"the first endpoint was not connected to again: '{Said(mainId)}', '{Said(spareId)}'");
 
             Assert.That(Status(spareId), Is.EqualTo(ConnectionStatus.Standby));
 
@@ -206,23 +206,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region RoundAfterRoundTheNodeKeepsTheClientDialledOnly()
+        #region RoundAfterRoundTheNodeKeepsTheClientConnectedOnly()
 
         /// <summary>
         /// Where neither endpoint can be reached, round after round, the OCPP
-        /// node keeps the client of the endpoint dialled and no other: every
+        /// node keeps the client of the endpoint connected to and no other: every
         /// one the station went on from it let go of.
         /// </summary>
         /// <remarks>
         /// The node kept every client it made, and a station that went round
         /// its endpoints for as long as its back end was away gathered one for
-        /// every endpoint it dialled - two a round here, one more per second.
+        /// every endpoint it connected to - two a round here, one more per second.
         /// </remarks>
         [Test]
-        public async Task RoundAfterRoundTheNodeKeepsTheClientDialledOnly()
+        public async Task RoundAfterRoundTheNodeKeepsTheClientConnectedOnly()
         {
 
-            var (mainId, spareId) = OnePeerOfTwo(IPPort.Parse(TestPorts.Free()), IPPort.Parse(TestPorts.Free()));
+            var (mainId, spareId) = OnePeerOfTwo(TestPorts.Free(), TestPorts.Free());
 
             station!.NetworkProfileConnectionAttempts = 1;
 
@@ -246,7 +246,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(station.OCPPv2_1Node.WWCPWebSocketClients.Count(), Is.LessThanOrEqualTo(1),
                             "The node kept clients of endpoints the station had gone on from.");
                 Assert.That(most,                                               Is.LessThanOrEqualTo(1),
-                            "The node held more than the client of the endpoint dialled at one time.");
+                            "The node held more than the client of the endpoint connected to at one time.");
             });
 
         }
@@ -310,7 +310,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(await Within(() => Status(spareId!) == ConnectionStatus.Standby && second.Connections == 0), Is.True,
                         $"the endpoint added does not wait in reserve: '{Said(spareId!)}', {second.Connections} connection(s)");
 
-            Assert.That(first.Accepted, Is.EqualTo(1), "the connection that was up was dialled again");
+            Assert.That(first.Accepted, Is.EqualTo(1), "the connection that was up was connected to again");
 
         }
 
@@ -385,7 +385,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 }
 
-                Assert.That(first.Accepted, Is.EqualTo(1), "the connection that was up was dialled again");
+                Assert.That(first.Accepted, Is.EqualTo(1), "the connection that was up was connected to again");
 
             }
             finally
@@ -500,7 +500,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         private String Said(String Id)
 
-            => station!.DialledConnections.TryGetValue(Id, out var said)
+            => station!.OutboundConnections.TryGetValue(Id, out var said)
                    ? said
                    : "(nothing)";
 

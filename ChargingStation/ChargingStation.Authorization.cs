@@ -44,14 +44,14 @@ namespace cloud.charging.open.ChargingStation
     {
 
         /// <summary>
-        /// Nobody was asked, and the card may start: this station dials no
+        /// Nobody was asked, and the card may start: this station connects to no
         /// back end at all and is on its own - or it cannot ask the one it
-        /// dials, and its operator said that a card may start a session then.
+        /// connects to, and its operator said that a card may start a session then.
         /// </summary>
         NotAsked,
 
         /// <summary>
-        /// Nobody could be asked: this station dials a back end, and that one
+        /// Nobody could be asked: this station connects to a back end, and that one
         /// has not accepted it or is not connected right now - and its
         /// operator did not say that a card may start a session then.
         /// </summary>
@@ -95,10 +95,10 @@ namespace cloud.charging.open.ChargingStation
     /// by being the same card, and whoever started a session has to be able to
     /// end it whatever the back end says by then.
     ///
-    /// A station that dials no back end at all is on its own, and lets a card
+    /// A station that connects to no back end at all is on its own, and lets a card
     /// start as it did before there was anybody to ask.
     ///
-    /// A station that dials one and cannot ask it - the line is down, or the
+    /// A station that connects to one and cannot ask it - the line is down, or the
     /// back end has not accepted it - starts no card: one that did would
     /// charge for whoever pulled its network cable. Its operator may say
     /// otherwise, with "offlineCards": "allow" in the operator section, where
@@ -141,7 +141,7 @@ namespace cloud.charging.open.ChargingStation
             if (registration is null)
             {
 
-                // A station that dials nobody has nobody to ask.
+                // A station that connects to nobody has nobody to ask.
                 if (!Connections.Connections.Any(connection => connection.AutoConnect))
                     return (TokenAuthorization.NotAsked, null);
 

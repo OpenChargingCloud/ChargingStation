@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using System.Diagnostics.CodeAnalysis;
 
 using Newtonsoft.Json.Linq;
@@ -34,7 +35,7 @@ namespace cloud.charging.open.ChargingStation.Meters
     /// <param name="Port">Its port; 802, Modbus/TLS's own, by default.</param>
     /// <param name="Unit">The Modbus unit address it answers on; 1 by default.</param>
     public sealed record MeterEndpoint(String  Host,
-                                       UInt16  Port  = MeterEndpoint.DefaultPort,
+                                       IPPort  Port,
                                        Byte    Unit  = MeterEndpoint.DefaultUnit)
     {
 
@@ -43,7 +44,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// <summary>
         /// The port of Modbus/TLS, "mbaps".
         /// </summary>
-        public const UInt16  DefaultPort    = 802;
+        public static readonly IPPort  DefaultPort    = IPPort.ModbusTLS;
 
         /// <summary>
         /// The unit address a meter answers on where nobody changed it.
@@ -122,7 +123,7 @@ namespace cloud.charging.open.ChargingStation.Meters
                     Error = $"'{Path}.port' must be a whole number between 1 and 65535.";
                     return false;
                 }
-                port = (UInt16) portToken.Value<Int64>();
+                port = IPPort.Parse((UInt16) portToken.Value<Int64>());
             }
 
             var unit = DefaultUnit;
@@ -152,7 +153,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         public void WriteInto(JObject JSON)
         {
             JSON["host"]  = Host;
-            JSON["port"]  = Port;
+            JSON["port"]  = Port.ToUInt16();
             JSON["unit"]  = Unit;
         }
 
@@ -167,7 +168,7 @@ namespace cloud.charging.open.ChargingStation.Meters
 
             => new (
                    new JProperty("host",  Host),
-                   new JProperty("port",  Port),
+                   new JProperty("port",  Port.ToUInt16()),
                    new JProperty("unit",  Unit)
                );
 

@@ -24,6 +24,7 @@ using System.Security.Cryptography.X509Certificates;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -107,7 +108,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// <param name="Timeout">How long the connection and the handshake may take, each.</param>
         /// <param name="CancellationToken">To give up.</param>
         public static async Task<ModbusTLSConnection> Open(String                               Host,
-                                                           UInt16                               Port,
+                                                           IPPort                               Port,
                                                            IDNSClient?                          DNSClient,
                                                            X509Certificate2                     Identity,
                                                            IReadOnlyCollection<X509Certificate2> Intermediates,

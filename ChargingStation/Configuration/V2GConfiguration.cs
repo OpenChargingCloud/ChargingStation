@@ -30,6 +30,7 @@ using cloud.charging.open.protocols.ISO15118.T1S.Transport;
 using cloud.charging.open.ChargingStation.ISO15118;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -71,7 +72,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
     /// <param name="Mode">Whether the outlet behind the socket is AC or DC - what the protocol handshake offers, and the one thing a megawatt coupler needs besides its bus.</param>
     public sealed record V2GConfiguration(Boolean?            Enabled         = null,
                                           String?             InterfaceName   = null,
-                                          UInt16?             V2GPort         = null,
+                                          IPPort?             V2GPort         = null,
                                           Boolean?            SDP             = null,
                                           Boolean?            Loopback        = null,
                                           SlacTransportKind?  SlacTransport   = null,
@@ -242,7 +243,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
         public static Boolean TryReadV2GPort(JObject                           JSON,
                                              String                            Name,
                                              String?                           Path,
-                                             out UInt16?                       Port,
+                                             out IPPort?                       Port,
                                              [NotNullWhen(false)] out String?  Error)
         {
 
@@ -270,7 +271,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                 return false;
             }
 
-            Port = (UInt16) number;
+            Port = IPPort.Parse((UInt16) number);
             return true;
 
         }
@@ -489,7 +490,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
 
             if (Enabled.HasValue)           json.Add("enabled",    Enabled.Value);
             if (InterfaceName is not null)  json.Add("interface",  InterfaceName);
-            if (V2GPort.HasValue)           json.Add("port",       V2GPort.Value);
+            if (V2GPort.HasValue)           json.Add("port",       V2GPort.Value.ToUInt16());
             if (SDP.HasValue)               json.Add("sdp",        SDP.Value);
             if (Loopback.HasValue)          json.Add("loopback",   Loopback.Value);
             if (SlacTransport.HasValue)     json.Add("slac",       SlacTransport.Value.ToString().ToLowerInvariant());
@@ -649,7 +650,7 @@ namespace cloud.charging.open.ChargingStation.Configuration
                          new[] {
                              Enabled       == true     ? "V2G on"                              : null,
                              InterfaceName is not null ? $"on \"{InterfaceName}\""             : null,
-                             V2GPort.HasValue          ? V2GPort.Value == 0
+                             V2GPort.HasValue          ? V2GPort.Value.IsZero
                                                              ? "on any free port"
                                                              : $"on port {V2GPort.Value}"      : null,
                              SDP.HasValue              ? SDP.Value ? "SDP answering"

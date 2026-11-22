@@ -103,10 +103,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
 
         /// <summary>
-        /// A connection the station writes down and does not dial, since it
-        /// was not started - or was, and dials only what it was told to before.
+        /// A connection the station writes down and does not connect, since it
+        /// was not started - or was, and connects only to what it was told to before.
         /// </summary>
-        public Boolean TryDial(String       URL,
+        public Boolean TryConnect(String       URL,
                                String       OCPPVersion,
                                out String?  Error)
 

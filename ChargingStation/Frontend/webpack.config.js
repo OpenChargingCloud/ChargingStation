@@ -64,7 +64,7 @@ module.exports = (env, argv) => {
             // bundles like their own files; nothing is loaded from elsewhere.
             alias: {
                 '@node': path.resolve(__dirname, '../../../WWCP_Node/Frontend/src'),
-                // And what the nodes that dial a CSMS share, the pages of
+                // And what the nodes that connect to a CSMS share, the pages of
                 // their connections, as "@ocpp/...": the files of
                 // WWCP_OCPP_Node/Frontend/src, in the WWCP_OCPP this
                 // repository pins, found and bundled the same way.

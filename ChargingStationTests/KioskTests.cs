@@ -828,13 +828,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// A port nobody has, on the loopback address the tests' displays use.
         /// </summary>
-        private static UInt16 APortNobodyHas()
+        private static IPPort APortNobodyHas()
             => TestPorts.Free();
 
         /// <summary>
         /// What a display at the given port answers, or null where nothing does.
         /// </summary>
-        private static async Task<JObject?> TheDisplayAt(UInt16 Port)
+        private static async Task<JObject?> TheDisplayAt(IPPort Port)
         {
             try
             {
@@ -865,12 +865,12 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task APortSetOnThePageMovesTheDisplayAtOnce()
         {
 
-            var oldPort   = Station.KioskPort!.Value.ToUInt16();
+            var oldPort   = Station.KioskPort!.Value;
             var newPort   = APortNobodyHas();
 
             using var signedIn = await SignedIn();
 
-            var response  = await PutDisplay(signedIn, new JProperty("port", newPort));
+            var response  = await PutDisplay(signedIn, new JProperty("port", newPort.ToUInt16()));
             var answer    = JObject.Parse(await response.Content.ReadAsStringAsync());
 
             var atTheNew  = await TheDisplayAt(newPort);
@@ -879,18 +879,18 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
 
                 Assert.That(response.IsSuccessStatusCode,             Is.True, answer.ToString());
-                Assert.That(answer.Value<UInt16?>("port"),            Is.EqualTo(newPort), "what is in the file");
-                Assert.That(answer.Value<UInt16?>("portInUse"),       Is.EqualTo(newPort), "where the display is");
-                Assert.That(Station.KioskPort?.ToUInt16(),            Is.EqualTo(newPort));
+                Assert.That(answer.Value<UInt16?>("port"),            Is.EqualTo(newPort.ToUInt16()), "what is in the file");
+                Assert.That(answer.Value<UInt16?>("portInUse"),       Is.EqualTo(newPort.ToUInt16()), "where the display is");
+                Assert.That(Station.KioskPort,            Is.EqualTo(newPort));
                 Assert.That(Station.KioskURL?.ToString(),             Does.Contain($":{newPort}/"));
 
                 Assert.That(atTheNew,                                 Is.Not.Null, "Nothing answered at the new port.");
                 Assert.That(atTheNew?["movedTo"]?.Type ?? JTokenType.Null, Is.EqualTo(JTokenType.Null), "The new port says the display moved on from it.");
 
                 Assert.That(atTheOld,                                 Is.Not.Null, "The old port was dropped with a screen still pointed at it.");
-                Assert.That(atTheOld?.Value<UInt16?>("movedTo"),      Is.EqualTo(newPort), "The old port does not say where the display went.");
+                Assert.That(atTheOld?.Value<UInt16?>("movedTo"),      Is.EqualTo(newPort.ToUInt16()), "The old port does not say where the display went.");
 
-                Assert.That(DisplaySectionInTheFile()?.Value<UInt16?>("port"), Is.EqualTo(newPort), "It was not written down.");
+                Assert.That(DisplaySectionInTheFile()?.Value<UInt16?>("port"), Is.EqualTo(newPort.ToUInt16()), "It was not written down.");
 
             });
 
@@ -905,11 +905,11 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Station.DisplayHandover = TimeSpan.FromMilliseconds(200);
 
-            var oldPort = Station.KioskPort!.Value.ToUInt16();
+            var oldPort = Station.KioskPort!.Value;
 
             using var signedIn = await SignedIn();
 
-            var response = await PutDisplay(signedIn, new JProperty("port", APortNobodyHas()));
+            var response = await PutDisplay(signedIn, new JProperty("port", APortNobodyHas().ToUInt16()));
 
             Assert.That(response.IsSuccessStatusCode, Is.True, await response.Content.ReadAsStringAsync());
 
@@ -937,15 +937,15 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task APortSomethingElseHasIsRefusedAndTheDisplayStays()
         {
 
-            var oldPort   = Station.KioskPort!.Value.ToUInt16();
+            var oldPort   = Station.KioskPort!.Value;
 
             using var squatter = new TcpListener(System.Net.IPAddress.Loopback, 0) { ExclusiveAddressUse = true };
             squatter.Start();
-            var taken     = (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port;
+            var taken     = IPPort.Parse(((IPEndPoint) squatter.LocalEndpoint).Port);
 
             using var signedIn = await SignedIn();
 
-            var response  = await PutDisplay(signedIn, new JProperty("port", taken));
+            var response  = await PutDisplay(signedIn, new JProperty("port", taken.ToUInt16()));
             var said      = await response.Content.ReadAsStringAsync();
             var atTheOld  = await TheDisplayAt(oldPort);
 
@@ -953,7 +953,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.That(response.StatusCode,              Is.EqualTo(HttpStatusCode.BadRequest), said);
                 Assert.That(said,                             Does.Contain(taken.ToString()));
-                Assert.That(Station.KioskPort?.ToUInt16(),    Is.EqualTo(oldPort), "The display moved anyway.");
+                Assert.That(Station.KioskPort,    Is.EqualTo(oldPort), "The display moved anyway.");
                 Assert.That(atTheOld,                         Is.Not.Null, "The display is gone from where it was.");
                 Assert.That(DisplaySectionInTheFile()?["port"], Is.Null, "A port that cannot be had was written down.");
 
@@ -1000,14 +1000,14 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 var configuration = new JObject(
                                         new JProperty("nts",     new JObject(new JProperty("groups", new JObject(new JProperty("legal", new JObject(new JProperty("enabled", false))))))),
-                                        new JProperty("display", new JObject(new JProperty("port", fromTheFile)))
+                                        new JProperty("display", new JObject(new JProperty("port", fromTheFile.ToUInt16())))
                                     );
 
                 File.WriteAllText(Path.Combine(directory, "configuration.json"), configuration.ToString());
 
                 await using var byTheFile = new ChargingStation(
                                                 DNSClient:       TestStations.Resolver(),
-                                                HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                                                HTTPPort:        TestPorts.Free(),
                                                 AccountsPath:    Path.Combine(directory, ChargingStation.DefaultAccountsPath),
                                                 ConfigFile:      new WWCPConfigFile(Path.Combine(directory, "configuration.json")),
                                                 LogToConsole:    false,
@@ -1016,8 +1016,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 await using var byTheLine = new ChargingStation(
                                                 DNSClient:       TestStations.Resolver(),
-                                                HTTPPort:        IPPort.Parse(TestPorts.Free()),
-                                                KioskPort:       IPPort.Parse(fromTheLine),
+                                                HTTPPort:        TestPorts.Free(),
+                                                KioskPort:       fromTheLine,
                                                 AccountsPath:    Path.Combine(directory, ChargingStation.DefaultAccountsPath),
                                                 ConfigFile:      new WWCPConfigFile(Path.Combine(directory, "configuration.json")),
                                                 LogToConsole:    false,
@@ -1028,10 +1028,10 @@ namespace cloud.charging.open.ChargingStation.Tests
 
                 Assert.Multiple(() => {
 
-                    Assert.That(byTheFile.KioskPort?.ToUInt16(),          Is.EqualTo(fromTheFile), "The port in the file was passed over.");
-                    Assert.That(byTheLine.KioskPort?.ToUInt16(),          Is.EqualTo(fromTheLine), "The command line lost to the file.");
-                    Assert.That(said.Value<UInt16?>("portGivenAtStart"),  Is.EqualTo(fromTheLine), "The page is not told what the command line said.");
-                    Assert.That(said.Value<UInt16?>("port"),              Is.EqualTo(fromTheFile));
+                    Assert.That(byTheFile.KioskPort,          Is.EqualTo(fromTheFile), "The port in the file was passed over.");
+                    Assert.That(byTheLine.KioskPort,          Is.EqualTo(fromTheLine), "The command line lost to the file.");
+                    Assert.That(said.Value<UInt16?>("portGivenAtStart"),  Is.EqualTo(fromTheLine.ToUInt16()), "The page is not told what the command line said.");
+                    Assert.That(said.Value<UInt16?>("port"),              Is.EqualTo(fromTheFile.ToUInt16()));
 
                 });
 

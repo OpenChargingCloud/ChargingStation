@@ -43,7 +43,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// A charging station that dials its Local Controller over wss:// and
+    /// A charging station that connects to its Local Controller over wss:// and
     /// believes it by the key pin of its key ("Key Pins and Raw Public Keys",
     /// work package K2): pinned at commissioning, it connects to a server whose
     /// self-signed certificate names something else and no CA vouches for, and
@@ -54,13 +54,13 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// </summary>
     /// <remarks>
     /// A Hermod WebSocket server stands in for the Local Controller, with a
-    /// carrier certificate made in memory for a name the station does not dial
+    /// carrier certificate made in memory for a name the station does not connect to
     /// - nothing goes into a certificate store - and the least of a CSMS behind
     /// it: it answers a BootNotification with Accepted, and every other request
     /// with an empty answer, and keeps what it was sent.
     /// </remarks>
     [TestFixture]
-    public partial class DiallingWithKeyPinsTests
+    public partial class ConnectingWithKeyPinsTests
     {
 
         #region (class) LocalController
@@ -87,7 +87,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 this.Certificate  = Certificate;
-                this.Port         = IPPort.Parse(TestPorts.Free());
+                this.Port         = TestPorts.Free();
 
                 Server = new WebSocketServer(HTTPPort:                   Port,
                                              RequireAuthentication:      false,
@@ -198,7 +198,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void MakeAStationAndALocalController()
         {
 
-            directory  = TestStations.TemporaryDirectory("dialling-keypins");
+            directory  = TestStations.TemporaryDirectory("connecting-keypins");
             station    = TestStations.New(directory, TestStations.Offline);
 
             lcKey      = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -239,7 +239,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A self-signed carrier certificate for the given key - CA:FALSE, no
-        /// keyCertSign, a name nobody dials - that SslStream can serve on Windows,
+        /// keyCertSign, a name nobody connects to - that SslStream can serve on Windows,
         /// valid when it is told or from yesterday for a month.
         /// </summary>
         private X509Certificate2 Carrier(ECDsa            Key,
@@ -289,7 +289,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;
@@ -318,7 +318,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// Pinned at commissioning, the station connects to a server whose
         /// certificate no CA vouches for and names another host than the one
-        /// dialled, and registers with it.
+        /// connected to, and registers with it.
         /// </summary>
         [Test]
         public async Task APinnedStationConnectsByKeyPinAlone_AndSendsItsBootNotification()
@@ -383,7 +383,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region AKeyPinnedEndpointNeverFallsBackToTheCA()
 
         /// <summary>
-        /// The validator a key-pinned connection is dialled with refuses a key that
+        /// The validator a key-pinned connection is connected with refuses a key that
         /// matches none of its pins even where a CA vouches for the certificate,
         /// and believes the pinned key where none does.
         /// </summary>
@@ -542,7 +542,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.Multiple(() => {
                 Assert.That(IsConnected(id),                Is.False, "a certificate no CA vouches for was believed");
                 Assert.That(Entry.ServerKeyPinLearned,      Is.Null,  "a key pin was learned without trust on first use");
-                Assert.That(station!.KeyPinTrustOf(id),     Is.Null,  "a connection without key pins was dialled key-pinned");
+                Assert.That(station!.KeyPinTrustOf(id),     Is.Null,  "a connection without key pins was connected key-pinned");
                 Assert.That(lc!.Accepted,                   Is.Zero);
             });
 
@@ -714,7 +714,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region RawPublicKeysRequired_TurnsAwayAServerThatShowsACertificate()
 
         /// <summary>
-        /// A connection that requires raw public keys is dialled, and offers
+        /// A connection that requires raw public keys is connected, and offers
         /// them alone: a server that shows a certificate is turned away,
         /// though the key in it is the one pinned - and the station says
         /// that this is why, and goes on trying.
@@ -806,7 +806,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var signedIn = await http.PostAsync($"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
                                                 new FormUrlEncodedContent([
-                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                                     new KeyValuePair<String, String>("password",  station.GeneratedPassword!)
                                                 ]));
 

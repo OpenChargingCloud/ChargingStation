@@ -26,6 +26,7 @@ using Newtonsoft.Json.Linq;
 using cloud.charging.open.protocols.ISO15118.SDP.Server;
 using cloud.charging.open.protocols.ISO15118.StateMachines;
 using cloud.charging.open.protocols.ISO15118.Transport.BouncyCastle;
+using IPPort = org.GraphDefined.Vanaheimr.Hermod.IPPort;
 
 #endregion
 
@@ -69,7 +70,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                           Boolean         Accepted,
                                           String?         RejectReason,
                                           String?         AnsweredAddress    = null,
-                                          UInt16?         AnsweredPort       = null,
+                                          IPPort?         AnsweredPort       = null,
                                           String?         AnsweredSecurity   = null);
 
         /// <summary>
@@ -256,7 +257,7 @@ namespace cloud.charging.open.ChargingStation.ISO15118
                                                                                                   ? null
                                                                                                   : new JObject(
                                                                                                         new JProperty("address",   sdp.AnsweredAddress),
-                                                                                                        new JProperty("port",      sdp.AnsweredPort),
+                                                                                                        new JProperty("port",      sdp.AnsweredPort?.ToUInt16()),
                                                                                                         new JProperty("security",  sdp.AnsweredSecurity)
                                                                                                     ))
                                                            )),

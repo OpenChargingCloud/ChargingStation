@@ -138,9 +138,9 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// Move the display to the given port, as the Configuration page does.
         /// </summary>
         private static Task<(Boolean Success, String? Error, Boolean NotSaved)> MoveTheDisplay(ChargingStation  Station,
-                                                                                               UInt16           Port)
+                                                                                               IPPort           Port)
 
-            => Station.UpdateDisplayConfiguration(new JObject(new JProperty("port", Port)));
+            => Station.UpdateDisplayConfiguration(new JObject(new JProperty("port", Port.ToUInt16())));
 
         #endregion
 
@@ -179,7 +179,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// </summary>
         private Task<ChargingStation> WithALocalApp()
 
-            => TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, LocalAppPort: IPPort.Parse(TestPorts.Free())));
+            => TestPorts.StartedOnFreshPorts(() => TestStations.New(directory, LocalAppPort: TestPorts.Free()));
 
         #endregion
 
@@ -221,7 +221,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task TheLocalAppsWebSocketHasNoServerOfItsOwn()
         {
 
-            var station = TestStations.New(directory, LocalAppPort: IPPort.Parse(TestPorts.Free()));
+            var station = TestStations.New(directory, LocalAppPort: TestPorts.Free());
 
             try
             {
@@ -260,7 +260,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public async Task AStationNeverStartedLetsGoOfThemAsWell()
         {
 
-            var station   = TestStations.New(directory, LocalAppPort: IPPort.Parse(TestPorts.Free()));
+            var station   = TestStations.New(directory, LocalAppPort: TestPorts.Free());
             var display   = TheDisplay (station);
             var localApp  = TheLocalApp(station);
 
@@ -440,7 +440,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 squatter.Start();
 
                 var display  = TheDisplay(station);
-                var moved    = await MoveTheDisplay(station, (UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port);
+                var moved    = await MoveTheDisplay(station, IPPort.Parse((UInt16) ((IPEndPoint) squatter.LocalEndpoint).Port));
 
                 Assert.Multiple(() => {
                     Assert.That(moved.Success,              Is.False, "a port something else has");

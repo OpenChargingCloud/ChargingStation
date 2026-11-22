@@ -307,13 +307,13 @@ namespace cloud.charging.open.ChargingStation.Tests
                                                                           new JProperty("login",           "cs001"),
                                                                           new JProperty("secret",          ASecret))));
 
-            var (dialled, connection) = await Said(await http.PostAsync("api/v1/configuration/connections", JSONBody(
+            var (added, connection) = await Said(await http.PostAsync("api/v1/configuration/connections", JSONBody(
                                                                           new JProperty("description",     new JObject(new JProperty("en", "The CSMS"))),
                                                                           new JProperty("url",             "wss://csms.example.org/cs001"),
                                                                           new JProperty("connectionType",  "CSMS"))));
 
             Assert.That(made,     Is.EqualTo(HttpStatusCode.Created), credentials.ToString());
-            Assert.That(dialled,  Is.EqualTo(HttpStatusCode.Created), connection.ToString());
+            Assert.That(added,    Is.EqualTo(HttpStatusCode.Created), connection.ToString());
 
             var credentialsId       = credentials.Value<String>("id")!;
             var connectionId        = connection. Value<String>("id")!;
@@ -376,7 +376,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             var notThere   = await http.PostAsync("api/v1/configuration/connections/remove",  JSONBody(new JProperty("id", "nothing-by-this-id")));
 
             Assert.Multiple(() => {
-                Assert.That(noURL.   StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "an address that cannot be dialled");
+                Assert.That(noURL.   StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "an address that cannot be connected to");
                 Assert.That(noSecret.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "credentials without their secret");
                 Assert.That(notThere.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), "a connection that is not there");
             });

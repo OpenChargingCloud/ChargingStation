@@ -115,7 +115,7 @@ namespace cloud.charging.open.ChargingStation.Web
         public const String  Session       = "session";
 
         /// <summary>
-        /// Where this station dials, what it proves itself with there - the
+        /// Where this station connects to, what it proves itself with there - the
         /// credentials, and the keys made here - and where each connection
         /// stands: edited, any of that changed; run, a connection tested.
         /// </summary>
@@ -174,9 +174,9 @@ namespace cloud.charging.open.ChargingStation.Web
         /// </summary>
         /// <remarks>
         /// Its own resource rather than a part of the connections, because the
-        /// connections are where this station dials, and this is who may dial
+        /// connections are where this station connects to, and this is who may connect to
         /// it: whoever speaks OCPP to a station may tell it nearly anything a
-        /// CSMS may, from where it dials to when it restarts.
+        /// CSMS may, from where it connects to, to when it restarts.
         /// </remarks>
         public const String  Commissioning = cloud.charging.open.protocols.OCPP.Node.OCPPServingNode.CommissioningResource;
 
@@ -234,7 +234,7 @@ namespace cloud.charging.open.ChargingStation.Web
 
         /// <summary>
         /// The operator of this charging station: may point it at other name
-        /// and time servers and test them, may say where it dials and with
+        /// and time servers and test them, may say where it connects to and with
         /// what, may take an outlet or a reader out of service, runs the
         /// display and the sessions, and puts up the providers' logos - but may
         /// not redescribe the hardware it is bolted to, nor change what it may
@@ -245,7 +245,7 @@ namespace cloud.charging.open.ChargingStation.Web
         /// "calibration:edit" too. It says how much of the station is
         /// monitored, and reads what is; and it sends the local authorization
         /// list and clears the authorization cache. It makes the keys the
-        /// station dials with, sends their signing requests to the CSMS and
+        /// station connects with, sends their signing requests to the CSMS and
         /// brings the certificates that come back for them by hand - and
         /// is not let at the certificate store beyond that: which roots
         /// the station believes is the system administrator's to say.
@@ -273,7 +273,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (Unlock),
                                                          Permission.Edit(Monitoring),
                                                          Permission.Edit(Authorization) ],
-                                                       "runs the station: its network, its connections and the keys it dials with, what is in service, the display, the providers' logos, the sessions, restarts, the firmware, the monitoring and the local authorization list");
+                                                       "runs the station: its network, its connections and the keys it connects with, what is in service, the display, the providers' logos, the sessions, restarts, the firmware, the monitoring and the local authorization list");
 
         /// <summary>
         /// Whoever commissions this charging station: everything the operator
@@ -301,7 +301,7 @@ namespace cloud.charging.open.ChargingStation.Web
                                                          Permission.Run (Meters),
                                                          Permission.Edit(Commissioning),
                                                          Permission.Run (Commissioning) ],
-                                                       "commissions the station: everything the operator may do, its power limits and calibration certificates, its meters - how each is read, and what is written to it - and OCPP over SSH from a commissioning tool");
+                                                       "commissions the station: everything the operator may do, its power limits and calibration certificates, its meters - how each is read, and what is written to it - and OCPP-over-SSH from a commissioning tool");
 
         /// <summary>
         /// The operator's telephone support: sees what is going on, has it

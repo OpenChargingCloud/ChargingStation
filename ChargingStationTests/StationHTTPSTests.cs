@@ -214,7 +214,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             using var page          = await http.GetAsync("");
             using var signIn        = await http.PostAsync("ext/login", new FormUrlEncodedContent([
-                                                                            new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                                                            new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                                                             new KeyValuePair<String, String>("password",  station.GeneratedPassword!)
                                                                         ]));
             using var configuration = await http.GetAsync("api/v1/configuration");
@@ -291,7 +291,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             }
 
-            using var other   = await SignIn(station, ChargingStation.DefaultAdminUser, station.GeneratedPassword!, ("X-Forwarded-For", "198.51.100.4"), ("X-Forwarded-Proto", "https"));
+            using var other   = await SignIn(station, ChargingStation.DefaultAdminUser.ToString(), station.GeneratedPassword!, ("X-Forwarded-For", "198.51.100.4"), ("X-Forwarded-Proto", "https"));
 
             var session       = other.Headers.TryGetValues("Set-Cookie", out var cookies)
                                     ? cookies.FirstOrDefault(cookie => cookie.StartsWith($"{station.ExtAPI.SessionCookieName}=", StringComparison.Ordinal))

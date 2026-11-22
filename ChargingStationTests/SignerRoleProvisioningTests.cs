@@ -126,8 +126,8 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var started = station = await TestStations.Booted(station, directory);
 
-            Assert.That(await Within(() => started.DialledConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
-                        $"the station did not get connected: {started.DialledConnections[id!]}");
+            Assert.That(await Within(() => started.OutboundConnections[id!].StartsWith("Connected", StringComparison.Ordinal)), Is.True,
+                        $"the station did not get connected: {started.OutboundConnections[id!]}");
 
             Assert.That(await Within(() => started.RegistrationJSON()["2.1"]?["state"]?.Value<String>() == "Accepted"), Is.True,
                         "the station did not register");

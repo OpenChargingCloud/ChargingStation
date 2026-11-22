@@ -29,7 +29,7 @@ namespace cloud.charging.open.ChargingStation
 
     /// <summary>
     /// The station port of this station: a WebSocket server a CSMS or a local
-    /// controller dials, where the station cannot dial them.
+    /// controller connects to, where the station cannot connect to them.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -37,13 +37,13 @@ namespace cloud.charging.open.ChargingStation
     /// OCPPServingNode.OCPPServer.cs -, with its section "webSocketServer",
     /// the certificate of the listener "ocpp" of the node's store, and its
     /// pages. OCPP as it always is: this station is the charging station, what
-    /// dials in is its back end, and only who opens the WebSocket is the other
+    /// connects is its back end, and only who opens the WebSocket is the other
     /// way round. Who may come in is written down on the Connections page, as
     /// a connection the other end makes - see WWCPNode.Accepting.cs.
     /// </para>
     /// <para>
     /// As every node, it lets in what has a WebSocket login, over a WebSocket
-    /// and over SSH alike, where the file switches them on: a node that dials
+    /// and over SSH alike, where the file switches them on: a node that connects to
     /// it with a login of its own is let in as any node would let it in.
     /// </para>
     /// </remarks>
@@ -64,7 +64,7 @@ namespace cloud.charging.open.ChargingStation
         #region (protected override) OCPPServerStateJSON(State)
 
         /// <summary>
-        /// Who dialled in and is connected now, by the name it came under, and
+        /// Who came in and is connected now, by the name it came under, and
         /// the connections the other end makes, as the station port waits for
         /// them.
         /// </summary>

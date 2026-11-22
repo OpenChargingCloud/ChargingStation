@@ -65,7 +65,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             public CSMS()
             {
 
-                this.Port  = IPPort.Parse(TestPorts.Free());
+                this.Port  = TestPorts.Free();
 
                 Server     = new WebSocketServer(HTTPPort:               Port,
                                                  RequireAuthentication:  false,
@@ -165,7 +165,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;

@@ -44,7 +44,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 {
 
     /// <summary>
-    /// A charging station that dials its CSMS over wss:// and checks it by its
+    /// A charging station that connects to its CSMS over wss:// and checks it by its
     /// CA, as it checks a time server, a name server and a meter: a root of
     /// its own store vouches for a CSMS the machine knows no CA of; the server
     /// is held to its certificate or to its root, by fingerprint or by the pin
@@ -54,11 +54,11 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// </summary>
     /// <remarks>
     /// A Hermod WebSocket server stands in for the CSMS, with a certificate
-    /// issued for the address the station dials by a CA made in memory, and the
+    /// issued for the address the station connects to by a CA made in memory, and the
     /// least of a CSMS behind it.
     /// </remarks>
     [TestFixture]
-    public class DiallingWithServerPinsTests
+    public class ConnectingWithServerPinsTests
     {
 
         #region (class) CSMS
@@ -85,7 +85,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 this.Certificate  = Certificate;
-                this.Port         = IPPort.Parse(TestPorts.Free());
+                this.Port         = TestPorts.Free();
 
                 Server = new WebSocketServer(HTTPPort:                   Port,
                                              RequireAuthentication:      false,
@@ -161,7 +161,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         public void MakeAStationAndACSMS()
         {
 
-            directory  = TestStations.TemporaryDirectory("dialling-serverpins");
+            directory  = TestStations.TemporaryDirectory("connecting-serverpins");
             station    = TestStations.New(directory, TestStations.Offline);
 
             ca         = CA("The operator's CA");
@@ -225,7 +225,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         /// <summary>
-        /// A server certificate for 127.0.0.1, which is what the station dials,
+        /// A server certificate for 127.0.0.1, which is what the station connects to,
         /// issued by the given CA for the given key - and one SslStream can
         /// serve on Windows.
         /// </summary>
@@ -301,13 +301,13 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         private String SaidOf(String Id)
-            => station!.DialledConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
+            => station!.OutboundConnections.TryGetValue(Id, out var said) ? said : "nothing yet";
 
         private Boolean IsConnected(String Id)
             => station!.ConnectionStates.TryGetValue(Id, out var state) && state.Status == ConnectionStatus.Connected;
 
         /// <summary>
-        /// Dialled, turned away, and still not connected a second later.
+        /// Connected to, turned away, and still not connected a second later.
         /// </summary>
         private async Task TurnedAway(String Id, String Why)
         {
@@ -361,7 +361,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(judgement?.AnchoredBy,         Is.EqualTo("The operator's CA"));
                 Assert.That(judgement?.RootFingerprint,    Is.EqualTo(Fingerprint(ca)));
                 Assert.That(judgement?.CertificateKeyPin,  Is.EqualTo(KeyPinOf(leaf)));
-                Assert.That(station.KeyPinTrustOf(id),     Is.Null,  "a connection checked by its CA was dialled key-pinned");
+                Assert.That(station.KeyPinTrustOf(id),     Is.Null,  "a connection checked by its CA was connected key-pinned");
             });
 
         }
@@ -415,7 +415,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(JudgedAs, Does.Contain($"Held to root {KeyPinOf(ca)}: its chain ends there."));
 
-            // Held to another root by somebody's hand: dialled again, and refused.
+            // Held to another root by somebody's hand: connected again, and refused.
             var accepted = csms!.Accepted;
 
             Assert.That(station!.Connections.TryUpdateConnection(id, I18NString.Create("The CSMS"), org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse(URL), "CSMS", true, null, null, out var error,
@@ -606,7 +606,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// A signed pin set holds the connection to the roots it names, by the
         /// pins of their keys: with another root than the one its CSMS chains
-        /// to, the connection is dialled again and refused; an older pin set is
+        /// to, the connection is connected again and refused; an older pin set is
         /// not taken; a higher one with the right root brings the connection
         /// back; and a connection known by the key of its server takes none.
         /// </summary>
@@ -738,7 +738,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var signedIn = await http.PostAsync($"{ChargingStation.ExtAPIPath.ToString().TrimEnd('/')}/login",
                                                 new FormUrlEncodedContent([
-                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser),
+                                                    new KeyValuePair<String, String>("login",     ChargingStation.DefaultAdminUser.ToString()),
                                                     new KeyValuePair<String, String>("password",  station.GeneratedPassword!)
                                                 ]));
 

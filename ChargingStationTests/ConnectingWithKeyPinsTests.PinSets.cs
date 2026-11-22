@@ -57,7 +57,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// over the connection the station made to it, as a Local Controller relays
     /// it.
     /// </remarks>
-    public partial class DiallingWithKeyPinsTests
+    public partial class ConnectingWithKeyPinsTests
     {
 
         #region (private) Helpers of pin sets
@@ -88,7 +88,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// A SetVariables request of the TLSClientController instance of the given connection, signed by
         /// the given key or by none, as a CSMS sends it: for the station as it knows it - "cs001", the last
-        /// segment of the URL the station dials - and with the message id it is to go under, which the
+        /// segment of the URL the station connects to - and with the message id it is to go under, which the
         /// signature names, or "*" and a nonce.
         /// </summary>
         /// <remarks>
@@ -394,7 +394,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// The signature's OCPPDestination names the station as its CSMS knows it on that connection -
-        /// "cs001", the last segment of the URL it dials - or by the id of its OCPP node, which an
+        /// "cs001", the last segment of the URL it connects to - or by the id of its OCPP node, which an
         /// incoming request is addressed to; a pin set for another station is refused.
         /// </summary>
         [Test]
@@ -567,7 +567,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         /// <summary>
         /// A signed TrustOnFirstUse = None on a connection on probation forgets the learned key pin - nothing
-        /// learns it any more - and dials the connection again, checked by its CA: the carrier certificate
+        /// learns it any more - and reconnects the connection, checked by its CA: the carrier certificate
         /// no CA vouches for is not believed any more.
         /// </summary>
         [Test]
@@ -590,7 +590,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(Entry.IsKeyPinned,          Is.False);
             });
 
-            await Until(() => !IsConnected(id), "Dialling it again, checked by its CA", () => SaidOf(id));
+            await Until(() => !IsConnected(id), "Connecting it again, checked by its CA", () => SaidOf(id));
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 

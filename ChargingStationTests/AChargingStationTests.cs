@@ -144,7 +144,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             // Made again, on fresh ports, where another test run on this
             // machine took one of them before the station could bind it.
             Station    = await TestPorts.StartedOnFreshPorts(() => TestStations.New(Directory, Configuration, Clock: Clock,
-                                                                                    LocalAppPort: WithLocalApp ? IPPort.Parse(TestPorts.Free()) : null));
+                                                                                    LocalAppPort: WithLocalApp ? TestPorts.Free() : null));
 
             BaseURL    = Station.WebInterfaceURL.ToString();
 
@@ -227,7 +227,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var http      = Anonymous();
 
-            var response  = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser, Password));
+            var response  = await http.PostAsync(SignInPath, SignInBody(ChargingStation.DefaultAdminUser.ToString(), Password));
 
             Assert.That(response.IsSuccessStatusCode, Is.True,
                         $"Signing in failed with {(Int32) response.StatusCode}, and every assertion below it would say so instead.");
@@ -290,7 +290,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             if (Holding == Role)
                 return Role;
 
-            var user = Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser), out var stored) && stored is User account
+            var user = Station.ExtAPI.TryGetUser(User_Id.Parse(ChargingStation.DefaultAdminUser.ToString()), out var stored) && stored is User account
                            ? account
                            : throw new InvalidOperationException("The account this station made is not there.");
 

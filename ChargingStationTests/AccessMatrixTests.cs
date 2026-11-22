@@ -241,7 +241,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         /// <summary>
         /// Past the door: a restart of a station nothing charges at is one
         /// now, a cable is let go of at an EVSE it has and not at one it has
-        /// not, and a station that dials nobody says that nobody is told.
+        /// not, and a station that connects to nobody says that nobody is told.
         /// </summary>
         [Test]
         public async Task WhatTheStationIsToldToDoIsDoneAndSaid()

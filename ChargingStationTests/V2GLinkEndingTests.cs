@@ -21,6 +21,7 @@ using System.Collections.Concurrent;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.Ethernet;
 
 using cloud.charging.open.protocols.ISO15118.SLAC;
@@ -67,7 +68,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var link      = await V2GLink.TryStart(new V2GOptions {
                                                        Enabled        = true,
-                                                       V2GPort        = 0,
+                                                       V2GPort        = IPPort.Zero,
                                                        SDP            = false,
                                                        SlacTransport  = SlacTransportKind.None
                                                    },
@@ -77,7 +78,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(link?.V2GEndpoint, Is.Not.Null, "The V2G endpoint did not open, so there is nothing to see closed.");
             Assert.That(link!.SLACRunning, Is.True,     "SLAC did not start on the medium it was given.");
 
-            var port      = (UInt16) link.V2GEndpoint!.Port;
+            var port      = IPPort.Parse(link.V2GEndpoint!.Port);
 
             Assert.That(await Listeners.Listening(port),  Is.True,  $"The V2G endpoint is not listening on port {port}.");
 

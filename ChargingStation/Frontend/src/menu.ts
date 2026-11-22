@@ -1,9 +1,9 @@
 /*
  * The menu of a charging station: what it has pages for beside what every
  * node has, each entry shown to whoever may read what its page reads, as
- * CSHTTPAPI asks it - the two pages about dialling out both read the
+ * CSHTTPAPI asks it - the two pages about connecting both read the
  * connections, and the EVSEs as they stand now read what is going on, which
- * is apart from how the station is set up. The keys it dials with have no
+ * is apart from how the station is set up. The keys it connects with have no
  * entry: they are a tab of the identities. The sign-in, the log, the name
  * servers, the time servers and the certificate store are every node's; see
  * WWCP_Node's start.ts.
@@ -29,7 +29,7 @@ export const stationMenu: MenuEntry[] = [
         { path: '/configuration/nameplate',       label: 'Nameplate',        icon: 'fa-tag',             permission: [ 'nameplate:read' ]    },
         { path: '/configuration/commissioning',   label: 'Commissioning',    icon: 'fa-screwdriver-wrench', permission: [ 'commissioning:read' ] },
         { path: '/configuration/connections',     label: 'Connections',      icon: 'fa-network-wired',   permission: [ 'connections:read' ]  },
-        // The port a back end dials, where the station cannot dial it: the
+        // The port a back end connects to, where the station cannot connect to it: the
         // pages every node that serves OCPP has, under the connections.
         { path: '/configuration/ocpp-server',        label: 'Station port',      icon: 'fa-tower-broadcast', permission: [ 'connections:read' ]  },
         { path: '/configuration/ocpp-server/logins', label: 'WebSocket logins',  icon: 'fa-users-gear',      permission: [ 'connections:read' ]  },

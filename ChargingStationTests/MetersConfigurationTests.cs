@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
@@ -68,7 +69,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var meter = MeterOf(Entry(new JProperty("host", " meter-a.local ")))!;
 
-            Assert.That(meter.Endpoint,       Is.EqualTo(new MeterEndpoint("meter-a.local", 802, 1)));
+            Assert.That(meter.Endpoint,       Is.EqualTo(new MeterEndpoint("meter-a.local", IPPort.Parse(802), 1)));
             Assert.That(meter.ReadIdentity,   Is.Null);
             Assert.That(meter.WriteIdentity,  Is.Null);
             Assert.That(meter.Pins,           Is.Null);
@@ -88,7 +89,7 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             var again = MeterOf(meter.ToJSON())!;
 
-            Assert.That(meter.Endpoint,                  Is.EqualTo(new MeterEndpoint("fd00::5", 5802, 7)));
+            Assert.That(meter.Endpoint,                  Is.EqualTo(new MeterEndpoint("fd00::5", IPPort.Parse(5802), 7)));
             Assert.That(meter.Endpoint.ToString(),       Is.EqualTo("[fd00::5]:5802, unit 7"));
             Assert.That(meter.Endpoint.Server,           Is.EqualTo("[fd00::5]:5802"));
             Assert.That(meter.ReadIdentity,              Is.EqualTo("aaaabbbbccccdddd"));

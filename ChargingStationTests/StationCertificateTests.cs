@@ -43,7 +43,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// A charging station that is brought the certificate it shows its CSMS,
     /// and the roots of that CSMS, over OCPP 2.1: TriggerMessage of
     /// SignChargingStationCertificate makes a key and a SignCertificate,
-    /// CertificateSigned brings the certificate and the connection is dialled
+    /// CertificateSigned brings the certificate and the connection is connected
     /// again with it - and goes back where its CSMS does not let it in; a
     /// certificate for no key of the station is rejected; the station asks by
     /// itself before its certificate runs out; and InstallCertificate keeps a
@@ -94,7 +94,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             {
 
                 this.Certificate  = Certificate;
-                this.Port         = IPPort.Parse(TestPorts.Free());
+                this.Port         = TestPorts.Free();
 
                 Server = new WebSocketServer(HTTPPort:                    Port,
                                              RequireAuthentication:       false,
@@ -317,7 +317,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         }
 
         /// <summary>
-        /// A server certificate for 127.0.0.1, which is what the station dials,
+        /// A server certificate for 127.0.0.1, which is what the station connects to,
         /// issued by the given CA for the given key - and one SslStream can
         /// serve on Windows.
         /// </summary>
@@ -576,7 +576,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #endregion
 
 
-        #region ACertificateIssuedThroughIntermediates_IsDialledWithWhatTravelsWithIt(Intermediates, Brought)
+        #region ACertificateIssuedThroughIntermediates_IsConnectedWithWhatTravelsWithIt(Intermediates, Brought)
 
         /// <summary>
         /// A station whose certificate comes from a CA below the operator's
@@ -597,7 +597,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         [TestCase(2, true)]
         [TestCase(1, false)]
         [TestCase(2, false)]
-        public async Task ACertificateIssuedThroughIntermediates_IsDialledWithWhatTravelsWithIt(Int32 Intermediates, Boolean BroughtWithThem)
+        public async Task ACertificateIssuedThroughIntermediates_IsConnectedWithWhatTravelsWithIt(Int32 Intermediates, Boolean BroughtWithThem)
         {
 
             Kept(ca);
@@ -648,16 +648,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
-        #region ATriggerMakesAKey_AndCertificateSignedDialsWithItsCertificate()
+        #region ATriggerMakesAKey_AndCertificateSignedConnectsWithItsCertificate()
 
         /// <summary>
         /// Use case A02, as its CSMS starts it: the station makes a key of its
         /// own and shows its signing request in SignCertificate, goes on as
-        /// before until the certificate comes, and is dialled again with it once
+        /// before until the certificate comes, and is connected again with it once
         /// CertificateSigned brought it. The key it replaces is kept.
         /// </summary>
         [Test]
-        public async Task ATriggerMakesAKey_AndCertificateSignedDialsWithItsCertificate()
+        public async Task ATriggerMakesAKey_AndCertificateSignedConnectsWithItsCertificate()
         {
 
             var (connection, keyId, _) = await Connected();
@@ -689,7 +689,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"), signed.ToString(Formatting.None));
 
             await Until(() => Entry.CertificateId == IdOf(next) && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
-                        "Being dialled again with the new certificate", () => WhatHappened);
+                        "Being connected again with the new certificate", () => WhatHappened);
 
             Assert.Multiple(() => {
                 Assert.That(station.KeysWaitingForTheirCertificate,                              Is.Empty);
@@ -848,7 +848,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"));
 
             await Until(() => Entry.CertificateId == IdOf(next) && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
-                        "Being dialled again with the certificate of the key made by hand", () => WhatHappened);
+                        "Being connected again with the certificate of the key made by hand", () => WhatHappened);
 
             Assert.Multiple(() => {
                 Assert.That(station.KeysWaitingForTheirCertificate,  Is.Empty);
@@ -937,7 +937,7 @@ namespace cloud.charging.open.ChargingStation.Tests
         #region TheKeysAStationOfBeforeKept_AreMovedIntoItsCertificateStore()
 
         /// <summary>
-        /// A station of before kept the keys it dials with in a directory of
+        /// A station of before kept the keys it connects with in a directory of
         /// their own. They are moved into the certificate store at the first
         /// start that finds them: a key with its certificate is an identity
         /// there, a key whose request is still out waits there - and the
@@ -1051,7 +1051,7 @@ namespace cloud.charging.open.ChargingStation.Tests
             Assert.That(signed["status"]?.Value<String>(), Is.EqualTo("Accepted"), "a CertificateSigned that names no type is one for the station's own certificate");
 
             await Until(() => Entry.CertificateId != keyId && IsConnected(connection) && csms.Shown.Last() == next.SerialNumber,
-                        "Being dialled again with the next certificate", () => WhatHappened);
+                        "Being connected again with the next certificate", () => WhatHappened);
 
             await Task.Delay(TimeSpan.FromSeconds(1));
 
