@@ -102,6 +102,56 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         }
 
+        [TestCase("ssh://cs001@10.0.0.5:2222", "10.0.0.5",          2222)]
+        [TestCase("wss://meter-a.local:2357/cs001", "meter-a.local", 2357)]
+        [TestCase("ws://10.0.0.5/cs001",       "10.0.0.5",          80)]
+        public void AURLOfAWebSocketOrOfSSHIsReadOverAConnectionAndWrittenBackAsAURL(String  URL,
+                                                                                      String  Host,
+                                                                                      Int32   Port)
+        {
+
+            var meter = MeterOf(Entry(new JProperty("url", URL), new JProperty("unit", 3)))!;
+
+            var again = MeterOf(meter.ToJSON())!;
+
+            Assert.Multiple(() => {
+                Assert.That(meter.Endpoint.IsOverAConnection,   Is.True);
+                Assert.That(meter.Endpoint.Over?.ToString(),    Is.EqualTo(URL));
+                Assert.That(meter.Endpoint.Host,                Is.EqualTo(Host));
+                Assert.That(meter.Endpoint.Port,                Is.EqualTo(IPPort.Parse((UInt16) Port)));
+                Assert.That(meter.Endpoint.Unit,                Is.EqualTo(3));
+                Assert.That(meter.ToJSON()["url"]?.Value<String>(), Is.EqualTo(URL));
+                Assert.That(meter.ToJSON()["host"],             Is.Null, "A meter read at a URL is written with its URL alone.");
+                Assert.That(again.Endpoint,                     Is.EqualTo(meter.Endpoint));
+            });
+
+        }
+
+        [Test]
+        public void AURLOfModbusTLSIsAHostAndAPort()
+        {
+
+            var meter = MeterOf(Entry(new JProperty("url", "mbaps://meter-a.local:5802")))!;
+
+            Assert.Multiple(() => {
+                Assert.That(meter.Endpoint,                    Is.EqualTo(new MeterEndpoint("meter-a.local", IPPort.Parse(5802), 1)));
+                Assert.That(meter.Endpoint.IsOverAConnection,  Is.False);
+            });
+
+            Assert.That(MeterOf(Entry(new JProperty("url", "mbaps://meter-a.local")))!.Endpoint.Port, Is.EqualTo(MeterEndpoint.DefaultPort));
+
+        }
+
+        [Test]
+        public void AURLBesidesAHostOrOfAnotherSchemeIsRefused()
+        {
+
+            Assert.That(RefusalOf(Entry(new JProperty("url", "ssh://cs001@10.0.0.5"), new JProperty("host", "10.0.0.5"))), Does.Contain("twice"));
+            Assert.That(RefusalOf(Entry(new JProperty("url", "https://10.0.0.5"))),                                       Does.Contain("meters[0].url"));
+            Assert.That(RefusalOf(Entry(new JProperty("url", 802))),                                                      Does.Contain("meters[0].url"));
+
+        }
+
         [Test]
         public void ABlankHostIsNoMeterToReadOnAPageAndRefusedInTheFile()
         {

@@ -29,6 +29,7 @@ using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Connections;
 
 using cloud.charging.open.ChargingStation.Configuration;
 using cloud.charging.open.ChargingStation.Meters;
@@ -333,6 +334,31 @@ namespace cloud.charging.open.ChargingStation
         #endregion
 
 
+        #region (private) ExchangeOverTheMeterConnection(URL, Unit, Request, CancellationToken)
+
+        /// <summary>
+        /// One request to the meter of an EVSE that is read over a connection of
+        /// this station: over the connection of the type "EnergyMeter" of its URL.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">No such connection is written down, or it is not up.</exception>
+        private Task<Byte[]> ExchangeOverTheMeterConnection(org.GraphDefined.Vanaheimr.Hermod.HTTP.URL  URL,
+                                                            Byte               Unit,
+                                                            Byte[]             Request,
+                                                            CancellationToken  CancellationToken)
+        {
+
+            var url         = URL.ToString();
+
+            var connection  = Connections.Connections.FirstOrDefault(entry => entry.ConnectionType == protocols.WWCP.Node.Connections.ConnectionType.EnergyMeter &&
+                                                                              entry.URL.ToString() == url)
+                                  ?? throw new InvalidOperationException($"No connection to an energy meter at {url} is written down: add one of the type 'EnergyMeter', with what this station signs in with there.");
+
+            return ExchangeWithMeter(connection.Id, Unit, Request, CancellationToken);
+
+        }
+
+        #endregion
+
         #region (private) JudgeMeter(EVSE, Endpoint, Certificate, Chain, PolicyErrors)
 
         /// <summary>
@@ -473,7 +499,8 @@ namespace cloud.charging.open.ChargingStation
                                TimeProvider,
                                MeterReadInterval,
                                MeterRetryInterval,
-                               DNSClient
+                               DNSClient,
+                               ExchangeOverTheMeterConnection
                            );
 
             meters[evse] = reader;

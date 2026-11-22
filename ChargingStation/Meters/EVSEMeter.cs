@@ -25,6 +25,7 @@ using System.Security.Cryptography.X509Certificates;
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.SunSpecModbusTLS.Common;
 
 using cloud.charging.open.ChargingStation.EVSEs;
@@ -147,7 +148,25 @@ namespace cloud.charging.open.ChargingStation.Meters
     public sealed class EVSEMeter : IAsyncDisposable
     {
 
-        #region (private record) MeterState
+        #region (delegate) ExchangeOverConnection
+
+    /// <summary>
+    /// Send one Modbus request over the station's connection of the given URL
+    /// to an energy meter, and answer with its response PDU - an exception PDU
+    /// included.
+    /// </summary>
+    /// <param name="URL">The URL of the connection.</param>
+    /// <param name="Unit">The unit address.</param>
+    /// <param name="Request">The request PDU.</param>
+    /// <param name="CancellationToken">To give up.</param>
+    public delegate Task<Byte[]> ExchangeOverConnection(URL                URL,
+                                                        Byte               Unit,
+                                                        Byte[]             Request,
+                                                        CancellationToken  CancellationToken);
+
+    #endregion
+
+    #region (private record) MeterState
 
         /// <summary>
         /// How a meter stands, as one value replaced as a whole: written by the
@@ -183,6 +202,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         private readonly EventLog                                                            log;
         private readonly TimeProvider                                                        timeProvider;
         private readonly IDNSClient?                                                         dnsClient;
+        private readonly ExchangeOverConnection?                                             overConnection;
         private readonly CancellationTokenSource                                             stopping     = new ();
         private          TaskCompletionSource                                                wake         = new (TaskCreationOptions.RunContinuationsAsynchronously);
         private          Task?                                                               loop;
@@ -255,6 +275,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         /// <param name="ReadInterval">How often it is read while connected.</param>
         /// <param name="RetryInterval">How long after a failure it is tried again.</param>
         /// <param name="DNSClient">The DNS client a meter's host name is resolved with: the station's. Without one, only an IP address or "localhost" is reached - the resolver of the operating system is never asked.</param>
+        /// <param name="OverConnection">How a request goes over a connection of the station to an energy meter, for a meter read over a WebSocket or over SSH.</param>
         public EVSEMeter(Byte                                                                 EVSE,
                          MeterEndpoint                                                        Endpoint,
                          String                                                               About,
@@ -264,10 +285,12 @@ namespace cloud.charging.open.ChargingStation.Meters
                          TimeProvider                                                         TimeProvider,
                          TimeSpan?                                                            ReadInterval   = null,
                          TimeSpan?                                                            RetryInterval  = null,
-                         IDNSClient?                                                          DNSClient      = null)
+                         IDNSClient?                                                          DNSClient      = null,
+                         ExchangeOverConnection?                                              OverConnection = null)
         {
 
             this.dnsClient      = DNSClient;
+            this.overConnection = OverConnection;
 
             this.EVSE           = EVSE;
             this.Endpoint       = Endpoint;
@@ -293,7 +316,7 @@ namespace cloud.charging.open.ChargingStation.Meters
         public void Start()
         {
 
-            log.Info($"{About}: reading the meter at {Endpoint} over Modbus/TLS.", "meter");
+            log.Info($"{About}: reading the meter at {Endpoint} over {(Endpoint.IsOverAConnection ? "a connection of this station, over Modbus" : "Modbus/TLS")}.", "meter");
 
             loop = Task.Run(() => Read(stopping.Token));
 
@@ -361,8 +384,12 @@ namespace cloud.charging.open.ChargingStation.Meters
         {
 
             var at       = timeProvider.GetUtcNow();
-            var choice   = identityFor(Request.Operation);
             var request  = Request.ToPDU();
+
+            if (Endpoint.Over is URL askedOver)
+                return await AskOverTheConnection(Request, askedOver, at, request, CancellationToken);
+
+            var choice   = identityFor(Request.Operation);
 
             var json     = new JObject(
                                new JProperty("at",         at.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
@@ -505,6 +532,10 @@ namespace cloud.charging.open.ChargingStation.Meters
                                                         IEnumerable<(UInt16 Point, UInt16 Length, String? Text)>      Parameters,
                                                         CancellationToken                                             CancellationToken)
         {
+
+            if (Endpoint.IsOverAConnection)
+                return SessionCommandAnswer.Failed(
+                           $"The meter at {Endpoint} is read over a connection of this station, and signed sessions are begun and ended over Modbus/TLS only so far.");
 
             var choice = identityFor(ModbusOperation.Write);
 
@@ -677,6 +708,12 @@ namespace cloud.charging.open.ChargingStation.Meters
         private async Task Read(CancellationToken CancellationToken)
         {
 
+            if (Endpoint.Over is URL over)
+            {
+                await ReadOverTheConnection(over, CancellationToken);
+                return;
+            }
+
             while (!CancellationToken.IsCancellationRequested)
             {
 
@@ -790,6 +827,197 @@ namespace cloud.charging.open.ChargingStation.Meters
                 await Wait(RetryInterval, CancellationToken);
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) ReadOverTheConnection(Over, CancellationToken)
+
+        /// <summary>
+        /// Read the meter over the station's connection of the given URL - a
+        /// WebSocket or SSH -, and again whenever that fails, until stopped.
+        /// Who the station is to the meter is that connection's login, and what
+        /// it may read the role the meter gives it.
+        /// </summary>
+        private async Task ReadOverTheConnection(URL                Over,
+                                                 CancellationToken  CancellationToken)
+        {
+
+            while (!CancellationToken.IsCancellationRequested)
+            {
+
+                if (overConnection is null)
+                {
+                    Became("failed", $"The meter at {Endpoint} is to be read over a connection of this station, and this station reads no meter over one.");
+                    await Wait(RetryInterval, CancellationToken);
+                    continue;
+                }
+
+                try
+                {
+
+                    var details = new JObject(
+                                      new JProperty("over",  Over.ToString())
+                                  );
+
+                    ReadRegisters read = async (first, count) => {
+
+                        var response = await overConnection(Over, Endpoint.Unit, ModbusPDU.BuildReadHoldingRegisters(first, count), CancellationToken);
+
+                        if (ModbusPDU.TryGetException(response) is ModbusExceptionCode code)
+                            throw new ModbusException(code);
+
+                        return ModbusPDU.DecodeReadResponse(response);
+
+                    };
+
+                    SunSpecDevice device;
+
+                    try
+                    {
+                        device = await SunSpecDevice.Discover(read);
+                    }
+                    catch (NotASunSpecMeter e)
+                    {
+                        Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {e.Message}", details);
+                        await Wait(RetryInterval, CancellationToken);
+                        continue;
+                    }
+
+                    details["sunSpec"] = device.ToJSON();
+
+                    while (!CancellationToken.IsCancellationRequested)
+                    {
+
+                        var block = await device.ReadMeter(read);
+
+                        if (!MeterReading.TryDecode(device, block, timeProvider.GetUtcNow(), out var reading, out var notAMeter))
+                        {
+                            Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {notAMeter}", details);
+                            break;
+                        }
+
+                        Became("reading", null, details, reading);
+
+                        await Task.Delay(ReadInterval, timeProvider, CancellationToken);
+
+                    }
+
+                }
+                catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (ModbusException e)
+                {
+                    Became("refused", $"The meter at {Endpoint} refused to be read over the connection: {e.Code}.");
+                }
+                catch (NotASunSpecMeter e)
+                {
+                    Became("notSunSpec", $"The meter at {Endpoint} answered, but not as a SunSpec meter this station can read: {e.Message}");
+                }
+                catch (Exception e) when (e is InvalidOperationException or IOException or OperationCanceledException or TimeoutException or EndOfStreamException)
+                {
+                    Became("unreachable", $"The meter at {Endpoint} cannot be reached: {e.GetBaseException().Message}");
+                }
+                catch (Exception e)
+                {
+                    Became("failed", $"Reading the meter at {Endpoint} failed: {e.GetBaseException().Message}");
+                }
+
+                await Wait(RetryInterval, CancellationToken);
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) AskOverTheConnection(Request, Over, At, PDU, CancellationToken)
+
+        /// <summary>
+        /// Ask the meter one request over the station's connection of the given
+        /// URL, and say what came back, as <see cref="Ask"/> says it.
+        /// </summary>
+        private async Task<JObject> AskOverTheConnection(ModbusRequest      Request,
+                                                         URL                Over,
+                                                         DateTimeOffset     At,
+                                                         Byte[]             PDU,
+                                                         CancellationToken  CancellationToken)
+        {
+
+            var json     = new JObject(
+                               new JProperty("at",         At.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")),
+                               new JProperty("endpoint",   Endpoint.ToJSON()),
+                               new JProperty("over",       Over.ToString()),
+                               new JProperty("function",   Request.Function),
+                               new JProperty("name",       Request.Name),
+                               new JProperty("operation",  Request.Operation.ToString().ToLowerInvariant()),
+                               new JProperty("address",    Request.Address),
+                               new JProperty("count",      Request.Count),
+                               new JProperty("request",    Convert.ToHexString(PDU))
+                           );
+
+            var started  = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+
+                if (overConnection is null)
+                    throw new InvalidOperationException("This station reads no meter over a connection.");
+
+                var response      = await overConnection(Over, Endpoint.Unit, PDU, CancellationToken);
+
+                json["response"]  = Convert.ToHexString(response);
+
+                if (ModbusPDU.TryGetException(response) is ModbusExceptionCode code)
+                {
+                    json["outcome"]    = "exception";
+                    json["exception"]  = new JObject(
+                                             new JProperty("code",  (Byte) code),
+                                             new JProperty("name",  code.ToString())
+                                         );
+                }
+
+                else if (Request.Operation == ModbusOperation.Read)
+                {
+
+                    var registers  = ModbusPDU.DecodeReadResponse(response);
+
+                    json["outcome"]    = "answered";
+                    json["registers"]  = new JArray(registers.Select((value, index) => new JObject(
+                                             new JProperty("address",  Request.Address + index),
+                                             new JProperty("value",    value)
+                                         )));
+
+                }
+
+                else
+                    json["outcome"] = "answered";
+
+            }
+            catch (OperationCanceledException) when (CancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception e)
+            {
+                json["outcome"] = "failed";
+                json["error"]   = $"The meter at {Endpoint} could not be asked: {e.GetBaseException().Message}";
+            }
+
+            json["ms"] = Math.Round(started.Elapsed.TotalMilliseconds, 1);
+
+            var said = $"{About}: {Request} asked the meter at {Endpoint} over the connection: {json.Value<String>("outcome")}" +
+                       (json["exception"] is JObject exception ? $", {exception.Value<String>("name")}" : "") + ".";
+
+            if (Request.Operation == ModbusOperation.Write)
+                log.Notice(said, "meter", "modbus");
+            else
+                log.Info  (said, "meter", "modbus");
+
+            return json;
 
         }
 
