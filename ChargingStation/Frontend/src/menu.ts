@@ -14,6 +14,7 @@
 
 import { nodeMenu } from '@node/start';
 import type { MenuEntry } from '@node/shell';
+import { ocppLogMenuEntry } from '@ocpp/pages/ocppLog';
 
 export const stationMenu: MenuEntry[] = [
     nodeMenu.configuration([
@@ -45,5 +46,7 @@ export const stationMenu: MenuEntry[] = [
     // What is going on, apart from how the station is set up: the support,
     // who may see nothing else, sees it too.
     { path: '/evses', label: 'EVSEs', icon: 'fa-charging-station', permission: [ 'state:read' ] },
+    // Every OCPP message this station sent and received.
+    ocppLogMenuEntry,
     nodeMenu.logs
 ];

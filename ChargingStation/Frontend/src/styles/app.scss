@@ -10,6 +10,9 @@
 );
 @use '@ocpp/styles/connections';
 
+// Every OCPP message of this station, on its OCPP log page.
+@use '@ocpp/styles/ocppLog';
+
 
 // EVSEs
 
