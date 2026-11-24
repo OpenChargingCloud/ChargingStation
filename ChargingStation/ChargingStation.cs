@@ -241,6 +241,14 @@ namespace cloud.charging.open.ChargingStation
         /// </summary>
         public const String OCPPQueueDirectoryName = "ocpp-queue";
 
+        /// <summary>
+        /// The most a file an UpdateFirmware points the station to may have,
+        /// 256 MiB: a firmware image of a station, with room to spare, and not
+        /// so much that a wrong URL fills its disk. "maxDownloadSize" of its
+        /// configuration file goes before it.
+        /// </summary>
+        public const Int64  MaxDownloadSize        = 256L * 1024 * 1024;
+
         #endregion
 
         #region Properties
@@ -837,7 +845,10 @@ namespace cloud.charging.open.ChargingStation
 
             // What a GetLog and a GetDiagnostics upload: the station's own log,
             // to a file server of its configuration - over SFTP or HTTP(S).
-            deviceModelBridge.FileTransfers.FileProvider = NodeLogFiles.Provider(this);
+            deviceModelBridge.FileTransfers.FileProvider    = NodeLogFiles.Provider(this);
+
+            // What an UpdateFirmware downloads: at most MaxDownloadSize.
+            deviceModelBridge.FileTransfers.MaxDownloadSize = MaxDownloadSize;
 
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.
