@@ -42,7 +42,8 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// The station program against a central system node of WWCP_OCPP in OCPP
     /// 1.6, over "ocpp1.6cbor" and over "ocpp1.6": the station registers, the
     /// central system reads what it says with the classes of the messages,
-    /// asks the station, and is answered.
+    /// asks the station, and is answered - and the station's OCPP log has it
+    /// all as JSON, marked as CBOR where it went as CBOR.
     /// </summary>
     [TestFixture]
     public class AgainstACentralSystemNodeOverCBORTests
@@ -197,6 +198,37 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(response.Result.ResultCode,     Is.EqualTo(cloud.charging.open.protocols.OCPP.ResultCode.OK), response.Result.Description);
                 Assert.That(response.ConfigurationKeys,     Is.Not.Empty);
                 Assert.That(binary,                         Is.Empty, "A message was told of as one of the binary format.");
+            });
+
+            // The station's OCPP log has all four, as JSON - and says which went as CBOR.
+            var cbor = Agreed.EndsWith("cbor", StringComparison.Ordinal);
+
+            Boolean Logged(cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection  Direction,
+                           cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind       Kind,
+                           String                                                                 Action)
+
+                => station.OCPPMessages.Recent(100).Any(entry => entry.Direction   == Direction &&
+                                                                 entry.Kind        == Kind      &&
+                                                                 entry.Action      == Action    &&
+                                                                 entry.OCPPVersion == "1.6"     &&
+                                                                 entry.CBOR        == cbor      &&
+                                                                 entry.Message.Count >= 3);
+
+            String Seen()
+                => String.Join(Environment.NewLine, station.OCPPMessages.Recent(100).Select(entry => entry.ToJSON().ToString(Newtonsoft.Json.Formatting.None)));
+
+            const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection  In        = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection.In;
+            const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection  Out       = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection.Out;
+            const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind       Request   = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind.Request;
+            const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind       Response  = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind.Response;
+
+            await Until(() => Logged(Out, Response, "GetConfiguration"), "the answer to GetConfiguration in the OCPP log", Seen);
+
+            Assert.Multiple(() => {
+                Assert.That(Logged(Out, Request,  "BootNotification"),  Is.True, Seen());
+                Assert.That(Logged(In,  Response, "BootNotification"),  Is.True, Seen());
+                Assert.That(Logged(In,  Request,  "GetConfiguration"),  Is.True, Seen());
+                Assert.That(Logged(Out, Response, "GetConfiguration"),  Is.True, Seen());
             });
 
         }
