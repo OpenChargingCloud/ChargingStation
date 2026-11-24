@@ -237,7 +237,39 @@ namespace cloud.charging.open.ChargingStation.Tests
             if (meterA is not null) await meterA.DisposeAsync();
             if (meterB is not null) await meterB.DisposeAsync();
 
+            // The meters' TLS contexts put the CAs of this PKI into the user's
+            // intermediate store, as Windows does for a chain it cannot build
+            // by itself - and a new ModbusPKI names them after a fresh id, so
+            // every run of this fixture left three more behind for good.
+            TestStations.ForgetIssuingCAs(AuthoritiesOf(pki));
+
             TestStations.Remove(pki);
+
+        }
+
+        /// <summary>
+        /// The thumbprints of the CAs ModbusPKI.BuildPKI wrote into the given
+        /// directory: its root and the two CAs that issue below it.
+        /// </summary>
+        private static IEnumerable<String> AuthoritiesOf(String? PKI)
+        {
+
+            if (PKI is null)
+                yield break;
+
+            foreach (var fileName in new[] { "ca.crt", "issuing-device-ca.crt", "issuing-clients-ca.crt" })
+            {
+
+                var path = Path.Combine(PKI, fileName);
+
+                if (!File.Exists(path))
+                    continue;
+
+                using var authority = X509CertificateLoader.LoadCertificateFromFile(path);
+
+                yield return authority.Thumbprint;
+
+            }
 
         }
 
