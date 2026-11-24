@@ -835,6 +835,10 @@ namespace cloud.charging.open.ChargingStation
                                                         ConnectsOCPP2_1: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP2_1),
                                                         ConnectsOCPP1_6: () => Connections.Connections.Any(connection => connection.OCPPVersion == OCPPVersion.OCPP1_6));
 
+            // What a GetLog and a GetDiagnostics upload: the station's own log,
+            // to a file server of its configuration - over SFTP or HTTP(S).
+            deviceModelBridge.FileTransfers.FileProvider = NodeLogFiles.Provider(this);
+
             // Security events and monitor events wait in a file beside the
             // configuration while the CSMS is out of reach.
             var queues          = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(this.ConfigFile.Path)) ?? ".", OCPPQueueDirectoryName);
