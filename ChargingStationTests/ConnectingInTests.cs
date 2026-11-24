@@ -325,9 +325,16 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(SaidOf(id), Does.Contain("switched off"));
 
+            // Not a no, a not now: it signed in rightly, and is asked to come
+            // back by itself once the connection is switched on again.
             await using var later = new ConnectingCSMS(Address, Name.ToString(), password);
 
-            Assert.That((await later.Client.Connect()).Item2.HTTPStatusCode, Is.EqualTo(HTTPStatusCode.Unauthorized), "switched off");
+            var turnedAway = (await later.Client.Connect()).Item2;
+
+            Assert.Multiple(() => {
+                Assert.That(turnedAway.HTTPStatusCode, Is.EqualTo(HTTPStatusCode.ServiceUnavailable), "switched off");
+                Assert.That(turnedAway.RetryAfter,     Is.Not.Null,                                   "when to try again");
+            });
 
         }
 
