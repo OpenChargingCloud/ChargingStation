@@ -499,7 +499,7 @@ namespace cloud.charging.open.ChargingStation
                                TimeProvider,
                                MeterReadInterval,
                                MeterRetryInterval,
-                               DNSClient,
+                               NameResolver,
                                ExchangeOverTheMeterConnection
                            );
 
