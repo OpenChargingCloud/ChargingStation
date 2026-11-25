@@ -1,5 +1,7 @@
 # ChargingStation
 
+![The EV charging test environment, the charging station (CS) highlighted](docs/EVChargingTestEnvironment.svg)
+
 One EV charging station, with a web interface in front of it: a C# HTTP
 backend built on [Hermod](https://github.com/Vanaheimr/Hermod), and a frontend
 of HTML, SCSS and TypeScript bundled by webpack and embedded into the
