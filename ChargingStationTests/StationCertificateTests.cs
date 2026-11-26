@@ -1115,6 +1115,23 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             Assert.That(chains, Has.Count.EqualTo(2), "listed are the root it installed and the one kept for every use");
 
+            String? ContextOf(X509Certificate2 Root)
+                => chains.Single(chain => chain["certificateHashData"]!["serialNumber"]!.Value<String>()!.TrimStart('0').
+                                              Equals(Root.SerialNumber.TrimStart('0'), StringComparison.OrdinalIgnoreCase))["customData"]?["context"]?.Value<String>();
+
+            // Asked for no type, the OCPP 1.6 name of the type is not listed
+            // beside it: it is no type of OCPP 2.x, and the roots would be
+            // listed twice.
+            var every  = await csms.Ask("GetInstalledCertificateIds", new JObject());
+            var types  = ((JArray) every["certificateHashDataChain"]!).Select(chain => chain["certificateType"]!.Value<String>()).ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(ContextOf(otherCA),  Is.EqualTo("A root for the servers of the back ends this station connects to over wss://; OCPP 1.6: CentralSystemRootCertificate."));
+                Assert.That(ContextOf(ca),       Does.EndWith("never told what it is for, it vouches for the servers of every service."));
+                Assert.That(types,               Has.Exactly(2).EqualTo("CSMSRootCertificate"));
+                Assert.That(types,               Has.None.EqualTo("CentralSystemRootCertificate"));
+            });
+
             var deleted  = await csms.Ask("DeleteCertificate", new JObject(new JProperty("certificateHashData", HashesOf(otherCA))));
             var kept     = await csms.Ask("DeleteCertificate", new JObject(new JProperty("certificateHashData", HashesOf(ca))));
 
