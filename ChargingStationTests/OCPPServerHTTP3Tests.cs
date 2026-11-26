@@ -365,6 +365,34 @@ namespace cloud.charging.open.ChargingStation.Tests
 
         #endregion
 
+        #region TheStationPortIsAnnouncedByDNSSD()
+
+        /// <summary>
+        /// A station server that runs is announced by DNS-SD as "_ocpp._tcp"
+        /// (mDNS-Concept.md, B.6 and Q8): its port, "tls=1" over TLS, the path
+        /// and the node's id - published where the node answers for its name.
+        /// </summary>
+        [Test]
+        public async Task TheStationPortIsAnnouncedByDNSSD()
+        {
+
+            var port     = APortFreeForBoth();
+            var station  = await Started(port, HTTPS: true, HTTP3: null);
+
+            var service  = station.AnnouncedServices.SingleOrDefault(announced => announced.ServiceType == "_ocpp._tcp");
+
+            Assert.Multiple(() => {
+                Assert.That(service,              Is.Not.Null, "The station port is not announced.");
+                Assert.That(service!.Port,        Is.EqualTo(port));
+                Assert.That(service.Text,         Does.Contain("tls=1").And.Contain("path=/"));
+                Assert.That(service.Text,         Has.Some.StartsWith("id="));
+                Assert.That(service.Instance,     Is.EqualTo(station.StationPortInstance));
+            });
+
+        }
+
+        #endregion
+
         #region AskedFor_TheServerTakesHTTP3_AndIsSwitchedOffAndOnWhileItRuns()
 
         [Test]
