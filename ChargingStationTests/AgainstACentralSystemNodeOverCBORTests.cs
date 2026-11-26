@@ -189,17 +189,6 @@ namespace cloud.charging.open.ChargingStation.Tests
 
             });
 
-            // The central system asks the station, and is answered.
-            var response = await centralSystem!.GetConfiguration(
-                                     Destination:  SourceRouting.To(boot.NetworkPath.Source)
-                                 );
-
-            Assert.Multiple(() => {
-                Assert.That(response.Result.ResultCode,     Is.EqualTo(cloud.charging.open.protocols.OCPP.ResultCode.OK), response.Result.Description);
-                Assert.That(response.ConfigurationKeys,     Is.Not.Empty);
-                Assert.That(binary,                         Is.Empty, "A message was told of as one of the binary format.");
-            });
-
             // The station's OCPP log has all four, as JSON - and says which went as CBOR.
             var cbor = Agreed.EndsWith("cbor", StringComparison.Ordinal);
 
@@ -221,6 +210,23 @@ namespace cloud.charging.open.ChargingStation.Tests
             const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection  Out       = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageDirection.Out;
             const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind       Request   = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind.Request;
             const cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind       Response  = cloud.charging.open.protocols.OCPP.Node.Logging.OCPPMessageKind.Response;
+
+            // Registered is a station that has the answer to its BootNotification:
+            // the central system is told of the request before it answers it, and
+            // a question asked at once may overtake that answer (as on a busy CI
+            // runner, where the answer was not in the log yet when it was read).
+            await Until(() => Logged(In, Response, "BootNotification"), "the answer to the BootNotification in the OCPP log", Seen);
+
+            // The central system asks the station, and is answered.
+            var response = await centralSystem!.GetConfiguration(
+                                     Destination:  SourceRouting.To(boot.NetworkPath.Source)
+                                 );
+
+            Assert.Multiple(() => {
+                Assert.That(response.Result.ResultCode,     Is.EqualTo(cloud.charging.open.protocols.OCPP.ResultCode.OK), response.Result.Description);
+                Assert.That(response.ConfigurationKeys,     Is.Not.Empty);
+                Assert.That(binary,                         Is.Empty, "A message was told of as one of the binary format.");
+            });
 
             await Until(() => Logged(Out, Response, "GetConfiguration"), "the answer to GetConfiguration in the OCPP log", Seen);
 
