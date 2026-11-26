@@ -86,6 +86,8 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(csms.Logins,                                 Is.Empty, "The station signed in at a server nobody confirmed.");
                 Assert.That(csms.Requests("BootNotification"),           Is.Empty);
                 Assert.That(SaidOf(id),                                  Does.Contain("waits for an admin to confirm the host key").And.Contain(csms.Fingerprint));
+                Assert.That(station.AwaitingKeyNotices(),                Has.Exactly(1).Contains(csms.Fingerprint).And.Contains("Connections page"),
+                            "Nobody who may confirm it is told above every page.");
             });
 
             Assert.That(station.Connections.TryConfirmKey(id, "alice", csms.Fingerprint, out _, out var error), Is.True, error);
@@ -99,6 +101,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                 Assert.That(entry.SshHostKey,          Is.EqualTo(csms.Fingerprint));
                 Assert.That(entry.SshAwaitingHostKey,  Is.Null);
                 Assert.That(entry.KeyConfirmedBy,      Is.EqualTo("alice"));
+                Assert.That(station.AwaitingKeyNotices(), Is.Empty, "A key confirmed is still said to wait.");
             });
 
         }
