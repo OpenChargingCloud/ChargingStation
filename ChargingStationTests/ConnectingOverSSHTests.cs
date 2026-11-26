@@ -62,7 +62,7 @@ namespace cloud.charging.open.ChargingStation.Tests
     /// signed in, with which key, and what it was sent.
     /// </remarks>
     [TestFixture]
-    public class ConnectingOverSSHTests
+    public partial class ConnectingOverSSHTests
     {
 
         #region (class) SshCSMS
