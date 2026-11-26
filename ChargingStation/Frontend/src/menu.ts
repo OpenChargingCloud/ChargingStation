@@ -15,6 +15,7 @@
 import { nodeMenu } from '@node/start';
 import type { MenuEntry } from '@node/shell';
 import { ocppLogMenuEntry } from '@ocpp/pages/ocppLog';
+import { deviceModelMenuEntry } from '@ocpp/pages/deviceModel';
 
 export const stationMenu: MenuEntry[] = [
     nodeMenu.configuration([
@@ -48,5 +49,7 @@ export const stationMenu: MenuEntry[] = [
     { path: '/evses', label: 'EVSEs', icon: 'fa-charging-station', permission: [ 'state:read' ] },
     // Every OCPP message this station sent and received.
     ocppLogMenuEntry,
+    // What the station shows OCPP of itself: its Device Model and its configuration keys, as they are now.
+    deviceModelMenuEntry,
     nodeMenu.logs
 ];

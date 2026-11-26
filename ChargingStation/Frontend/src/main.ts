@@ -26,6 +26,7 @@ import { clientTrustPage }     from '@ocpp/pages/clientTrust';
 import { sshKeysSection }      from '@ocpp/sshKeys';
 import { connectionsPage }     from '@ocpp/pages/connections';
 import { ocppLogPage }         from '@ocpp/pages/ocppLog';
+import { deviceModelPage }     from '@ocpp/pages/deviceModel';
 import { setStationsResource } from '@ocpp/settings';
 import { requestTabId }        from '@node/certificateRequests';
 import { signerRolesPage }     from './pages/signerRoles';
@@ -100,6 +101,7 @@ startNode({
     pages: {
 
         '/ocpp-log':                          ocppLogPage,
+        '/ocpp-device-model':                 deviceModelPage,
         '/configuration':                 configurationPage,
         '/configuration/v2g':             v2gPage,
         '/configuration/power':           powerPage,
