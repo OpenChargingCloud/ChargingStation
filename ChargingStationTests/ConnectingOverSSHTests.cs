@@ -1568,7 +1568,7 @@ namespace cloud.charging.open.ChargingStation.Tests
                     Assert.That(before.Value<Boolean>("ok"),                                   Is.False, "a key exchange with a host that is no SSH peer yet");
 
                     Assert.That(after. Value<Boolean>("ok"),                                   Is.True,  after.ToString());
-                    Assert.That(model.ClientValue("csms-time", "Mode"),                        Is.EqualTo("NTSv4SSH"));
+                    Assert.That(model.ClientValue("csms-time", "Mode"),                        Is.EqualTo("NTSSSH"));
                     Assert.That(model.ClientValue("csms-time", "SSHConnection"),               Is.EqualTo("Shared"));
                     Assert.That(model.ClientValue("csms-time", "SSHClientPublicKey"),          Is.EqualTo(station.SshKey.PublicKeyLine));
                     Assert.That(model.ClientValue("csms-time", "SSHHostKeyFingerprint"),       Is.EqualTo(csms.Fingerprint));
